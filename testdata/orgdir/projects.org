@@ -1,0 +1,51 @@
+#+TITLE: Projects
+
+* Ship orgtd v0.1
+  Initial viewer milestone.
+** DONE Write the design document
+   CLOSED: [2026-09-06 Sun 12:00]
+   :PROPERTIES:
+   :ID: 2a3b4c5d-0001
+   :END:
+** NEXT Implement the org file parser
+   SCHEDULED: <2026-09-06 Sun>
+   :PROPERTIES:
+   :ID: 2a3b4c5d-0002
+   :END:
+   Headlines, planning lines, properties, body text.
+** TODO Implement the Bubble Tea viewer
+   :PROPERTIES:
+   :ID: 2a3b4c5d-0003
+   :END:
+** WAITING Get feedback on the keybinding scheme   :feedback:
+   :PROPERTIES:
+   :ID: 2a3b4c5d-0004
+   :END:
+
+* Quarterly planning                                    :work:
+** NEXT Draft the Q4 goals doc
+   DEADLINE: <2026-09-15 Tue>
+   :PROPERTIES:
+   :ID:              3c4d5e6f-0001
+   :GCAL_EVENT_IDS:  evt_planning_kickoff
+   :END:
+** WAITING Get budget numbers from finance
+   :PROPERTIES:
+   :ID: 3c4d5e6f-0002
+   :END:
+** SOMEDAY Explore a rewrite of the reporting pipeline
+   :PROPERTIES:
+   :ID: 3c4d5e6f-0003
+   :END:
+
+* Learn Go generics                                      :someday:
+** SOMEDAY Read the generics proposal
+   :PROPERTIES:
+   :ID: 4d5e6f70-0001
+   :END:
+** CANCELLED Build a toy constraint-checker
+   CLOSED: [2026-08-20 Thu 17:30]
+   :PROPERTIES:
+   :ID: 4d5e6f70-0002
+   :END:
+   Decided it wasn't worth the time.
