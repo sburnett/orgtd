@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -14,6 +15,14 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
+
+var ansiEscapeRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// stripANSI removes SGR escape codes so tests can check visible text
+// without depending on lipgloss's exact styling sequences.
+func stripANSI(s string) string {
+	return ansiEscapeRe.ReplaceAllString(s, "")
+}
 
 // TestMain forces a color profile so styling assertions in View() tests
 // are meaningful even though go test's stdout isn't a terminal (lipgloss
@@ -849,18 +858,96 @@ func TestCommandWqWritesThenQuits(t *testing.T) {
 func TestFileRowShowsDirtyIndicatorAfterEdit(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.width, m.height = 100, 30
+	fileIdx := findFileRow(t, m, "inbox.org")
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
-	before := m.View()
-	if strings.Contains(before, "[+]") {
+	if strings.Contains(m.renderRow(m.rows[fileIdx]), "+") {
 		t.Fatalf("dirty indicator shown before any edit")
 	}
 
 	m = sendKey(m, "r")
-	after := m.View()
-	if !strings.Contains(after, "[+]") {
+	if !strings.Contains(m.renderRow(m.rows[fileIdx]), "+") {
 		t.Errorf("expected a dirty indicator on the file row after an edit")
+	}
+}
+
+func TestHeadlineRowShowsDirtyMarkerAfterStatusChange(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Call the vet about Fido's checkup")
+	otherIdx := findRow(t, m, "Read the RFC linked in yesterday's design review")
+	m.cursor = idx
+
+	if strings.Contains(m.renderRow(m.rows[idx]), "+") {
+		t.Fatalf("dirty marker shown before any edit")
+	}
+
+	m = sendKey(m, "r")
+
+	h := m.currentHeadline()
+	if !m.dirtyHeadlines[h] {
+		t.Errorf("expected the edited headline to be marked dirty")
+	}
+	if !strings.Contains(m.renderRow(m.rows[idx]), "+") {
+		t.Errorf("expected a dirty marker on the edited row")
+	}
+	if strings.Contains(m.renderRow(m.rows[otherIdx]), "+") {
+		t.Errorf("unrelated row shows a dirty marker")
+	}
+}
+
+func TestHeadlineDirtyMarkerClearedAfterWrite(t *testing.T) {
+	ws := loadFixtureCopy(t)
+	m := New(ws)
+	idx := findRow(t, m, "Call the vet about Fido's checkup")
+	m.cursor = idx
+	m = sendKey(m, "r")
+
+	h := m.currentHeadline()
+	if !m.dirtyHeadlines[h] {
+		t.Fatalf("expected headline to be dirty before :w")
+	}
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "w")
+	m = sendKey(m, "enter")
+
+	if m.dirtyHeadlines[h] {
+		t.Errorf("expected the dirty marker to clear after a successful :w")
+	}
+	if strings.Contains(m.renderRow(m.rows[idx]), "+") {
+		t.Errorf("row still shows a dirty marker after :w")
+	}
+}
+
+func TestEditMarksWholeSubtreeDirty(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Ship orgtd v0.1")
+	m.cursor = idx
+	old := m.currentHeadline()
+	if len(old.Children) == 0 {
+		t.Fatalf("fixture assumption broken: expected children")
+	}
+
+	edited := strings.Replace(org.RenderHeadline(old), "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
+	path := writeTempOrgFile(t, edited)
+
+	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
+	m = updated.(Model)
+
+	newHead := m.rows[idx].headline
+	if !m.dirtyHeadlines[newHead] {
+		t.Errorf("expected the edited root to be marked dirty")
+	}
+	for i, c := range newHead.Children {
+		if !m.dirtyHeadlines[c] {
+			t.Errorf("expected child %d (%q) to be marked dirty too", i, c.Title)
+		}
+	}
+	// The old (discarded) headline's dirty entry shouldn't linger.
+	if m.dirtyHeadlines[old] {
+		t.Errorf("stale entry for the replaced headline was not cleaned up")
 	}
 }
 
@@ -913,6 +1000,35 @@ func TestUnknownCommandShowsMessage(t *testing.T) {
 	m = sendKey(m, "j")
 	if m.message != "" {
 		t.Errorf("message after next key press = %q, want cleared", m.message)
+	}
+}
+
+func TestDirtyGutterIsLeftmostAndConsistentAcrossRows(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	fileIdx := findFileRow(t, m, "inbox.org")
+	itemIdx := findRow(t, m, "Call the vet about Fido's checkup")
+	nestedIdx := findRow(t, m, "Write the design document") // a level-2 headline, indented further
+
+	m.cursor = itemIdx
+	m = sendKey(m, "r")
+
+	fileLine := stripANSI(m.renderRow(m.rows[fileIdx]))
+	itemLine := stripANSI(m.renderRow(m.rows[itemIdx]))
+	nestedLine := stripANSI(m.renderRow(m.rows[nestedIdx]))
+
+	// The dirty marker sits in column 0 for both the file row and the
+	// changed item, regardless of the item's indentation depth.
+	if r := []rune(fileLine); len(r) == 0 || r[0] != '+' {
+		t.Errorf("file row does not start with the dirty marker: %q", fileLine)
+	}
+	if r := []rune(itemLine); len(r) == 0 || r[0] != '+' {
+		t.Errorf("changed item row does not start with the dirty marker: %q", itemLine)
+	}
+	// An unrelated, more deeply nested row is unaffected and keeps a
+	// blank gutter column in the same position.
+	if r := []rune(nestedLine); len(r) == 0 || r[0] != ' ' {
+		t.Errorf("unrelated nested row should have a blank gutter, got: %q", nestedLine)
 	}
 }
 

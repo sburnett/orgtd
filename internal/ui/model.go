@@ -115,9 +115,10 @@ type row struct {
 type Model struct {
 	ws *workspace.Workspace
 
-	collapsed map[*org.Headline]bool
-	dirty     map[*org.File]bool // files with in-memory changes not yet written to disk
-	rows      []row
+	collapsed      map[*org.Headline]bool
+	dirty          map[*org.File]bool     // files with in-memory changes not yet written to disk
+	dirtyHeadlines map[*org.Headline]bool // headlines changed since the last write of their file
+	rows           []row
 
 	cursor int
 	offset int // index of the first visible row (for scrolling)
@@ -137,9 +138,10 @@ type Model struct {
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace) Model {
 	m := Model{
-		ws:        ws,
-		collapsed: make(map[*org.Headline]bool),
-		dirty:     make(map[*org.File]bool),
+		ws:             ws,
+		collapsed:      make(map[*org.Headline]bool),
+		dirty:          make(map[*org.File]bool),
+		dirtyHeadlines: make(map[*org.Headline]bool),
 	}
 	m.rebuildRows()
 	return m
@@ -350,6 +352,7 @@ func (m *Model) writeAllResult() (string, bool) {
 			continue
 		}
 		delete(m.dirty, f)
+		org.Walk(f.Headlines, func(h *org.Headline) { delete(m.dirtyHeadlines, h) })
 		written = append(written, filepath.Base(f.Path))
 	}
 
@@ -534,11 +537,13 @@ func (m *Model) fileForHeadline(h *org.Headline) *org.File {
 	return nil
 }
 
-// markDirty flags h's file as having unwritten in-memory changes.
+// markDirty flags h itself, and h's file, as having unwritten in-memory
+// changes.
 func (m *Model) markDirty(h *org.Headline) {
 	if f := m.fileForHeadline(h); f != nil {
 		m.dirty[f] = true
 	}
+	m.dirtyHeadlines[h] = true
 }
 
 // editFinishedMsg reports that the external editor launched by startEdit
@@ -623,10 +628,14 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 
 // replaceHeadline splices replacements into old's parent (or its file's
 // top-level list) in place of old, carrying over old's own fold state to
-// the first replacement.
+// the first replacement, and marking every headline in the replacement
+// subtree(s) as changed (the whole edited tree, not just its root).
 func (m *Model) replaceHeadline(old *org.Headline, replacements []*org.Headline) {
 	wasCollapsed := m.collapsed[old]
-	org.Walk([]*org.Headline{old}, func(h *org.Headline) { delete(m.collapsed, h) })
+	org.Walk([]*org.Headline{old}, func(h *org.Headline) {
+		delete(m.collapsed, h)
+		delete(m.dirtyHeadlines, h)
+	})
 
 	for _, n := range replacements {
 		n.Parent = old.Parent
@@ -634,6 +643,7 @@ func (m *Model) replaceHeadline(old *org.Headline, replacements []*org.Headline)
 	if wasCollapsed && len(replacements) > 0 {
 		m.collapsed[replacements[0]] = true
 	}
+	org.Walk(replacements, func(h *org.Headline) { m.dirtyHeadlines[h] = true })
 
 	if old.Parent != nil {
 		for i, c := range old.Parent.Children {
@@ -812,13 +822,19 @@ func (m Model) View() string {
 	return b.String()
 }
 
+// gutter renders the leftmost column of a row: a single-character dirty
+// marker, always present (blank when clean) so every row lines up the
+// same way vim's line-number column does, regardless of indentation.
+func gutter(dirty bool) string {
+	if dirty {
+		return errorStyle.Render("+")
+	}
+	return " "
+}
+
 func (m Model) renderRow(r row) string {
 	if r.file != nil {
-		line := fileStyle.Render(filepath.Base(r.file.Path))
-		if m.dirty[r.file] {
-			line += " " + errorStyle.Render("[+]")
-		}
-		return line
+		return gutter(m.dirty[r.file]) + " " + fileStyle.Render(filepath.Base(r.file.Path))
 	}
 
 	h := r.headline
@@ -851,7 +867,7 @@ func (m Model) renderRow(r row) string {
 	}
 	parts = append(parts, title)
 
-	line := indent + fold + " " + strings.Join(parts, " ")
+	line := gutter(m.dirtyHeadlines[h]) + " " + indent + fold + " " + strings.Join(parts, " ")
 
 	if len(h.Tags) > 0 {
 		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")
