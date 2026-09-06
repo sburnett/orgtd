@@ -75,6 +75,133 @@ func (a *subtreeReplaceAction) affected() []*org.Headline {
 	return out
 }
 
+// insertContext records where an o/O-inserted headline lives: which
+// file, which parent (nil if top-level), and its index within that
+// parent's children (or the file's top-level list).
+type insertContext struct {
+	f      *org.File
+	parent *org.Headline
+	index  int
+	origin *org.Headline // headline the cursor was on before o/O; refocused on rollback
+}
+
+// insertAction records an o/O insert once it's been committed (see
+// commitInsert): headlines were inserted at index within parent's
+// children (or f's top-level list, if parent is nil).
+type insertAction struct {
+	f         *org.File
+	parent    *org.Headline
+	index     int
+	headlines []*org.Headline
+	applied   bool
+}
+
+func (a *insertAction) apply(m *Model) *org.Headline {
+	for _, h := range a.headlines {
+		h.Parent = a.parent
+	}
+	if a.parent != nil {
+		a.parent.Children = spliceHeadlines(a.parent.Children, a.index, 0, a.headlines)
+	} else {
+		a.f.Headlines = spliceHeadlines(a.f.Headlines, a.index, 0, a.headlines)
+	}
+	a.applied = true
+	return a.headlines[0]
+}
+
+// revert removes the inserted headlines. It returns the parent to focus
+// afterward, or nil if the insert was top-level (the caller falls back
+// to focusing the file row in that case).
+func (a *insertAction) revert(m *Model) *org.Headline {
+	if a.parent != nil {
+		a.parent.Children = spliceHeadlines(a.parent.Children, a.index, len(a.headlines), nil)
+	} else {
+		a.f.Headlines = spliceHeadlines(a.f.Headlines, a.index, len(a.headlines), nil)
+	}
+	org.Walk(a.headlines, func(h *org.Headline) { delete(m.collapsed, h) })
+	a.applied = false
+	return a.parent
+}
+
+func (a *insertAction) file() *org.File { return a.f }
+
+// affected returns the inserted headlines while they're in the tree, or
+// nothing once reverted (there's nothing visible left to mark dirty).
+func (a *insertAction) affected() []*org.Headline {
+	if !a.applied {
+		return nil
+	}
+	var out []*org.Headline
+	org.Walk(a.headlines, func(h *org.Headline) { out = append(out, h) })
+	return out
+}
+
+// insertPosition returns the file, parent (nil if top-level), and index
+// of h within its parent's children (or its file's top-level list).
+func (m *Model) insertPosition(h *org.Headline) (f *org.File, parent *org.Headline, index int) {
+	f = m.fileForHeadline(h)
+	parent = h.Parent
+	list := f.Headlines
+	if parent != nil {
+		list = parent.Children
+	}
+	for i, c := range list {
+		if c == h {
+			return f, parent, i
+		}
+	}
+	return f, parent, -1
+}
+
+// commitInsert finalizes an o/O insert session: it swaps the tentative
+// placeholder headline for the final edited content in a single tree
+// mutation, then records the whole session (open + edit) as one undo
+// step — matching vim treating "o, type, Esc" as a single undo unit.
+func (m *Model) commitInsert(ctx insertContext, tentative *org.Headline, final []*org.Headline) {
+	m.spliceReplace([]*org.Headline{tentative}, final)
+	m.undoStack = append(m.undoStack[:m.undoPos], &insertAction{
+		f: ctx.f, parent: ctx.parent, index: ctx.index, headlines: final, applied: true,
+	})
+	m.undoPos = len(m.undoStack)
+	m.rebuildRows()
+	m.focusHeadline(final[0])
+	m.recomputeDirty()
+}
+
+// rollbackInsert removes a tentative o/O placeholder that never got
+// committed (the editor failed to run, or the user emptied it out),
+// leaving no trace in the tree and no entry in undo history.
+func (m *Model) rollbackInsert(ctx insertContext, tentative *org.Headline) {
+	m.spliceReplace([]*org.Headline{tentative}, nil)
+	m.rebuildRows()
+	m.focusTarget(ctx.origin, ctx.f)
+	m.recomputeDirty()
+}
+
+// focusFile moves the cursor to f's file-header row.
+func (m *Model) focusFile(f *org.File) {
+	for i, r := range m.rows {
+		if r.file == f {
+			m.cursor = i
+			m.ensureVisible()
+			return
+		}
+	}
+}
+
+// focusTarget moves the cursor to h if it's non-nil, otherwise falls
+// back to f's file-header row (used when an action's apply/revert has no
+// headline to point at, e.g. undoing a top-level insert).
+func (m *Model) focusTarget(h *org.Headline, f *org.File) {
+	if h != nil {
+		m.focusHeadline(h)
+		return
+	}
+	if f != nil {
+		m.focusFile(f)
+	}
+}
+
 // spliceReplace replaces the contiguous run oldSet — which must
 // currently occupy consecutive positions in a single parent's children
 // (or a file's top-level list) — with newSet, carrying over oldSet's own
@@ -136,7 +263,7 @@ func (m *Model) pushUndo(a undoAction) {
 	m.undoPos = len(m.undoStack)
 	target := a.apply(m)
 	m.rebuildRows()
-	m.focusHeadline(target)
+	m.focusTarget(target, a.file())
 	m.recomputeDirty()
 }
 
@@ -147,9 +274,10 @@ func (m *Model) undo() {
 		return
 	}
 	m.undoPos--
-	target := m.undoStack[m.undoPos].revert(m)
+	a := m.undoStack[m.undoPos]
+	target := a.revert(m)
 	m.rebuildRows()
-	m.focusHeadline(target)
+	m.focusTarget(target, a.file())
 	m.recomputeDirty()
 	m.message = "1 change undone"
 }
@@ -160,10 +288,11 @@ func (m *Model) redo() {
 		m.message = "Already at newest change"
 		return
 	}
-	target := m.undoStack[m.undoPos].apply(m)
+	a := m.undoStack[m.undoPos]
+	target := a.apply(m)
 	m.undoPos++
 	m.rebuildRows()
-	m.focusHeadline(target)
+	m.focusTarget(target, a.file())
 	m.recomputeDirty()
 	m.message = "1 change redone"
 }

@@ -260,6 +260,16 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case "o":
+		if cmd := m.insertHeadline(false); cmd != nil {
+			return m, cmd
+		}
+
+	case "O":
+		if cmd := m.insertHeadline(true); cmd != nil {
+			return m, cmd
+		}
+
 	case "u":
 		m.undo()
 
@@ -561,24 +571,37 @@ func (m *Model) fileForHeadline(h *org.Headline) *org.File {
 	return nil
 }
 
-// editFinishedMsg reports that the external editor launched by startEdit
-// has exited.
+// editFinishedMsg reports that the external editor launched by
+// launchEditor has exited. insert is non-nil when this edit session
+// originated from o/O (target is then a tentative placeholder headline,
+// not yet part of undo history) rather than an `i` edit of existing
+// content.
 type editFinishedMsg struct {
 	path   string
 	target *org.Headline
+	insert *insertContext
 	err    error
 }
 
 // startEdit writes the current headline (and its entire subtree) to a
-// temp file and opens it in $EDITOR (vim by default), suspending the TUI
-// for the duration. Returns nil if there's nothing to edit or the temp
-// file couldn't be created, in which case any error is left in m.message.
+// temp file and opens it in $EDITOR for editing in place. Returns nil if
+// there's nothing to edit or the editor couldn't be launched, in which
+// case any error is left in m.message.
 func (m *Model) startEdit() tea.Cmd {
 	h := m.currentHeadline()
 	if h == nil {
 		return nil
 	}
+	return m.launchEditor(h, nil)
+}
 
+// launchEditor writes h to a temp file and opens it in $EDITOR (vim by
+// default), suspending the TUI for the duration. ctx tags the resulting
+// editFinishedMsg so finishEdit knows whether this is an o/O insert
+// session or a plain `i` edit. Returns nil if the temp file couldn't be
+// created or the editor couldn't be started, in which case the error is
+// left in m.message.
+func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 	tmp, err := os.CreateTemp("", "orgtd-edit-*.org")
 	if err != nil {
 		m.message = fmt.Sprintf("Could not create temp file: %v", err)
@@ -602,36 +625,96 @@ func (m *Model) startEdit() tea.Cmd {
 	editorCmd := exec.Command(fields[0], args...)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
-		return editFinishedMsg{path: path, target: h, err: err}
+		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
 	})
 }
 
-// finishEdit reads back the edited entry, reparses it, and splices the
-// result into the tree in place of the original headline. On any error
-// (editor failure, unreadable file, or an edit that leaves nothing
-// parseable) the original headline is left untouched and the error is
-// shown on the status line.
+// insertHeadline inserts a blank sibling headline immediately after
+// (before=false, "o") or before (before=true, "O") the current headline,
+// and opens it in $EDITOR. The insert isn't recorded in undo history
+// until the editor session finishes successfully (see commitInsert), so
+// the whole "open a headline, type into it" session is one undo step,
+// matching vim's o/O.
+func (m *Model) insertHeadline(before bool) tea.Cmd {
+	h := m.currentHeadline()
+	if h == nil {
+		return nil
+	}
+	f, parent, idx := m.insertPosition(h)
+	if idx < 0 {
+		return nil
+	}
+	if !before {
+		idx++
+	}
+
+	tentative := &org.Headline{Level: h.Level, Parent: parent}
+	if parent != nil {
+		parent.Children = spliceHeadlines(parent.Children, idx, 0, []*org.Headline{tentative})
+	} else {
+		f.Headlines = spliceHeadlines(f.Headlines, idx, 0, []*org.Headline{tentative})
+	}
+	m.rebuildRows()
+	m.focusHeadline(tentative)
+
+	ctx := insertContext{f: f, parent: parent, index: idx, origin: h}
+	cmd := m.launchEditor(tentative, &ctx)
+	if cmd == nil {
+		// Couldn't even launch the editor; don't leave a blank
+		// placeholder headline behind with no way to remove it.
+		m.rollbackInsert(ctx, tentative)
+	}
+	return cmd
+}
+
+// finishEdit reads back the edited entry and reparses it. For a plain
+// `i` edit, the result replaces the original headline in place (or, if
+// the edit left nothing parseable, the original is left untouched). For
+// an o/O insert session, a successful result is committed as a single
+// undo step; any failure (editor error, unreadable file, unparseable or
+// emptied-out result) rolls back the tentative placeholder entirely,
+// leaving no trace.
 func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	defer os.Remove(msg.path)
 
 	if msg.err != nil {
 		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)
+		if msg.insert != nil {
+			m.rollbackInsert(*msg.insert, msg.target)
+		}
 		return m, nil
 	}
 
 	data, err := os.ReadFile(msg.path)
 	if err != nil {
 		m.message = fmt.Sprintf("Could not read edited entry: %v", err)
+		if msg.insert != nil {
+			m.rollbackInsert(*msg.insert, msg.target)
+		}
 		return m, nil
 	}
 
 	file, err := org.Parse(strings.NewReader(string(data)), "")
 	if err != nil {
 		m.message = fmt.Sprintf("Could not parse edited entry: %v", err)
+		if msg.insert != nil {
+			m.rollbackInsert(*msg.insert, msg.target)
+		}
 		return m, nil
 	}
+
 	if len(file.Headlines) == 0 {
-		m.message = "Edited entry had no headline; leaving it unchanged"
+		if msg.insert != nil {
+			m.rollbackInsert(*msg.insert, msg.target)
+			m.message = "Insert cancelled (empty)"
+		} else {
+			m.message = "Edited entry had no headline; leaving it unchanged"
+		}
+		return m, nil
+	}
+
+	if msg.insert != nil {
+		m.commitInsert(*msg.insert, msg.target, file.Headlines)
 		return m, nil
 	}
 
