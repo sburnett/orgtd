@@ -85,18 +85,20 @@ type insertContext struct {
 	origin *org.Headline // headline the cursor was on before o/O; refocused on rollback
 }
 
-// insertAction records an o/O insert once it's been committed (see
-// commitInsert): headlines were inserted at index within parent's
-// children (or f's top-level list, if parent is nil).
-type insertAction struct {
+// spliceAction is the shared machinery behind insertAction and
+// deleteAction: headlines occupy (or once occupied) index within
+// parent's children (or f's top-level list, if parent is nil). insert
+// and remove perform the two directions; insertAction and deleteAction
+// each just wire apply/revert to one or the other, in opposite polarity.
+type spliceAction struct {
 	f         *org.File
 	parent    *org.Headline
 	index     int
 	headlines []*org.Headline
-	applied   bool
+	inTree    bool // whether headlines currently occupy their position
 }
 
-func (a *insertAction) apply(m *Model) *org.Headline {
+func (a *spliceAction) insert(m *Model) *org.Headline {
 	for _, h := range a.headlines {
 		h.Parent = a.parent
 	}
@@ -105,36 +107,73 @@ func (a *insertAction) apply(m *Model) *org.Headline {
 	} else {
 		a.f.Headlines = spliceHeadlines(a.f.Headlines, a.index, 0, a.headlines)
 	}
-	a.applied = true
+	a.inTree = true
 	return a.headlines[0]
 }
 
-// revert removes the inserted headlines. It returns the parent to focus
-// afterward, or nil if the insert was top-level (the caller falls back
-// to focusing the file row in that case).
-func (a *insertAction) revert(m *Model) *org.Headline {
+// remove splices headlines back out and returns a sensible headline to
+// focus afterward: whatever now sits at the same position, else the
+// previous sibling, else nil (the caller falls back to the file row).
+func (a *spliceAction) remove(m *Model) *org.Headline {
 	if a.parent != nil {
 		a.parent.Children = spliceHeadlines(a.parent.Children, a.index, len(a.headlines), nil)
 	} else {
 		a.f.Headlines = spliceHeadlines(a.f.Headlines, a.index, len(a.headlines), nil)
 	}
 	org.Walk(a.headlines, func(h *org.Headline) { delete(m.collapsed, h) })
-	a.applied = false
-	return a.parent
+	a.inTree = false
+	return m.siblingAt(a.parent, a.f, a.index)
 }
 
-func (a *insertAction) file() *org.File { return a.f }
+func (a *spliceAction) file() *org.File { return a.f }
 
-// affected returns the inserted headlines while they're in the tree, or
-// nothing once reverted (there's nothing visible left to mark dirty).
-func (a *insertAction) affected() []*org.Headline {
-	if !a.applied {
+// affectedIfInTree returns the headlines while they're in the tree, or
+// nothing while they're not (there's nothing visible to mark dirty).
+func (a *spliceAction) affectedIfInTree() []*org.Headline {
+	if !a.inTree {
 		return nil
 	}
 	var out []*org.Headline
 	org.Walk(a.headlines, func(h *org.Headline) { out = append(out, h) })
 	return out
 }
+
+// siblingAt returns the headline now at index within parent's children
+// (or f's top-level list), or the one before it, or nil if the list is
+// empty at that point — used to pick a focus target after removing
+// something at that position.
+func (m *Model) siblingAt(parent *org.Headline, f *org.File, index int) *org.Headline {
+	list := f.Headlines
+	if parent != nil {
+		list = parent.Children
+	}
+	if index >= 0 && index < len(list) {
+		return list[index]
+	}
+	if index-1 >= 0 && index-1 < len(list) {
+		return list[index-1]
+	}
+	return nil
+}
+
+// insertAction records an o/O insert once it's been committed (see
+// commitInsert), or a p/P paste: headlines were inserted at index within
+// parent's children (or f's top-level list, if parent is nil).
+type insertAction struct{ spliceAction }
+
+func (a *insertAction) apply(m *Model) *org.Headline  { return a.insert(m) }
+func (a *insertAction) revert(m *Model) *org.Headline { return a.remove(m) }
+func (a *insertAction) affected() []*org.Headline     { return a.affectedIfInTree() }
+
+// deleteAction records a dd: headlines were removed from index within
+// parent's children (or f's top-level list, if parent is nil). It's an
+// insertAction with apply/revert swapped — deleting is just inserting
+// run backward.
+type deleteAction struct{ spliceAction }
+
+func (a *deleteAction) apply(m *Model) *org.Headline  { return a.remove(m) }
+func (a *deleteAction) revert(m *Model) *org.Headline { return a.insert(m) }
+func (a *deleteAction) affected() []*org.Headline     { return a.affectedIfInTree() }
 
 // insertPosition returns the file, parent (nil if top-level), and index
 // of h within its parent's children (or its file's top-level list).
@@ -159,9 +198,9 @@ func (m *Model) insertPosition(h *org.Headline) (f *org.File, parent *org.Headli
 // step — matching vim treating "o, type, Esc" as a single undo unit.
 func (m *Model) commitInsert(ctx insertContext, tentative *org.Headline, final []*org.Headline) {
 	m.spliceReplace([]*org.Headline{tentative}, final)
-	m.undoStack = append(m.undoStack[:m.undoPos], &insertAction{
-		f: ctx.f, parent: ctx.parent, index: ctx.index, headlines: final, applied: true,
-	})
+	m.undoStack = append(m.undoStack[:m.undoPos], &insertAction{spliceAction{
+		f: ctx.f, parent: ctx.parent, index: ctx.index, headlines: final, inTree: true,
+	}})
 	m.undoPos = len(m.undoStack)
 	m.rebuildRows()
 	m.focusHeadline(final[0])

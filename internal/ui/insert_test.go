@@ -259,7 +259,7 @@ func TestInsertOnFileRowRollbackFocusesFileRow(t *testing.T) {
 	}
 }
 
-func TestUndoTopLevelInsertFocusesFileRow(t *testing.T) {
+func TestUndoTopLevelInsertFocusesPreviousSibling(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Learn Go generics")
@@ -272,7 +272,37 @@ func TestUndoTopLevelInsertFocusesFileRow(t *testing.T) {
 	m = commitTentative(t, m, orig, "* New project\n")
 
 	m = sendKey(m, "u")
+	// Matches vim: undoing an insert lands on whatever's now adjacent,
+	// not some unrelated file marker.
+	if h := m.currentHeadline(); h != orig {
+		t.Errorf("expected cursor back on %q after undo, got %v", orig.Title, h)
+	}
+}
+
+func TestUndoInsertOnEmptiedFileFocusesFileRow(t *testing.T) {
+	ws := loadFixtureCopy(t) // a scratch copy, since this file ends up empty
+	m := New(ws)
+	fileIdx := findFileRow(t, m, "inbox.org")
+
+	// Delete every existing top-level headline in inbox.org so the file
+	// is empty, then insert+undo the one remaining case: nothing left to
+	// focus but the file row.
+	for {
+		row := m.rows[fileIdx+1]
+		if row.file != nil {
+			break
+		}
+		m.cursor = fileIdx + 1
+		m = sendKey(m, "d")
+		m = sendKey(m, "d")
+	}
+
+	m.cursor = fileIdx
+	m = sendKey(m, "o")
+	m = commitTentative(t, m, nil, "* Only item\n")
+
+	m = sendKey(m, "u")
 	if m.rows[m.cursor].file == nil {
-		t.Errorf("expected cursor on a file row after undoing a top-level insert, got %#v", m.rows[m.cursor])
+		t.Errorf("expected cursor on the file row once the file is empty again, got %#v", m.rows[m.cursor])
 	}
 }

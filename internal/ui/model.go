@@ -130,6 +130,9 @@ type Model struct {
 	width, height int
 
 	pendingG bool
+	pendingD bool
+
+	register *org.Headline // last deleted entry (dd), pasted (as a copy) by p/P
 
 	mode         mode
 	commandInput string
@@ -211,7 +214,9 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	wasPendingG := m.pendingG
+	wasPendingD := m.pendingD
 	m.pendingG = false
+	m.pendingD = false
 	m.message = ""
 
 	switch key {
@@ -275,6 +280,19 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "ctrl+r":
 		m.redo()
+
+	case "d":
+		if wasPendingD {
+			m.deleteHeadline()
+		} else {
+			m.pendingD = true
+		}
+
+	case "p":
+		m.pasteHeadline(false)
+
+	case "P":
+		m.pasteHeadline(true)
 
 	case "ctrl+d":
 		m.moveCursor(m.pageSize() / 2)
@@ -629,23 +647,18 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 	})
 }
 
-// insertHeadline inserts a blank headline and opens it in $EDITOR. On a
-// headline row, the new one is a sibling placed immediately after
-// (before=false, "o") or before (before=true, "O") the current headline
-// (after/before its whole subtree, if it has children). On a file row,
-// it's a new top-level headline at the end (o) or beginning (O) of that
-// file. The insert isn't recorded in undo history until the editor
-// session finishes successfully (see commitInsert), so the whole "open a
-// headline, type into it" session is one undo step, matching vim's o/O.
-func (m *Model) insertHeadline(before bool) tea.Cmd {
+// resolveInsertPosition computes where a new entry belongs relative to
+// the row under the cursor, for o/O and p/P alike: on a headline row, a
+// sibling placed immediately after (before=false) or before (before=true)
+// the current headline (after/before its whole subtree, if it has
+// children); on a file row, the end (before=false) or beginning
+// (before=true) of that file. ok is false if there's nothing sensible to
+// place relative to.
+func (m *Model) resolveInsertPosition(before bool) (f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, ok bool) {
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
-		return nil
+		return nil, nil, 0, 0, nil, false
 	}
 	row := m.rows[m.cursor]
-
-	var f *org.File
-	var parent, origin *org.Headline
-	var idx, level int
 
 	switch {
 	case row.headline != nil:
@@ -653,19 +666,31 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 		origin, level = h, h.Level
 		f, parent, idx = m.insertPosition(h)
 		if idx < 0 {
-			return nil
+			return nil, nil, 0, 0, nil, false
 		}
 		if !before {
 			idx++
 		}
+		return f, parent, idx, level, origin, true
 
 	case row.file != nil:
 		f, level = row.file, 1
 		if !before {
 			idx = len(f.Headlines)
 		}
+		return f, nil, idx, level, nil, true
+	}
+	return nil, nil, 0, 0, nil, false
+}
 
-	default:
+// insertHeadline inserts a blank headline (see resolveInsertPosition for
+// where) and opens it in $EDITOR. The insert isn't recorded in undo
+// history until the editor session finishes successfully (see
+// commitInsert), so the whole "open a headline, type into it" session is
+// one undo step, matching vim's o/O.
+func (m *Model) insertHeadline(before bool) tea.Cmd {
+	f, parent, idx, level, origin, ok := m.resolveInsertPosition(before)
+	if !ok {
 		return nil
 	}
 
@@ -686,6 +711,54 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 		m.rollbackInsert(ctx, tentative)
 	}
 	return cmd
+}
+
+// deleteHeadline removes the current headline and its whole subtree
+// ("dd"), storing a copy in the register so it can be pasted back with
+// p/P. A no-op on file rows.
+func (m *Model) deleteHeadline() {
+	h := m.currentHeadline()
+	if h == nil {
+		return
+	}
+	f, parent, idx := m.insertPosition(h)
+	if idx < 0 {
+		return
+	}
+	m.register = h
+	m.pushUndo(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
+}
+
+// pasteHeadline inserts a copy of the register's contents after
+// (before=false, "p") or before (before=true, "P") the current row (see
+// resolveInsertPosition), adjusting its level (and its descendants', by
+// the same amount) to fit the destination depth. The register itself is
+// left untouched, so it can be pasted again.
+func (m *Model) pasteHeadline(before bool) {
+	if m.register == nil {
+		m.message = "Nothing to paste"
+		return
+	}
+	f, parent, idx, level, _, ok := m.resolveInsertPosition(before)
+	if !ok {
+		return
+	}
+
+	clone := org.CloneHeadline(m.register)
+	shiftHeadlineLevel(clone, level-clone.Level)
+	m.pushUndo(&insertAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{clone}}})
+}
+
+// shiftHeadlineLevel adds delta to h.Level and every descendant's Level,
+// preserving relative nesting while adapting to a new absolute depth.
+func shiftHeadlineLevel(h *org.Headline, delta int) {
+	if delta == 0 {
+		return
+	}
+	h.Level += delta
+	for _, c := range h.Children {
+		shiftHeadlineLevel(c, delta)
+	}
 }
 
 // finishEdit reads back the edited entry and reparses it. For a plain
