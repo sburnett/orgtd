@@ -116,9 +116,13 @@ type Model struct {
 	ws *workspace.Workspace
 
 	collapsed      map[*org.Headline]bool
-	dirty          map[*org.File]bool     // files with in-memory changes not yet written to disk
-	dirtyHeadlines map[*org.Headline]bool // headlines changed since the last write of their file
+	dirty          map[*org.File]bool     // derived from undoStack/savedPos; see recomputeDirty
+	dirtyHeadlines map[*org.Headline]bool // derived from undoStack/savedPos; see recomputeDirty
 	rows           []row
+
+	undoStack []undoAction // undoStack[:undoPos] applied, undoStack[undoPos:] available to redo
+	undoPos   int
+	savedPos  map[*org.File]int // per-file count of applied actions at that file's last successful write
 
 	cursor int
 	offset int // index of the first visible row (for scrolling)
@@ -142,6 +146,7 @@ func New(ws *workspace.Workspace) Model {
 		collapsed:      make(map[*org.Headline]bool),
 		dirty:          make(map[*org.File]bool),
 		dirtyHeadlines: make(map[*org.Headline]bool),
+		savedPos:       make(map[*org.File]int),
 	}
 	m.rebuildRows()
 	return m
@@ -255,6 +260,12 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case "u":
+		m.undo()
+
+	case "ctrl+r":
+		m.redo()
+
 	case "ctrl+d":
 		m.moveCursor(m.pageSize() / 2)
 
@@ -325,6 +336,12 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	case "q!", "quit!":
 		return m, tea.Quit
 
+	case "undo":
+		m.undo()
+
+	case "redo":
+		m.redo()
+
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
 	}
@@ -351,10 +368,10 @@ func (m *Model) writeAllResult() (string, bool) {
 			failed = append(failed, fmt.Sprintf("%s (%v)", filepath.Base(f.Path), err))
 			continue
 		}
-		delete(m.dirty, f)
-		org.Walk(f.Headlines, func(h *org.Headline) { delete(m.dirtyHeadlines, h) })
+		m.savedPos[f] = m.appliedCountForFile(f)
 		written = append(written, filepath.Base(f.Path))
 	}
+	m.recomputeDirty()
 
 	switch {
 	case len(failed) > 0:
@@ -507,16 +524,23 @@ func (m *Model) applyStatus(keyword string) {
 	if h == nil {
 		return
 	}
-	wasDone := org.IsDoneKeyword(h.Keyword)
-	isDone := org.IsDoneKeyword(keyword)
-	h.Keyword = keyword
+
+	newClosed := h.Closed
 	switch {
-	case isDone && !wasDone:
-		h.Closed = &org.Timestamp{Raw: time.Now().Format("2006-01-02 Mon 15:04")}
-	case !isDone && wasDone:
-		h.Closed = nil
+	case org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword):
+		newClosed = &org.Timestamp{Raw: time.Now().Format("2006-01-02 Mon 15:04")}
+	case !org.IsDoneKeyword(keyword) && org.IsDoneKeyword(h.Keyword):
+		newClosed = nil
 	}
-	m.markDirty(h)
+
+	m.pushUndo(&statusChangeAction{
+		h:          h,
+		f:          m.fileForHeadline(h),
+		oldKeyword: h.Keyword,
+		newKeyword: keyword,
+		oldClosed:  h.Closed,
+		newClosed:  newClosed,
+	})
 }
 
 // fileForHeadline returns the file h (or one of its ancestors) belongs
@@ -535,15 +559,6 @@ func (m *Model) fileForHeadline(h *org.Headline) *org.File {
 		}
 	}
 	return nil
-}
-
-// markDirty flags h itself, and h's file, as having unwritten in-memory
-// changes.
-func (m *Model) markDirty(h *org.Headline) {
-	if f := m.fileForHeadline(h); f != nil {
-		m.dirty[f] = true
-	}
-	m.dirtyHeadlines[h] = true
 }
 
 // editFinishedMsg reports that the external editor launched by startEdit
@@ -620,58 +635,12 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.markDirty(msg.target)
-	m.replaceHeadline(msg.target, file.Headlines)
-	m.rebuildRows()
-	return m, nil
-}
-
-// replaceHeadline splices replacements into old's parent (or its file's
-// top-level list) in place of old, carrying over old's own fold state to
-// the first replacement, and marking every headline in the replacement
-// subtree(s) as changed (the whole edited tree, not just its root).
-func (m *Model) replaceHeadline(old *org.Headline, replacements []*org.Headline) {
-	wasCollapsed := m.collapsed[old]
-	org.Walk([]*org.Headline{old}, func(h *org.Headline) {
-		delete(m.collapsed, h)
-		delete(m.dirtyHeadlines, h)
+	m.pushUndo(&subtreeReplaceAction{
+		f:      m.fileForHeadline(msg.target),
+		oldSet: []*org.Headline{msg.target},
+		newSet: file.Headlines,
 	})
-
-	for _, n := range replacements {
-		n.Parent = old.Parent
-	}
-	if wasCollapsed && len(replacements) > 0 {
-		m.collapsed[replacements[0]] = true
-	}
-	org.Walk(replacements, func(h *org.Headline) { m.dirtyHeadlines[h] = true })
-
-	if old.Parent != nil {
-		for i, c := range old.Parent.Children {
-			if c == old {
-				old.Parent.Children = spliceHeadlines(old.Parent.Children, i, replacements)
-				return
-			}
-		}
-		return
-	}
-	for _, f := range m.ws.Files {
-		for i, top := range f.Headlines {
-			if top == old {
-				f.Headlines = spliceHeadlines(f.Headlines, i, replacements)
-				return
-			}
-		}
-	}
-}
-
-// spliceHeadlines returns a copy of list with the element at idx replaced
-// by replacements (which may contain zero, one, or several headlines).
-func spliceHeadlines(list []*org.Headline, idx int, replacements []*org.Headline) []*org.Headline {
-	out := make([]*org.Headline, 0, len(list)-1+len(replacements))
-	out = append(out, list[:idx]...)
-	out = append(out, replacements...)
-	out = append(out, list[idx+1:]...)
-	return out
+	return m, nil
 }
 
 func (m *Model) currentHeadline() *org.Headline {
