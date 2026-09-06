@@ -629,26 +629,47 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 	})
 }
 
-// insertHeadline inserts a blank sibling headline immediately after
-// (before=false, "o") or before (before=true, "O") the current headline,
-// and opens it in $EDITOR. The insert isn't recorded in undo history
-// until the editor session finishes successfully (see commitInsert), so
-// the whole "open a headline, type into it" session is one undo step,
-// matching vim's o/O.
+// insertHeadline inserts a blank headline and opens it in $EDITOR. On a
+// headline row, the new one is a sibling placed immediately after
+// (before=false, "o") or before (before=true, "O") the current headline
+// (after/before its whole subtree, if it has children). On a file row,
+// it's a new top-level headline at the end (o) or beginning (O) of that
+// file. The insert isn't recorded in undo history until the editor
+// session finishes successfully (see commitInsert), so the whole "open a
+// headline, type into it" session is one undo step, matching vim's o/O.
 func (m *Model) insertHeadline(before bool) tea.Cmd {
-	h := m.currentHeadline()
-	if h == nil {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
-	f, parent, idx := m.insertPosition(h)
-	if idx < 0 {
+	row := m.rows[m.cursor]
+
+	var f *org.File
+	var parent, origin *org.Headline
+	var idx, level int
+
+	switch {
+	case row.headline != nil:
+		h := row.headline
+		origin, level = h, h.Level
+		f, parent, idx = m.insertPosition(h)
+		if idx < 0 {
+			return nil
+		}
+		if !before {
+			idx++
+		}
+
+	case row.file != nil:
+		f, level = row.file, 1
+		if !before {
+			idx = len(f.Headlines)
+		}
+
+	default:
 		return nil
-	}
-	if !before {
-		idx++
 	}
 
-	tentative := &org.Headline{Level: h.Level, Parent: parent}
+	tentative := &org.Headline{Level: level, Parent: parent}
 	if parent != nil {
 		parent.Children = spliceHeadlines(parent.Children, idx, 0, []*org.Headline{tentative})
 	} else {
@@ -657,7 +678,7 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 	m.rebuildRows()
 	m.focusHeadline(tentative)
 
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: h}
+	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin}
 	cmd := m.launchEditor(tentative, &ctx)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank

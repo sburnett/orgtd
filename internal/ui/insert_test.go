@@ -188,22 +188,74 @@ func TestInsertRollbackOnEditorError(t *testing.T) {
 	}
 }
 
-func TestInsertNoopOnFileRow(t *testing.T) {
+func TestInsertAtEndOfFile(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.cursor = 0
-	if m.rows[0].file == nil {
-		t.Fatalf("fixture assumption broken: row 0 is not a file row")
+	fileIdx := findFileRow(t, m, "inbox.org")
+	m.cursor = fileIdx
+	f := m.ws.Files[0] // inbox.org, sorted first
+	lastTitle := f.Headlines[len(f.Headlines)-1].Title
+	lastIdx := findRow(t, m, lastTitle)
+
+	m = sendKey(m, "o")
+	tentative := m.currentHeadline()
+	if tentative == nil {
+		t.Fatalf("expected cursor to move to a new tentative headline")
 	}
+	if tentative.Level != 1 || tentative.Parent != nil {
+		t.Errorf("tentative = level %d parent %v, want a top-level (level 1, nil parent) headline", tentative.Level, tentative.Parent)
+	}
+	if m.cursor != lastIdx+1 {
+		t.Errorf("tentative row = %d, want %d (right after the last existing top-level headline)", m.cursor, lastIdx+1)
+	}
+
+	m = commitTentative(t, m, nil, "* TODO New inbox item\n")
+	if got := m.rows[lastIdx+1].headline; got == nil || got.Title != "New inbox item" {
+		t.Errorf("row after the last existing item = %#v, want the new committed headline", got)
+	}
+}
+
+func TestInsertAtBeginningOfFile(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	fileIdx := findFileRow(t, m, "inbox.org")
+	m.cursor = fileIdx
+
+	m = sendKey(m, "O")
+	tentative := m.currentHeadline()
+	if tentative == nil || tentative.Level != 1 || tentative.Parent != nil {
+		t.Fatalf("expected a top-level tentative headline, got %v", tentative)
+	}
+	if m.cursor != fileIdx+1 {
+		t.Errorf("tentative row = %d, want %d (right after the file header)", m.cursor, fileIdx+1)
+	}
+
+	m = commitTentative(t, m, nil, "* TODO New inbox item\n")
+
+	newIdx := findRow(t, m, "New inbox item")
+	if newIdx != fileIdx+1 {
+		t.Errorf("new headline row = %d, want %d (first item in the file)", newIdx, fileIdx+1)
+	}
+	if origIdx := findRow(t, m, "Call the vet about Fido's checkup"); origIdx != newIdx+1 {
+		t.Errorf("original first item now at row %d, want %d (right after the new one)", origIdx, newIdx+1)
+	}
+}
+
+func TestInsertOnFileRowRollbackFocusesFileRow(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	fileIdx := findFileRow(t, m, "inbox.org")
+	m.cursor = fileIdx
 	before := len(m.rows)
 
-	_, cmd := sendKeyCmd(m, "o")
-	if cmd != nil {
-		t.Errorf("expected no command when inserting on a file row")
+	m = sendKey(m, "o")
+	m = commitTentative(t, m, nil, "") // empty result -> rollback
+
+	if len(m.rows) != before {
+		t.Errorf("rows after rollback = %d, want %d", len(m.rows), before)
 	}
-	m2 := sendKey(m, "O")
-	if len(m2.rows) != before {
-		t.Errorf("rows changed after O on a file row")
+	if m.cursor != fileIdx {
+		t.Errorf("cursor after rollback = %d, want %d (back on the file row)", m.cursor, fileIdx)
 	}
 }
 
