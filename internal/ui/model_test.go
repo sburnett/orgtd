@@ -1271,6 +1271,37 @@ func TestCommandBackspace(t *testing.T) {
 	}
 }
 
+func TestCommandBackspaceOnEmptyInputExitsCommandMode(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	before := m.cursor
+
+	m = sendKey(m, ":")
+	m = sendKey(m, "backspace")
+
+	if m.mode != normalMode {
+		t.Fatalf("mode after backspace on empty command input = %v, want normalMode", m.mode)
+	}
+	if m.cursor != before {
+		t.Errorf("cursor changed = %d, want unchanged %d", m.cursor, before)
+	}
+}
+
+func TestCommandBackspaceWithTextDoesNotExitCommandMode(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m = sendKey(m, ":")
+	m = typeKeys(m, "q")
+	m = sendKey(m, "backspace")
+
+	if m.mode != commandMode {
+		t.Fatalf("mode after backspace with remaining text = %v, want commandMode", m.mode)
+	}
+	if m.commandInput != "" {
+		t.Errorf("commandInput = %q, want empty", m.commandInput)
+	}
+}
+
 func TestUnknownCommandShowsMessage(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)

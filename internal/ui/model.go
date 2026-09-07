@@ -410,9 +410,14 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.runCommand()
 
 	case tea.KeyBackspace:
-		if r := []rune(m.commandInput); len(r) > 0 {
-			m.commandInput = string(r[:len(r)-1])
+		// Vim exits command-line mode when backspace is pressed with
+		// nothing left to delete.
+		r := []rune(m.commandInput)
+		if len(r) == 0 {
+			m.mode = normalMode
+			return m, nil
 		}
+		m.commandInput = string(r[:len(r)-1])
 		return m, nil
 
 	case tea.KeySpace:
