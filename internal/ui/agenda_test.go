@@ -182,6 +182,91 @@ func TestAppendAgendaRowsSkipsEmptySectionsAndSortsByDate(t *testing.T) {
 	}
 }
 
+func TestNextActionsSectionListsNextItemsWithNoDate(t *testing.T) {
+	orgText := "* NEXT Undated next action\n* TODO Not a next action\n"
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	if len(m.rows) != 2 {
+		t.Fatalf("rows = %d, want 2 (1 section header + 1 item)", len(m.rows))
+	}
+	if m.rows[0].section != "Next Actions" {
+		t.Errorf("rows[0].section = %q, want %q", m.rows[0].section, "Next Actions")
+	}
+	if got := m.rows[1].headline.Title; got != "Undated next action" {
+		t.Errorf("rows[1] = %q, want the NEXT item", got)
+	}
+}
+
+func TestNextActionsSectionOmittedWhenNoNextItems(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Just a todo\n* WAITING Blocked\n")
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	for _, r := range m.rows {
+		if r.section == "Next Actions" {
+			t.Fatalf("Next Actions section present with no NEXT items: %+v", m.rows)
+		}
+	}
+}
+
+func TestNextActionsSectionComesAfterDateBasedSections(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* TODO Overdue item\n  DEADLINE: <%s>\n* NEXT Undated next action\n", ts(now.AddDate(0, 0, -1)))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	var sections []string
+	for _, r := range m.rows {
+		if r.section != "" {
+			sections = append(sections, r.section)
+		}
+	}
+	want := []string{"Overdue", "Next Actions"}
+	if len(sections) != len(want) {
+		t.Fatalf("sections = %v, want %v", sections, want)
+	}
+	for i := range want {
+		if sections[i] != want[i] {
+			t.Errorf("sections[%d] = %q, want %q", i, sections[i], want[i])
+		}
+	}
+}
+
+func TestNextActionWithADateAppearsInBothSections(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* NEXT Due today and next\n  DEADLINE: <%s>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	count := 0
+	for _, r := range m.rows {
+		if r.headline != nil && r.headline.Title == "Due today and next" {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("'Due today and next' appears %d times, want 2 (once in Due Today, once in Next Actions)", count)
+	}
+}
+
+func TestNextActionsRowRenderingHasNoDateLabel(t *testing.T) {
+	ws := agendaFixture(t, "* NEXT Undated next action\n")
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	line := stripANSI(m.renderRow(m.rows[1]))
+	if !strings.Contains(line, "[agenda.org]") {
+		t.Errorf("Next Actions row = %q, missing the file tag", line)
+	}
+	if strings.Contains(line, "Scheduled:") || strings.Contains(line, "Deadline:") {
+		t.Errorf("Next Actions row = %q, should have no date label", line)
+	}
+}
+
 func TestAgendaItemRowRendering(t *testing.T) {
 	now := truncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))

@@ -154,9 +154,10 @@ type row struct {
 	headline *org.Headline
 	level    int // structural level used by level-aware navigation (rowLevel); file/section rows are 0
 
-	section     string    // set for an agenda section-header row ("Overdue" etc.); outline rows never set this
-	agendaLabel string    // "Scheduled" or "Deadline", set for an agenda item row
-	agendaDate  time.Time // the date this agenda item row is shown for
+	section      string    // set for an agenda section-header row ("Overdue" etc.); outline rows never set this
+	isAgendaItem bool      // true for every agenda item row (Next Actions entries have no date/label, so this — not agendaLabel — is the reliable marker)
+	agendaLabel  string    // "Scheduled" or "Deadline", set for a date-based agenda item row; empty for a Next Actions entry
+	agendaDate   time.Time // the date this agenda item row is shown for, if agendaLabel is set
 }
 
 // Model is the Bubble Tea model for the viewer.
@@ -2329,7 +2330,7 @@ func (m Model) renderRow(r row) string {
 		// Blank mark column: files themselves are never marked, but this
 		// keeps every row's dirty marker lined up in the same column.
 		return " " + gutter(m.dirty[r.file]) + " " + fileStyle.Render(filepath.Base(r.file.Path))
-	case r.agendaLabel != "":
+	case r.isAgendaItem:
 		return m.renderAgendaItemRow(r)
 	}
 
@@ -2401,7 +2402,12 @@ func (m Model) renderAgendaItemRow(r row) string {
 	if f := m.fileForHeadline(h); f != nil {
 		fileName = filepath.Base(f.Path)
 	}
-	line += "  " + timestampStyle.Render(fmt.Sprintf("[%s]  %s: %s", fileName, r.agendaLabel, r.agendaDate.Format("2006-01-02 Mon")))
+	if r.agendaLabel != "" {
+		line += "  " + timestampStyle.Render(fmt.Sprintf("[%s]  %s: %s", fileName, r.agendaLabel, r.agendaDate.Format("2006-01-02 Mon")))
+	} else {
+		// A Next Actions entry: no date to show, just which file it's in.
+		line += "  " + timestampStyle.Render(fmt.Sprintf("[%s]", fileName))
+	}
 
 	return line
 }
