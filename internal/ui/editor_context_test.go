@@ -173,3 +173,82 @@ func TestLaunchEditorTempFileHasContextTrailerThatDoesNotLeak(t *testing.T) {
 		t.Errorf("title = %q, unaffected fields should round-trip", h.Title)
 	}
 }
+
+func TestBuildEditorCommandAddsLineArgForKnownEditors(t *testing.T) {
+	before := "# inbox.org\n#\n# * some parent\n" // 3 lines of context
+
+	for _, editorEnv := range []string{"vim", "nvim", "vi", "gvim", "mvim", "emacs", "emacsclient", "nano"} {
+		t.Run(editorEnv, func(t *testing.T) {
+			cmd := buildEditorCommand(editorEnv, "/tmp/x.org", before)
+			if len(cmd.Args) < 3 {
+				t.Fatalf("Args = %v, want at least [name, +N, path]", cmd.Args)
+			}
+			last := cmd.Args[len(cmd.Args)-1]
+			lineArg := cmd.Args[len(cmd.Args)-2]
+			if last != "/tmp/x.org" {
+				t.Errorf("last arg = %q, want the file path", last)
+			}
+			if lineArg != "+4" {
+				t.Errorf("line arg = %q, want %q (3 context lines + 1)", lineArg, "+4")
+			}
+		})
+	}
+}
+
+func TestBuildEditorCommandSkipsLineArgForUnknownEditors(t *testing.T) {
+	for _, editorEnv := range []string{"code --wait", "subl", "nvim-but-not-really", "cat"} {
+		t.Run(editorEnv, func(t *testing.T) {
+			cmd := buildEditorCommand(editorEnv, "/tmp/x.org", "# a\n# b\n")
+			for _, a := range cmd.Args {
+				if strings.HasPrefix(a, "+") {
+					t.Errorf("Args = %v, unexpectedly contains a +N line argument", cmd.Args)
+				}
+			}
+			if got := cmd.Args[len(cmd.Args)-1]; got != "/tmp/x.org" {
+				t.Errorf("last arg = %q, want the file path", got)
+			}
+		})
+	}
+}
+
+func TestBuildEditorCommandPreservesExtraArgsAndOrder(t *testing.T) {
+	cmd := buildEditorCommand("emacs -nw --debug-init", "/tmp/x.org", "# one line\n")
+	want := []string{"emacs", "-nw", "--debug-init", "+2", "/tmp/x.org"}
+	if len(cmd.Args) != len(want) {
+		t.Fatalf("Args = %v, want %v", cmd.Args, want)
+	}
+	for i := range want {
+		if cmd.Args[i] != want[i] {
+			t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], want[i])
+		}
+	}
+}
+
+func TestBuildEditorCommandDefaultsToVimWhenEditorUnset(t *testing.T) {
+	cmd := buildEditorCommand("", "/tmp/x.org", "# a\n")
+	if cmd.Args[0] != "vim" {
+		t.Errorf("Args[0] = %q, want vim (the default)", cmd.Args[0])
+	}
+	if got := cmd.Args[len(cmd.Args)-2]; got != "+2" {
+		t.Errorf("line arg = %q, want +2", got)
+	}
+}
+
+func TestBuildEditorCommandLineNumberMatchesContextLength(t *testing.T) {
+	cases := []struct {
+		before string
+		want   string
+	}{
+		{"", "+1"},
+		{"# one\n", "+2"},
+		{"# one\n# two\n# three\n# four\n# five\n", "+6"},
+	}
+	for _, c := range cases {
+		cmd := buildEditorCommand("vim", "/tmp/x.org", c.before)
+		got := cmd.Args[len(cmd.Args)-2]
+		if got != c.want {
+			t.Errorf("buildEditorCommand with %d context lines: line arg = %q, want %q",
+				strings.Count(c.before, "\n"), got, c.want)
+		}
+	}
+}

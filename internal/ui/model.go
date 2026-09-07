@@ -860,6 +860,40 @@ func (m *Model) startEdit() tea.Cmd {
 	return m.launchEditor(h, nil)
 }
 
+// editorsWithLineArg lists $EDITOR basenames known to support a leading
+// "+N" argument that opens the file with the cursor on line N — a
+// convention shared by vi/vim, emacs, and nano. launchEditor uses this
+// to land the cursor on the real content rather than line 1, which is
+// now the context trailer's file-name comment. Applied only to these
+// editors, since an arbitrary editor could easily misread "+N" as a
+// literal filename instead of a line number.
+var editorsWithLineArg = map[string]bool{
+	"vi": true, "vim": true, "nvim": true, "gvim": true, "mvim": true,
+	"emacs": true, "emacsclient": true,
+	"nano": true,
+}
+
+// buildEditorCommand builds the *exec.Cmd for opening path in the editor
+// named by editorEnv ($EDITOR's value; "vim" if empty), splitting off
+// any extra words as leading arguments (e.g. "code --wait"). For an
+// editor in editorsWithLineArg, it also inserts a "+N" argument so the
+// editor opens with the cursor on the real content (before is the
+// context text written ahead of it in the file; its newline count is
+// exactly the 1-based line the real content starts on).
+func buildEditorCommand(editorEnv, path, before string) *exec.Cmd {
+	fields := strings.Fields(editorEnv)
+	if len(fields) == 0 {
+		fields = []string{"vim"}
+	}
+	args := append([]string{}, fields[1:]...)
+	if editorsWithLineArg[filepath.Base(fields[0])] {
+		startLine := strings.Count(before, "\n") + 1
+		args = append(args, fmt.Sprintf("+%d", startLine))
+	}
+	args = append(args, path)
+	return exec.Command(fields[0], args...)
+}
+
 // launchEditor writes h to a temp file and opens it in $EDITOR (vim by
 // default), suspending the TUI for the duration. ctx tags the resulting
 // editFinishedMsg so finishEdit knows whether this is an o/O insert
@@ -884,12 +918,7 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 		return nil
 	}
 
-	fields := strings.Fields(os.Getenv("EDITOR"))
-	if len(fields) == 0 {
-		fields = []string{"vim"}
-	}
-	args := append(append([]string{}, fields[1:]...), path)
-	editorCmd := exec.Command(fields[0], args...)
+	editorCmd := buildEditorCommand(os.Getenv("EDITOR"), path, before)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
