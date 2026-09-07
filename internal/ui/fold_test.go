@@ -24,7 +24,7 @@ func TestFoldCloseHidesChildren(t *testing.T) {
 	m.cursor = findRow(t, m, "Ship orgtd v0.1")
 	h := m.currentHeadline()
 	before := len(m.rows)
-	childCount := len(h.Children)
+	hidden := subtreeRowCount(h) - 1 // everything but h's own row
 
 	m = sendKey(m, "z")
 	m = sendKey(m, "c")
@@ -32,8 +32,8 @@ func TestFoldCloseHidesChildren(t *testing.T) {
 	if !m.collapsed[h] {
 		t.Errorf("expected collapsed[h] = true after zc")
 	}
-	if len(m.rows) != before-childCount {
-		t.Errorf("rows after zc = %d, want %d", len(m.rows), before-childCount)
+	if len(m.rows) != before-hidden {
+		t.Errorf("rows after zc = %d, want %d", len(m.rows), before-hidden)
 	}
 }
 

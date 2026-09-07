@@ -45,6 +45,7 @@ var (
 	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	shortcutStyle  = lipgloss.NewStyle().Bold(true)
 	pinMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("245"))
 
 	// overlayBg is the subtle background tint for the pinned header
 	// (clarify/marks) and the status bar — a light/dark pair so it reads
@@ -159,6 +160,16 @@ type row struct {
 	file     *org.File // set for a file-header row (outline view)
 	headline *org.Headline
 	level    int // structural level used by level-aware navigation (rowLevel); file/section rows are 0
+
+	// isBodyLine marks a row showing one line of headline's free-text
+	// body (shown under its title when expanded — see appendBodyLines);
+	// bodyText is that line's text (which may itself be empty — a blank
+	// line in the body — so isBodyLine, not bodyText != "", is the
+	// reliable marker). headline is still set to the owning headline on
+	// such a row (not nil), so commands like i/dd/r/gd resolve to it
+	// exactly as if the cursor were on the title row itself.
+	isBodyLine bool
+	bodyText   string
 
 	section      string    // set for an agenda section-header row ("Overdue" etc.); outline rows never set this
 	isAgendaItem bool      // true for every agenda item row (Next Actions entries have no date/label, so this — not agendaLabel — is the reliable marker)
@@ -491,10 +502,47 @@ func (m *Model) switchToView(v viewKind) {
 func (m *Model) appendHeadlines(headlines []*org.Headline) {
 	for _, h := range headlines {
 		m.rows = append(m.rows, row{headline: h, level: h.Level})
-		if len(h.Children) > 0 && !m.collapsed[h] {
-			m.appendHeadlines(h.Children)
+		if !m.collapsed[h] {
+			m.appendBodyLines(h)
+			if len(h.Children) > 0 {
+				m.appendHeadlines(h.Children)
+			}
 		}
 	}
+}
+
+// appendBodyLines appends one row per line of h's free-text body,
+// indented one level deeper than h's own row (matching where a child
+// would sit) — shown right under h's title, before its children, the
+// same order the raw org file itself keeps them in. Subject to the same
+// collapsed[h] flag as h's children (see appendHeadlines): one fold
+// toggle shows or hides both together.
+func (m *Model) appendBodyLines(h *org.Headline) {
+	for _, line := range visibleBodyLines(h) {
+		m.rows = append(m.rows, row{headline: h, level: h.Level + 1, isBodyLine: true, bodyText: line})
+	}
+}
+
+// hasFoldableContent reports whether h has anything a fold command
+// could show or hide: children, a body, or both.
+func hasFoldableContent(h *org.Headline) bool {
+	return len(h.Children) > 0 || len(visibleBodyLines(h)) > 0
+}
+
+// visibleBodyLines returns h.Body with any trailing blank lines
+// stripped. Org files conventionally have a blank line separating a
+// headline from the next one, which the parser has no way to
+// distinguish from deliberate trailing whitespace in the body — without
+// this, that separator would show up as a meaningless empty line under
+// nearly every single entry. Deliberate blank lines *within* a
+// multi-paragraph body (not at the very end) are left alone.
+func visibleBodyLines(h *org.Headline) []string {
+	lines := h.Body
+	end := len(lines)
+	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	return lines[:end]
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1897,7 +1945,7 @@ func (m *Model) currentHeadline() *org.Headline {
 // children are hidden, one level.
 func (m *Model) toggleFold() {
 	h := m.currentHeadline()
-	if h == nil || len(h.Children) == 0 {
+	if h == nil || !hasFoldableContent(h) {
 		return
 	}
 	m.collapsed[h] = !m.collapsed[h]
@@ -1907,7 +1955,7 @@ func (m *Model) toggleFold() {
 // foldOpen ("zo") reveals the current headline's own children, one level.
 func (m *Model) foldOpen() {
 	h := m.currentHeadline()
-	if h == nil || len(h.Children) == 0 {
+	if h == nil || !hasFoldableContent(h) {
 		return
 	}
 	m.collapsed[h] = false
@@ -1917,7 +1965,7 @@ func (m *Model) foldOpen() {
 // foldClose ("zc") hides the current headline's own children, one level.
 func (m *Model) foldClose() {
 	h := m.currentHeadline()
-	if h == nil || len(h.Children) == 0 {
+	if h == nil || !hasFoldableContent(h) {
 		return
 	}
 	m.collapsed[h] = true
@@ -1928,7 +1976,7 @@ func (m *Model) foldClose() {
 // recursively.
 func (m *Model) foldOpenAll() {
 	h := m.currentHeadline()
-	if h == nil || len(h.Children) == 0 {
+	if h == nil || !hasFoldableContent(h) {
 		return
 	}
 	setCollapsedRecursive(m.collapsed, h, false)
@@ -1941,7 +1989,7 @@ func (m *Model) foldOpenAll() {
 // state.
 func (m *Model) foldCloseAll() {
 	h := m.currentHeadline()
-	if h == nil || len(h.Children) == 0 {
+	if h == nil || !hasFoldableContent(h) {
 		return
 	}
 	setCollapsedRecursive(m.collapsed, h, true)
@@ -1953,7 +2001,7 @@ func (m *Model) foldCloseAll() {
 // recursively otherwise.
 func (m *Model) foldToggleAll() {
 	h := m.currentHeadline()
-	if h == nil || len(h.Children) == 0 {
+	if h == nil || !hasFoldableContent(h) {
 		return
 	}
 	setCollapsedRecursive(m.collapsed, h, !m.collapsed[h])
@@ -1961,10 +2009,10 @@ func (m *Model) foldToggleAll() {
 }
 
 // setCollapsedRecursive sets collapsed[x] = value for h and every
-// descendant of h that has children (a childless headline has nothing
-// to fold, so it's left out of the map).
+// descendant of h that has foldable content (a headline with neither
+// children nor a body has nothing to fold, so it's left out of the map).
 func setCollapsedRecursive(collapsed map[*org.Headline]bool, h *org.Headline, value bool) {
-	if len(h.Children) > 0 {
+	if hasFoldableContent(h) {
 		collapsed[h] = value
 	}
 	for _, c := range h.Children {
@@ -2060,18 +2108,17 @@ func (m *Model) moveShallower() {
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return
 	}
-	r := m.rows[m.cursor]
-	if r.headline == nil {
+	if m.rows[m.cursor].file != nil {
+		// Nothing shallower than a file row: hop to the previous file
+		// instead of leaving the cursor stuck in place.
 		m.moveSiblingLevel(-1)
 		return
 	}
-	if r.headline.Parent != nil {
-		m.focusHeadline(r.headline.Parent)
-		return
-	}
-	if f := m.fileForHeadline(r.headline); f != nil {
-		m.focusFile(f)
-	}
+	// A headline row's parent (or file, if top-level) is always its
+	// nearest shallower row (jumpToSubtreeTop) — and for a body-line
+	// row (level h.Level+1), that's h's own row, which is exactly what
+	// "one level up from inside h's body" should mean.
+	m.jumpToSubtreeTop()
 }
 
 // jumpToSubtreeTop ("^") moves the cursor to the nearest preceding row
@@ -2427,13 +2474,15 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		return bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + fileStyle.Background(bg).Render(filepath.Base(r.file.Path))
 	case r.isAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
+	case r.isBodyLine:
+		return m.renderBodyLineWithBg(r, bg)
 	}
 
 	h := r.headline
 	indent := bgSpan(bg, strings.Repeat("  ", h.Level))
 
 	fold := bgSpan(bg, " ")
-	if len(h.Children) > 0 {
+	if hasFoldableContent(h) {
 		glyph := "▼" // U+25BC BLACK DOWN-POINTING TRIANGLE (full-size; ▾ is a dedicated "small" variant)
 		if m.collapsed[h] {
 			glyph = "▶" // U+25B6 BLACK RIGHT-POINTING TRIANGLE (full-size; ▸ is a dedicated "small" variant)
@@ -2505,6 +2554,17 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 	}
 
 	return line
+}
+
+// renderBodyLineWithBg renders one line of a headline's free-text body,
+// indented to line up where a child's own content would start (blank
+// mark/gutter/fold columns, since a body line isn't itself a separately
+// addressable item — that state lives on the headline's own row), shown
+// in a muted style so it doesn't compete visually with real entries.
+func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
+	indent := strings.Repeat("  ", r.level)
+	blanks := bgSpan(bg, "   "+indent+"  ") // mark + gutter + space, then indent, then fold + space
+	return blanks + bodyStyle.Background(bg).Render(strings.TrimSpace(r.bodyText))
 }
 
 // renderStatusSelector renders the R status picker's single status-line

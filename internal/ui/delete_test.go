@@ -8,13 +8,13 @@ func TestDeleteRemovesEntryAndSubtree(t *testing.T) {
 	idx := findRow(t, m, "Ship orgtd v0.1") // has 4 children
 	m.cursor = idx
 	before := len(m.rows)
-	childCount := len(m.currentHeadline().Children)
+	removed := subtreeRowCount(m.currentHeadline())
 
 	m = sendKey(m, "d")
 	m = sendKey(m, "d")
 
-	if len(m.rows) != before-1-childCount {
-		t.Fatalf("rows after dd = %d, want %d (entry + its %d children gone)", len(m.rows), before-1-childCount, childCount)
+	if len(m.rows) != before-removed {
+		t.Fatalf("rows after dd = %d, want %d (entry, its children, and any body lines gone)", len(m.rows), before-removed)
 	}
 	if h := m.rows[idx].headline; h == nil || h.Title == "Ship orgtd v0.1" {
 		t.Errorf("row %d still shows the deleted entry: %#v", idx, m.rows[idx])

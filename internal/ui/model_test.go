@@ -82,12 +82,34 @@ func countHeadlines(ws *workspace.Workspace) int {
 	return n
 }
 
+// countVisibleBodyLines returns how many body-line rows every headline
+// across ws would contribute if fully expanded (see visibleBodyLines).
+func countVisibleBodyLines(ws *workspace.Workspace) int {
+	n := 0
+	for _, f := range ws.Files {
+		org.Walk(f.Headlines, func(h *org.Headline) { n += len(visibleBodyLines(h)) })
+	}
+	return n
+}
+
+// subtreeRowCount returns how many rows h occupies when fully expanded:
+// its own row, one per body line, and the same recursively for every
+// child — i.e. how many rows deleting h (dd) removes, or how many a
+// fresh copy of it (yy/p) adds.
+func subtreeRowCount(h *org.Headline) int {
+	n := 1 + len(visibleBodyLines(h))
+	for _, c := range h.Children {
+		n += subtreeRowCount(c)
+	}
+	return n
+}
+
 // findRow returns the index of the row whose headline has the given
 // title (or, for a file row, whose base filename equals title).
 func findRow(t *testing.T, m Model, title string) int {
 	t.Helper()
 	for i, r := range m.rows {
-		if r.headline != nil && r.headline.Title == title {
+		if r.headline != nil && !r.isBodyLine && r.headline.Title == title {
 			return i
 		}
 	}
@@ -136,7 +158,7 @@ func typeKeys(m Model, s string) Model {
 func TestNewLoadsAllRows(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	want := len(ws.Files) + countHeadlines(ws)
+	want := len(ws.Files) + countHeadlines(ws) + countVisibleBodyLines(ws)
 	if len(m.rows) != want {
 		t.Fatalf("rows = %d, want %d", len(m.rows), want)
 	}
@@ -291,8 +313,14 @@ func TestMoveDeeperAndShallower(t *testing.T) {
 
 	m.cursor = project
 	m = sendKey(m, "l")
+	if !m.rows[m.cursor].isBodyLine {
+		t.Fatalf("l into a project with a body = row %d (%+v), want its body line first", m.cursor, m.rows[m.cursor])
+	}
+	// The body line has nothing deeper either, so l falls back to
+	// sibling-level navigation, landing on the first real child.
+	m = sendKey(m, "l")
 	if m.cursor != firstChild {
-		t.Fatalf("l into project = row %d, want %d (first child)", m.cursor, firstChild)
+		t.Fatalf("l past the body line = row %d, want %d (first child)", m.cursor, firstChild)
 	}
 
 	// firstChild has no children of its own, so l falls back to
@@ -591,7 +619,7 @@ func TestFoldTogglesChildRows(t *testing.T) {
 	// projects.org; find it by walking rows.
 	idx := -1
 	for i, r := range m.rows {
-		if r.headline != nil && len(r.headline.Children) > 0 {
+		if r.headline != nil && !r.isBodyLine && len(r.headline.Children) > 0 {
 			idx = i
 			break
 		}
@@ -601,14 +629,15 @@ func TestFoldTogglesChildRows(t *testing.T) {
 	}
 	h := m.rows[idx].headline
 	before := len(m.rows)
+	hidden := subtreeRowCount(h) - 1 // everything but h's own row
 
 	m.cursor = idx
 	m = sendKey(m, "tab")
 	if !m.collapsed[h] {
 		t.Fatalf("expected headline to be collapsed")
 	}
-	if len(m.rows) != before-len(h.Children) {
-		t.Errorf("rows after collapse = %d, want %d", len(m.rows), before-len(h.Children))
+	if len(m.rows) != before-hidden {
+		t.Errorf("rows after collapse = %d, want %d", len(m.rows), before-hidden)
 	}
 
 	m = sendKey(m, "tab")
@@ -895,9 +924,11 @@ func TestEditSubtreeReplacesWholeTree(t *testing.T) {
 			t.Errorf("child %d title = %q, want %q", i, got.Children[i].Title, old.Children[i].Title)
 		}
 	}
-	// The rebuilt row list should walk into the new subtree's children too.
-	if m.rows[idx+1].headline == nil || m.rows[idx+1].headline.Title != old.Children[0].Title {
-		t.Errorf("row after edited entry = %#v, want first child %q", m.rows[idx+1], old.Children[0].Title)
+	// The rebuilt row list should walk into the new subtree's children
+	// too — right after any body line(s) the re-rendered entry kept.
+	childRow := idx + 1 + len(visibleBodyLines(got))
+	if m.rows[childRow].headline == nil || m.rows[childRow].headline.Title != old.Children[0].Title {
+		t.Errorf("row after edited entry (and any body) = %#v, want first child %q", m.rows[childRow], old.Children[0].Title)
 	}
 }
 
