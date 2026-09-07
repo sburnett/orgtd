@@ -3,6 +3,10 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 func TestBodyTextVisibleByDefault(t *testing.T) {
@@ -144,5 +148,235 @@ func TestBodyLineRenderingIsDimmedAndIndented(t *testing.T) {
 	}
 	if !strings.HasPrefix(plain, "  ") {
 		t.Errorf("body line = %q, want leading indentation", plain)
+	}
+}
+
+func TestJSkipsOverBodyLines(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
+	m.cursor = idx
+	if !m.rows[idx+1].isBodyLine {
+		t.Fatalf("fixture assumption broken: expected a body line right after the headline")
+	}
+
+	m = sendKey(m, "j")
+
+	if m.rows[m.cursor].isBodyLine {
+		t.Fatalf("cursor landed on a body line: %+v", m.rows[m.cursor])
+	}
+	if got := m.currentHeadline(); got == nil || got.Title != "Follow up with finance about the Q3 budget doc" {
+		t.Errorf("j from an entry with a body = %v, want the next real entry (body line skipped)", got)
+	}
+}
+
+func TestKSkipsOverBodyLinesGoingUp(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Follow up with finance about the Q3 budget doc")
+	m.cursor = idx
+
+	m = sendKey(m, "k")
+
+	if m.rows[m.cursor].isBodyLine {
+		t.Fatalf("cursor landed on a body line: %+v", m.rows[m.cursor])
+	}
+	if got := m.currentHeadline(); got == nil || got.Title != "Read the RFC linked in yesterday's design review" {
+		t.Errorf("k past an entry with a body = %v, want that entry itself (body line skipped)", got)
+	}
+}
+
+func TestCursorNeverLandsOnTrailingBodyLineAtEndOfList(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	last := len(m.rows) - 1
+	if !m.rows[last].isBodyLine {
+		t.Skip("fixture's last row isn't a body line in this configuration; nothing to exercise")
+	}
+
+	m.cursor = last - 1
+	m = sendKey(m, "j")
+	m = sendKey(m, "j") // try to overshoot past the end
+
+	if m.rows[m.cursor].isBodyLine {
+		t.Errorf("cursor ended on the trailing body line at the end of the list: %+v", m.rows[m.cursor])
+	}
+}
+
+func TestHalfPageScrollAlsoSkipsBodyLines(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.height = 10
+	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
+	m.cursor = idx
+
+	m = sendKey(m, "ctrl+d")
+
+	if m.rows[m.cursor].isBodyLine {
+		t.Errorf("cursor after ctrl+d landed on a body line: %+v", m.rows[m.cursor])
+	}
+}
+
+func TestCursorHighlightExtendsOverEntrysBodyLines(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 100, len(m.rows)+3
+	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
+	m.cursor = idx
+
+	out := m.View()
+	lines := strings.Split(out, "\n")
+	titleLine := lines[idx]
+	bodyLine := lines[idx+1]
+
+	if !strings.Contains(titleLine, "\x1b[") {
+		t.Fatalf("title line not highlighted at all: %q", titleLine)
+	}
+	// Both the title and its body line should be padded to the full
+	// terminal width by the shared cursor background, not just the
+	// title row.
+	if got := lipgloss.Width(titleLine); got != m.width {
+		t.Errorf("title line width = %d, want %d (highlighted)", got, m.width)
+	}
+	if got := lipgloss.Width(bodyLine); got != m.width {
+		t.Errorf("body line width = %d, want %d (highlighted along with its entry)", got, m.width)
+	}
+
+	// The row after the body (a sibling entry) must NOT be highlighted.
+	nextLine := lines[idx+2]
+	if got := lipgloss.Width(nextLine); got >= m.width {
+		t.Errorf("unrelated row unexpectedly highlighted to full width: %q", nextLine)
+	}
+}
+
+func TestScrollingToAnEntryRevealsAllOfItsBodyLines(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width = 80
+	m.height = 6 // small: page holds only a handful of rows
+
+	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
+	h := m.rows[idx].headline
+	// Set outright (not appended to the existing body) to avoid any
+	// stray trailing-blank artifact from the original fixture ending up
+	// in the middle of the new body instead of at the end.
+	h.Body = []string{"First body line.", "Second body line.", "Third body line."}
+	m.rebuildRows()
+	idx = findRow(t, m, "Read the RFC linked in yesterday's design review")
+	end := m.entryEnd(idx)
+	if end != idx+3 {
+		t.Fatalf("fixture setup broken: entryEnd = %d, want %d (title + 3 body lines)", end, idx+3)
+	}
+
+	// Walk the cursor down to this entry one row at a time, as a user
+	// scrolling down normally would.
+	m.cursor, m.offset = 0, 0
+	for m.cursor < idx {
+		m = sendKey(m, "j")
+	}
+
+	page := m.pageSize()
+	if m.offset > idx {
+		t.Fatalf("offset = %d, scrolled past the entry's own title row (%d)", m.offset, idx)
+	}
+	if end >= m.offset+page {
+		t.Errorf("entry's last body line (row %d) not within the visible page [%d, %d)", end, m.offset, m.offset+page)
+	}
+
+	out := m.View()
+	lines := strings.Split(out, "\n")
+	for i := idx; i <= end; i++ {
+		visibleIdx := i - m.offset
+		if visibleIdx < 0 || visibleIdx >= len(lines) || strings.TrimSpace(stripANSI(lines[visibleIdx])) == "" {
+			t.Errorf("row %d of the entry not rendered on screen (screen line %d): %q", i, visibleIdx, lines)
+		}
+	}
+}
+
+func TestCursorNeverRestsOnABodyLine(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	hasBody := false
+	for _, r := range m.rows {
+		if r.isBodyLine {
+			hasBody = true
+			break
+		}
+	}
+	if !hasBody {
+		t.Skip("fixture has no body lines to exercise")
+	}
+
+	// Every key that can move the cursor should be safe to mash without
+	// ever landing on a body line — the invariant is enforced centrally
+	// in ensureVisible, not by each individual command.
+	for _, key := range []string{"j", "j", "j", "k", "G", "gg", "l", "h", "$", "^", "j"} {
+		if key == "gg" {
+			m = sendKey(m, "g")
+			m = sendKey(m, "g")
+		} else {
+			m = sendKey(m, key)
+		}
+		if m.rows[m.cursor].isBodyLine {
+			t.Fatalf("cursor rests on a body line after %q: %+v", key, m.rows[m.cursor])
+		}
+	}
+}
+
+func TestGSnapsToLastEntryNotItsBodyLine(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	// Give the very last headline in the workspace a body, so the very
+	// last row in m.rows is one of its body lines.
+	var last *org.Headline
+	for _, f := range m.ws.Files {
+		org.Walk(f.Headlines, func(h *org.Headline) { last = h })
+	}
+	last.Body = []string{"Trailing note."}
+	m.rebuildRows()
+	m.width, m.height = 100, len(m.rows)+3
+	if !m.rows[len(m.rows)-1].isBodyLine {
+		t.Fatalf("fixture setup broken: last row still isn't a body line")
+	}
+
+	m = sendKey(m, "G")
+
+	if m.rows[m.cursor].isBodyLine {
+		t.Fatalf("cursor after G rests on a body line: %+v", m.rows[m.cursor])
+	}
+	if m.currentHeadline() != last {
+		t.Errorf("cursor after G = %v, want the last entry itself", m.currentHeadline())
+	}
+	// The whole entry (title + body) must be highlighted, not just the
+	// last line.
+	lines := strings.Split(m.View(), "\n")
+	titleLine := lines[m.cursor]
+	bodyLine := lines[m.cursor+1]
+	if lipgloss.Width(titleLine) != m.width {
+		t.Errorf("title line not highlighted to full width: %q", titleLine)
+	}
+	if lipgloss.Width(bodyLine) != m.width {
+		t.Errorf("body line not highlighted to full width: %q", bodyLine)
+	}
+}
+
+func TestLSkipsOverBodyEntirelyToRealChild(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Ship orgtd v0.1") // has both a body and children
+	h := m.rows[idx].headline
+	if len(visibleBodyLines(h)) == 0 || len(h.Children) == 0 {
+		t.Fatalf("fixture assumption broken: expected 'Ship orgtd v0.1' to have both a body and children")
+	}
+	m.cursor = idx
+
+	m = sendKey(m, "l")
+
+	if m.rows[m.cursor].isBodyLine {
+		t.Fatalf("l landed on a body line: %+v", m.rows[m.cursor])
+	}
+	if got := m.currentHeadline(); got != h.Children[0] {
+		t.Errorf("l = %v, want the first real child %v (body skipped over)", got, h.Children[0])
 	}
 }

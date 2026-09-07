@@ -180,10 +180,15 @@ func TestCursorMovementClamps(t *testing.T) {
 	for i := 0; i < len(m.rows)+5; i++ {
 		m = sendKey(m, "j")
 	}
-	// j/k move one row at a time, like ordinary line-based navigation, so
-	// this just clamps at the very last row.
-	if want := len(m.rows) - 1; m.cursor != want {
-		t.Errorf("cursor after many j = %d, want %d (last row)", m.cursor, want)
+	// j/k move entry by entry (body lines are skipped, part of their
+	// owning entry rather than separately steppable rows), so this
+	// clamps at the last row that isn't a body line.
+	want := len(m.rows) - 1
+	for want > 0 && m.rows[want].isBodyLine {
+		want--
+	}
+	if m.cursor != want {
+		t.Errorf("cursor after many j = %d, want %d (last entry)", m.cursor, want)
 	}
 }
 
@@ -313,14 +318,8 @@ func TestMoveDeeperAndShallower(t *testing.T) {
 
 	m.cursor = project
 	m = sendKey(m, "l")
-	if !m.rows[m.cursor].isBodyLine {
-		t.Fatalf("l into a project with a body = row %d (%+v), want its body line first", m.cursor, m.rows[m.cursor])
-	}
-	// The body line has nothing deeper either, so l falls back to
-	// sibling-level navigation, landing on the first real child.
-	m = sendKey(m, "l")
 	if m.cursor != firstChild {
-		t.Fatalf("l past the body line = row %d, want %d (first child)", m.cursor, firstChild)
+		t.Fatalf("l into a project with a body = row %d, want %d (first child, body skipped over entirely)", m.cursor, firstChild)
 	}
 
 	// firstChild has no children of its own, so l falls back to
@@ -404,11 +403,14 @@ func TestGgAndG(t *testing.T) {
 	m := New(ws)
 	m.height = 20
 
-	// G goes all the way to the very last row, mirroring j/k's plain
-	// line-by-line movement.
+	// G goes all the way to the last entry, mirroring j/k's line-by-line
+	// movement — snapping up to its title row if the very last row
+	// happens to be one of its own body lines, so the whole entry (not
+	// just its last line) ends up highlighted.
 	m = sendKey(m, "G")
-	if want := len(m.rows) - 1; m.cursor != want {
-		t.Fatalf("cursor after G = %d, want %d (the very last row)", m.cursor, want)
+	want := m.entryStart(len(m.rows) - 1)
+	if m.cursor != want {
+		t.Fatalf("cursor after G = %d, want %d (the last entry's own row)", m.cursor, want)
 	}
 
 	m = sendKey(m, "g")

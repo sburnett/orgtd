@@ -649,7 +649,11 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "G":
 		if n := len(m.rows); n > 0 {
-			m.cursor = n - 1
+			// Snap up to the entry's own title row if the very last row
+			// happens to be one of its body lines, so the highlight (and
+			// gc/editing commands) cover the whole entry, not just its
+			// last line.
+			m.cursor = m.entryStart(n - 1)
 		}
 
 	case "^":
@@ -2020,14 +2024,45 @@ func setCollapsedRecursive(collapsed map[*org.Headline]bool, h *org.Headline, va
 	}
 }
 
+// moveCursor moves the cursor by delta entries — not delta rows — for
+// j/k and the half-page scroll (ctrl+d/ctrl+u) alike: an entry's body
+// lines are part of the entry, not separately steppable rows of their
+// own, so they're always skipped over and never landed on.
 func (m *Model) moveCursor(delta int) {
-	m.cursor += delta
-	if m.cursor < 0 {
-		m.cursor = 0
+	if len(m.rows) == 0 {
+		return
 	}
-	if m.cursor >= len(m.rows) {
-		m.cursor = len(m.rows) - 1
+	step := 1
+	n := delta
+	if delta < 0 {
+		step = -1
+		n = -delta
 	}
+	cur := m.cursor
+	for n > 0 {
+		next := cur + step
+		if next < 0 || next >= len(m.rows) {
+			break
+		}
+		cur = next
+		if !m.rows[cur].isBodyLine {
+			n--
+		}
+	}
+	// Only reachable by hitting the very end of the list mid-body (the
+	// last entry's trailing body line can be the last row overall) —
+	// snap to its owning headline rather than resting on it.
+	m.cursor = m.entryStart(cur)
+}
+
+// entryStart returns the row where the entry owning row i actually
+// begins: i itself, or — if i is one of that entry's own body lines —
+// the entry's title row.
+func (m *Model) entryStart(i int) int {
+	for i > 0 && m.rows[i].isBodyLine {
+		i--
+	}
+	return i
 }
 
 // rowLevel returns the indentation level of the row at index i: 0 for a
@@ -2049,7 +2084,11 @@ func (m *Model) moveToLevel(dir, lvl int) {
 		return
 	}
 	i := m.cursor + dir
-	for i >= 0 && i < len(m.rows) && m.rowLevel(i) > lvl {
+	for i >= 0 && i < len(m.rows) && (m.rowLevel(i) > lvl || m.rows[i].isBodyLine) {
+		// A body line is never a valid stopping point here — it's not a
+		// sibling or a hop-up target, just supplementary text — even on
+		// the rare occasion its level happens to coincide with lvl (an
+		// unrelated, shallower headline's body).
 		i += dir
 	}
 	if i >= 0 && i < len(m.rows) {
@@ -2091,7 +2130,14 @@ func (m *Model) moveDeeper() {
 	if len(m.rows) == 0 {
 		return
 	}
-	if next := m.cursor + 1; next < len(m.rows) && m.rowLevel(next) > m.rowLevel(m.cursor) {
+	// Skip over any body lines right after the cursor — they're part of
+	// the current entry, not something to move "into" — to find the
+	// first real child, if any.
+	next := m.cursor + 1
+	for next < len(m.rows) && m.rows[next].isBodyLine {
+		next++
+	}
+	if next < len(m.rows) && m.rowLevel(next) > m.rowLevel(m.cursor) {
 		m.cursor = next
 		return
 	}
@@ -2159,7 +2205,10 @@ func (m *Model) jumpToSubtreeBottom() {
 	cur := m.rowLevel(m.cursor)
 	last := -1
 	for i := m.cursor + 1; i < len(m.rows) && m.rowLevel(i) > cur; i++ {
-		if m.rowLevel(i) == cur+1 {
+		// Body lines don't count as a "last child" to land on — an
+		// entry with a body but no real children has nothing deeper to
+		// drill into, same as a plain leaf.
+		if m.rowLevel(i) == cur+1 && !m.rows[i].isBodyLine {
 			last = i
 		}
 	}
@@ -2272,17 +2321,49 @@ func (m *Model) sectionSeparatorBudget() int {
 	return n - 1
 }
 
+// ensureVisible scrolls so the cursor's whole entry — its own row plus
+// any of its own body lines (see entryEnd), the same span View()
+// highlights as one unit — fits on screen when possible, not just the
+// cursor's own row. If the entry itself is taller than a page, showing
+// all of it is impossible either way, so this falls back to keeping at
+// least the cursor's own row visible, rather than scrolling past it to
+// chase an unreachable tail.
 func (m *Model) ensureVisible() {
+	// Enforced here, the one chokepoint every key handler in
+	// updateNormalMode passes through before returning: the cursor never
+	// rests on a body line, regardless of which command moved it — an
+	// entry's body is part of the entry, not a separately-landable row,
+	// for every command alike (not just j/k).
+	m.cursor = m.entryStart(m.cursor)
+
 	page := m.pageSize()
 	if m.cursor < m.offset {
 		m.offset = m.cursor
 	}
-	if m.cursor >= m.offset+page {
-		m.offset = m.cursor - page + 1
+	if end := m.entryEnd(m.cursor); end >= m.offset+page {
+		offset := end - page + 1
+		if offset > m.cursor {
+			offset = m.cursor
+		}
+		m.offset = offset
 	}
 	if m.offset < 0 {
 		m.offset = 0
 	}
+}
+
+// entryEnd returns the last row belonging to the same entry as row i —
+// i itself, plus any of its own body lines immediately following it.
+func (m *Model) entryEnd(i int) int {
+	if i < 0 || i >= len(m.rows) {
+		return i
+	}
+	ch := m.rows[i].headline
+	end := i
+	for end+1 < len(m.rows) && m.rows[end+1].isBodyLine && m.rows[end+1].headline == ch {
+		end++
+	}
+	return end
 }
 
 func (m Model) View() string {
@@ -2300,6 +2381,12 @@ func (m Model) View() string {
 		end = len(m.rows)
 	}
 
+	// An entry's body lines highlight along with it — the whole entry is
+	// one item, not a separately-steppable row per line — so extend the
+	// highlight from the cursor over any of its own body lines that
+	// immediately follow.
+	highlightEnd := m.entryEnd(m.cursor)
+
 	var b strings.Builder
 	for _, line := range m.pinnedHeaderLines() {
 		b.WriteString(line)
@@ -2310,7 +2397,7 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 		var line string
-		if i == m.cursor {
+		if i >= m.cursor && i <= highlightEnd {
 			line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
 		} else {
 			line = m.renderRow(m.rows[i])
