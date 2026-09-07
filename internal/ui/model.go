@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,14 +37,14 @@ var (
 		"CANCELLED": lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 	}
 
-	tagStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	doneTitleStyle     = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("245"))
-	cursorStyle        = lipgloss.NewStyle().Reverse(true)
-	statusStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	timestampStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	errorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	shortcutStyle      = lipgloss.NewStyle().Bold(true)
-	clarifyMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	tagStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	doneTitleStyle = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("245"))
+	cursorStyle    = lipgloss.NewStyle().Reverse(true)
+	statusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	timestampStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
+	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	shortcutStyle  = lipgloss.NewStyle().Bold(true)
+	pinMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 )
 
 // mode selects how key presses are interpreted.
@@ -141,13 +142,18 @@ type Model struct {
 
 	width, height int
 
-	pendingG  bool
-	pendingD  bool
-	pendingGT bool // pending '>' of ">>"
-	pendingLT bool // pending '<' of "<<"
-	pendingZ  bool // pending 'z' of a fold command (zo/zc/za/zO/zC/zA)
+	pendingG     bool
+	pendingD     bool
+	pendingY     bool // pending 'y' of "yy"
+	pendingGT    bool // pending '>' of ">>"
+	pendingLT    bool // pending '<' of "<<"
+	pendingZ     bool // pending 'z' of a fold command (zo/zc/za/zO/zC/zA)
+	pendingM     bool // pending 'm' of "m<letter>" (set a mark)
+	pendingQuote bool // pending '\'' of "'<letter>" (jump to a mark)
 
-	register *org.Headline // last deleted entry (dd), pasted (as a copy) by p/P
+	register *org.Headline // last deleted (dd) or yanked (yy) entry, pasted (as a copy) by p/P
+
+	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
 
 	mode         mode
 	commandInput string
@@ -306,6 +312,87 @@ func (m *Model) jumpToClarifyTarget() {
 	m.focusHeadline(m.clarifyTarget)
 }
 
+// setMark ("m<letter>") marks the current headline as letter: '<letter>
+// jumps back to it later, and it stays pinned to the top of the screen
+// (in every view, alongside any other active marks — see
+// pinnedHeaderLines) until the mark is deleted or moved elsewhere with
+// another "m<letter>". A no-op on a file/section row (nothing to mark).
+//
+// Each entry holds at most one mark: marking an entry that already has
+// a different letter replaces it (the old letter is freed up). Marking
+// an entry with the *same* letter it already has toggles the mark off
+// instead — a quick way to clear one without dropping into command mode
+// for :delmarks.
+func (m *Model) setMark(letter rune) {
+	h := m.currentHeadline()
+	if h == nil {
+		return
+	}
+	if existing, ok := m.markLetterFor(h); ok {
+		delete(m.marks, existing)
+		if existing == letter {
+			m.message = fmt.Sprintf("Mark '%c' cleared", letter)
+			return
+		}
+	}
+	if m.marks == nil {
+		m.marks = make(map[rune]*org.Headline)
+	}
+	m.marks[letter] = h
+	m.message = fmt.Sprintf("Mark '%c' set", letter)
+}
+
+// jumpToMark ("'<letter>") moves the cursor to the headline marked
+// letter. If it isn't present among the current view's rows (e.g. it
+// has no due date and the current view is agenda), this switches to
+// outline view first, since every headline is reachable there.
+func (m *Model) jumpToMark(letter rune) {
+	h, ok := m.marks[letter]
+	if !ok {
+		m.message = fmt.Sprintf("Mark '%c' is not set", letter)
+		return
+	}
+	if !m.rowsContainHeadline(h) {
+		m.switchToView(outlineView)
+	}
+	m.focusHeadline(h)
+}
+
+// rowsContainHeadline reports whether h is one of the headlines
+// currently present in m.rows.
+func (m *Model) rowsContainHeadline(h *org.Headline) bool {
+	for _, r := range m.rows {
+		if r.headline == h {
+			return true
+		}
+	}
+	return false
+}
+
+// markLetterFor returns the letter marking h, if any — an entry holds at
+// most one (see setMark) — for showing a marker on its row in the
+// listing.
+func (m *Model) markLetterFor(h *org.Headline) (rune, bool) {
+	best := rune(0)
+	found := false
+	for letter, target := range m.marks {
+		if target == h && (!found || letter < best) {
+			best, found = letter, true
+		}
+	}
+	return best, found
+}
+
+// clearMarksFor removes every mark pointing at h — called after h is
+// deleted, since a mark can't meaningfully point at a removed item.
+func (m *Model) clearMarksFor(h *org.Headline) {
+	for letter, target := range m.marks {
+		if target == h {
+			delete(m.marks, letter)
+		}
+	}
+}
+
 // switchToView changes which view rebuildRows populates m.rows with,
 // resetting the cursor to the top — the two views have entirely
 // different row sets, so there's no sensible position to preserve.
@@ -360,15 +447,41 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	wasPendingG := m.pendingG
 	wasPendingD := m.pendingD
+	wasPendingY := m.pendingY
 	wasPendingGT := m.pendingGT
 	wasPendingLT := m.pendingLT
 	wasPendingZ := m.pendingZ
+	wasPendingM := m.pendingM
+	wasPendingQuote := m.pendingQuote
 	m.pendingG = false
 	m.pendingD = false
+	m.pendingY = false
 	m.pendingGT = false
 	m.pendingLT = false
 	m.pendingZ = false
+	m.pendingM = false
+	m.pendingQuote = false
 	m.message = ""
+
+	// "m<letter>" and "'<letter>" take an arbitrary a-z argument, unlike
+	// every other chord here (which pairs two fixed keys) — so these are
+	// intercepted before the switch below, rather than adding a
+	// wasPendingM/wasPendingQuote check to every single-letter case that
+	// already means something else on its own (r, d, p, ...).
+	if wasPendingM {
+		if len(key) == 1 && key[0] >= 'a' && key[0] <= 'z' {
+			m.setMark(rune(key[0]))
+		}
+		m.ensureVisible()
+		return m, nil
+	}
+	if wasPendingQuote {
+		if len(key) == 1 && key[0] >= 'a' && key[0] <= 'z' {
+			m.jumpToMark(rune(key[0]))
+		}
+		m.ensureVisible()
+		return m, nil
+	}
 
 	switch key {
 	case ":":
@@ -402,8 +515,8 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "G":
-		if n := len(m.ws.Files); n > 0 {
-			m.focusFile(m.ws.Files[n-1])
+		if n := len(m.rows); n > 0 {
+			m.cursor = n - 1
 		}
 
 	case "^":
@@ -449,6 +562,12 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "z":
 		m.pendingZ = true
+
+	case "m":
+		m.pendingM = true
+
+	case "'":
+		m.pendingQuote = true
 
 	case "c":
 		switch {
@@ -500,6 +619,13 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.promoteHeadline()
 		} else {
 			m.pendingLT = true
+		}
+
+	case "y":
+		if wasPendingY {
+			m.yankHeadline()
+		} else {
+			m.pendingY = true
 		}
 
 	case "p":
@@ -559,6 +685,16 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	m.mode = normalMode
 	m.commandInput = ""
 
+	if cmd == "delmarks!" {
+		m.marks = nil
+		m.message = "All marks deleted"
+		return m, nil
+	}
+	if letters, ok := strings.CutPrefix(cmd, "delmarks "); ok {
+		m.deleteMarks(letters)
+		return m, nil
+	}
+
 	switch cmd {
 	case "":
 		// Nothing typed; just dismiss the command line.
@@ -598,10 +734,41 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	case "outline":
 		m.switchToView(outlineView)
 
+	case "delmarks":
+		m.message = "Usage: :delmarks <letters> or :delmarks!"
+
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
 	}
 	return m, nil
+}
+
+// deleteMarks handles ":delmarks <letters>" (space-separated or run
+// together, e.g. "a b" or "ab"), removing each and reporting any that
+// weren't set.
+func (m *Model) deleteMarks(arg string) {
+	var removed, missing []rune
+	for _, r := range arg {
+		if r == ' ' {
+			continue
+		}
+		if _, ok := m.marks[r]; ok {
+			delete(m.marks, r)
+			removed = append(removed, r)
+		} else {
+			missing = append(missing, r)
+		}
+	}
+	switch {
+	case len(removed) == 0 && len(missing) == 0:
+		m.message = "Usage: :delmarks <letters> or :delmarks!"
+	case len(missing) == 0:
+		m.message = fmt.Sprintf("Deleted mark(s): %s", string(removed))
+	case len(removed) == 0:
+		m.message = fmt.Sprintf("No such mark(s): %s", string(missing))
+	default:
+		m.message = fmt.Sprintf("Deleted %s; no such mark(s): %s", string(removed), string(missing))
+	}
 }
 
 // writeAll writes every file with unwritten in-memory changes to disk,
@@ -1269,6 +1436,24 @@ func (m *Model) deleteHeadline() {
 	if m.view == clarifyView && h == m.clarifyTarget {
 		m.advanceClarifyTarget()
 	}
+	// dd removes h's whole subtree, so a mark on any descendant (not
+	// just h itself) needs clearing too.
+	org.Walk([]*org.Headline{h}, m.clearMarksFor)
+}
+
+// yankHeadline ("yy") copies the current headline (and its whole
+// subtree) into the register for pasting elsewhere with p/P — unlike
+// dd, it leaves the original untouched (in the outline, the agenda, or
+// clarify view — wherever the cursor happens to be). The register holds
+// an independent snapshot taken now, so later edits to the original
+// before pasting aren't reflected in what gets pasted.
+func (m *Model) yankHeadline() {
+	h := m.currentHeadline()
+	if h == nil {
+		return
+	}
+	m.register = org.CloneHeadline(h)
+	m.message = "Yanked"
 }
 
 // pasteHeadline inserts a copy of the register's contents after
@@ -1787,40 +1972,78 @@ func (m *Model) jumpToSubtreeBottom() {
 // pageSize is the number of rows visible at once, reserving one line for
 // the status bar.
 func (m *Model) pageSize() int {
-	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.clarifyHeaderHeight()
+	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.pinnedHeaderHeight()
 	if n < 1 {
 		n = 1
 	}
 	return n
 }
 
-// clarifyHeaderHeight is how many lines the pinned "Clarifying:" header
-// occupies at the top of the screen: 0 outside clarify view, a fixed 3
-// lines (label, item-or-empty-message, blank separator) within it — kept
-// constant regardless of whether the inbox is currently empty, so the
-// layout doesn't jump around as it empties out.
-func (m *Model) clarifyHeaderHeight() int {
-	if m.view != clarifyView {
+// pinnedHeaderHeight is how many lines the pinned header occupies at the
+// top of the screen: the clarify block (label + item-or-empty-message,
+// kept a fixed 2 lines so the layout doesn't jump around as the inbox
+// empties out) if in clarify view, plus one line per active mark, plus
+// one trailing blank separator line if there's anything pinned at all —
+// 0 if there's nothing pinned.
+func (m *Model) pinnedHeaderHeight() int {
+	n := 0
+	if m.view == clarifyView {
+		n += 2 // "Clarifying:" label + the item/empty-message line
+	}
+	if len(m.marks) > 0 {
+		n += 1 + len(m.marks) // "Active marks:" label + one line per mark
+	}
+	if n == 0 {
 		return 0
 	}
-	return 3
+	return n + 1
 }
 
-// renderClarifyHeader renders the pinned block fixed to the top of the
-// screen in clarify view: a label, the current clarify target rendered
-// exactly as it appears in the listing below (or an empty-inbox
-// message), and a blank separator line.
-func (m Model) renderClarifyHeader() string {
-	var b strings.Builder
-	b.WriteString(fileStyle.Render("Clarifying:"))
-	b.WriteString("\n")
-	if m.clarifyTarget == nil {
-		b.WriteString(statusStyle.Render("  Inbox is empty."))
-	} else {
-		b.WriteString(m.renderRow(row{headline: m.clarifyTarget, level: m.clarifyTarget.Level}))
+// pinnedHeaderLines renders the pinned header fixed to the top of the
+// screen: the current clarify target (if in clarify view, rendered
+// exactly as it appears in the listing below, or an empty-inbox
+// message), then every active mark (sorted by letter, one line each),
+// then a trailing blank separator — or nil if there's nothing pinned.
+func (m Model) pinnedHeaderLines() []string {
+	var lines []string
+	if m.view == clarifyView {
+		lines = append(lines, fileStyle.Render("Clarifying:"))
+		if m.clarifyTarget == nil {
+			lines = append(lines, statusStyle.Render("  Inbox is empty."))
+		} else {
+			lines = append(lines, m.renderPinnedRow("●", m.clarifyTarget))
+		}
 	}
-	b.WriteString("\n\n")
-	return b.String()
+	if letters := m.sortedMarkLetters(); len(letters) > 0 {
+		lines = append(lines, fileStyle.Render("Active marks:"))
+		for _, letter := range letters {
+			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter]))
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return append(lines, "")
+}
+
+// sortedMarkLetters returns the letters of every active mark, sorted —
+// for a deterministic display order in pinnedHeaderLines.
+func (m Model) sortedMarkLetters() []rune {
+	letters := make([]rune, 0, len(m.marks))
+	for letter := range m.marks {
+		letters = append(letters, letter)
+	}
+	sort.Slice(letters, func(i, j int) bool { return letters[i] < letters[j] })
+	return letters
+}
+
+// renderPinnedRow renders one line of the pinned header: marker (the
+// clarify target's "●", or a mark's letter) in place of the
+// gutter/indent/fold a normal listing row would have, then h's keyword
+// and title — the same format regardless of which pinned section it's
+// in, and regardless of h's actual level in its file's tree.
+func (m Model) renderPinnedRow(marker string, h *org.Headline) string {
+	return pinMarkerStyle.Render(marker) + "  " + strings.Join(m.renderKeywordAndTitle(h), " ")
 }
 
 // sectionSeparatorBudget is how many blank separator lines a full render
@@ -1871,8 +2094,9 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
-	if m.view == clarifyView {
-		b.WriteString(m.renderClarifyHeader())
+	for _, line := range m.pinnedHeaderLines() {
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 	for i := start; i < end; i++ {
 		if i > start && m.rows[i].section != "" {
@@ -2019,12 +2243,17 @@ func (m Model) renderRow(r row) string {
 	}
 
 	g := gutter(m.dirtyHeadlines[h])
-	if m.view == clarifyView && h == m.clarifyTarget {
+	switch {
+	case m.view == clarifyView && h == m.clarifyTarget:
 		// Marks the one row in the (still fully visible) listing that
 		// matches the pinned "Clarifying:" item at the top of the
 		// screen, taking priority over the dirty marker in this column
 		// (dirty state is still visible via the file row's own gutter).
-		g = clarifyMarkerStyle.Render("●")
+		g = pinMarkerStyle.Render("●")
+	default:
+		if letter, ok := m.markLetterFor(h); ok {
+			g = pinMarkerStyle.Render(string(letter))
+		}
 	}
 	line := g + " " + indent + fold + " " + strings.Join(m.renderKeywordAndTitle(h), " ")
 

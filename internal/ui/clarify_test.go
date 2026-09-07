@@ -39,7 +39,7 @@ func TestClarifyHeaderRendersPinnedItem(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.clarifyHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
@@ -89,7 +89,7 @@ func TestClarifyEmptyInboxShowsMessage(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Not in the inbox\n") // agenda.org, not inbox.org
 	m := New(ws)
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.clarifyHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
 	if m.clarifyTarget != nil {
 		t.Fatalf("clarifyTarget = %v, want nil (no inbox.org loaded)", m.clarifyTarget)
@@ -196,7 +196,7 @@ func TestClarifyPageHeightAccountsForPinnedHeader(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.clarifyHeaderHeight()+10
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+10
 
 	out := m.View()
 	lines := strings.Split(out, "\n")

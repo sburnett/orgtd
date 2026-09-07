@@ -376,15 +376,11 @@ func TestGgAndG(t *testing.T) {
 	m := New(ws)
 	m.height = 20
 
-	// G goes to the last FILE's header row, not the very bottom of its
-	// content.
+	// G goes all the way to the very last row, mirroring j/k's plain
+	// line-by-line movement.
 	m = sendKey(m, "G")
-	lastFileRow := findFileRow(t, m, "projects.org")
-	if m.cursor != lastFileRow {
-		t.Fatalf("cursor after G = %d, want %d (projects.org file row)", m.cursor, lastFileRow)
-	}
-	if m.cursor == len(m.rows)-1 {
-		t.Errorf("G landed on the very last row, want the last file's header row instead")
+	if want := len(m.rows) - 1; m.cursor != want {
+		t.Fatalf("cursor after G = %d, want %d (the very last row)", m.cursor, want)
 	}
 
 	m = sendKey(m, "g")
@@ -551,25 +547,24 @@ func TestCaretThenDollarAreInverseAtEachLevel(t *testing.T) {
 	}
 }
 
-func TestGGoesToLastFileEvenWithFoldedContentAtTheEnd(t *testing.T) {
+func TestGRespectsFoldedContentAtTheEnd(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 
-	// Fold the last top-level entry in the last file so its own last
-	// row is no longer near the physical bottom of m.rows, then verify
-	// G still lands exactly on the last file's header row (not
-	// "whatever happens to be the last visible row").
+	// Fold the last top-level entry in the last file so its children are
+	// no longer part of m.rows at all, then verify G lands on the last
+	// row that's actually visible (the folded entry itself), not some
+	// hidden descendant.
 	m.cursor = findRow(t, m, "Learn Go generics")
 	m = sendKey(m, "z")
 	m = sendKey(m, "c")
 
 	m = sendKey(m, "G")
-	want := findFileRow(t, m, "projects.org")
-	if m.cursor != want {
-		t.Errorf("cursor after G = %d, want %d (projects.org file row)", m.cursor, want)
+	if want := len(m.rows) - 1; m.cursor != want {
+		t.Fatalf("cursor after G = %d, want %d (the last visible row)", m.cursor, want)
 	}
-	if m.rows[m.cursor].file == nil {
-		t.Errorf("G did not land on a file row: %#v", m.rows[m.cursor])
+	if h := m.currentHeadline(); h == nil || h.Title != "Learn Go generics" {
+		t.Errorf("G landed on %v, want the folded 'Learn Go generics' entry", h)
 	}
 }
 
