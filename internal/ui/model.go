@@ -51,6 +51,12 @@ var (
 	// as a faint panel regardless of the terminal's own color scheme,
 	// resolved via lipgloss's terminal background detection.
 	overlayBg = lipgloss.AdaptiveColor{Light: "#e4e4e4", Dark: "#262626"}
+
+	// cursorBg highlights the row under the cursor, filling the whole
+	// terminal width — a distinct, more prominent shade than overlayBg
+	// so the current line and the pinned overlay read as different
+	// things.
+	cursorBg = lipgloss.AdaptiveColor{Light: "#cce0ff", Dark: "#2d3f5e"}
 )
 
 // bgSpan renders s with only a background color — no other styling —
@@ -191,9 +197,10 @@ type Model struct {
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
 
-	mode         mode
-	commandInput string
-	message      string // transient status-line message (e.g. an error), cleared on the next key press
+	mode               mode
+	commandInput       string
+	commandCompletions string // space-joined tab-completion matches shown after commandInput, cleared on the next keystroke
+	message            string // transient status-line message (e.g. an error), cleared on the next key press
 
 	selectFilter string // typed so far, in selectMode
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
@@ -724,6 +731,13 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.KeyTab {
+		// Any key other than Tab dismisses a shown completion list —
+		// it's a one-shot hint for the keystroke right after Tab, not a
+		// persistent part of the command line.
+		m.commandCompletions = ""
+	}
+
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.mode = normalMode
@@ -751,6 +765,10 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		m.commandInput += string(msg.Runes)
 		return m, nil
+
+	case tea.KeyTab:
+		m.completeCommand()
+		return m, nil
 	}
 
 	return m, nil
@@ -758,6 +776,62 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // runCommand executes the typed command line and always returns to
 // normal mode.
+// commandNames lists every command-mode word tab completion knows
+// about. Both short and long forms of the same command (e.g. "q" and
+// "quit") are listed individually, since either is something you might
+// type and want completed.
+var commandNames = []string{
+	"w", "write", "wq", "q", "quit", "q!", "quit!",
+	"undo", "redo", "agenda", "clarify", "outline",
+	"delmarks", "delmarks!",
+}
+
+// completeCommand implements ":<prefix><Tab>": if the command word
+// typed so far (no completion once an argument is being typed, i.e.
+// past the first space) is a prefix of exactly one command name, the
+// input is completed to it in full; if it's a prefix of several, the
+// input is extended to their longest common prefix and the matches are
+// listed after it so it's clear what to type next; if it matches none,
+// a message says so.
+func (m *Model) completeCommand() {
+	if strings.Contains(m.commandInput, " ") {
+		return
+	}
+	word := m.commandInput
+
+	var matches []string
+	for _, name := range commandNames {
+		if strings.HasPrefix(name, word) {
+			matches = append(matches, name)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		m.message = fmt.Sprintf("No command starting with %q", word)
+	case 1:
+		m.commandInput = matches[0]
+	default:
+		sort.Strings(matches)
+		if common := commonPrefix(matches); len(common) > len(word) {
+			m.commandInput = common
+		}
+		m.commandCompletions = strings.Join(matches, "  ")
+	}
+}
+
+// commonPrefix returns the longest string that's a prefix of every
+// element of strs. strs must be non-empty.
+func commonPrefix(strs []string) string {
+	prefix := strs[0]
+	for _, s := range strs[1:] {
+		for !strings.HasPrefix(s, prefix) {
+			prefix = prefix[:len(prefix)-1]
+		}
+	}
+	return prefix
+}
+
 func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	cmd := strings.TrimSpace(m.commandInput)
 	m.mode = normalMode
@@ -2188,9 +2262,11 @@ func (m Model) View() string {
 		if i > start && m.rows[i].section != "" {
 			b.WriteString("\n")
 		}
-		line := m.renderRow(m.rows[i])
+		var line string
 		if i == m.cursor {
-			line = cursorStyle.Render(line)
+			line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
+		} else {
+			line = m.renderRow(m.rows[i])
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -2204,7 +2280,10 @@ func (m Model) View() string {
 	switch {
 	case m.mode == commandMode:
 		b.WriteString(":" + m.commandInput)
-		b.WriteString(cursorStyle.Render(" ")) // caret, always at the end (no in-line editing yet)
+		b.WriteString(cursorStyle.Render(" ")) // caret, right after the input (no in-line editing yet)
+		if m.commandCompletions != "" {
+			b.WriteString("  " + statusStyle.Render(m.commandCompletions))
+		}
 	case m.mode == selectMode:
 		b.WriteString(m.renderStatusSelector())
 	case m.mode == deadlineMode:
@@ -2296,12 +2375,14 @@ func linksInTitle(title string) []string {
 
 // gutter renders the leftmost column of a row: a single-character dirty
 // marker, always present (blank when clean) so every row lines up the
-// same way vim's line-number column does, regardless of indentation.
-func gutter(dirty bool) string {
+// same way vim's line-number column does, regardless of indentation. bg
+// is the background it's rendered with — lipgloss.NoColor{} normally,
+// or the cursor row's highlight (see renderRowWithBg).
+func gutter(dirty bool, bg lipgloss.TerminalColor) string {
 	if dirty {
-		return errorStyle.Render("+")
+		return errorStyle.Background(bg).Render("+")
 	}
-	return " "
+	return bgSpan(bg, " ")
 }
 
 // markColumn is a headline row's mark/clarify gutter column, in outline
@@ -2310,50 +2391,64 @@ func gutter(dirty bool) string {
 // dirty shows both indicators at once instead of one hiding the other:
 // the clarify target's "●" (clarify view only) takes priority over a
 // mark's letter, since a row can't be both; blank if neither applies.
-func (m Model) markColumn(h *org.Headline) string {
+// bg is the background it's rendered with (see gutter).
+func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	if m.view == clarifyView && h == m.clarifyTarget {
-		return pinMarkerStyle.Render("●")
+		return pinMarkerStyle.Background(bg).Render("●")
 	}
 	if letter, ok := m.markLetterFor(h); ok {
-		return pinMarkerStyle.Render(string(letter))
+		return pinMarkerStyle.Background(bg).Render(string(letter))
 	}
-	return " "
+	return bgSpan(bg, " ")
 }
 
+// renderRow renders r with no highlight — the ordinary case, used for
+// every row except the one under the cursor. See renderRowWithBg.
 func (m Model) renderRow(r row) string {
+	return m.renderRowWithBg(r, lipgloss.NoColor{})
+}
+
+// renderRowWithBg renders r with bg as the background behind every
+// segment — not just wrapped around the finished string, which doesn't
+// work: each segment (keyword, tags, timestamp, ...) already carries its
+// own style with its own reset code, and that reset would cancel an
+// outer background the moment it fires, leaving the highlight covering
+// only the first styled segment instead of the whole line. This is the
+// same technique renderPinnedRow uses for the overlay background.
+func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	switch {
 	case r.section != "":
 		// Flush left (no gutter/indent), unlike every item row below it,
 		// so a section header stands out at a glance in a long agenda.
-		return fileStyle.Render(r.section)
+		return fileStyle.Background(bg).Render(r.section)
 	case r.file != nil:
 		// Blank mark column: files themselves are never marked, but this
 		// keeps every row's dirty marker lined up in the same column.
-		return " " + gutter(m.dirty[r.file]) + " " + fileStyle.Render(filepath.Base(r.file.Path))
+		return bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + fileStyle.Background(bg).Render(filepath.Base(r.file.Path))
 	case r.isAgendaItem:
-		return m.renderAgendaItemRow(r)
+		return m.renderAgendaItemRowWithBg(r, bg)
 	}
 
 	h := r.headline
-	indent := strings.Repeat("  ", h.Level)
+	indent := bgSpan(bg, strings.Repeat("  ", h.Level))
 
-	fold := " "
+	fold := bgSpan(bg, " ")
 	if len(h.Children) > 0 {
+		glyph := "▼" // U+25BC BLACK DOWN-POINTING TRIANGLE (full-size; ▾ is a dedicated "small" variant)
 		if m.collapsed[h] {
-			fold = "▶" // U+25B6 BLACK RIGHT-POINTING TRIANGLE (full-size; ▸ is a dedicated "small" variant)
-		} else {
-			fold = "▼" // U+25BC BLACK DOWN-POINTING TRIANGLE (full-size; ▾ is a dedicated "small" variant)
+			glyph = "▶" // U+25B6 BLACK RIGHT-POINTING TRIANGLE (full-size; ▸ is a dedicated "small" variant)
 		}
+		fold = bgSpan(bg, glyph)
 	}
 
-	line := m.markColumn(h) + gutter(m.dirtyHeadlines[h]) + " " + indent + fold + " " + strings.Join(m.renderKeywordAndTitle(h, lipgloss.NoColor{}), " ")
+	line := m.markColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
-		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")
+		line += bgSpan(bg, "  ") + tagStyle.Background(bg).Render(":"+strings.Join(h.Tags, ":")+":")
 	}
 
 	if ts := planningSummary(h); ts != "" {
-		line += "  " + timestampStyle.Render(ts)
+		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(ts)
 	}
 
 	return line
@@ -2390,12 +2485,12 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 // title (as in outline, but with no indent or fold arrow — agenda is
 // flat), tags, then which file it's from and the date/label (Scheduled
 // or Deadline) it's shown for.
-func (m Model) renderAgendaItemRow(r row) string {
+func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
-	line := m.markColumn(h) + gutter(m.dirtyHeadlines[h]) + " " + strings.Join(m.renderKeywordAndTitle(h, lipgloss.NoColor{}), " ")
+	line := m.markColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
-		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")
+		line += bgSpan(bg, "  ") + tagStyle.Background(bg).Render(":"+strings.Join(h.Tags, ":")+":")
 	}
 
 	fileName := ""
@@ -2403,10 +2498,10 @@ func (m Model) renderAgendaItemRow(r row) string {
 		fileName = filepath.Base(f.Path)
 	}
 	if r.agendaLabel != "" {
-		line += "  " + timestampStyle.Render(fmt.Sprintf("[%s]  %s: %s", fileName, r.agendaLabel, r.agendaDate.Format("2006-01-02 Mon")))
+		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(fmt.Sprintf("[%s]  %s: %s", fileName, r.agendaLabel, r.agendaDate.Format("2006-01-02 Mon")))
 	} else {
 		// A Next Actions entry: no date to show, just which file it's in.
-		line += "  " + timestampStyle.Render(fmt.Sprintf("[%s]", fileName))
+		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(fmt.Sprintf("[%s]", fileName))
 	}
 
 	return line

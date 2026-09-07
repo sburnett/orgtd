@@ -352,8 +352,8 @@ func TestAgendaViewInsertsBlankLineBetweenSectionsButNotBeforeTheFirst(t *testin
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
 
-	if lines[0] != "Overdue" {
-		t.Fatalf("line 0 = %q, want the first section header with no blank line before it", lines[0])
+	if strings.TrimRight(lines[0], " ") != "Overdue" {
+		t.Fatalf("line 0 = %q, want the first section header (plus cursor-highlight padding) with no blank line before it", lines[0])
 	}
 	if lines[1] == "" {
 		t.Errorf("unexpected blank line right after the first section header")

@@ -1011,6 +1011,37 @@ func TestCommandModeShowsCursor(t *testing.T) {
 	}
 }
 
+func TestCommandModeCaretStaysRightAfterInputWhenCompletionsShown(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 100, 30
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "w")
+	m = sendKey(m, "tab")
+	if m.commandCompletions == "" {
+		t.Fatalf("fixture assumption broken: expected a completion list after tab")
+	}
+
+	lines := strings.Split(m.View(), "\n")
+	last := lines[len(lines)-1]
+
+	// The caret must sit immediately after ":w" — not after the
+	// completion list — so it still reads as "this is where your typed
+	// input ends", with the completions shown as a hint past it.
+	caretIdx := strings.Index(last, "\x1b[7m")
+	completionsIdx := strings.Index(last, "w  wq  write")
+	if caretIdx < 0 || completionsIdx < 0 {
+		t.Fatalf("status line = %q, missing caret or completions", last)
+	}
+	if !strings.HasPrefix(last, ":w\x1b[7m") {
+		t.Errorf("status line = %q, want the caret immediately after ':w'", last)
+	}
+	if caretIdx >= completionsIdx {
+		t.Errorf("status line = %q, want the caret before the completion list", last)
+	}
+}
+
 func TestCommandQuit(t *testing.T) {
 	for _, cmdText := range []string{"q", "quit"} {
 		t.Run(cmdText, func(t *testing.T) {
