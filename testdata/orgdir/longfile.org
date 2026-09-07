@@ -1,5 +1,6 @@
 * Entry 1 [[http://google.co]]
-* Entry 2
+* Entry 2 [[https://docs.google.com/document/d/1ienNOwR-F_-E76LN_YJEoVT3K1dqr0KZyzi87MSJMHU/edit?tab=t.0#heading=h.91wh07x19hro][Basic recipes]] [[https://docs.google.com/document/d/1nIseRbmGuyzi0Qv9rLOtLu9sIjL5kYXxWzT95ulszkc/edit?tab=t.0][Other recipe]]
+
 * Entry 3
 * Entry 4
 * Entry 5

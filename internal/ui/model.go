@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1657,7 +1658,7 @@ func (m *Model) jumpToSubtreeBottom() {
 // pageSize is the number of rows visible at once, reserving one line for
 // the status bar.
 func (m *Model) pageSize() int {
-	n := m.height - 1
+	n := m.height - m.statusHeight()
 	if n < 1 {
 		n = 1
 	}
@@ -1716,11 +1717,81 @@ func (m Model) View() string {
 	case m.message != "":
 		b.WriteString(errorStyle.Render(m.message))
 	default:
-		status := fmt.Sprintf(" %s  —  item %d/%d", m.ws.Dir, m.cursor+1, len(m.rows))
-		b.WriteString(statusStyle.Render(status))
+		for i, line := range m.normalStatusLines() {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(statusStyle.Render(line))
+		}
 	}
 
 	return b.String()
+}
+
+// normalStatusLines returns the line(s) for the default (mode-less)
+// status area: usually just one ("dir — item N/M — url"), but if the
+// current entry has one or more links and the combined line would be
+// wider than m.width, the link(s) are moved off of it — onto a line of
+// their own together if that fits, or (with multiple links) one per line
+// if even that doesn't — since a wrapped URL can't be resolved by the
+// terminal, this gives each the best chance of fitting unwrapped.
+// Unknown width (m.width <= 0) never triggers a split.
+func (m *Model) normalStatusLines() []string {
+	main := fmt.Sprintf(" %s  —  item %d/%d", m.ws.Dir, m.cursor+1, len(m.rows))
+	h := m.currentHeadline()
+	if h == nil {
+		return []string{main}
+	}
+	urls := linksInTitle(h.Title)
+	if len(urls) == 0 {
+		return []string{main}
+	}
+	// Plain, unstyled URLs, printed as-is (not org-mode link syntax) so
+	// the terminal's own URL detection can make them clickable.
+	joined := strings.Join(urls, "  ")
+	if m.width <= 0 || fitsWidth(main+"  —  "+joined, m.width) {
+		return []string{main + "  —  " + joined}
+	}
+	if fitsWidth(" "+joined, m.width) {
+		return []string{main, " " + joined}
+	}
+	lines := make([]string, 0, 1+len(urls))
+	lines = append(lines, main)
+	for _, u := range urls {
+		lines = append(lines, " "+u)
+	}
+	return lines
+}
+
+// fitsWidth reports whether s (measured in runes, not bytes) fits within
+// width columns.
+func fitsWidth(s string, width int) bool {
+	return utf8.RuneCountInString(s) <= width
+}
+
+// statusHeight is how many lines the bottom status area occupies for the
+// current mode/cursor: every mode but the default one is always one
+// line; the default one is whatever normalStatusLines returns (usually
+// 1, but 2 when a link is being given its own line — see
+// normalStatusLines).
+func (m *Model) statusHeight() int {
+	if m.mode != normalMode || m.message != "" {
+		return 1
+	}
+	return len(m.normalStatusLines())
+}
+
+// linksInTitle returns the URL of every org-mode link in title, in order.
+func linksInTitle(title string) []string {
+	matches := orgLinkRe.FindAllStringSubmatch(title, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	urls := make([]string, len(matches))
+	for i, mm := range matches {
+		urls[i] = mm[1]
+	}
+	return urls
 }
 
 // gutter renders the leftmost column of a row: a single-character dirty
