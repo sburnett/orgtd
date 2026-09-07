@@ -36,13 +36,14 @@ var (
 		"CANCELLED": lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 	}
 
-	tagStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	doneTitleStyle = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("245"))
-	cursorStyle    = lipgloss.NewStyle().Reverse(true)
-	statusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	timestampStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	shortcutStyle  = lipgloss.NewStyle().Bold(true)
+	tagStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	doneTitleStyle     = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("245"))
+	cursorStyle        = lipgloss.NewStyle().Reverse(true)
+	statusStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	timestampStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
+	errorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	shortcutStyle      = lipgloss.NewStyle().Bold(true)
+	clarifyMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 )
 
 // mode selects how key presses are interpreted.
@@ -161,6 +162,9 @@ type Model struct {
 
 	view       viewKind
 	agendaDays int // how many days ahead the agenda's "Upcoming" section covers
+
+	inboxFile     string        // base name of the file :clarify treats as the inbox
+	clarifyTarget *org.Headline // the inbox item currently pinned for clarification, in clarifyView; nil if the inbox is empty
 }
 
 // viewKind selects what rebuildRows populates m.rows with.
@@ -169,6 +173,7 @@ type viewKind int
 const (
 	outlineView viewKind = iota
 	agendaView
+	clarifyView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -194,6 +199,17 @@ func WithAgendaDays(days int) Option {
 	}
 }
 
+// WithInboxFile sets the base file name :clarify treats as the inbox
+// (e.g. "inbox.org", the default). name == "" is treated as the
+// default.
+func WithInboxFile(name string) Option {
+	return func(m *Model) {
+		if name != "" {
+			m.inboxFile = name
+		}
+	}
+}
+
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
@@ -203,6 +219,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		dirtyHeadlines: make(map[*org.Headline]bool),
 		savedPos:       make(map[*org.File]int),
 		agendaDays:     14,
+		inboxFile:      "inbox.org",
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -247,6 +264,46 @@ func (m *Model) jumpToSource() {
 	}
 	m.switchToView(outlineView)
 	m.focusHeadline(h)
+}
+
+// findInboxFile returns the workspace file :clarify treats as the
+// inbox (see WithInboxFile), or nil if it isn't loaded.
+func (m *Model) findInboxFile() *org.File {
+	for _, f := range m.ws.Files {
+		if filepath.Base(f.Path) == m.inboxFile {
+			return f
+		}
+	}
+	return nil
+}
+
+// advanceClarifyTarget sets m.clarifyTarget to the inbox's current first
+// top-level headline, or nil if the inbox file is missing or empty.
+func (m *Model) advanceClarifyTarget() {
+	f := m.findInboxFile()
+	if f != nil && len(f.Headlines) > 0 {
+		m.clarifyTarget = f.Headlines[0]
+	} else {
+		m.clarifyTarget = nil
+	}
+}
+
+// enterClarifyView switches to clarify view, pinning the inbox's first
+// top-level headline for clarification (always the first, regardless of
+// where the cursor was — :clarify starts a top-to-bottom pass).
+func (m *Model) enterClarifyView() {
+	m.advanceClarifyTarget()
+	m.switchToView(clarifyView)
+}
+
+// jumpToClarifyTarget ("gc") moves the cursor to the real row of the
+// item currently pinned for clarification, wherever it sits in the
+// outline. A no-op outside clarify view, or if the inbox is empty.
+func (m *Model) jumpToClarifyTarget() {
+	if m.view != clarifyView || m.clarifyTarget == nil {
+		return
+	}
+	m.focusHeadline(m.clarifyTarget)
 }
 
 // switchToView changes which view rebuildRows populates m.rows with,
@@ -394,8 +451,11 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingZ = true
 
 	case "c":
-		if wasPendingZ {
+		switch {
+		case wasPendingZ:
 			m.foldClose()
+		case wasPendingG:
+			m.jumpToClarifyTarget()
 		}
 
 	case "C":
@@ -531,6 +591,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "agenda":
 		m.switchToView(agendaView)
+
+	case "clarify":
+		m.enterClarifyView()
 
 	case "outline":
 		m.switchToView(outlineView)
@@ -1202,6 +1265,10 @@ func (m *Model) deleteHeadline() {
 	}
 	m.register = h
 	m.pushUndo(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
+
+	if m.view == clarifyView && h == m.clarifyTarget {
+		m.advanceClarifyTarget()
+	}
 }
 
 // pasteHeadline inserts a copy of the register's contents after
@@ -1720,11 +1787,40 @@ func (m *Model) jumpToSubtreeBottom() {
 // pageSize is the number of rows visible at once, reserving one line for
 // the status bar.
 func (m *Model) pageSize() int {
-	n := m.height - m.statusHeight() - m.sectionSeparatorBudget()
+	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.clarifyHeaderHeight()
 	if n < 1 {
 		n = 1
 	}
 	return n
+}
+
+// clarifyHeaderHeight is how many lines the pinned "Clarifying:" header
+// occupies at the top of the screen: 0 outside clarify view, a fixed 3
+// lines (label, item-or-empty-message, blank separator) within it — kept
+// constant regardless of whether the inbox is currently empty, so the
+// layout doesn't jump around as it empties out.
+func (m *Model) clarifyHeaderHeight() int {
+	if m.view != clarifyView {
+		return 0
+	}
+	return 3
+}
+
+// renderClarifyHeader renders the pinned block fixed to the top of the
+// screen in clarify view: a label, the current clarify target rendered
+// exactly as it appears in the listing below (or an empty-inbox
+// message), and a blank separator line.
+func (m Model) renderClarifyHeader() string {
+	var b strings.Builder
+	b.WriteString(fileStyle.Render("Clarifying:"))
+	b.WriteString("\n")
+	if m.clarifyTarget == nil {
+		b.WriteString(statusStyle.Render("  Inbox is empty."))
+	} else {
+		b.WriteString(m.renderRow(row{headline: m.clarifyTarget, level: m.clarifyTarget.Level}))
+	}
+	b.WriteString("\n\n")
+	return b.String()
 }
 
 // sectionSeparatorBudget is how many blank separator lines a full render
@@ -1775,6 +1871,9 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
+	if m.view == clarifyView {
+		b.WriteString(m.renderClarifyHeader())
+	}
 	for i := start; i < end; i++ {
 		if i > start && m.rows[i].section != "" {
 			b.WriteString("\n")
@@ -1919,7 +2018,15 @@ func (m Model) renderRow(r row) string {
 		}
 	}
 
-	line := gutter(m.dirtyHeadlines[h]) + " " + indent + fold + " " + strings.Join(m.renderKeywordAndTitle(h), " ")
+	g := gutter(m.dirtyHeadlines[h])
+	if m.view == clarifyView && h == m.clarifyTarget {
+		// Marks the one row in the (still fully visible) listing that
+		// matches the pinned "Clarifying:" item at the top of the
+		// screen, taking priority over the dirty marker in this column
+		// (dirty state is still visible via the file row's own gutter).
+		g = clarifyMarkerStyle.Render("●")
+	}
+	line := g + " " + indent + fold + " " + strings.Join(m.renderKeywordAndTitle(h), " ")
 
 	if len(h.Tags) > 0 {
 		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")

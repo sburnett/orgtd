@@ -30,6 +30,7 @@ func main() {
 	dir := flag.String("dir", defaultOrgDir(), "directory containing org files (default: $ORGTD_DIR or ~/org)")
 	urlFormatter := flag.String("url-formatter", "", "external program invoked as `<prog> <url>` to convert a bare URL, found while editing an entry, into an org-mode link (its stdout replaces the URL); disabled if empty")
 	agendaDays := flag.Int("agenda-days", 14, "how many days ahead the agenda view's \"Upcoming\" section covers")
+	inboxFile := flag.String("inbox-file", "inbox.org", "base name of the file :clarify treats as the inbox")
 	flag.Parse()
 
 	ws, err := workspace.Load(*dir)
@@ -38,7 +39,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(ui.New(ws, ui.WithURLFormatter(*urlFormatter), ui.WithAgendaDays(*agendaDays)), tea.WithAltScreen())
+	p := tea.NewProgram(
+		ui.New(ws, ui.WithURLFormatter(*urlFormatter), ui.WithAgendaDays(*agendaDays), ui.WithInboxFile(*inboxFile)),
+		tea.WithAltScreen(),
+	)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)

@@ -22,12 +22,12 @@
    :ID: 2a3b4c5d-0004
    :END:
 
-* Quarterly planning                                    :work:
+* Quarterly planning   :work:
 ** NEXT Draft the Q4 goals doc
    DEADLINE: <2026-09-15 Tue>
    :PROPERTIES:
-   :ID:              3c4d5e6f-0001
-   :GCAL_EVENT_IDS:  evt_planning_kickoff
+   :ID: 3c4d5e6f-0001
+   :GCAL_EVENT_IDS: evt_planning_kickoff
    :END:
 ** WAITING Get budget numbers from finance
    :PROPERTIES:
@@ -38,7 +38,7 @@
    :ID: 3c4d5e6f-0003
    :END:
 
-* Learn Go generics                                      :someday:
+* Learn Go generics   :someday:
 ** SOMEDAY Read the generics proposal
    :PROPERTIES:
    :ID: 4d5e6f70-0001
