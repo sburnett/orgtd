@@ -138,6 +138,7 @@ type Model struct {
 	pendingD  bool
 	pendingGT bool // pending '>' of ">>"
 	pendingLT bool // pending '<' of "<<"
+	pendingZ  bool // pending 'z' of a fold command (zo/zc/za/zO/zC/zA)
 
 	register *org.Headline // last deleted entry (dd), pasted (as a copy) by p/P
 
@@ -228,10 +229,12 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	wasPendingD := m.pendingD
 	wasPendingGT := m.pendingGT
 	wasPendingLT := m.pendingLT
+	wasPendingZ := m.pendingZ
 	m.pendingG = false
 	m.pendingD = false
 	m.pendingGT = false
 	m.pendingLT = false
+	m.pendingZ = false
 	m.message = ""
 
 	switch key {
@@ -281,13 +284,40 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "o":
-		if cmd := m.insertHeadline(false); cmd != nil {
+		if wasPendingZ {
+			m.foldOpen()
+		} else if cmd := m.insertHeadline(false); cmd != nil {
 			return m, cmd
 		}
 
 	case "O":
-		if cmd := m.insertHeadline(true); cmd != nil {
+		if wasPendingZ {
+			m.foldOpenAll()
+		} else if cmd := m.insertHeadline(true); cmd != nil {
 			return m, cmd
+		}
+
+	case "z":
+		m.pendingZ = true
+
+	case "c":
+		if wasPendingZ {
+			m.foldClose()
+		}
+
+	case "C":
+		if wasPendingZ {
+			m.foldCloseAll()
+		}
+
+	case "a":
+		if wasPendingZ {
+			m.toggleFold()
+		}
+
+	case "A":
+		if wasPendingZ {
+			m.foldToggleAll()
 		}
 
 	case "u":
@@ -1202,6 +1232,8 @@ func (m *Model) currentHeadline() *org.Headline {
 	return m.rows[m.cursor].headline
 }
 
+// toggleFold ("za"/Tab) toggles whether the current headline's own
+// children are hidden, one level.
 func (m *Model) toggleFold() {
 	h := m.currentHeadline()
 	if h == nil || len(h.Children) == 0 {
@@ -1209,6 +1241,74 @@ func (m *Model) toggleFold() {
 	}
 	m.collapsed[h] = !m.collapsed[h]
 	m.rebuildRows()
+}
+
+// foldOpen ("zo") reveals the current headline's own children, one level.
+func (m *Model) foldOpen() {
+	h := m.currentHeadline()
+	if h == nil || len(h.Children) == 0 {
+		return
+	}
+	m.collapsed[h] = false
+	m.rebuildRows()
+}
+
+// foldClose ("zc") hides the current headline's own children, one level.
+func (m *Model) foldClose() {
+	h := m.currentHeadline()
+	if h == nil || len(h.Children) == 0 {
+		return
+	}
+	m.collapsed[h] = true
+	m.rebuildRows()
+}
+
+// foldOpenAll ("zO") reveals the current headline's entire subtree,
+// recursively.
+func (m *Model) foldOpenAll() {
+	h := m.currentHeadline()
+	if h == nil || len(h.Children) == 0 {
+		return
+	}
+	setCollapsedRecursive(m.collapsed, h, false)
+	m.rebuildRows()
+}
+
+// foldCloseAll ("zC") hides the current headline's entire subtree,
+// recursively — every descendant with children is marked collapsed too,
+// so a later single-level zo doesn't reveal an inconsistent half-open
+// state.
+func (m *Model) foldCloseAll() {
+	h := m.currentHeadline()
+	if h == nil || len(h.Children) == 0 {
+		return
+	}
+	setCollapsedRecursive(m.collapsed, h, true)
+	m.rebuildRows()
+}
+
+// foldToggleAll ("zA") opens the current headline's entire subtree
+// recursively if it's currently folded, or closes it entirely
+// recursively otherwise.
+func (m *Model) foldToggleAll() {
+	h := m.currentHeadline()
+	if h == nil || len(h.Children) == 0 {
+		return
+	}
+	setCollapsedRecursive(m.collapsed, h, !m.collapsed[h])
+	m.rebuildRows()
+}
+
+// setCollapsedRecursive sets collapsed[x] = value for h and every
+// descendant of h that has children (a childless headline has nothing
+// to fold, so it's left out of the map).
+func setCollapsedRecursive(collapsed map[*org.Headline]bool, h *org.Headline, value bool) {
+	if len(h.Children) > 0 {
+		collapsed[h] = value
+	}
+	for _, c := range h.Children {
+		setCollapsedRecursive(collapsed, c, value)
+	}
 }
 
 func (m *Model) moveCursor(delta int) {
@@ -1367,9 +1467,9 @@ func (m Model) renderRow(r row) string {
 	fold := " "
 	if len(h.Children) > 0 {
 		if m.collapsed[h] {
-			fold = "▸"
+			fold = "▶" // U+25B6 BLACK RIGHT-POINTING TRIANGLE (full-size; ▸ is a dedicated "small" variant)
 		} else {
-			fold = "▾"
+			fold = "▼" // U+25BC BLACK DOWN-POINTING TRIANGLE (full-size; ▾ is a dedicated "small" variant)
 		}
 	}
 
