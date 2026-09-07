@@ -134,8 +134,10 @@ type Model struct {
 
 	width, height int
 
-	pendingG bool
-	pendingD bool
+	pendingG  bool
+	pendingD  bool
+	pendingGT bool // pending '>' of ">>"
+	pendingLT bool // pending '<' of "<<"
 
 	register *org.Headline // last deleted entry (dd), pasted (as a copy) by p/P
 
@@ -224,8 +226,12 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	wasPendingG := m.pendingG
 	wasPendingD := m.pendingD
+	wasPendingGT := m.pendingGT
+	wasPendingLT := m.pendingLT
 	m.pendingG = false
 	m.pendingD = false
+	m.pendingGT = false
+	m.pendingLT = false
 	m.message = ""
 
 	switch key {
@@ -297,6 +303,20 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deleteHeadline()
 		} else {
 			m.pendingD = true
+		}
+
+	case ">":
+		if wasPendingGT {
+			m.demoteHeadline()
+		} else {
+			m.pendingGT = true
+		}
+
+	case "<":
+		if wasPendingLT {
+			m.promoteHeadline()
+		} else {
+			m.pendingLT = true
 		}
 
 	case "p":
@@ -1025,6 +1045,63 @@ func (m *Model) pasteHeadline(before bool) {
 	clone := org.CloneHeadline(m.register)
 	shiftHeadlineLevel(clone, level-clone.Level)
 	m.pushUndo(&insertAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{clone}}})
+}
+
+// demoteHeadline (">>") nests the current headline (and its whole
+// subtree) one level deeper, making it the last child of its previous
+// sibling — matching org-mode's own demote-subtree behavior, which is
+// also the only way to increase Level while keeping Parent consistent
+// with it. A no-op (with a status-line message) if there's no previous
+// sibling to nest under, since there's nothing sensible to reparent
+// onto.
+func (m *Model) demoteHeadline() {
+	h := m.currentHeadline()
+	if h == nil {
+		return
+	}
+	f, parent, idx := m.insertPosition(h)
+	if idx <= 0 {
+		m.message = "Cannot demote: no previous sibling to nest under"
+		return
+	}
+	list := f.Headlines
+	if parent != nil {
+		list = parent.Children
+	}
+	prevSibling := list[idx-1]
+
+	m.pushUndo(&reparentAction{
+		h: h, f: f,
+		oldParent: parent, oldIndex: idx,
+		newParent: prevSibling, newIndex: len(prevSibling.Children),
+		delta: 1,
+	})
+}
+
+// promoteHeadline ("<<") un-nests the current headline (and its
+// whole subtree) one level shallower, making it the next sibling of its
+// former parent — the exact inverse of demoteHeadline, and org-mode's
+// own promote-subtree behavior. A no-op (with a message) if the
+// headline is already top-level.
+func (m *Model) promoteHeadline() {
+	h := m.currentHeadline()
+	if h == nil {
+		return
+	}
+	if h.Parent == nil {
+		m.message = "Cannot promote: already at the top level"
+		return
+	}
+	f, parent, idx := m.insertPosition(h)
+	grandparent := parent.Parent
+	_, _, parentIdx := m.insertPosition(parent)
+
+	m.pushUndo(&reparentAction{
+		h: h, f: f,
+		oldParent: parent, oldIndex: idx,
+		newParent: grandparent, newIndex: parentIdx + 1,
+		delta: -1,
+	})
 }
 
 // shiftHeadlineLevel adds delta to h.Level and every descendant's Level,

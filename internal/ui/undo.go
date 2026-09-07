@@ -197,6 +197,73 @@ func (a *deleteAction) apply(m *Model) *org.Headline  { return a.remove(m) }
 func (a *deleteAction) revert(m *Model) *org.Headline { return a.insert(m) }
 func (a *deleteAction) affected() []*org.Headline     { return a.affectedIfInTree() }
 
+// reparentAction records a ">>"/"<<" (demote/promote): h moved from
+// (oldParent, oldIndex) to (newParent, newIndex) within f, with its own
+// Level (and its descendants') shifted by delta. revert() is the exact
+// inverse: move back, shifted by -delta.
+type reparentAction struct {
+	h                    *org.Headline
+	f                    *org.File
+	oldParent, newParent *org.Headline
+	oldIndex, newIndex   int
+	delta                int
+}
+
+func (a *reparentAction) apply(m *Model) *org.Headline {
+	m.moveHeadlineTo(a.h, a.f, a.newParent, a.newIndex, a.delta)
+	return a.h
+}
+
+func (a *reparentAction) revert(m *Model) *org.Headline {
+	m.moveHeadlineTo(a.h, a.f, a.oldParent, a.oldIndex, -a.delta)
+	return a.h
+}
+
+func (a *reparentAction) file() *org.File { return a.f }
+
+func (a *reparentAction) affected() []*org.Headline {
+	var out []*org.Headline
+	org.Walk([]*org.Headline{a.h}, func(x *org.Headline) { out = append(out, x) })
+	return out
+}
+
+// moveHeadlineTo removes h from wherever it currently sits within f
+// (its parent's children, or f's top-level list), shifts h's own Level
+// (and its descendants', via shiftHeadlineLevel) by delta, reparents it,
+// and inserts it at newIndex within newParent's children (or f's
+// top-level list, if newParent is nil).
+func (m *Model) moveHeadlineTo(h *org.Headline, f *org.File, newParent *org.Headline, newIndex, delta int) {
+	oldParent := h.Parent
+	oldList := f.Headlines
+	if oldParent != nil {
+		oldList = oldParent.Children
+	}
+	oldIndex := -1
+	for i, c := range oldList {
+		if c == h {
+			oldIndex = i
+			break
+		}
+	}
+	if oldIndex < 0 {
+		return
+	}
+	if oldParent != nil {
+		oldParent.Children = spliceHeadlines(oldParent.Children, oldIndex, 1, nil)
+	} else {
+		f.Headlines = spliceHeadlines(f.Headlines, oldIndex, 1, nil)
+	}
+
+	shiftHeadlineLevel(h, delta)
+	h.Parent = newParent
+
+	if newParent != nil {
+		newParent.Children = spliceHeadlines(newParent.Children, newIndex, 0, []*org.Headline{h})
+	} else {
+		f.Headlines = spliceHeadlines(f.Headlines, newIndex, 0, []*org.Headline{h})
+	}
+}
+
 // insertPosition returns the file, parent (nil if top-level), and index
 // of h within its parent's children (or its file's top-level list).
 func (m *Model) insertPosition(h *org.Headline) (f *org.File, parent *org.Headline, index int) {
