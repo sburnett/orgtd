@@ -28,6 +28,7 @@ func defaultOrgDir() string {
 
 func main() {
 	dir := flag.String("dir", defaultOrgDir(), "directory containing org files (default: $ORGTD_DIR or ~/org)")
+	urlFormatter := flag.String("url-formatter", "", "external program invoked as `<prog> <url>` to convert a bare URL, found while editing an entry, into an org-mode link (its stdout replaces the URL); disabled if empty")
 	flag.Parse()
 
 	ws, err := workspace.Load(*dir)
@@ -36,7 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(ui.New(ws), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(ws, ui.WithURLFormatter(*urlFormatter)), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)

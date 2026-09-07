@@ -158,19 +158,40 @@ func TestCursorMovementClamps(t *testing.T) {
 	for i := 0; i < len(m.rows)+5; i++ {
 		m = sendKey(m, "j")
 	}
-	// From row 0 (a file header, level 0), j only ever visits other
-	// file-header rows (there are two fixture files), and stops at the
-	// last one rather than descending into headlines or running off
-	// the end of the list.
-	if want := findFileRow(t, m, "projects.org"); m.cursor != want {
-		t.Errorf("cursor after many j from row 0 = %d, want %d (projects.org file header)", m.cursor, want)
+	// j/k move one row at a time, like ordinary line-based navigation, so
+	// this just clamps at the very last row.
+	if want := len(m.rows) - 1; m.cursor != want {
+		t.Errorf("cursor after many j = %d, want %d (last row)", m.cursor, want)
 	}
 }
 
-// TestSiblingNavigationSkipsDescendantsAndHopsUp exercises j/k: they move
-// between rows at the same indentation level, skipping over any deeper
-// (descendant) rows, and "hop up" to a shallower row once there are no
-// more rows at the current level.
+// TestJKMoveOneRowAtATime exercises j/k: plain up/down by one visible
+// row, the same as navigating an ordinary file — no skipping over
+// descendants and no level-awareness (that's "{"/"}" now).
+func TestJKMoveOneRowAtATime(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = 0
+
+	m = sendKey(m, "j")
+	if m.cursor != 1 {
+		t.Errorf("cursor after j = %d, want 1", m.cursor)
+	}
+	m = sendKey(m, "j")
+	if m.cursor != 2 {
+		t.Errorf("cursor after second j = %d, want 2", m.cursor)
+	}
+	m = sendKey(m, "k")
+	if m.cursor != 1 {
+		t.Errorf("cursor after k = %d, want 1", m.cursor)
+	}
+}
+
+// TestSiblingNavigationSkipsDescendantsAndHopsUp exercises "{"/"}"
+// (mirroring vim's paragraph motions): they move between rows at the same
+// indentation level, skipping over any deeper (descendant) rows, and
+// "hop up" to a shallower row once there are no more rows at the current
+// level.
 func TestSiblingNavigationSkipsDescendantsAndHopsUp(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
@@ -178,40 +199,69 @@ func TestSiblingNavigationSkipsDescendantsAndHopsUp(t *testing.T) {
 
 	m.cursor = findRow(t, m, "Ship orgtd v0.1")
 
-	m = sendKey(m, "j")
+	m = sendKey(m, "}")
 	if got, want := m.cursor, findRow(t, m, "Quarterly planning"); got != want {
-		t.Fatalf("j from 'Ship orgtd v0.1' = row %d, want %d ('Quarterly planning')", got, want)
+		t.Fatalf("} from 'Ship orgtd v0.1' = row %d, want %d ('Quarterly planning')", got, want)
 	}
 
-	m = sendKey(m, "j")
+	m = sendKey(m, "}")
 	if got, want := m.cursor, findRow(t, m, "Learn Go generics"); got != want {
-		t.Fatalf("j from 'Quarterly planning' = row %d, want %d ('Learn Go generics')", got, want)
+		t.Fatalf("} from 'Quarterly planning' = row %d, want %d ('Learn Go generics')", got, want)
 	}
 
 	// 'Learn Go generics' is the last top-level project; there is
-	// nothing more at level 1 and nothing shallower after it, so j is a
+	// nothing more at level 1 and nothing shallower after it, so } is a
 	// no-op here.
 	before := m.cursor
-	m = sendKey(m, "j")
+	m = sendKey(m, "}")
 	if m.cursor != before {
-		t.Errorf("j past the last sibling moved cursor to %d, want no-op at %d", m.cursor, before)
+		t.Errorf("} past the last sibling moved cursor to %d, want no-op at %d", m.cursor, before)
 	}
 
-	m = sendKey(m, "k")
+	m = sendKey(m, "{")
 	if got, want := m.cursor, findRow(t, m, "Quarterly planning"); got != want {
-		t.Fatalf("k back = row %d, want %d ('Quarterly planning')", got, want)
+		t.Fatalf("{ back = row %d, want %d ('Quarterly planning')", got, want)
 	}
 
-	m = sendKey(m, "k")
+	m = sendKey(m, "{")
 	if got, want := m.cursor, findRow(t, m, "Ship orgtd v0.1"); got != want {
-		t.Fatalf("k back = row %d, want %d ('Ship orgtd v0.1')", got, want)
+		t.Fatalf("{ back = row %d, want %d ('Ship orgtd v0.1')", got, want)
 	}
 
-	// One more k hops up: there's no sibling before 'Ship orgtd v0.1',
+	// One more { hops up: there's no sibling before 'Ship orgtd v0.1',
 	// so we land on its parent file header.
-	m = sendKey(m, "k")
+	m = sendKey(m, "{")
 	if got, want := m.cursor, findFileRow(t, m, "projects.org"); got != want {
-		t.Fatalf("k hop-up = row %d, want %d (projects.org file header)", got, want)
+		t.Fatalf("{ hop-up = row %d, want %d (projects.org file header)", got, want)
+	}
+}
+
+// TestParagraphMotionHopsUpImmediatelyFromALeaf covers the leaf-specific
+// behavior: on a leaf, "}"/"{" jump straight to the next/previous row at
+// the *parent's* level, skipping the current leaf's remaining siblings
+// entirely — those are already reachable one at a time via plain j/k.
+func TestParagraphMotionHopsUpImmediatelyFromALeaf(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	// "Write the design document" is the first of four leaf children of
+	// "Ship orgtd v0.1". Without the leaf special-case, } would land on
+	// the next leaf sibling ("Implement the org file parser"); instead
+	// it should skip all remaining siblings and land on the next
+	// top-level project.
+	m.cursor = findRow(t, m, "Write the design document")
+	m = sendKey(m, "}")
+	if got, want := m.cursor, findRow(t, m, "Quarterly planning"); got != want {
+		t.Errorf("} from a leaf = row %d, want %d ('Quarterly planning', skipping remaining leaf siblings)", got, want)
+	}
+
+	// Symmetric case for {: starting on the last leaf child of
+	// "Quarterly planning", { should land directly on its own parent
+	// ("Quarterly planning"), not an earlier leaf sibling.
+	m.cursor = findRow(t, m, "Explore a rewrite of the reporting pipeline")
+	m = sendKey(m, "{")
+	if got, want := m.cursor, findRow(t, m, "Quarterly planning"); got != want {
+		t.Errorf("{ from a leaf = row %d, want %d ('Quarterly planning', skipping remaining leaf siblings)", got, want)
 	}
 }
 
@@ -226,9 +276,11 @@ func findFileRow(t *testing.T, m Model, base string) int {
 	return -1
 }
 
-// TestMoveDeeperAndShallower exercises l/h: they move into a child /
-// out to the parent, falling back to sibling-level navigation (j/k)
-// when there's no deeper/shallower row to move to.
+// TestMoveDeeperAndShallower exercises l/h: l moves into a child (falling
+// back to sibling-level navigation, the same movement as "{"/"}", when
+// there's no deeper level); h moves directly to the parent, or the file
+// header for a top-level headline — always one structural level up,
+// regardless of sibling position.
 func TestMoveDeeperAndShallower(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
@@ -251,25 +303,71 @@ func TestMoveDeeperAndShallower(t *testing.T) {
 		t.Fatalf("l on a leaf = row %d, want %d (next sibling)", m.cursor, secondChild)
 	}
 
-	// h on a non-first child falls back to sibling-level navigation
-	// (previous sibling), not all the way up to the parent.
-	m = sendKey(m, "h")
-	if m.cursor != firstChild {
-		t.Fatalf("h on a non-first child = row %d, want %d (previous sibling)", m.cursor, firstChild)
-	}
-
-	// h on the first child goes to the parent.
+	// h on a non-first child goes directly to the parent, mirroring l's
+	// directness (it doesn't stop at the previous sibling first).
 	m = sendKey(m, "h")
 	if m.cursor != project {
-		t.Fatalf("h on first child = row %d, want %d (parent)", m.cursor, project)
+		t.Fatalf("h on a non-first child = row %d, want %d (parent, directly)", m.cursor, project)
 	}
 
-	// h on a top-level project falls back to sibling-level navigation;
-	// with no previous project, that hops up to the file header.
+	// h on a top-level project (no parent) goes directly to its file's
+	// header row, regardless of whether it has a previous sibling.
 	fileRow := findFileRow(t, m, "projects.org")
 	m = sendKey(m, "h")
 	if m.cursor != fileRow {
 		t.Fatalf("h on the first project = row %d, want %d (file header)", m.cursor, fileRow)
+	}
+
+	// Confirm that directly: from a top-level project that DOES have a
+	// previous sibling, h must still jump straight to the file header,
+	// not to that previous sibling.
+	m.cursor = findRow(t, m, "Learn Go generics")
+	m = sendKey(m, "h")
+	if m.cursor != fileRow {
+		t.Fatalf("h on a non-first top-level project = row %d, want %d (file header, not the previous sibling)", m.cursor, fileRow)
+	}
+}
+
+// TestMoveShallowerFromFileRowGoesToPreviousFile covers h pressed while
+// already on a file's header row: rather than getting stuck in place, it
+// should move to the previous file's header row. It looks up whichever
+// file actually precedes "projects.org" rather than assuming it's
+// "inbox.org", since the shared testdata/orgdir fixture directory may
+// have other files in it too.
+func TestMoveShallowerFromFileRowGoesToPreviousFile(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	idx := -1
+	for i, f := range m.ws.Files {
+		if filepath.Base(f.Path) == "projects.org" {
+			idx = i
+			break
+		}
+	}
+	if idx <= 0 {
+		t.Fatalf("fixture assumption broken: projects.org should not be the first file (idx=%d)", idx)
+	}
+	prevFile := filepath.Base(m.ws.Files[idx-1].Path)
+
+	m.cursor = findFileRow(t, m, "projects.org")
+	m = sendKey(m, "h")
+	if want := findFileRow(t, m, prevFile); m.cursor != want {
+		t.Errorf("h on projects.org's file row = %d, want %d (%s's file row)", m.cursor, want, prevFile)
+	}
+}
+
+// TestMoveShallowerNoopOnFirstFileRow covers the boundary: h on the very
+// first file's header row has nowhere left to go, so it's a no-op.
+func TestMoveShallowerNoopOnFirstFileRow(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	m.cursor = findFileRow(t, m, "inbox.org")
+	before := m.cursor
+	m = sendKey(m, "h")
+	if m.cursor != before {
+		t.Errorf("h on the first file's row moved the cursor to %d, want no-op at %d", m.cursor, before)
 	}
 }
 

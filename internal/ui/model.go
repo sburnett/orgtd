@@ -150,16 +150,34 @@ type Model struct {
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
 
 	deadlineInput string // typed so far, in deadlineMode
+
+	urlFormatterCmd string // external program that turns a bare URL into an org-mode link; disabled if empty
+}
+
+// Option customizes a Model at construction time. See New.
+type Option func(*Model)
+
+// WithURLFormatter enables passing bare URLs, found in text edited via the
+// external editor, through cmd — an external program invoked as
+// `cmd <url>`, expected to print an org-mode link (e.g.
+// "[[https://foo.com][Foo Site]]") to stdout. URLs already inside an
+// org-mode link are left alone. A blank cmd disables the feature (the
+// default).
+func WithURLFormatter(cmd string) Option {
+	return func(m *Model) { m.urlFormatterCmd = cmd }
 }
 
 // New builds a viewer model over ws. Every headline starts expanded.
-func New(ws *workspace.Workspace) Model {
+func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
 		ws:             ws,
 		collapsed:      make(map[*org.Headline]bool),
 		dirty:          make(map[*org.File]bool),
 		dirtyHeadlines: make(map[*org.Headline]bool),
 		savedPos:       make(map[*org.File]int),
+	}
+	for _, opt := range opts {
+		opt(&m)
 	}
 	m.rebuildRows()
 	return m
@@ -244,10 +262,16 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "j", "down":
-		m.moveSiblingLevel(1)
+		m.moveCursor(1)
 
 	case "k", "up":
-		m.moveSiblingLevel(-1)
+		m.moveCursor(-1)
+
+	case "}":
+		m.jumpParagraph(1)
+
+	case "{":
+		m.jumpParagraph(-1)
 
 	case "l":
 		m.moveDeeper()
@@ -983,6 +1007,11 @@ func (m *Model) editorContext(isInsert bool, h *org.Headline) (before, after str
 	fmt.Fprintf(&b, "#\n# %s Lines starting with '#' are ignored. Save and\n", action)
 	fmt.Fprintln(&b, "# exit to apply your changes, or delete the entry's content (leaving")
 	fmt.Fprintln(&b, "# only these comments, or nothing) to cancel.")
+	if m.urlFormatterCmd != "" {
+		fmt.Fprintln(&b, "#")
+		fmt.Fprintln(&b, "# Bare URLs will be formatted into org-mode links automatically. To")
+		fmt.Fprintln(&b, "# format one yourself instead, write it as [[http://...]] directly.")
+	}
 	after = b.String()
 	return before, after
 }
@@ -1212,6 +1241,114 @@ func stripCommentLines(text string) string {
 	return strings.Join(out, "\n")
 }
 
+// orgLinkRe matches an existing org-mode link, "[[url]]" or
+// "[[url][description]]" — group 1 is the url, group 2 the description
+// (absent for the no-description form). Used both to make formatURLs
+// leave existing links alone, and to render a link's display text (the
+// description if present, else the url) in the row list.
+var orgLinkRe = regexp.MustCompile(`\[\[([^\]\[]+)\](?:\[([^\]\[]*)\])?\]`)
+
+// bareURLRe matches a URL not already wrapped in link brackets. It stops
+// at '[' and ']' so it can never span into or out of an org-mode link.
+var bareURLRe = regexp.MustCompile(`https?://[^\s\[\]]+`)
+
+// renderTitleForDisplay renders title for the row list: each org-mode
+// link is replaced with just its display text (the description, or the
+// url if there's no description) and underlined, instead of showing the
+// raw "[[url][description]]" syntax. base is the style otherwise applied
+// to the title (e.g. doneTitleStyle for a DONE/CANCELLED item); every
+// segment — link or plain text — is rendered with base (underlined,
+// for a link) so the two compose without nesting escape codes.
+func renderTitleForDisplay(title string, base lipgloss.Style) string {
+	matches := orgLinkRe.FindAllStringSubmatchIndex(title, -1)
+	if len(matches) == 0 {
+		return base.Render(title)
+	}
+	linkStyle := base.Underline(true)
+
+	var b strings.Builder
+	last := 0
+	for _, span := range matches {
+		start, end := span[0], span[1]
+		url := title[span[2]:span[3]]
+		desc := ""
+		if span[4] >= 0 {
+			desc = title[span[4]:span[5]]
+		}
+		display := desc
+		if display == "" {
+			display = url
+		}
+		if start > last {
+			b.WriteString(base.Render(title[last:start]))
+		}
+		b.WriteString(linkStyle.Render(display))
+		last = end
+	}
+	if last < len(title) {
+		b.WriteString(base.Render(title[last:]))
+	}
+	return b.String()
+}
+
+// formatURLs runs every bare URL in text (i.e. not already part of an
+// org-mode link) through the configured urlFormatterCmd, replacing it
+// with that program's output. It's a no-op if no formatter is configured.
+func (m *Model) formatURLs(text string) string {
+	if m.urlFormatterCmd == "" {
+		return text
+	}
+	matches := bareURLRe.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+	linkSpans := orgLinkRe.FindAllStringIndex(text, -1)
+	withinLink := func(pos int) bool {
+		for _, s := range linkSpans {
+			if pos >= s[0] && pos < s[1] {
+				return true
+			}
+		}
+		return false
+	}
+
+	cache := make(map[string]string)
+	var b strings.Builder
+	last := 0
+	for _, span := range matches {
+		start, end := span[0], span[1]
+		if withinLink(start) {
+			continue
+		}
+		url := text[start:end]
+		formatted, ok := cache[url]
+		if !ok {
+			formatted = m.runURLFormatter(url)
+			cache[url] = formatted
+		}
+		b.WriteString(text[last:start])
+		b.WriteString(formatted)
+		last = end
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+// runURLFormatter invokes the configured urlFormatterCmd as
+// `urlFormatterCmd <url>` and returns its trimmed stdout. On any failure
+// (exec error, empty output), it returns url unchanged.
+func (m *Model) runURLFormatter(url string) string {
+	out, err := exec.Command(m.urlFormatterCmd, url).Output()
+	if err != nil {
+		return url
+	}
+	formatted := strings.TrimSpace(string(out))
+	if formatted == "" {
+		return url
+	}
+	return formatted
+}
+
 // finishEdit reads back the edited entry and reparses it. For a plain
 // `i` edit, the result replaces the original headline in place (or, if
 // the edit left nothing parseable, the original is left untouched). For
@@ -1239,7 +1376,9 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	file, err := org.Parse(strings.NewReader(stripCommentLines(string(data))), "")
+	text := m.formatURLs(stripCommentLines(string(data)))
+
+	file, err := org.Parse(strings.NewReader(text), "")
 	if err != nil {
 		m.message = fmt.Sprintf("Could not parse edited entry: %v", err)
 		if msg.insert != nil {
@@ -1376,23 +1515,49 @@ func (m *Model) rowLevel(i int) int {
 	return 0
 }
 
-// moveSiblingLevel moves the cursor to the next (dir>0) or previous
-// (dir<0) row at the same indentation level as the current row, skipping
-// over any deeper rows (i.e. descendants) along the way. If the current
-// row is the last (or first) at its level, this lands on the next
-// shallower row instead — "hopping up" to the parent level.
-func (m *Model) moveSiblingLevel(dir int) {
+// moveToLevel moves the cursor to the next (dir>0) or previous (dir<0)
+// row at level lvl, skipping over any deeper rows along the way. If none
+// remain at lvl, this lands on the next shallower row instead — "hopping
+// up" progressively until it finds one (or runs off the end/start of the
+// list, in which case it's a no-op).
+func (m *Model) moveToLevel(dir, lvl int) {
 	if len(m.rows) == 0 {
 		return
 	}
-	cur := m.rowLevel(m.cursor)
 	i := m.cursor + dir
-	for i >= 0 && i < len(m.rows) && m.rowLevel(i) > cur {
+	for i >= 0 && i < len(m.rows) && m.rowLevel(i) > lvl {
 		i += dir
 	}
 	if i >= 0 && i < len(m.rows) {
 		m.cursor = i
 	}
+}
+
+// moveSiblingLevel moves the cursor to the next (dir>0) or previous
+// (dir<0) row at the same indentation level as the current row (see
+// moveToLevel). Used as the fallback for l/h when there's no
+// deeper/shallower row to move into.
+func (m *Model) moveSiblingLevel(dir int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	m.moveToLevel(dir, m.rowLevel(m.cursor))
+}
+
+// jumpParagraph ("}"/"{", mirroring vim's paragraph motions) is like
+// moveSiblingLevel, except a leaf (no children) is always treated as one
+// level shallower than it actually is, so it hops up immediately rather
+// than stepping through remaining leaf siblings one at a time — j/k
+// already move between those just as well, one row at a time.
+func (m *Model) jumpParagraph(dir int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	lvl := m.rowLevel(m.cursor)
+	if r := m.rows[m.cursor]; r.headline != nil && len(r.headline.Children) == 0 {
+		lvl--
+	}
+	m.moveToLevel(dir, lvl)
 }
 
 // moveDeeper moves the cursor into the next deeper indentation level
@@ -1409,18 +1574,28 @@ func (m *Model) moveDeeper() {
 	m.moveSiblingLevel(1)
 }
 
-// moveShallower moves the cursor to the next shallower indentation level
-// (i.e. the current row's parent), or if there is none, falls back to
-// moveSiblingLevel(-1).
+// moveShallower moves the cursor one structural level up — regardless of
+// where that lands relative to the current row, mirroring moveDeeper's
+// directness: to the current headline's parent if it's nested, or to its
+// file's header row if it's top-level. On a file row already (nothing
+// shallower than a file), it moves to the previous file's header row
+// instead, so h never just leaves the cursor stuck in place.
 func (m *Model) moveShallower() {
-	if len(m.rows) == 0 {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return
 	}
-	if prev := m.cursor - 1; prev >= 0 && m.rowLevel(prev) < m.rowLevel(m.cursor) {
-		m.cursor = prev
+	r := m.rows[m.cursor]
+	if r.headline == nil {
+		m.moveSiblingLevel(-1)
 		return
 	}
-	m.moveSiblingLevel(-1)
+	if r.headline.Parent != nil {
+		m.focusHeadline(r.headline.Parent)
+		return
+	}
+	if f := m.fileForHeadline(r.headline); f != nil {
+		m.focusFile(f)
+	}
 }
 
 // currentSubtree returns the "subtree" enclosing the cursor's current
@@ -1587,11 +1762,11 @@ func (m Model) renderRow(r row) string {
 		parts = append(parts, fmt.Sprintf("[#%s]", h.Priority))
 	}
 
-	title := h.Title
+	base := lipgloss.NewStyle()
 	if org.IsDoneKeyword(h.Keyword) {
-		title = doneTitleStyle.Render(title)
+		base = doneTitleStyle
 	}
-	parts = append(parts, title)
+	parts = append(parts, renderTitleForDisplay(h.Title, base))
 
 	line := gutter(m.dirtyHeadlines[h]) + " " + indent + fold + " " + strings.Join(parts, " ")
 

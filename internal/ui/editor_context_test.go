@@ -32,6 +32,40 @@ func TestStripCommentLinesPreservesDirectivesAndRealContent(t *testing.T) {
 	}
 }
 
+func TestEditorContextNotesURLFormattingWhenConfigured(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws, WithURLFormatter(writeFakeFormatter(t, `echo "[[$1]]"`)))
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+
+	_, after := m.editorContext(false, h)
+
+	if !strings.Contains(after, "formatted into org-mode links automatically") {
+		t.Errorf("after-block missing the URL-formatter note:\n%s", after)
+	}
+	if !strings.Contains(after, "[[http://...]]") {
+		t.Errorf("after-block missing guidance on doing it yourself:\n%s", after)
+	}
+	for _, line := range strings.Split(strings.TrimRight(after, "\n"), "\n") {
+		if line != "" && !strings.HasPrefix(line, "#") {
+			t.Errorf("non-comment line in context block: %q", line)
+		}
+	}
+}
+
+func TestEditorContextOmitsURLFormattingNoteWhenNotConfigured(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws) // no WithURLFormatter option
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+
+	_, after := m.editorContext(false, h)
+
+	if strings.Contains(after, "formatted into org-mode links") {
+		t.Errorf("after-block should not mention URL formatting when it's disabled:\n%s", after)
+	}
+}
+
 func TestEditorContextShowsSiblingsAndFile(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
