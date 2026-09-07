@@ -94,6 +94,40 @@ func TestEditorContextShowsParentWhenNested(t *testing.T) {
 	}
 }
 
+func TestEditorContextShowsEarlierSiblingsSummaryWhenMultiple(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	// 4th child of "Ship orgtd v0.1": one immediate previous sibling
+	// ("Implement the Bubble Tea viewer"), plus two earlier ones.
+	m.cursor = findRow(t, m, "Get feedback on the keybinding scheme")
+	h := m.currentHeadline()
+
+	before, _ := m.editorContext(false, h)
+
+	if !strings.Contains(before, "... 2 earlier siblings ...\n") {
+		t.Errorf("before-block missing the earlier-siblings summary:\n%s", before)
+	}
+	if !strings.Contains(before, "# ** TODO Implement the Bubble Tea viewer\n") {
+		t.Errorf("before-block missing the immediate previous sibling:\n%s", before)
+	}
+	if strings.Contains(before, "Write the design document") {
+		t.Errorf("before-block should not spell out siblings covered by the summary:\n%s", before)
+	}
+}
+
+func TestEditorContextOmitsSummaryWithOnlyOneEarlierSibling(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Implement the org file parser") // 2nd child: one previous, zero earlier
+	h := m.currentHeadline()
+
+	before, _ := m.editorContext(false, h)
+
+	if strings.Contains(before, "earlier sibling") {
+		t.Errorf("before-block should not show a summary when there's nothing more to summarize:\n%s", before)
+	}
+}
+
 func TestEditorContextAtBoundaries(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)

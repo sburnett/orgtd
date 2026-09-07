@@ -953,12 +953,19 @@ func (m *Model) editorContext(isInsert bool, h *org.Headline) (before, after str
 	if f := m.fileForHeadline(h); f != nil {
 		fileName = filepath.Base(f.Path)
 	}
-	prev, next := m.siblingHeadlines(h)
+	prev, next, earlierCount := m.siblingHeadlines(h)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n#\n", fileName)
 	if h.Parent != nil {
 		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(h.Parent))
+	}
+	if earlierCount > 0 {
+		noun := "sibling"
+		if earlierCount != 1 {
+			noun = "siblings"
+		}
+		fmt.Fprintf(&b, "#%s... %d earlier %s ...\n", strings.Repeat(" ", h.Level), earlierCount, noun)
 	}
 	if prev != nil {
 		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(prev))
@@ -993,11 +1000,12 @@ func commentedHeadlineLine(h *org.Headline) string {
 
 // siblingHeadlines returns h's immediate previous and next siblings
 // (within its parent's children, or its file's top-level list if h is
-// top-level), or nil for either that doesn't exist.
-func (m *Model) siblingHeadlines(h *org.Headline) (prev, next *org.Headline) {
+// top-level), or nil for either that doesn't exist. earlierCount is the
+// number of further siblings before prev (i.e. not shown by prev alone).
+func (m *Model) siblingHeadlines(h *org.Headline) (prev, next *org.Headline, earlierCount int) {
 	f, parent, idx := m.insertPosition(h)
 	if idx < 0 {
-		return nil, nil
+		return nil, nil, 0
 	}
 	list := f.Headlines
 	if parent != nil {
@@ -1005,11 +1013,12 @@ func (m *Model) siblingHeadlines(h *org.Headline) (prev, next *org.Headline) {
 	}
 	if idx > 0 {
 		prev = list[idx-1]
+		earlierCount = idx - 1
 	}
 	if idx+1 < len(list) {
 		next = list[idx+1]
 	}
-	return prev, next
+	return prev, next, earlierCount
 }
 
 // resolveInsertPosition computes where a new entry belongs relative to
