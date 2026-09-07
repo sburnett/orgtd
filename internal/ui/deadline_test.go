@@ -65,8 +65,8 @@ func TestGgStillJumpsToTop(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m = sendKey(m, "G")
-	if m.cursor != len(m.rows)-1 {
-		t.Fatalf("G did not jump to the last row")
+	if m.cursor == 0 {
+		t.Fatalf("G did not move the cursor away from the top")
 	}
 
 	m = sendKey(m, "g")

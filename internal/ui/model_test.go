@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -277,9 +278,15 @@ func TestGgAndG(t *testing.T) {
 	m := New(ws)
 	m.height = 20
 
+	// G goes to the last FILE's header row, not the very bottom of its
+	// content.
 	m = sendKey(m, "G")
-	if m.cursor != len(m.rows)-1 {
-		t.Fatalf("cursor after G = %d, want %d", m.cursor, len(m.rows)-1)
+	lastFileRow := findFileRow(t, m, "projects.org")
+	if m.cursor != lastFileRow {
+		t.Fatalf("cursor after G = %d, want %d (projects.org file row)", m.cursor, lastFileRow)
+	}
+	if m.cursor == len(m.rows)-1 {
+		t.Errorf("G landed on the very last row, want the last file's header row instead")
 	}
 
 	m = sendKey(m, "g")
@@ -292,6 +299,192 @@ func TestGgAndG(t *testing.T) {
 	}
 	if m.pendingG {
 		t.Errorf("pendingG should be cleared after second g")
+	}
+}
+
+func TestCaretJumpsToParentWhenNested(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Implement the org file parser") // child of "Ship orgtd v0.1"
+
+	m = sendKey(m, "^")
+
+	h := m.currentHeadline()
+	if h == nil || h.Title != "Ship orgtd v0.1" {
+		t.Errorf("cursor after ^ = %v, want the enclosing parent 'Ship orgtd v0.1'", h)
+	}
+}
+
+func TestCaretFromTopLevelHeadlineJumpsToFileRow(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Follow up with finance about the Q3 budget doc") // top-level, in inbox.org
+
+	m = sendKey(m, "^")
+
+	want := findFileRow(t, m, "inbox.org")
+	if m.cursor != want {
+		t.Errorf("cursor after ^ = %d, want %d (inbox.org, not projects.org)", m.cursor, want)
+	}
+}
+
+func TestCaretNoopAlreadyOnFileRow(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findFileRow(t, m, "projects.org")
+
+	m = sendKey(m, "^")
+
+	if m.cursor != findFileRow(t, m, "projects.org") {
+		t.Errorf("^ moved off the file row it was already on")
+	}
+}
+
+func TestDollarNoopOnLeafHeadline(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup") // a leaf
+
+	m = sendKey(m, "$")
+
+	if h := m.currentHeadline(); h == nil || h.Title != "Call the vet about Fido's checkup" {
+		t.Errorf("$ on a leaf moved the cursor to %v, want a no-op", h)
+	}
+}
+
+func TestDollarJumpsToOwnLastChild(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Ship orgtd v0.1")
+
+	m = sendKey(m, "$")
+
+	h := m.currentHeadline()
+	if h == nil || h.Title != "Get feedback on the keybinding scheme" {
+		t.Errorf("cursor after $ = %v, want the headline's own last child 'Get feedback on the keybinding scheme'", h)
+	}
+}
+
+func TestDollarRepeatedPressesDrillDeeperOneLevelAtATime(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	// Give "Get feedback on the keybinding scheme" (the last child of
+	// "Ship orgtd v0.1") a child of its own, so there's a third level to
+	// drill into: inserting a sibling after it, then demoting that
+	// sibling to nest under it.
+	m.cursor = findRow(t, m, "Get feedback on the keybinding scheme")
+	orig := m.currentHeadline()
+	m = sendKey(m, "o")
+	m = commitTentative(t, m, orig, "** TODO Sub-task of the feedback item\n")
+	grandchild := m.currentHeadline()
+	m = sendKey(m, ">")
+	m = sendKey(m, ">")
+	if grandchild.Parent == nil || grandchild.Parent.Title != "Get feedback on the keybinding scheme" {
+		t.Fatalf("setup failed: grandchild parent = %v", grandchild.Parent)
+	}
+
+	// Each "$" should move exactly one level down, mirroring "^" moving
+	// exactly one level up.
+	m.cursor = findRow(t, m, "Ship orgtd v0.1")
+	m = sendKey(m, "$")
+	if h := m.currentHeadline(); h == nil || h.Title != "Get feedback on the keybinding scheme" {
+		t.Fatalf("first $ = %v, want 'Get feedback on the keybinding scheme'", h)
+	}
+
+	m = sendKey(m, "$")
+	if h := m.currentHeadline(); h != grandchild {
+		t.Fatalf("second $ = %v, want the grandchild %v", h, grandchild)
+	}
+
+	m = sendKey(m, "$")
+	if h := m.currentHeadline(); h != grandchild {
+		t.Errorf("third $ = %v, want to stay on the leaf %v (no-op)", h, grandchild)
+	}
+}
+
+func TestDollarFromFileRowJumpsToLastChild(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findFileRow(t, m, "inbox.org")
+
+	m = sendKey(m, "$")
+
+	h := m.currentHeadline()
+	if h == nil || h.Title != "Follow up with finance about the Q3 budget doc" {
+		t.Errorf("cursor after $ from the file row = %v, want the last top-level headline", h)
+	}
+}
+
+func TestDollarFromFileRowThenRepeatedPressesDrillIntoChildren(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findFileRow(t, m, "projects.org")
+
+	m = sendKey(m, "$")
+	if h := m.currentHeadline(); h == nil || h.Title != "Learn Go generics" {
+		t.Fatalf("$ from file row = %v, want 'Learn Go generics'", h)
+	}
+
+	m = sendKey(m, "$")
+	if h := m.currentHeadline(); h == nil || h.Title != "Build a toy constraint-checker" {
+		t.Fatalf("second $ = %v, want 'Build a toy constraint-checker' (last child of 'Learn Go generics')", h)
+	}
+
+	m = sendKey(m, "$")
+	if h := m.currentHeadline(); h == nil || h.Title != "Build a toy constraint-checker" {
+		t.Errorf("third $ = %v, want to stay put (leaf, no-op)", h)
+	}
+}
+
+func TestCaretThenDollarAreInverseAtEachLevel(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Implement the org file parser") // child of "Ship orgtd v0.1"
+
+	m = sendKey(m, "^")
+	h := m.currentHeadline()
+	if h == nil || h.Title != "Ship orgtd v0.1" {
+		t.Fatalf("^ = %v, want the enclosing parent 'Ship orgtd v0.1'", h)
+	}
+	m = sendKey(m, "$")
+	if h := m.currentHeadline(); h == nil || h.Title != "Get feedback on the keybinding scheme" {
+		t.Errorf("$ after ^ = %v, want 'Get feedback on the keybinding scheme' (the parent's own last child)", h)
+	}
+}
+
+func TestGGoesToLastFileEvenWithFoldedContentAtTheEnd(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	// Fold the last top-level entry in the last file so its own last
+	// row is no longer near the physical bottom of m.rows, then verify
+	// G still lands exactly on the last file's header row (not
+	// "whatever happens to be the last visible row").
+	m.cursor = findRow(t, m, "Learn Go generics")
+	m = sendKey(m, "z")
+	m = sendKey(m, "c")
+
+	m = sendKey(m, "G")
+	want := findFileRow(t, m, "projects.org")
+	if m.cursor != want {
+		t.Errorf("cursor after G = %d, want %d (projects.org file row)", m.cursor, want)
+	}
+	if m.rows[m.cursor].file == nil {
+		t.Errorf("G did not land on a file row: %#v", m.rows[m.cursor])
+	}
+}
+
+func TestGIsNoopWithNoFiles(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.ws.Files = nil
+	m.rebuildRows()
+	before := m.cursor
+
+	m = sendKey(m, "G")
+	if m.cursor != before {
+		t.Errorf("G with no files changed the cursor: %d -> %d", before, m.cursor)
 	}
 }
 
@@ -1035,7 +1228,9 @@ func TestDirtyGutterIsLeftmostAndConsistentAcrossRows(t *testing.T) {
 func TestViewRendersFileNamesAndKeywords(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.width, m.height = 100, 30
+	// Tall enough to show every row regardless of what else happens to be
+	// in the (shared, possibly-extended) fixture directory.
+	m.width, m.height = 100, len(m.rows)+5
 
 	out := m.View()
 	for _, want := range []string{"inbox.org", "projects.org", "NEXT", "WAITING", "DONE"} {
@@ -1048,7 +1243,8 @@ func TestViewRendersFileNamesAndKeywords(t *testing.T) {
 func TestViewPadsStatusBarToBottomOfScreen(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.width, m.height = 100, 50 // taller than the 17-row fixture
+	total := len(m.rows)
+	m.width, m.height = 100, total+20 // taller than the fixture, whatever its size
 
 	out := m.View()
 	lines := strings.Split(out, "\n")
@@ -1061,8 +1257,9 @@ func TestViewPadsStatusBarToBottomOfScreen(t *testing.T) {
 	}
 
 	last := lines[len(lines)-1]
-	if !strings.Contains(last, "item 1/17") {
-		t.Errorf("last line = %q, want it to contain the status bar", last)
+	wantStatus := fmt.Sprintf("item 1/%d", total)
+	if !strings.Contains(last, wantStatus) {
+		t.Errorf("last line = %q, want it to contain %q", last, wantStatus)
 	}
 
 	// Every line between the last row and the status bar should be blank.

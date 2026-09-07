@@ -263,7 +263,15 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "G":
-		m.cursor = len(m.rows) - 1
+		if n := len(m.ws.Files); n > 0 {
+			m.focusFile(m.ws.Files[n-1])
+		}
+
+	case "^":
+		m.jumpToSubtreeTop()
+
+	case "$":
+		m.jumpToSubtreeBottom()
 
 	case "tab":
 		m.toggleFold()
@@ -1404,6 +1412,62 @@ func (m *Model) moveShallower() {
 		return
 	}
 	m.moveSiblingLevel(-1)
+}
+
+// currentSubtree returns the "subtree" enclosing the cursor's current
+// position: if the cursor is on a nested headline, that's its parent
+// (siblings = the parent's children); if it's on a top-level headline
+// or on a file's own header row, that's the file itself (siblings =
+// the file's top-level headlines). parent is nil in the latter case.
+func (m *Model) currentSubtree() (parent *org.Headline, f *org.File) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return nil, nil
+	}
+	r := m.rows[m.cursor]
+	if r.file != nil {
+		return nil, r.file
+	}
+	if r.headline != nil {
+		return r.headline.Parent, m.fileForHeadline(r.headline)
+	}
+	return nil, nil
+}
+
+// jumpToSubtreeTop ("^") moves the cursor up to the top of the current
+// subtree (see currentSubtree): the parent headline's row if nested, or
+// the file's header row otherwise — a no-op if already there.
+func (m *Model) jumpToSubtreeTop() {
+	parent, f := m.currentSubtree()
+	if parent != nil {
+		m.focusHeadline(parent)
+		return
+	}
+	if f != nil {
+		m.focusFile(f)
+	}
+}
+
+// jumpToSubtreeBottom ("$") moves the cursor one level down: from a file
+// row to that file's last top-level headline, or from a headline to its
+// own last child. This is the exact inverse of jumpToSubtreeTop ("^") —
+// each press moves one level in the tree — so pressing "$" repeatedly
+// drills progressively deeper, bottoming out (a no-op) once it reaches a
+// leaf.
+func (m *Model) jumpToSubtreeBottom() {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return
+	}
+	r := m.rows[m.cursor]
+	if r.file != nil {
+		if len(r.file.Headlines) > 0 {
+			m.focusHeadline(r.file.Headlines[len(r.file.Headlines)-1])
+		}
+		return
+	}
+	if r.headline != nil && len(r.headline.Children) > 0 {
+		children := r.headline.Children
+		m.focusHeadline(children[len(children)-1])
+	}
 }
 
 // pageSize is the number of rows visible at once, reserving one line for

@@ -67,7 +67,7 @@ func TestPromoteBecomesNextSiblingOfOldParent(t *testing.T) {
 	// It should be the top-level entry immediately after its old parent
 	// structurally (not necessarily the next visible row — the old
 	// parent's remaining children still render in between).
-	f := m.ws.Files[1] // projects.org
+	f := m.fileForHeadline(h)
 	oldParentIdx := -1
 	for i, top := range f.Headlines {
 		if top == oldParent {
