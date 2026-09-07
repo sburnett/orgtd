@@ -76,12 +76,14 @@ type subtreeReplaceAction struct {
 func (a *subtreeReplaceAction) apply(m *Model) *org.Headline {
 	m.spliceReplace(a.oldSet, a.newSet)
 	a.applied = true
+	m.remapHeadlineRefs(a.oldSet, a.newSet)
 	return a.newSet[0]
 }
 
 func (a *subtreeReplaceAction) revert(m *Model) *org.Headline {
 	m.spliceReplace(a.newSet, a.oldSet)
 	a.applied = false
+	m.remapHeadlineRefs(a.newSet, a.oldSet)
 	return a.oldSet[0]
 }
 

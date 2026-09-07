@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 func TestSetMarkAndJumpBack(t *testing.T) {
@@ -122,6 +124,84 @@ func TestMarkingDoesNotAffectOtherEntriesMarks(t *testing.T) {
 	}
 }
 
+func TestMarkSurvivesEditingTheMarkedEntry(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Call the vet about Fido's checkup")
+	m.cursor = idx
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+	old := m.currentHeadline()
+
+	path := writeTempOrgFile(t, "* NEXT Call the vet about Fido's checkup ASAP\n")
+	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
+	m = updated.(Model)
+
+	newH := m.rows[idx].headline
+	if newH == old {
+		t.Fatalf("fixture assumption broken: expected the headline pointer to change")
+	}
+	if m.marks['a'] != newH {
+		t.Errorf("marks['a'] = %v, want the edited headline %v (the mark should follow the edit)", m.marks['a'], newH)
+	}
+
+	line := stripANSI(m.renderRow(m.rows[idx]))
+	if !strings.HasPrefix(line, "a") {
+		t.Errorf("edited row = %q, want the 'a' marker still in the gutter", line)
+	}
+}
+
+func TestMarkFollowsUndoOfAnEdit(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Call the vet about Fido's checkup")
+	m.cursor = idx
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+	old := m.currentHeadline()
+
+	path := writeTempOrgFile(t, "* NEXT Call the vet about Fido's checkup ASAP\n")
+	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
+	m = updated.(Model)
+	edited := m.marks['a']
+
+	m = sendKey(m, "u")
+
+	if m.marks['a'] != old {
+		t.Errorf("marks['a'] after undoing the edit = %v, want the original headline %v back", m.marks['a'], old)
+	}
+
+	m = sendKey(m, "ctrl+r")
+	if m.marks['a'] != edited {
+		t.Errorf("marks['a'] after redoing the edit = %v, want the edited headline %v", m.marks['a'], edited)
+	}
+}
+
+func TestRemapHeadlineRefsClearsMarkOnADescendantNotTheReplacedRoot(t *testing.T) {
+	// Exercises remapHeadlineRefs directly for the case a full edit
+	// flow can't easily set up: a mark on a *descendant* of the
+	// headline being replaced (e.g. editing a whole file at once, which
+	// replaces every top-level headline and its subtree). A descendant
+	// has no reliable counterpart in the freshly-parsed replacement, so
+	// its mark should be cleared, not left dangling on a headline no
+	// longer in any tree.
+	ws := loadFixture(t)
+	m := New(ws)
+	root := m.rows[findRow(t, m, "Ship orgtd v0.1")].headline
+	child := root.Children[0]
+
+	m.cursor = findRow(t, m, child.Title)
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+
+	newRoot := org.CloneHeadline(root)
+	m.remapHeadlineRefs([]*org.Headline{root}, []*org.Headline{newRoot})
+
+	if _, ok := m.marks['a']; ok {
+		t.Errorf("mark on a descendant survived a subtree replace it wasn't the root of, want it cleared")
+	}
+}
+
 func TestJumpToUnsetMarkShowsMessage(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
@@ -148,8 +228,8 @@ func TestMultipleMarksStackInPinnedHeader(t *testing.T) {
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
 
-	if lines[0] != "Active marks:" {
-		t.Fatalf("line 0 = %q, want %q", lines[0], "Active marks:")
+	if strings.TrimRight(lines[0], " ") != "Active marks:" {
+		t.Fatalf("line 0 = %q, want %q (plus trailing background padding)", lines[0], "Active marks:")
 	}
 	if !strings.Contains(lines[1], "Call the vet about Fido's checkup") {
 		t.Errorf("line 1 = %q, want mark a's item first (sorted)", lines[1])
@@ -157,8 +237,8 @@ func TestMultipleMarksStackInPinnedHeader(t *testing.T) {
 	if !strings.Contains(lines[2], "Follow up with finance about the Q3 budget doc") {
 		t.Errorf("line 2 = %q, want mark b's item second", lines[2])
 	}
-	if lines[3] != "" {
-		t.Errorf("line 3 = %q, want a blank separator after the pinned marks", lines[3])
+	if strings.TrimRight(lines[3], " ") != "" {
+		t.Errorf("line 3 = %q, want a blank (background-padded) separator after the pinned marks", lines[3])
 	}
 }
 
@@ -177,6 +257,24 @@ func TestMarkedRowShowsLetterInGutter(t *testing.T) {
 	other := m.renderRow(m.rows[idx+1])
 	if strings.HasPrefix(stripANSI(other), "a") {
 		t.Errorf("unrelated row = %q, should not carry the mark", other)
+	}
+}
+
+func TestMarkedAndDirtyRowShowsBothIndicators(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	idx := findRow(t, m, "Call the vet about Fido's checkup")
+	m.cursor = idx
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+	m = sendKey(m, "r") // dirty it via a status rotate
+
+	line := []rune(stripANSI(m.renderRow(m.rows[idx])))
+	if len(line) < 2 || line[0] != 'a' {
+		t.Fatalf("row = %q, want the mark in column 0", string(line))
+	}
+	if line[1] != '+' {
+		t.Errorf("row = %q, want the dirty marker in column 1 alongside the mark", string(line))
 	}
 }
 

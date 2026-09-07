@@ -45,7 +45,42 @@ var (
 	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	shortcutStyle  = lipgloss.NewStyle().Bold(true)
 	pinMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+
+	// overlayBg is the subtle background tint for the pinned header
+	// (clarify/marks) and the status bar — a light/dark pair so it reads
+	// as a faint panel regardless of the terminal's own color scheme,
+	// resolved via lipgloss's terminal background detection.
+	overlayBg = lipgloss.AdaptiveColor{Light: "#e4e4e4", Dark: "#262626"}
 )
+
+// bgSpan renders s with only a background color — no other styling —
+// for the plain-text gaps (join separators, padding) inside a
+// background-tinted line, so they don't leave un-tinted holes once an
+// adjacent styled segment's own reset code fires.
+func bgSpan(bg lipgloss.TerminalColor, s string) string {
+	return lipgloss.NewStyle().Background(bg).Render(s)
+}
+
+// joinBg joins parts with a bg-tinted single space, the background-aware
+// equivalent of strings.Join(parts, " ").
+func joinBg(parts []string, bg lipgloss.TerminalColor) string {
+	return strings.Join(parts, bgSpan(bg, " "))
+}
+
+// padLineToWidth extends line with bg-tinted spaces up to m.width, so a
+// background tint fills the whole terminal row rather than stopping
+// wherever the visible text ends. A no-op if the width is unknown
+// (m.width <= 0) or line already reaches or exceeds it.
+func (m Model) padLineToWidth(line string, bg lipgloss.TerminalColor) string {
+	if m.width <= 0 {
+		return line
+	}
+	pad := m.width - lipgloss.Width(line)
+	if pad <= 0 {
+		return line
+	}
+	return line + bgSpan(bg, strings.Repeat(" ", pad))
+}
 
 // mode selects how key presses are interpreted.
 type mode int
@@ -391,6 +426,48 @@ func (m *Model) clearMarksFor(h *org.Headline) {
 			delete(m.marks, letter)
 		}
 	}
+}
+
+// remapHeadlineRefs keeps marks and :clarify's pin correct across an `i`
+// edit (subtreeReplaceAction), which always replaces a headline with a
+// freshly parsed one — a distinct pointer, even though nothing else
+// about the edit changed. oldSet's own root (oldSet[0]) is remapped
+// directly to newSet's root (or cleared, if the edit emptied the entry
+// out entirely); anything else in oldSet — a descendant, or another
+// top-level entry when a whole file is edited at once — has no reliable
+// counterpart in the freshly-parsed tree, so its marks/clarify-target
+// are cleared rather than left dangling on a headline no longer in any
+// tree. Also used, with oldSet/newSet swapped, when the edit is undone.
+func (m *Model) remapHeadlineRefs(oldSet, newSet []*org.Headline) {
+	var oldRoot, newRoot *org.Headline
+	if len(oldSet) > 0 {
+		oldRoot = oldSet[0]
+	}
+	if len(newSet) > 0 {
+		newRoot = newSet[0]
+	}
+	org.Walk(oldSet, func(h *org.Headline) {
+		if h != oldRoot {
+			if m.clarifyTarget == h {
+				m.clarifyTarget = nil
+			}
+			m.clearMarksFor(h)
+			return
+		}
+		if m.clarifyTarget == h {
+			m.clarifyTarget = newRoot
+		}
+		for letter, target := range m.marks {
+			if target != h {
+				continue
+			}
+			if newRoot != nil {
+				m.marks[letter] = newRoot
+			} else {
+				delete(m.marks, letter)
+			}
+		}
+	})
 }
 
 // switchToView changes which view rebuildRows populates m.rows with,
@@ -2007,15 +2084,15 @@ func (m *Model) pinnedHeaderHeight() int {
 func (m Model) pinnedHeaderLines() []string {
 	var lines []string
 	if m.view == clarifyView {
-		lines = append(lines, fileStyle.Render("Clarifying:"))
+		lines = append(lines, m.padLineToWidth(fileStyle.Background(overlayBg).Render("Clarifying:"), overlayBg))
 		if m.clarifyTarget == nil {
-			lines = append(lines, statusStyle.Render("  Inbox is empty."))
+			lines = append(lines, m.padLineToWidth(statusStyle.Background(overlayBg).Render("  Inbox is empty."), overlayBg))
 		} else {
 			lines = append(lines, m.renderPinnedRow("●", m.clarifyTarget))
 		}
 	}
 	if letters := m.sortedMarkLetters(); len(letters) > 0 {
-		lines = append(lines, fileStyle.Render("Active marks:"))
+		lines = append(lines, m.padLineToWidth(fileStyle.Background(overlayBg).Render("Active marks:"), overlayBg))
 		for _, letter := range letters {
 			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter]))
 		}
@@ -2023,7 +2100,10 @@ func (m Model) pinnedHeaderLines() []string {
 	if len(lines) == 0 {
 		return nil
 	}
-	return append(lines, "")
+	// The trailing separator carries the overlay background too, so the
+	// tinted block reads as one solid panel rather than cutting off
+	// right before an untinted blank line.
+	return append(lines, m.padLineToWidth("", overlayBg))
 }
 
 // sortedMarkLetters returns the letters of every active mark, sorted —
@@ -2041,9 +2121,14 @@ func (m Model) sortedMarkLetters() []rune {
 // clarify target's "●", or a mark's letter) in place of the
 // gutter/indent/fold a normal listing row would have, then h's keyword
 // and title — the same format regardless of which pinned section it's
-// in, and regardless of h's actual level in its file's tree.
+// in, and regardless of h's actual level in its file's tree. The whole
+// line carries the overlay background, padded to fill the terminal
+// width.
 func (m Model) renderPinnedRow(marker string, h *org.Headline) string {
-	return pinMarkerStyle.Render(marker) + "  " + strings.Join(m.renderKeywordAndTitle(h), " ")
+	line := pinMarkerStyle.Background(overlayBg).Render(marker) +
+		bgSpan(overlayBg, "  ") +
+		joinBg(m.renderKeywordAndTitle(h, overlayBg), overlayBg)
+	return m.padLineToWidth(line, overlayBg)
 }
 
 // sectionSeparatorBudget is how many blank separator lines a full render
@@ -2131,7 +2216,7 @@ func (m Model) View() string {
 			if i > 0 {
 				b.WriteString("\n")
 			}
-			b.WriteString(statusStyle.Render(line))
+			b.WriteString(m.padLineToWidth(statusStyle.Background(overlayBg).Render(line), overlayBg))
 		}
 	}
 
@@ -2218,6 +2303,22 @@ func gutter(dirty bool) string {
 	return " "
 }
 
+// markColumn is a headline row's mark/clarify gutter column, in outline
+// or agenda view alike — a column of its own, separate from gutter's
+// dirty marker, so a row that's both marked (or the clarify target) and
+// dirty shows both indicators at once instead of one hiding the other:
+// the clarify target's "●" (clarify view only) takes priority over a
+// mark's letter, since a row can't be both; blank if neither applies.
+func (m Model) markColumn(h *org.Headline) string {
+	if m.view == clarifyView && h == m.clarifyTarget {
+		return pinMarkerStyle.Render("●")
+	}
+	if letter, ok := m.markLetterFor(h); ok {
+		return pinMarkerStyle.Render(string(letter))
+	}
+	return " "
+}
+
 func (m Model) renderRow(r row) string {
 	switch {
 	case r.section != "":
@@ -2225,7 +2326,9 @@ func (m Model) renderRow(r row) string {
 		// so a section header stands out at a glance in a long agenda.
 		return fileStyle.Render(r.section)
 	case r.file != nil:
-		return gutter(m.dirty[r.file]) + " " + fileStyle.Render(filepath.Base(r.file.Path))
+		// Blank mark column: files themselves are never marked, but this
+		// keeps every row's dirty marker lined up in the same column.
+		return " " + gutter(m.dirty[r.file]) + " " + fileStyle.Render(filepath.Base(r.file.Path))
 	case r.agendaLabel != "":
 		return m.renderAgendaItemRow(r)
 	}
@@ -2242,20 +2345,7 @@ func (m Model) renderRow(r row) string {
 		}
 	}
 
-	g := gutter(m.dirtyHeadlines[h])
-	switch {
-	case m.view == clarifyView && h == m.clarifyTarget:
-		// Marks the one row in the (still fully visible) listing that
-		// matches the pinned "Clarifying:" item at the top of the
-		// screen, taking priority over the dirty marker in this column
-		// (dirty state is still visible via the file row's own gutter).
-		g = pinMarkerStyle.Render("●")
-	default:
-		if letter, ok := m.markLetterFor(h); ok {
-			g = pinMarkerStyle.Render(string(letter))
-		}
-	}
-	line := g + " " + indent + fold + " " + strings.Join(m.renderKeywordAndTitle(h), " ")
+	line := m.markColumn(h) + gutter(m.dirtyHeadlines[h]) + " " + indent + fold + " " + strings.Join(m.renderKeywordAndTitle(h, lipgloss.NoColor{}), " ")
 
 	if len(h.Tags) > 0 {
 		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")
@@ -2270,24 +2360,26 @@ func (m Model) renderRow(r row) string {
 
 // renderKeywordAndTitle renders h's keyword, priority, and title (with
 // its links shown as display text, see renderTitleForDisplay) as
-// space-joinable parts — shared between the outline and agenda row
-// renderers.
-func (m Model) renderKeywordAndTitle(h *org.Headline) []string {
+// space-joinable parts — shared between the outline, agenda, and pinned
+// row renderers. bg is the background every part is rendered with —
+// lipgloss.NoColor{} outside the pinned header, where nothing is
+// tinted.
+func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor) []string {
 	var parts []string
 	if h.Keyword != "" {
 		style, ok := keywordStyles[h.Keyword]
 		if !ok {
 			style = lipgloss.NewStyle()
 		}
-		parts = append(parts, style.Render(h.Keyword))
+		parts = append(parts, style.Background(bg).Render(h.Keyword))
 	}
 	if h.Priority != "" {
-		parts = append(parts, fmt.Sprintf("[#%s]", h.Priority))
+		parts = append(parts, bgSpan(bg, fmt.Sprintf("[#%s]", h.Priority)))
 	}
 
-	base := lipgloss.NewStyle()
+	base := lipgloss.NewStyle().Background(bg)
 	if org.IsDoneKeyword(h.Keyword) {
-		base = doneTitleStyle
+		base = doneTitleStyle.Background(bg)
 	}
 	parts = append(parts, renderTitleForDisplay(h.Title, base))
 	return parts
@@ -2299,7 +2391,7 @@ func (m Model) renderKeywordAndTitle(h *org.Headline) []string {
 // or Deadline) it's shown for.
 func (m Model) renderAgendaItemRow(r row) string {
 	h := r.headline
-	line := gutter(m.dirtyHeadlines[h]) + " " + strings.Join(m.renderKeywordAndTitle(h), " ")
+	line := m.markColumn(h) + gutter(m.dirtyHeadlines[h]) + " " + strings.Join(m.renderKeywordAndTitle(h, lipgloss.NoColor{}), " ")
 
 	if len(h.Tags) > 0 {
 		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")

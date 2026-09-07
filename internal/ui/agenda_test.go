@@ -200,6 +200,40 @@ func TestAgendaItemRowRendering(t *testing.T) {
 	}
 }
 
+func TestAgendaItemRowShowsMarkLetterInGutter(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+	m.cursor = 1 // the item row, after the section header
+
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+
+	line := m.renderRow(m.rows[1])
+	if !strings.HasPrefix(stripANSI(line), "a ") {
+		t.Errorf("agenda item row = %q, want it to start with the 'a' mark marker", line)
+	}
+}
+
+func TestPinnedHeaderVisibleInAgendaView(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+	m.cursor = 1
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "Active marks:") || !strings.Contains(out, "Draft the doc") {
+		t.Errorf("View() in agenda view missing the pinned marks header:\n%s", out)
+	}
+}
+
 func TestAgendaSectionHeaderIsFlushLeftUnlikeItems(t *testing.T) {
 	now := truncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))

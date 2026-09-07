@@ -1334,18 +1334,22 @@ func TestDirtyGutterIsLeftmostAndConsistentAcrossRows(t *testing.T) {
 	itemLine := stripANSI(m.renderRow(m.rows[itemIdx]))
 	nestedLine := stripANSI(m.renderRow(m.rows[nestedIdx]))
 
-	// The dirty marker sits in column 0 for both the file row and the
-	// changed item, regardless of the item's indentation depth.
-	if r := []rune(fileLine); len(r) == 0 || r[0] != '+' {
-		t.Errorf("file row does not start with the dirty marker: %q", fileLine)
+	// Column 0 is the mark/clarify column, column 1 is the dirty marker
+	// — two separate columns (see markColumn/gutter) so a row that's
+	// both marked and dirty can show both at once. The dirty marker
+	// sits in column 1 for both the file row and the changed item,
+	// regardless of the item's indentation depth; column 0 is blank
+	// here since nothing is marked.
+	if r := []rune(fileLine); len(r) < 2 || r[0] != ' ' || r[1] != '+' {
+		t.Errorf("file row gutter columns wrong: %q", fileLine)
 	}
-	if r := []rune(itemLine); len(r) == 0 || r[0] != '+' {
-		t.Errorf("changed item row does not start with the dirty marker: %q", itemLine)
+	if r := []rune(itemLine); len(r) < 2 || r[0] != ' ' || r[1] != '+' {
+		t.Errorf("changed item row gutter columns wrong: %q", itemLine)
 	}
-	// An unrelated, more deeply nested row is unaffected and keeps a
-	// blank gutter column in the same position.
-	if r := []rune(nestedLine); len(r) == 0 || r[0] != ' ' {
-		t.Errorf("unrelated nested row should have a blank gutter, got: %q", nestedLine)
+	// An unrelated, more deeply nested row is unaffected and keeps both
+	// gutter columns blank.
+	if r := []rune(nestedLine); len(r) < 2 || r[0] != ' ' || r[1] != ' ' {
+		t.Errorf("unrelated nested row should have blank gutter columns, got: %q", nestedLine)
 	}
 }
 

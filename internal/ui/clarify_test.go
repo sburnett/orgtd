@@ -44,14 +44,30 @@ func TestClarifyHeaderRendersPinnedItem(t *testing.T) {
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
 
-	if lines[0] != "Clarifying:" {
-		t.Fatalf("line 0 = %q, want %q", lines[0], "Clarifying:")
+	if strings.TrimRight(lines[0], " ") != "Clarifying:" {
+		t.Fatalf("line 0 = %q, want %q (plus trailing background padding)", lines[0], "Clarifying:")
 	}
 	if !strings.Contains(lines[1], "Call the vet about Fido's checkup") {
 		t.Errorf("line 1 = %q, want the pinned item's title", lines[1])
 	}
-	if lines[2] != "" {
-		t.Errorf("line 2 = %q, want a blank separator after the pinned block", lines[2])
+	if strings.TrimRight(lines[2], " ") != "" {
+		t.Errorf("line 2 = %q, want a blank (background-padded) separator after the pinned block", lines[2])
+	}
+}
+
+func TestClarifySeparatorLineCarriesOverlayBackground(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.enterClarifyView()
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	lines := m.pinnedHeaderLines()
+	separator := lines[len(lines)-1]
+	if strings.TrimSpace(stripANSI(separator)) != "" {
+		t.Fatalf("separator = %q, want blank text content", separator)
+	}
+	if !strings.Contains(separator, "\x1b[") {
+		t.Errorf("separator = %q, want it styled with the overlay background, not plain text", separator)
 	}
 }
 
@@ -179,6 +195,26 @@ func TestClarifyEditingWorksNormallyOnTheRealRow(t *testing.T) {
 
 	if h.Keyword == origKeyword {
 		t.Errorf("status rotate in clarify view did not change the keyword")
+	}
+}
+
+func TestClarifyTargetSurvivesEditingIt(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.enterClarifyView()
+	old := m.clarifyTarget
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "c")
+	path := writeTempOrgFile(t, "* NEXT Call the vet about Fido's checkup ASAP\n")
+	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
+	m = updated.(Model)
+
+	if m.clarifyTarget == old {
+		t.Fatalf("fixture assumption broken: expected the headline pointer to change")
+	}
+	if m.clarifyTarget == nil || m.clarifyTarget.Title != "Call the vet about Fido's checkup ASAP" {
+		t.Errorf("clarifyTarget after editing it = %v, want the edited headline", m.clarifyTarget)
 	}
 }
 
