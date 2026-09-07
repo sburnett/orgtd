@@ -1,6 +1,10 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestGdOpensDeadlinePrefilled(t *testing.T) {
 	ws := loadFixture(t)
@@ -214,5 +218,104 @@ func TestDeadlineInvalidInputStaysOpenForCorrection(t *testing.T) {
 	m = sendKey(m, "enter")
 	if h.Deadline == nil || h.Deadline.Raw != "2026-12-25 Fri" {
 		t.Errorf("deadline after correction = %v, want 2026-12-25 Fri", h.Deadline)
+	}
+}
+
+func TestParseRelativeOffsetShorthandAndSpelledOut(t *testing.T) {
+	base := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC) // a Sunday
+
+	cases := []struct {
+		input string
+		want  time.Time
+	}{
+		{"3d", base.AddDate(0, 0, 3)},
+		{"3 days", base.AddDate(0, 0, 3)},
+		{"2w", base.AddDate(0, 0, 14)},
+		{"2 weeks", base.AddDate(0, 0, 14)},
+		{"1m", base.AddDate(0, 1, 0)},
+		{"1 month", base.AddDate(0, 1, 0)},
+		{"1y", base.AddDate(1, 0, 0)},
+		{"1 year", base.AddDate(1, 0, 0)},
+		{"-5d", base.AddDate(0, 0, -5)},
+		{"+5d", base.AddDate(0, 0, 5)},
+		{"3D", base.AddDate(0, 0, 3)}, // case-insensitive
+	}
+	for _, c := range cases {
+		got, ok := parseRelativeOffset(c.input, base)
+		if !ok {
+			t.Errorf("parseRelativeOffset(%q) did not match", c.input)
+			continue
+		}
+		if !got.Equal(c.want) {
+			t.Errorf("parseRelativeOffset(%q) = %v, want %v", c.input, got, c.want)
+		}
+	}
+}
+
+func TestParseRelativeOffsetRejectsNonMatches(t *testing.T) {
+	base := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
+	for _, input := range []string{"next tuesday", "2026-12-25", "", "abc", "3 hours", "d3"} {
+		if _, ok := parseRelativeOffset(input, base); ok {
+			t.Errorf("parseRelativeOffset(%q) unexpectedly matched", input)
+		}
+	}
+}
+
+func TestDeadlineAcceptsCompactShorthandThroughTheUI(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "3d")
+	m = sendKey(m, "enter")
+
+	if m.mode != normalMode {
+		t.Fatalf("mode after enter = %v, want normalMode (input should have been accepted)", m.mode)
+	}
+	want := truncateToDate(time.Now()).AddDate(0, 0, 3).Format("2006-01-02 Mon")
+	if h.Deadline == nil || h.Deadline.Raw != want {
+		t.Errorf("deadline = %v, want %q", h.Deadline, want)
+	}
+}
+
+func TestDeadlineAcceptsFuzzyPhraseThroughTheUI(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "tomorrow")
+	m = sendKey(m, "enter")
+
+	if m.mode != normalMode {
+		t.Fatalf("mode after enter = %v, want normalMode (\"tomorrow\" should have been accepted)", m.mode)
+	}
+	want := truncateToDate(time.Now()).AddDate(0, 0, 1).Format("2006-01-02 Mon")
+	if h.Deadline == nil || h.Deadline.Raw != want {
+		t.Errorf("deadline = %v, want %q", h.Deadline, want)
+	}
+}
+
+func TestDeadlineFuzzyPhraseHasNoTimeOfDay(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "next friday")
+	m = sendKey(m, "enter")
+
+	if h.Deadline == nil {
+		t.Fatalf("deadline not set")
+	}
+	if strings.Contains(h.Deadline.Raw, ":") {
+		t.Errorf("deadline = %q, want no time-of-day component for a fuzzy phrase", h.Deadline.Raw)
 	}
 }

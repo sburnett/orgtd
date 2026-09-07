@@ -10,11 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	naturaldate "github.com/tj/go-naturaldate"
 
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
@@ -553,10 +556,72 @@ func parseFlexibleDate(input string) (t time.Time, hasTime bool, err error) {
 	return time.Time{}, false, fmt.Errorf("invalid date %q (want YYYY-MM-DD, optionally with HH:MM)", input)
 }
 
+// relativeOffsetRe matches a compact or spelled-out relative offset like
+// "3d", "-2 weeks", "1 month", "2y". Deliberately excludes "min"/"hour":
+// deadlines here are date-grained, not time-grained.
+var relativeOffsetRe = regexp.MustCompile(`(?i)^([+-]?\d+)\s*(d|days?|w|weeks?|m|months?|y|years?)$`)
+
+// parseRelativeOffset resolves a compact/spelled-out relative offset
+// against base, always at day granularity (no time of day). ok is false
+// if input doesn't match this shape at all.
+func parseRelativeOffset(input string, base time.Time) (t time.Time, ok bool) {
+	match := relativeOffsetRe.FindStringSubmatch(strings.TrimSpace(input))
+	if match == nil {
+		return time.Time{}, false
+	}
+	n, err := strconv.Atoi(match[1])
+	if err != nil {
+		return time.Time{}, false
+	}
+	switch unicode.ToLower(rune(match[2][0])) {
+	case 'd':
+		return base.AddDate(0, 0, n), true
+	case 'w':
+		return base.AddDate(0, 0, n*7), true
+	case 'm':
+		return base.AddDate(0, n, 0), true
+	case 'y':
+		return base.AddDate(n, 0, 0), true
+	}
+	return time.Time{}, false
+}
+
+// truncateToDate drops t's time-of-day component.
+func truncateToDate(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+// resolveDeadlineDate parses input as, in order: an exact date (with
+// optional time of day, per parseFlexibleDate); a compact or
+// spelled-out relative offset ("3d", "2 weeks", "-1y"); or a fuzzy
+// natural-language phrase ("next tuesday", "tomorrow", "friday"), via
+// go-naturaldate. Only the first form can produce a time of day — the
+// other two always resolve to a plain date, since "in 3 days" or "next
+// tuesday" don't imply a specific hour.
+func resolveDeadlineDate(input string) (t time.Time, hasTime bool, err error) {
+	input = strings.TrimSpace(input)
+
+	if t, hasTime, err := parseFlexibleDate(input); err == nil {
+		return t, hasTime, nil
+	}
+
+	today := truncateToDate(time.Now())
+
+	if t, ok := parseRelativeOffset(input, today); ok {
+		return t, false, nil
+	}
+
+	if t, ferr := naturaldate.Parse(input, today, naturaldate.WithDirection(naturaldate.Future)); ferr == nil {
+		return truncateToDate(t), false, nil
+	}
+
+	return time.Time{}, false, fmt.Errorf(`invalid date %q (try "2026-12-25", "3d", "2 weeks", or "next tuesday")`, input)
+}
+
 // parseDeadlineInput parses a typed date into an active org timestamp
 // suitable for DEADLINE.
 func parseDeadlineInput(input string) (*org.Timestamp, error) {
-	t, hasTime, err := parseFlexibleDate(input)
+	t, hasTime, err := resolveDeadlineDate(input)
 	if err != nil {
 		return nil, err
 	}
@@ -1192,7 +1257,7 @@ func (m Model) View() string {
 	case m.mode == selectMode:
 		b.WriteString(m.renderStatusSelector())
 	case m.mode == deadlineMode:
-		b.WriteString(" Deadline (YYYY-MM-DD, optional HH:MM; empty clears): " + m.deadlineInput)
+		b.WriteString(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
 		b.WriteString(cursorStyle.Render(" "))
 	case m.message != "":
 		b.WriteString(errorStyle.Render(m.message))
