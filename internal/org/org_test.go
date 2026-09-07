@@ -68,6 +68,34 @@ func TestParseKeywordAndScheduled(t *testing.T) {
 	}
 }
 
+func TestParseScheduledAndDeadlineOnSameLine(t *testing.T) {
+	f, err := Parse(strings.NewReader("* NEXT Both dates\n  SCHEDULED: <2026-09-10 Thu> DEADLINE: <2026-09-12 Sat>\n"), "test.org")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	h := f.Headlines[0]
+	if h.Scheduled == nil || h.Scheduled.Raw != "2026-09-10 Thu" {
+		t.Errorf("scheduled = %#v, want 2026-09-10 Thu", h.Scheduled)
+	}
+	if h.Deadline == nil || h.Deadline.Raw != "2026-09-12 Sat" {
+		t.Errorf("deadline = %#v, want 2026-09-12 Sat", h.Deadline)
+	}
+}
+
+func TestPlanningLineMustStartTheLine(t *testing.T) {
+	f, err := Parse(strings.NewReader("* TODO Talk to Bob\n  A note about the DEADLINE: shift, not an actual planning line.\n"), "test.org")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	h := f.Headlines[0]
+	if h.Deadline != nil {
+		t.Errorf("deadline = %#v, want nil (DEADLINE: appears mid-sentence, not at line start)", h.Deadline)
+	}
+	if len(h.Body) == 0 || !strings.Contains(h.Body[0], "DEADLINE:") {
+		t.Errorf("body = %#v, want the line preserved as ordinary content", h.Body)
+	}
+}
+
 func TestParseProperties(t *testing.T) {
 	f := mustParse(t)
 	task := f.Headlines[0].Children[0]

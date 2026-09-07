@@ -96,7 +96,12 @@ var (
 	priorityRe = regexp.MustCompile(`^\[#([A-Z])\]\s*`)
 	drawerKV   = regexp.MustCompile(`^\s*:([A-Za-z0-9_]+):\s*(.*)$`)
 	tsRe       = regexp.MustCompile(`([<\[])([^>\]]+)([>\]])`)
-	planningRe = regexp.MustCompile(`^\s*(SCHEDULED|DEADLINE|CLOSED):\s*([<\[][^>\]]+[>\]])`)
+	// No leading ^ anchor: applyPlanningLine matches this against the
+	// whole (already-identified) planning line via FindAllStringSubmatch
+	// to pick up every keyword present, e.g. "SCHEDULED: <...> DEADLINE:
+	// <...>" on one line, org-mode's own convention for a line with more
+	// than one of them.
+	planningRe = regexp.MustCompile(`(SCHEDULED|DEADLINE|CLOSED):\s*([<\[][^>\]]+[>\]])`)
 )
 
 // ParseFile reads and parses the org file at path.
@@ -251,9 +256,19 @@ func parseHeadlineLine(rest string) *Headline {
 
 // applyPlanningLine tries to interpret line as an org planning line
 // (one or more of SCHEDULED/DEADLINE/CLOSED timestamps on one line). It
-// returns false if the line doesn't look like a planning line at all, in
-// which case the caller should treat it as ordinary content.
+// returns false if the line doesn't look like a planning line at all —
+// i.e. doesn't *start* with one of those keywords — in which case the
+// caller should treat it as ordinary content instead. That check is
+// separate from planningRe (which is deliberately unanchored, so it can
+// find every keyword on a qualifying line) so a body line that merely
+// mentions "DEADLINE:" partway through isn't mistaken for planning info.
 func applyPlanningLine(h *Headline, line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+	if !strings.HasPrefix(trimmed, "SCHEDULED:") &&
+		!strings.HasPrefix(trimmed, "DEADLINE:") &&
+		!strings.HasPrefix(trimmed, "CLOSED:") {
+		return false
+	}
 	matches := planningRe.FindAllStringSubmatch(line, -1)
 	if len(matches) == 0 {
 		return false

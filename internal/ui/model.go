@@ -113,8 +113,13 @@ func filteredStatusCandidates(filter string) []statusCandidate {
 // row is one visible line in the outline: either a file header or a
 // headline at some depth.
 type row struct {
-	file     *org.File // set for a file-header row
+	file     *org.File // set for a file-header row (outline view)
 	headline *org.Headline
+	level    int // structural level used by level-aware navigation (rowLevel); file/section rows are 0
+
+	section     string    // set for an agenda section-header row ("Overdue" etc.); outline rows never set this
+	agendaLabel string    // "Scheduled" or "Deadline", set for an agenda item row
+	agendaDate  time.Time // the date this agenda item row is shown for
 }
 
 // Model is the Bubble Tea model for the viewer.
@@ -153,7 +158,18 @@ type Model struct {
 	deadlineInput string // typed so far, in deadlineMode
 
 	urlFormatterCmd string // external program that turns a bare URL into an org-mode link; disabled if empty
+
+	view       viewKind
+	agendaDays int // how many days ahead the agenda's "Upcoming" section covers
 }
+
+// viewKind selects what rebuildRows populates m.rows with.
+type viewKind int
+
+const (
+	outlineView viewKind = iota
+	agendaView
+)
 
 // Option customizes a Model at construction time. See New.
 type Option func(*Model)
@@ -168,6 +184,16 @@ func WithURLFormatter(cmd string) Option {
 	return func(m *Model) { m.urlFormatterCmd = cmd }
 }
 
+// WithAgendaDays sets how many days ahead of today the agenda view's
+// "Upcoming" section covers. days <= 0 is treated as the default (14).
+func WithAgendaDays(days int) Option {
+	return func(m *Model) {
+		if days > 0 {
+			m.agendaDays = days
+		}
+	}
+}
+
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
@@ -176,6 +202,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		dirty:          make(map[*org.File]bool),
 		dirtyHeadlines: make(map[*org.Headline]bool),
 		savedPos:       make(map[*org.File]int),
+		agendaDays:     14,
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -190,9 +217,14 @@ func (m Model) Init() tea.Cmd {
 
 func (m *Model) rebuildRows() {
 	m.rows = m.rows[:0]
-	for _, f := range m.ws.Files {
-		m.rows = append(m.rows, row{file: f})
-		m.appendHeadlines(f.Headlines)
+	switch m.view {
+	case agendaView:
+		m.appendAgendaRows()
+	default:
+		for _, f := range m.ws.Files {
+			m.rows = append(m.rows, row{file: f})
+			m.appendHeadlines(f.Headlines)
+		}
 	}
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1
@@ -202,9 +234,34 @@ func (m *Model) rebuildRows() {
 	}
 }
 
+// jumpToSource ("Enter" on an agenda row) switches to outline view with
+// the cursor on that row's real headline. A no-op outside agenda view,
+// or on an agenda section-header row.
+func (m *Model) jumpToSource() {
+	if m.view != agendaView {
+		return
+	}
+	h := m.currentHeadline()
+	if h == nil {
+		return
+	}
+	m.switchToView(outlineView)
+	m.focusHeadline(h)
+}
+
+// switchToView changes which view rebuildRows populates m.rows with,
+// resetting the cursor to the top — the two views have entirely
+// different row sets, so there's no sensible position to preserve.
+func (m *Model) switchToView(v viewKind) {
+	m.view = v
+	m.cursor = 0
+	m.offset = 0
+	m.rebuildRows()
+}
+
 func (m *Model) appendHeadlines(headlines []*org.Headline) {
 	for _, h := range headlines {
-		m.rows = append(m.rows, row{headline: h})
+		m.rows = append(m.rows, row{headline: h, level: h.Level})
 		if len(h.Children) > 0 && !m.collapsed[h] {
 			m.appendHeadlines(h.Children)
 		}
@@ -297,6 +354,9 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "$":
 		m.jumpToSubtreeBottom()
+
+	case "enter":
+		m.jumpToSource()
 
 	case "tab":
 		m.toggleFold()
@@ -468,6 +528,12 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "redo":
 		m.redo()
+
+	case "agenda":
+		m.switchToView(agendaView)
+
+	case "outline":
+		m.switchToView(outlineView)
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
@@ -1514,11 +1580,11 @@ func (m *Model) moveCursor(delta int) {
 
 // rowLevel returns the indentation level of the row at index i: 0 for a
 // file header, or the headline's level otherwise.
+// rowLevel returns the indentation/structural level of the row at index
+// i — h.Level for an outline headline row, 0 for a file/section-header
+// row, 1 for an agenda item row (see row.level).
 func (m *Model) rowLevel(i int) int {
-	if r := m.rows[i]; r.file == nil {
-		return r.headline.Level
-	}
-	return 0
+	return m.rows[i].level
 }
 
 // moveToLevel moves the cursor to the next (dir>0) or previous (dir<0)
@@ -1604,70 +1670,80 @@ func (m *Model) moveShallower() {
 	}
 }
 
-// currentSubtree returns the "subtree" enclosing the cursor's current
-// position: if the cursor is on a nested headline, that's its parent
-// (siblings = the parent's children); if it's on a top-level headline
-// or on a file's own header row, that's the file itself (siblings =
-// the file's top-level headlines). parent is nil in the latter case.
-func (m *Model) currentSubtree() (parent *org.Headline, f *org.File) {
-	if m.cursor < 0 || m.cursor >= len(m.rows) {
-		return nil, nil
-	}
-	r := m.rows[m.cursor]
-	if r.file != nil {
-		return nil, r.file
-	}
-	if r.headline != nil {
-		return r.headline.Parent, m.fileForHeadline(r.headline)
-	}
-	return nil, nil
-}
-
-// jumpToSubtreeTop ("^") moves the cursor up to the top of the current
-// subtree (see currentSubtree): the parent headline's row if nested, or
-// the file's header row otherwise — a no-op if already there.
+// jumpToSubtreeTop ("^") moves the cursor to the nearest preceding row
+// with a shallower level than the current row — the enclosing parent
+// headline row in outline view (or the file/section header), and the
+// enclosing section header in agenda view — a no-op if already at the
+// shallowest level present (a file or section-header row).
+//
+// This is a row scan rather than a tree-pointer lookup (parent.Level,
+// etc.) so it works uniformly across outline and agenda rows: a visible
+// row's nearest shallower predecessor is always its logical container,
+// since a row is only visible when every ancestor row before it is too.
 func (m *Model) jumpToSubtreeTop() {
-	parent, f := m.currentSubtree()
-	if parent != nil {
-		m.focusHeadline(parent)
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return
 	}
-	if f != nil {
-		m.focusFile(f)
+	cur := m.rowLevel(m.cursor)
+	for i := m.cursor - 1; i >= 0; i-- {
+		if m.rowLevel(i) < cur {
+			m.cursor = i
+			return
+		}
 	}
 }
 
-// jumpToSubtreeBottom ("$") moves the cursor one level down: from a file
-// row to that file's last top-level headline, or from a headline to its
-// own last child. This is the exact inverse of jumpToSubtreeTop ("^") —
-// each press moves one level in the tree — so pressing "$" repeatedly
-// drills progressively deeper, bottoming out (a no-op) once it reaches a
-// leaf.
+// jumpToSubtreeBottom ("$") moves the cursor to the last row exactly one
+// level deeper than the current row, within the current row's own span
+// (its last direct child in outline view, or its section's last item in
+// agenda view) — a no-op if there's no such row. This is the exact
+// inverse of jumpToSubtreeTop ("^"): each press moves exactly one level,
+// so pressing "$" repeatedly drills progressively deeper, bottoming out
+// once it reaches a leaf. See jumpToSubtreeTop for why this is a row
+// scan rather than a tree-pointer lookup.
 func (m *Model) jumpToSubtreeBottom() {
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return
 	}
-	r := m.rows[m.cursor]
-	if r.file != nil {
-		if len(r.file.Headlines) > 0 {
-			m.focusHeadline(r.file.Headlines[len(r.file.Headlines)-1])
+	cur := m.rowLevel(m.cursor)
+	last := -1
+	for i := m.cursor + 1; i < len(m.rows) && m.rowLevel(i) > cur; i++ {
+		if m.rowLevel(i) == cur+1 {
+			last = i
 		}
-		return
 	}
-	if r.headline != nil && len(r.headline.Children) > 0 {
-		children := r.headline.Children
-		m.focusHeadline(children[len(children)-1])
+	if last >= 0 {
+		m.cursor = last
 	}
 }
 
 // pageSize is the number of rows visible at once, reserving one line for
 // the status bar.
 func (m *Model) pageSize() int {
-	n := m.height - m.statusHeight()
+	n := m.height - m.statusHeight() - m.sectionSeparatorBudget()
 	if n < 1 {
 		n = 1
 	}
 	return n
+}
+
+// sectionSeparatorBudget is how many blank separator lines a full render
+// could need — one before every section-header row after the first (see
+// View). Reserving this many rows of the page for them, even though any
+// single page may show fewer section boundaries than the full list has,
+// is always safe: unused reservation just becomes ordinary bottom
+// padding, exactly like when there are fewer than a page of items.
+func (m *Model) sectionSeparatorBudget() int {
+	n := 0
+	for _, r := range m.rows {
+		if r.section != "" {
+			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return n - 1
 }
 
 func (m *Model) ensureVisible() {
@@ -1685,6 +1761,9 @@ func (m *Model) ensureVisible() {
 
 func (m Model) View() string {
 	if len(m.rows) == 0 {
+		if m.view == agendaView {
+			return fmt.Sprintf("Nothing due in the next %d days. :outline to go back.\n", m.agendaDays)
+		}
 		return "No org files found.\n"
 	}
 
@@ -1697,6 +1776,9 @@ func (m Model) View() string {
 
 	var b strings.Builder
 	for i := start; i < end; i++ {
+		if i > start && m.rows[i].section != "" {
+			b.WriteString("\n")
+		}
 		line := m.renderRow(m.rows[i])
 		if i == m.cursor {
 			line = cursorStyle.Render(line)
@@ -1742,7 +1824,11 @@ func (m Model) View() string {
 // terminal, this gives each the best chance of fitting unwrapped.
 // Unknown width (m.width <= 0) never triggers a split.
 func (m *Model) normalStatusLines() []string {
-	main := fmt.Sprintf(" %s  —  item %d/%d", m.ws.Dir, m.cursor+1, len(m.rows))
+	place := m.ws.Dir
+	if m.view == agendaView {
+		place = "agenda"
+	}
+	main := fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 	h := m.currentHeadline()
 	if h == nil {
 		return []string{main}
@@ -1810,8 +1896,15 @@ func gutter(dirty bool) string {
 }
 
 func (m Model) renderRow(r row) string {
-	if r.file != nil {
+	switch {
+	case r.section != "":
+		// Flush left (no gutter/indent), unlike every item row below it,
+		// so a section header stands out at a glance in a long agenda.
+		return fileStyle.Render(r.section)
+	case r.file != nil:
 		return gutter(m.dirty[r.file]) + " " + fileStyle.Render(filepath.Base(r.file.Path))
+	case r.agendaLabel != "":
+		return m.renderAgendaItemRow(r)
 	}
 
 	h := r.headline
@@ -1826,6 +1919,24 @@ func (m Model) renderRow(r row) string {
 		}
 	}
 
+	line := gutter(m.dirtyHeadlines[h]) + " " + indent + fold + " " + strings.Join(m.renderKeywordAndTitle(h), " ")
+
+	if len(h.Tags) > 0 {
+		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")
+	}
+
+	if ts := planningSummary(h); ts != "" {
+		line += "  " + timestampStyle.Render(ts)
+	}
+
+	return line
+}
+
+// renderKeywordAndTitle renders h's keyword, priority, and title (with
+// its links shown as display text, see renderTitleForDisplay) as
+// space-joinable parts — shared between the outline and agenda row
+// renderers.
+func (m Model) renderKeywordAndTitle(h *org.Headline) []string {
 	var parts []string
 	if h.Keyword != "" {
 		style, ok := keywordStyles[h.Keyword]
@@ -1843,16 +1954,26 @@ func (m Model) renderRow(r row) string {
 		base = doneTitleStyle
 	}
 	parts = append(parts, renderTitleForDisplay(h.Title, base))
+	return parts
+}
 
-	line := gutter(m.dirtyHeadlines[h]) + " " + indent + fold + " " + strings.Join(parts, " ")
+// renderAgendaItemRow renders one agenda item row: keyword/priority/
+// title (as in outline, but with no indent or fold arrow — agenda is
+// flat), tags, then which file it's from and the date/label (Scheduled
+// or Deadline) it's shown for.
+func (m Model) renderAgendaItemRow(r row) string {
+	h := r.headline
+	line := gutter(m.dirtyHeadlines[h]) + " " + strings.Join(m.renderKeywordAndTitle(h), " ")
 
 	if len(h.Tags) > 0 {
 		line += "  " + tagStyle.Render(":"+strings.Join(h.Tags, ":")+":")
 	}
 
-	if ts := planningSummary(h); ts != "" {
-		line += "  " + timestampStyle.Render(ts)
+	fileName := ""
+	if f := m.fileForHeadline(h); f != nil {
+		fileName = filepath.Base(f.Path)
 	}
+	line += "  " + timestampStyle.Render(fmt.Sprintf("[%s]  %s: %s", fileName, r.agendaLabel, r.agendaDate.Format("2006-01-02 Mon")))
 
 	return line
 }

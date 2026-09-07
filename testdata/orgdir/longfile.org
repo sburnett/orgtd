@@ -2,10 +2,14 @@
 * Entry 2 [[https://docs.google.com/document/d/1ienNOwR-F_-E76LN_YJEoVT3K1dqr0KZyzi87MSJMHU/edit?tab=t.0#heading=h.91wh07x19hro][Basic recipes]] [[https://docs.google.com/document/d/1nIseRbmGuyzi0Qv9rLOtLu9sIjL5kYXxWzT95ulszkc/edit?tab=t.0][Other recipe]]
 
 * Entry 3
-* Entry 4
-* Entry 5
-* Entry 6
-* Entry 7
+* TODO Entry 4
+  DEADLINE: <2026-09-11 Fri>
+* TODO Entry 5
+  DEADLINE: <2026-09-08 Tue>
+* TODO Entry 6
+  DEADLINE: <2026-09-10 Thu>
+* NEXT Entry 7
+  DEADLINE: <2026-09-07 Mon>
 * Entry 8
 * Entry 9
 * Entry 10
