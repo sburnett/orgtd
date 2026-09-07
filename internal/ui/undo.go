@@ -41,6 +41,28 @@ func (a *statusChangeAction) revert(m *Model) *org.Headline {
 func (a *statusChangeAction) file() *org.File           { return a.f }
 func (a *statusChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
+// deadlineChangeAction records a DEADLINE change ("gd"), including
+// clearing it (newDeadline nil). Like statusChangeAction, the mutation
+// is in place, so the same headline pointer is "affected" either way.
+type deadlineChangeAction struct {
+	h                        *org.Headline
+	f                        *org.File
+	oldDeadline, newDeadline *org.Timestamp
+}
+
+func (a *deadlineChangeAction) apply(m *Model) *org.Headline {
+	a.h.Deadline = a.newDeadline
+	return a.h
+}
+
+func (a *deadlineChangeAction) revert(m *Model) *org.Headline {
+	a.h.Deadline = a.oldDeadline
+	return a.h
+}
+
+func (a *deadlineChangeAction) file() *org.File           { return a.f }
+func (a *deadlineChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
+
 // subtreeReplaceAction records an `i` edit: oldSet (almost always a
 // single headline and its subtree) was replaced by newSet (one or more
 // headlines, e.g. if the edit split the entry into siblings). applied

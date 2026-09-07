@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ const (
 	normalMode mode = iota
 	commandMode
 	selectMode
+	deadlineMode
 )
 
 // statusCandidate is one entry in the "set status" picker (R).
@@ -140,6 +142,8 @@ type Model struct {
 
 	selectFilter string // typed so far, in selectMode
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
+
+	deadlineInput string // typed so far, in deadlineMode
 }
 
 // New builds a viewer model over ws. Every headline starts expanded.
@@ -202,6 +206,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCommandMode(msg)
 		case selectMode:
 			return m.updateSelectMode(msg)
+		case deadlineMode:
+			return m.updateDeadlineMode(msg)
 		default:
 			return m.updateNormalMode(msg)
 		}
@@ -282,7 +288,9 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.redo()
 
 	case "d":
-		if wasPendingD {
+		if wasPendingG {
+			m.startSetDeadline()
+		} else if wasPendingD {
 			m.deleteHeadline()
 		} else {
 			m.pendingD = true
@@ -527,6 +535,130 @@ func (m *Model) currentStatusIndex() int {
 	return 0
 }
 
+// dateInputLayouts are the formats accepted when typing a date, tried in
+// order. A weekday name may or may not be present (it's not required,
+// and is regenerated from the actual date on output regardless of what
+// was typed, so a stale one left over from editing an existing date
+// doesn't matter).
+var dateInputLayouts = []string{"2006-01-02 Mon 15:04", "2006-01-02 Mon", "2006-01-02 15:04", "2006-01-02"}
+
+// parseFlexibleDate tries each of dateInputLayouts against input,
+// reporting whether the matched layout included a time of day.
+func parseFlexibleDate(input string) (t time.Time, hasTime bool, err error) {
+	for _, layout := range dateInputLayouts {
+		if t, err = time.ParseInLocation(layout, input, time.Local); err == nil {
+			return t, strings.Contains(layout, "15:04"), nil
+		}
+	}
+	return time.Time{}, false, fmt.Errorf("invalid date %q (want YYYY-MM-DD, optionally with HH:MM)", input)
+}
+
+// parseDeadlineInput parses a typed date into an active org timestamp
+// suitable for DEADLINE.
+func parseDeadlineInput(input string) (*org.Timestamp, error) {
+	t, hasTime, err := parseFlexibleDate(input)
+	if err != nil {
+		return nil, err
+	}
+	format := "2006-01-02 Mon"
+	if hasTime {
+		format = "2006-01-02 Mon 15:04"
+	}
+	return &org.Timestamp{Active: true, Raw: t.Format(format)}, nil
+}
+
+// prefillDateInput renders ts without its weekday, as a starting point
+// for editing (empty if ts is nil).
+func prefillDateInput(ts *org.Timestamp) string {
+	if ts == nil {
+		return ""
+	}
+	t, hasTime, err := parseFlexibleDate(ts.Raw)
+	if err != nil {
+		return ts.Raw
+	}
+	if hasTime {
+		return t.Format("2006-01-02 15:04")
+	}
+	return t.Format("2006-01-02")
+}
+
+// startSetDeadline opens the deadline-entry prompt ("gd") for the
+// current headline, pre-filled with its existing deadline if any. A
+// no-op on file rows.
+func (m *Model) startSetDeadline() {
+	h := m.currentHeadline()
+	if h == nil {
+		return
+	}
+	m.mode = deadlineMode
+	m.deadlineInput = prefillDateInput(h.Deadline)
+}
+
+// updateDeadlineMode handles key presses while the deadline prompt is
+// open: Enter applies the typed date (or clears the deadline if left
+// empty), Esc cancels without changes.
+func (m Model) updateDeadlineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = normalMode
+		m.deadlineInput = ""
+		return m, nil
+
+	case tea.KeyEnter:
+		return m.applyDeadlineInput()
+
+	case tea.KeyBackspace:
+		if r := []rune(m.deadlineInput); len(r) > 0 {
+			m.deadlineInput = string(r[:len(r)-1])
+		}
+		return m, nil
+
+	case tea.KeySpace:
+		m.deadlineInput += " "
+		return m, nil
+
+	case tea.KeyRunes:
+		m.deadlineInput += string(msg.Runes)
+		return m, nil
+	}
+	return m, nil
+}
+
+// applyDeadlineInput parses the typed date and, if valid, records a
+// deadlineChangeAction. An empty input clears the deadline. An invalid
+// (non-empty) date is reported on the status line and leaves the prompt
+// open, input intact, so it can be corrected.
+func (m Model) applyDeadlineInput() (tea.Model, tea.Cmd) {
+	input := strings.TrimSpace(m.deadlineInput)
+	h := m.currentHeadline()
+	if h == nil {
+		m.mode = normalMode
+		m.deadlineInput = ""
+		return m, nil
+	}
+
+	if input == "" {
+		m.mode = normalMode
+		m.deadlineInput = ""
+		if h.Deadline != nil {
+			m.pushUndo(&deadlineChangeAction{h: h, f: m.fileForHeadline(h), oldDeadline: h.Deadline, newDeadline: nil})
+		}
+		return m, nil
+	}
+
+	ts, err := parseDeadlineInput(input)
+	if err != nil {
+		m.message = err.Error()
+		return m, nil
+	}
+
+	m.mode = normalMode
+	m.deadlineInput = ""
+	m.pushUndo(&deadlineChangeAction{h: h, f: m.fileForHeadline(h), oldDeadline: h.Deadline, newDeadline: ts})
+	return m, nil
+}
+
 // rotateStatus advances the current headline to the next state in
 // statusCycle, wrapping around.
 func (m *Model) rotateStatus() {
@@ -627,7 +759,9 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 	}
 	path := tmp.Name()
 
-	_, err = tmp.WriteString(org.RenderHeadline(h))
+	before, after := m.editorContext(ctx != nil, h)
+	content := before + org.RenderHeadline(h) + after
+	_, err = tmp.WriteString(content)
 	tmp.Close()
 	if err != nil {
 		os.Remove(path)
@@ -645,6 +779,85 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
 	})
+}
+
+// editorContextComment builds a git-commit-style trailer appended after
+// the real content in the editor buffer: instructions, plus the entries
+// immediately before and after the one being edited, for orientation.
+// Every line is an org comment ("# ..."), so it's inert either way —
+// finishEdit strips comment lines before parsing the result, so this
+// trailer never ends up as part of the saved content whether the user
+// deletes it or leaves it in place.
+// editorContext builds the git-commit-style trailer split around the
+// real content: before is prepended, after is appended, so the buffer
+// reads like a small outline with the real entry sitting in place among
+// its actual structural neighbors — its parent (if nested) and its
+// previous/next sibling — each rendered with real org stars matching its
+// own level, commented out. finishEdit strips comment lines before
+// parsing the result, so this context is inert whether the user deletes
+// it or leaves it in place.
+func (m *Model) editorContext(isInsert bool, h *org.Headline) (before, after string) {
+	fileName := ""
+	if f := m.fileForHeadline(h); f != nil {
+		fileName = filepath.Base(f.Path)
+	}
+	prev, next := m.siblingHeadlines(h)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n#\n", fileName)
+	if h.Parent != nil {
+		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(h.Parent))
+	}
+	if prev != nil {
+		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(prev))
+	}
+	before = b.String()
+
+	b.Reset()
+	if next != nil {
+		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(next))
+	}
+	action := "Editing this entry."
+	if isInsert {
+		action = "Inserting a new entry."
+	}
+	fmt.Fprintf(&b, "#\n# %s Lines starting with '#' are ignored. Save and\n", action)
+	fmt.Fprintln(&b, "# exit to apply your changes, or delete the entry's content (leaving")
+	fmt.Fprintln(&b, "# only these comments, or nothing) to cancel.")
+	after = b.String()
+	return before, after
+}
+
+// commentedHeadlineLine renders h as a single line of real org syntax —
+// its actual stars and keyword — for display as context (always inside
+// a "# " comment, never parsed as a real headline).
+func commentedHeadlineLine(h *org.Headline) string {
+	stars := strings.Repeat("*", h.Level)
+	if h.Keyword != "" {
+		return stars + " " + h.Keyword + " " + h.Title
+	}
+	return stars + " " + h.Title
+}
+
+// siblingHeadlines returns h's immediate previous and next siblings
+// (within its parent's children, or its file's top-level list if h is
+// top-level), or nil for either that doesn't exist.
+func (m *Model) siblingHeadlines(h *org.Headline) (prev, next *org.Headline) {
+	f, parent, idx := m.insertPosition(h)
+	if idx < 0 {
+		return nil, nil
+	}
+	list := f.Headlines
+	if parent != nil {
+		list = parent.Children
+	}
+	if idx > 0 {
+		prev = list[idx-1]
+	}
+	if idx+1 < len(list) {
+		next = list[idx+1]
+	}
+	return prev, next
 }
 
 // resolveInsertPosition computes where a new entry belongs relative to
@@ -761,6 +974,26 @@ func shiftHeadlineLevel(h *org.Headline, delta int) {
 	}
 }
 
+// commentLineRe matches an org comment line: '#' followed by whitespace
+// or end of line. This deliberately excludes org directives like
+// "#+TITLE:" (hash immediately followed by '+'), which aren't comments.
+var commentLineRe = regexp.MustCompile(`^\s*#(\s|$)`)
+
+// stripCommentLines removes every comment line from text, the same way
+// git strips '#'-prefixed lines from a commit message template before
+// using it. This is what makes editorContextComment's trailer inert
+// regardless of whether the user deletes it.
+func stripCommentLines(text string) string {
+	lines := strings.Split(text, "\n")
+	out := lines[:0]
+	for _, l := range lines {
+		if !commentLineRe.MatchString(l) {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // finishEdit reads back the edited entry and reparses it. For a plain
 // `i` edit, the result replaces the original headline in place (or, if
 // the edit left nothing parseable, the original is left untouched). For
@@ -788,7 +1021,7 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	file, err := org.Parse(strings.NewReader(string(data)), "")
+	file, err := org.Parse(strings.NewReader(stripCommentLines(string(data))), "")
 	if err != nil {
 		m.message = fmt.Sprintf("Could not parse edited entry: %v", err)
 		if msg.insert != nil {
@@ -958,6 +1191,9 @@ func (m Model) View() string {
 		b.WriteString(cursorStyle.Render(" ")) // caret, always at the end (no in-line editing yet)
 	case m.mode == selectMode:
 		b.WriteString(m.renderStatusSelector())
+	case m.mode == deadlineMode:
+		b.WriteString(" Deadline (YYYY-MM-DD, optional HH:MM; empty clears): " + m.deadlineInput)
+		b.WriteString(cursorStyle.Render(" "))
 	case m.message != "":
 		b.WriteString(errorStyle.Render(m.message))
 	default:
