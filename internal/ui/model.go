@@ -2134,6 +2134,30 @@ func stripCommentLines(text string) string {
 	return strings.Join(out, "\n")
 }
 
+// headlineBulletChars are plain-text/markdown list-bullet markers that
+// don't count as real content on their own — the kind of thing a
+// markdown habit or a paste might leave behind with nothing actually
+// typed after it.
+const headlineBulletChars = "-*+•"
+
+// isBlankHeadlineTitle reports whether title amounts to no text at all:
+// nothing but whitespace and/or a run of leading bullet characters (see
+// headlineBulletChars). Stripping is prefix-only — never touching the
+// end of the string — so real content that merely starts with one of
+// these characters (e.g. "-1 lap penalty") is correctly seen as
+// non-blank once whatever follows the bullet run is reached.
+func isBlankHeadlineTitle(title string) bool {
+	s := strings.TrimSpace(title)
+	for s != "" {
+		r, size := utf8.DecodeRuneInString(s)
+		if !strings.ContainsRune(headlineBulletChars, r) {
+			break
+		}
+		s = strings.TrimSpace(s[size:])
+	}
+	return s == ""
+}
+
 // orgLinkRe matches an existing org-mode link, "[[url]]" or
 // "[[url][description]]" — group 1 is the url, group 2 the description
 // (absent for the no-description form). Used both to make formatURLs
@@ -2291,6 +2315,14 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.insert != nil {
+		if isBlankHeadlineTitle(file.Headlines[0].Title) {
+			// A headline with stars and maybe a keyword but no actual
+			// text (or just a stray bullet character) is just as
+			// unusable as a genuinely empty result — don't create it.
+			m.rollbackInsert(*msg.insert, msg.target)
+			m.message = "Insert cancelled (no text)"
+			return m, nil
+		}
 		m.commitInsert(*msg.insert, msg.target, file.Headlines)
 		return m, nil
 	}

@@ -244,6 +244,88 @@ func TestInsertRollbackOnEmptyResult(t *testing.T) {
 	}
 }
 
+func TestIsBlankHeadlineTitle(t *testing.T) {
+	cases := []struct {
+		title string
+		want  bool
+	}{
+		{"", true},
+		{"   ", true},
+		{"-", true},
+		{"*", true},
+		{"+", true},
+		{"•", true},
+		{"- ", true},
+		{"-*-", true},
+		{"- - ", true},
+		{"**", true},
+		{"Buy dog treats", false},
+		{"-1 lap penalty", false},
+		{"Learn C++", false},
+		{"- Buy dog treats", false}, // real text after the bullet
+		{"* not actually blank", false},
+	}
+	for _, c := range cases {
+		if got := isBlankHeadlineTitle(c.title); got != c.want {
+			t.Errorf("isBlankHeadlineTitle(%q) = %v, want %v", c.title, got, c.want)
+		}
+	}
+}
+
+func TestInsertRollbackOnBlankTitle(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"stars and keyword only", "* TODO\n"},
+		{"stars and whitespace only", "*    \n"},
+		{"lone dash bullet", "* -\n"},
+		{"lone asterisk", "* *\n"},
+		{"keyword plus bullet", "* TODO -\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ws := loadFixture(t)
+			m := New(ws)
+			m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+			orig := m.currentHeadline()
+			before := len(m.rows)
+			beforeUndoPos := m.undoPos
+
+			m = sendKey(m, "o")
+			m = commitTentative(t, m, orig, c.body)
+
+			if len(m.rows) != before {
+				t.Errorf("rows after rollback = %d, want %d (no trace left)", len(m.rows), before)
+			}
+			if m.undoPos != beforeUndoPos {
+				t.Errorf("undoPos changed despite rollback: %d, want %d", m.undoPos, beforeUndoPos)
+			}
+			if !strings.Contains(strings.ToLower(m.message), "cancel") {
+				t.Errorf("message = %q, want it to mention the insert was cancelled", m.message)
+			}
+			if h := m.currentHeadline(); h == nil || h.Title != "Call the vet about Fido's checkup" {
+				t.Errorf("expected cursor back on the original headline, got %v", h)
+			}
+		})
+	}
+}
+
+func TestInsertNotRollbackWhenTitleStartsWithBulletButHasRealText(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	orig := m.currentHeadline()
+
+	m = sendKey(m, "o")
+	m = commitTentative(t, m, orig, "* TODO - Buy dog treats\n")
+
+	idx := findRow(t, m, "- Buy dog treats")
+	if m.rows[idx].headline.Title != "- Buy dog treats" {
+		t.Errorf("expected the entry to be committed, not rolled back")
+	}
+}
+
 func TestInsertRollbackOnEditorError(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
