@@ -103,7 +103,7 @@ stop), and so on.
 | Key | Action |
 |---|---|
 | `i` | Edit the current entry (and its subtree) in `$EDITOR`. On a file's own header row, edits the whole file directly instead (after a confirmation, since this discards undo history and marks for that file) |
-| `o` / `O` | Insert a new entry after / before the current one (or at the end/start of a file, from a file header row) |
+| `o` / `O` | Insert a new entry after / before the current one (or at the end/start of a file, from a file header row). The template opened in `$EDITOR` is prefilled with a `CREATED` property set to now — edit or delete it like anything else before saving |
 | `dd` | Delete the current entry and its subtree (undoable; also fills the paste register) |
 | `yy` | Yank the current entry and its subtree into the paste register, without deleting it |
 | `p` / `P` | Paste the register's contents after / before the current entry, re-indented to fit |

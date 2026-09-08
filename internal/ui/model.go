@@ -1952,10 +1952,15 @@ func (m *Model) resolveInsertPosition(before bool) (f *org.File, parent *org.Hea
 }
 
 // insertHeadline inserts a blank headline (see resolveInsertPosition for
-// where) and opens it in $EDITOR. The insert isn't recorded in undo
-// history until the editor session finishes successfully (see
-// commitInsert), so the whole "open a headline, type into it" session is
-// one undo step, matching vim's o/O.
+// where) and opens it in $EDITOR, pre-filled with a CREATED property set
+// to now — org-mode's standard (if not automatic) convention for
+// recording an entry's creation time, e.g. via org-capture's %U escape.
+// It's part of the editable template, not stamped after the fact, so
+// it's just as overridable or deletable as anything else the user types
+// before saving. The insert isn't recorded in undo history until the
+// editor session finishes successfully (see commitInsert), so the whole
+// "open a headline, type into it" session is one undo step, matching
+// vim's o/O.
 func (m *Model) insertHeadline(before bool) tea.Cmd {
 	f, parent, idx, level, origin, ok := m.resolveInsertPosition(before)
 	if !ok {
@@ -1963,6 +1968,7 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 	}
 
 	tentative := &org.Headline{Level: level, Parent: parent}
+	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
 	if parent != nil {
 		parent.Children = spliceHeadlines(parent.Children, idx, 0, []*org.Headline{tentative})
 	} else {

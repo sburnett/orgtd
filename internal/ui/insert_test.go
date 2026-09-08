@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -106,6 +107,85 @@ func TestInsertAtTopLevel(t *testing.T) {
 	}
 	if tentative.Level != orig.Level {
 		t.Errorf("level = %d, want %d", tentative.Level, orig.Level)
+	}
+}
+
+func TestInsertPrefillsCreatedProperty(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	before := time.Now()
+	m = sendKey(m, "o")
+	after := time.Now()
+
+	tentative := m.currentHeadline()
+	created, ok := tentative.Properties["CREATED"]
+	if !ok {
+		t.Fatalf("tentative headline has no CREATED property: %#v", tentative.Properties)
+	}
+
+	raw := strings.TrimSuffix(strings.TrimPrefix(created, "["), "]")
+	got, err := time.ParseInLocation("2006-01-02 Mon 15:04", raw, time.Local)
+	if err != nil {
+		t.Fatalf("CREATED = %q, not a parseable inactive timestamp: %v", created, err)
+	}
+	// Minute-granularity, so allow a one-minute window on either side of
+	// the actual call rather than comparing to the second.
+	if got.Before(before.Add(-time.Minute)) || got.After(after.Add(time.Minute)) {
+		t.Errorf("CREATED = %v, want close to now (%v)", got, before)
+	}
+}
+
+// TestInsertCreatedPropertyIsInTheActualTemplate exercises the same
+// org.RenderHeadline call launchEditor uses to build the editor buffer,
+// confirming CREATED is actually part of what the user sees and can
+// edit — not just set on the in-memory struct without reaching the
+// template.
+func TestInsertCreatedPropertyIsInTheActualTemplate(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "o")
+	tentative := m.currentHeadline()
+
+	rendered := org.RenderHeadline(tentative)
+	if !strings.Contains(rendered, ":CREATED:") {
+		t.Errorf("rendered template = %q, missing :CREATED:", rendered)
+	}
+}
+
+func TestInsertCreatedPropertyCanBeOverriddenOrRemoved(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	orig := m.currentHeadline()
+
+	m = sendKey(m, "o")
+	// The user edits the template down to something with no CREATED at
+	// all (or a different one) before saving — nothing should force it
+	// back in afterward.
+	m = commitTentative(t, m, orig, "* TODO Buy dog treats\n")
+
+	committed := m.rows[findRow(t, m, "Buy dog treats")].headline
+	if _, exists := committed.Properties["CREATED"]; exists {
+		t.Errorf("CREATED = %q, want absent (user's edited content had none)", committed.Properties["CREATED"])
+	}
+}
+
+func TestEditingExistingHeadlineDoesNotAddCreatedProperty(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+	if _, exists := h.Properties["CREATED"]; exists {
+		t.Fatalf("fixture assumption broken: expected no CREATED property yet")
+	}
+
+	m = sendKey(m, "i")
+	if _, exists := h.Properties["CREATED"]; exists {
+		t.Errorf("plain i-edit of an existing headline gained a CREATED property; it should only be prefilled for a new (o/O) entry")
 	}
 }
 
