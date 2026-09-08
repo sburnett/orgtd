@@ -1025,10 +1025,12 @@ func rowSearchText(r row) string {
 
 func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type != tea.KeyTab {
-		// Any key other than Tab dismisses a shown completion list —
-		// it's a one-shot hint for the keystroke right after Tab, not a
-		// persistent part of the command line.
+		// Any key other than Tab dismisses a shown completion list, and
+		// any error it left (e.g. "No command starting with ...") —
+		// they're one-shot hints for the keystroke right after Tab, not
+		// a persistent part of the command line.
 		m.commandCompletions = ""
+		m.message = ""
 	}
 
 	switch msg.Type {
@@ -1494,8 +1496,16 @@ func (m *Model) startSetDeadline() {
 
 // updateDeadlineMode handles key presses while the deadline prompt is
 // open: Enter applies the typed date (or clears the deadline if left
-// empty), Esc cancels without changes.
+// empty), Esc cancels without changes. Every key but Enter also clears
+// any error message left over from a previous failed attempt (Enter
+// itself goes through applyDeadlineInput, which clears it before
+// deciding whether to set a new one) — otherwise a stale error would
+// keep showing next to input the user has already started correcting.
 func (m Model) updateDeadlineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.KeyEnter {
+		m.message = ""
+	}
+
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.mode = normalMode
@@ -1525,8 +1535,12 @@ func (m Model) updateDeadlineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // applyDeadlineInput parses the typed date and, if valid, records a
 // deadlineChangeAction. An empty input clears the deadline. An invalid
 // (non-empty) date is reported on the status line and leaves the prompt
-// open, input intact, so it can be corrected.
+// open, input intact, so it can be corrected. m.message is cleared
+// unconditionally up front — every path below either leaves it cleared
+// (success, or clearing the deadline) or sets a fresh one (failure), so
+// a previous attempt's error never lingers once this one is resolved.
 func (m Model) applyDeadlineInput() (tea.Model, tea.Cmd) {
+	m.message = ""
 	input := strings.TrimSpace(m.deadlineInput)
 	h := m.currentHeadline()
 	if h == nil {
@@ -2763,11 +2777,23 @@ func (m Model) View() string {
 		if m.commandCompletions != "" {
 			b.WriteString("  " + statusStyle.Render(m.commandCompletions))
 		}
+		// m.message can be set without leaving commandMode (e.g. Tab
+		// completion finding no match) — shown here too, not just in the
+		// mode-less case below, or it'd be set but never actually visible.
+		if m.message != "" {
+			b.WriteString("  " + errorStyle.Render(m.message))
+		}
 	case m.mode == selectMode:
 		b.WriteString(m.renderStatusSelector())
 	case m.mode == deadlineMode:
 		b.WriteString(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
 		b.WriteString(cursorStyle.Render(" "))
+		// As above: an invalid date sets m.message but deliberately leaves
+		// the prompt open for correction (see applyDeadlineInput), so it
+		// must be shown here rather than only in the mode-less case below.
+		if m.message != "" {
+			b.WriteString("  " + errorStyle.Render(m.message))
+		}
 	case m.mode == searchMode:
 		prefix := "/"
 		if !m.searchForward {

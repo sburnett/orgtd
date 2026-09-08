@@ -91,6 +91,46 @@ func TestTabNoMatchesShowsMessage(t *testing.T) {
 	}
 }
 
+// TestTabNoMatchesErrorIsActuallyVisible guards against the same class
+// of bug as TestDeadlineInvalidInputErrorIsActuallyVisible: m.message
+// was set correctly (per TestTabNoMatchesShowsMessage above), but the
+// status bar's rendering switch checked "mode == commandMode" before
+// "message != empty", so it was silently never drawn while still in
+// commandMode.
+func TestTabNoMatchesErrorIsActuallyVisible(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 120, 30
+	m = sendKey(m, ":")
+	m = typeKeys(m, "zzz")
+	m = sendKey(m, "tab")
+
+	if m.message == "" {
+		t.Fatalf("fixture assumption broken: expected m.message to be set")
+	}
+	lines := strings.Split(m.View(), "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, m.message) {
+		t.Errorf("status line = %q, missing the error message %q", last, m.message)
+	}
+}
+
+func TestTabNoMatchesErrorClearedByNextKeystroke(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m = sendKey(m, ":")
+	m = typeKeys(m, "zzz")
+	m = sendKey(m, "tab")
+	if m.message == "" {
+		t.Fatalf("fixture assumption broken: expected m.message to be set")
+	}
+
+	m = typeKeys(m, "q")
+	if m.message != "" {
+		t.Errorf("m.message = %q, want cleared after typing another key", m.message)
+	}
+}
+
 func TestTabNoopOnceAnArgumentIsBeingTyped(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)

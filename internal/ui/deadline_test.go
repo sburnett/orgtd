@@ -221,6 +221,131 @@ func TestDeadlineInvalidInputStaysOpenForCorrection(t *testing.T) {
 	}
 }
 
+// TestDeadlineInvalidInputErrorIsActuallyVisible guards against a real
+// bug: m.message was set correctly on an invalid date (per
+// TestDeadlineInvalidInputStaysOpenForCorrection above), but the status
+// bar's rendering switch checked "mode == deadlineMode" before
+// "message != empty", so the error was silently never drawn — from the user's
+// perspective, pressing Enter on a bad date did nothing at all. Checking
+// m.message alone (as the model-state test above does) can't catch this
+// class of bug; only inspecting the actual rendered line can.
+func TestDeadlineInvalidInputErrorIsActuallyVisible(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 120, 30
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "not-a-date")
+	m = sendKey(m, "enter")
+
+	if m.mode != deadlineMode {
+		t.Fatalf("fixture assumption broken: mode = %v, want deadlineMode", m.mode)
+	}
+	if m.message == "" {
+		t.Fatalf("fixture assumption broken: expected m.message to be set")
+	}
+
+	lines := strings.Split(m.View(), "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, m.message) {
+		t.Errorf("status line = %q, missing the error message %q", last, m.message)
+	}
+	if !strings.Contains(last, "not-a-date") {
+		t.Errorf("status line = %q, should still show the input being corrected", last)
+	}
+}
+
+// TestDeadlineReportedRepro is the literal phrase reported as "pressing
+// Enter does nothing": it doesn't match any recognized date shape, so it
+// must produce a visible error rather than silently leaving the prompt
+// unchanged.
+func TestDeadlineReportedRepro(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 120, 30
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "last thursday in august, 202")
+	m = sendKey(m, "enter")
+
+	if m.mode != deadlineMode {
+		t.Fatalf("mode = %v, want deadlineMode (stay open to correct)", m.mode)
+	}
+	if m.message == "" {
+		t.Fatal("expected a visible error, not silent inaction")
+	}
+	last := strings.Split(m.View(), "\n")
+	if line := last[len(last)-1]; !strings.Contains(line, m.message) {
+		t.Errorf("status line = %q, missing the error message %q", line, m.message)
+	}
+}
+
+func TestDeadlineErrorClearsOnNextKeystroke(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "not-a-date")
+	m = sendKey(m, "enter")
+	if m.message == "" {
+		t.Fatalf("fixture assumption broken: expected m.message to be set")
+	}
+
+	m = sendKey(m, "backspace")
+	if m.message != "" {
+		t.Errorf("m.message = %q, want cleared after the next keystroke", m.message)
+	}
+}
+
+func TestDeadlineErrorClearsOnEsc(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "not-a-date")
+	m = sendKey(m, "enter")
+	if m.message == "" {
+		t.Fatalf("fixture assumption broken: expected m.message to be set")
+	}
+
+	m = sendKey(m, "esc")
+	if m.message != "" {
+		t.Errorf("m.message = %q, want cleared on Esc (shouldn't linger into the normal status line)", m.message)
+	}
+}
+
+func TestDeadlineErrorClearsAfterSubsequentSuccess(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "not-a-date")
+	m = sendKey(m, "enter")
+	if m.message == "" {
+		t.Fatalf("fixture assumption broken: expected m.message to be set")
+	}
+
+	for range m.deadlineInput {
+		m = sendKey(m, "backspace")
+	}
+	m = typeKeys(m, "2026-12-25")
+	m = sendKey(m, "enter")
+
+	if m.message != "" {
+		t.Errorf("m.message = %q, want cleared after a subsequent successful submit", m.message)
+	}
+}
+
 func TestParseRelativeOffsetShorthandAndSpelledOut(t *testing.T) {
 	base := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC) // a Sunday
 
