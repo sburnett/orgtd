@@ -82,6 +82,20 @@ func TestParseScheduledAndDeadlineOnSameLine(t *testing.T) {
 	}
 }
 
+func TestParseScheduledWithRepeaterCookie(t *testing.T) {
+	f, err := Parse(strings.NewReader("* TODO Weekly standup\n  SCHEDULED: <2026-08-10 Mon +1w>\n"), "test.org")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	h := f.Headlines[0]
+	if h.Scheduled == nil || h.Scheduled.Raw != "2026-08-10 Mon +1w" {
+		t.Fatalf("scheduled = %#v, want raw %q", h.Scheduled, "2026-08-10 Mon +1w")
+	}
+	if got := h.Scheduled.String(); got != "<2026-08-10 Mon +1w>" {
+		t.Errorf("Scheduled.String() = %q, want the repeater cookie preserved verbatim", got)
+	}
+}
+
 func TestPlanningLineMustStartTheLine(t *testing.T) {
 	f, err := Parse(strings.NewReader("* TODO Talk to Bob\n  A note about the DEADLINE: shift, not an actual planning line.\n"), "test.org")
 	if err != nil {

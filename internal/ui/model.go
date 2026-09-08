@@ -225,10 +225,12 @@ type row struct {
 	isBodyLine bool
 	bodyText   string
 
-	section      string    // set for an agenda section-header row ("Overdue" etc.); outline rows never set this
-	isAgendaItem bool      // true for every agenda item row (Next Actions entries have no date/label, so this — not agendaLabel — is the reliable marker)
-	agendaLabel  string    // "Scheduled" or "Deadline", set for a date-based agenda item row; empty for a Next Actions entry
-	agendaDate   time.Time // the date this agenda item row is shown for, if agendaLabel is set
+	section        string    // set for an agenda section-header row ("Overdue" etc.); outline rows never set this
+	isAgendaItem   bool      // true for every agenda item row (Next Actions entries have no date/label, so this — not agendaLabel — is the reliable marker)
+	agendaLabel    string    // "Scheduled" or "Deadline", set for a date-based agenda item row; empty for a Next Actions entry
+	agendaDate     time.Time // the date this agenda item row is shown for, if agendaLabel is set
+	agendaRepeater string    // e.g. "+1w", if agendaDate was computed from a recurring timestamp; empty otherwise
+	agendaMissed   int       // occurrences skipped since agendaDate, shown as "(Nx)"; only ever set on an Overdue row
 }
 
 // Model is the Bubble Tea model for the viewer.
@@ -2960,7 +2962,15 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 		fileName = filepath.Base(f.Path)
 	}
 	if r.agendaLabel != "" {
-		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(fmt.Sprintf("[%s]  %s: %s", fileName, r.agendaLabel, r.agendaDate.Format("2006-01-02 Mon")))
+		label := r.agendaLabel
+		if r.agendaMissed > 0 {
+			label = fmt.Sprintf("%s (%dx)", label, r.agendaMissed)
+		}
+		date := r.agendaDate.Format("2006-01-02 Mon")
+		if r.agendaRepeater != "" {
+			date += " " + r.agendaRepeater
+		}
+		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(fmt.Sprintf("[%s]  %s: %s", fileName, label, date))
 	} else {
 		// A Next Actions entry: no date to show, just which file it's in.
 		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(fmt.Sprintf("[%s]", fileName))

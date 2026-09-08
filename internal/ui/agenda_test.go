@@ -37,7 +37,7 @@ func TestParseTimestampDateAcceptsKnownFormats(t *testing.T) {
 		{Raw: now.Format("2006-01-02")}, // weekday-less fallback
 	}
 	for _, c := range cases {
-		got, ok := parseTimestampDate(c)
+		got, missed, ok := parseTimestampDate(c, now)
 		if !ok {
 			t.Errorf("parseTimestampDate(%q) did not match", c.Raw)
 			continue
@@ -45,15 +45,123 @@ func TestParseTimestampDateAcceptsKnownFormats(t *testing.T) {
 		if !got.Equal(now) {
 			t.Errorf("parseTimestampDate(%q) = %v, want %v", c.Raw, got, now)
 		}
+		if missed != 0 {
+			t.Errorf("parseTimestampDate(%q) missed = %d, want 0 (non-repeating)", c.Raw, missed)
+		}
 	}
 }
 
 func TestParseTimestampDateRejectsGarbageAndNil(t *testing.T) {
-	if _, ok := parseTimestampDate(nil); ok {
+	now := truncateToDate(time.Now())
+	if _, _, ok := parseTimestampDate(nil, now); ok {
 		t.Errorf("parseTimestampDate(nil) matched")
 	}
-	if _, ok := parseTimestampDate(&org.Timestamp{Raw: "not a date"}); ok {
+	if _, _, ok := parseTimestampDate(&org.Timestamp{Raw: "not a date"}, now); ok {
 		t.Errorf("parseTimestampDate(garbage) matched")
+	}
+}
+
+// TestParseTimestampDateRepeaterStaysOverdueUntilCaughtUp verifies the
+// org-mode-matching behavior: a repeating timestamp's date only ever
+// advances when the item is completed, so a stale date (one the user
+// skipped without marking done) is reported at its most recent due
+// occurrence — still in the past — rather than being rolled forward past
+// today and hidden. missed reports how many earlier occurrences already
+// elapsed on top of that.
+func TestParseTimestampDateRepeaterStaysOverdueUntilCaughtUp(t *testing.T) {
+	now := truncateToDate(time.Now())
+
+	// 17 days ago, weekly: occurrences at -17, -10, -3 (all <= today), and
+	// +4 (> today, not reached) — so the current occurrence is 3 days ago,
+	// with 2 earlier occurrences (-17, -10) already elapsed on top of it.
+	weekly := ts(now.AddDate(0, 0, -17)) + " +1w"
+	wantDate := now.AddDate(0, 0, -3)
+	if got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: weekly}, now); !ok || !got.Equal(wantDate) || missed != 2 {
+		t.Errorf("parseTimestampDate(%q) = %v, missed=%d, ok=%v, want %v missed=2", weekly, got, missed, ok, wantDate)
+	}
+
+	// Scheduled yesterday, daily: today is itself a valid occurrence (one
+	// interval past base), so the current occurrence is today — Due
+	// Today, not Overdue — with yesterday's skipped occurrence counted
+	// as 1 missed.
+	daily := ts(now.AddDate(0, 0, -1)) + " +1d"
+	if got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: daily}, now); !ok || !got.Equal(now) || missed != 1 {
+		t.Errorf("parseTimestampDate(%q) = %v, missed=%d, ok=%v, want %v missed=1", daily, got, missed, ok, now)
+	}
+
+	// Monthly/yearly land on an irregular day count (calendar month/year
+	// lengths vary), so just check the result stays on-or-before today
+	// (never rolled into the future) with a positive missed count.
+	for _, c := range []struct{ name, raw string }{
+		{"monthly, well overdue", ts(now.AddDate(0, -2, -3)) + " +1m"},
+		{"yearly, overdue", ts(now.AddDate(-1, 0, -1)) + " +1y"},
+	} {
+		got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: c.raw}, now)
+		if !ok {
+			t.Errorf("%s: parseTimestampDate(%q) did not match", c.name, c.raw)
+			continue
+		}
+		if got.After(now) {
+			t.Errorf("%s: parseTimestampDate(%q) = %v, rolled past today %v", c.name, c.raw, got, now)
+		}
+		if missed < 1 {
+			t.Errorf("%s: parseTimestampDate(%q) missed = %d, want at least 1", c.name, c.raw, missed)
+		}
+	}
+}
+
+func TestParseTimestampDateRepeaterLeavesFutureDateUnchanged(t *testing.T) {
+	now := truncateToDate(time.Now())
+	future := now.AddDate(0, 0, 5)
+	raw := ts(future) + " +1w"
+	got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: raw}, now)
+	if !ok {
+		t.Fatalf("parseTimestampDate(%q) did not match", raw)
+	}
+	if !got.Equal(future) {
+		t.Errorf("parseTimestampDate(%q) = %v, want unchanged future date %v", raw, got, future)
+	}
+	if missed != 0 {
+		t.Errorf("parseTimestampDate(%q) missed = %d, want 0 (not due yet)", raw, missed)
+	}
+}
+
+func TestParseTimestampDateRepeaterExactlyTodayUnchanged(t *testing.T) {
+	now := truncateToDate(time.Now())
+	raw := ts(now) + " +1w"
+	got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: raw}, now)
+	if !ok {
+		t.Fatalf("parseTimestampDate(%q) did not match", raw)
+	}
+	if !got.Equal(now) {
+		t.Errorf("parseTimestampDate(%q) = %v, want today %v unchanged", raw, got, now)
+	}
+	if missed != 0 {
+		t.Errorf("parseTimestampDate(%q) missed = %d, want 0", raw, missed)
+	}
+}
+
+func TestParseTimestampDateStripsWarningPeriodCookie(t *testing.T) {
+	now := truncateToDate(time.Now())
+	raw := ts(now) + " +1w -3d"
+	got, _, ok := parseTimestampDate(&org.Timestamp{Raw: raw}, now)
+	if !ok {
+		t.Fatalf("parseTimestampDate(%q) did not match", raw)
+	}
+	if !got.Equal(now) {
+		t.Errorf("parseTimestampDate(%q) = %v, want %v", raw, got, now)
+	}
+}
+
+func TestRepeaterCookie(t *testing.T) {
+	if got := repeaterCookie(&org.Timestamp{Raw: "2026-08-10 Mon +1w"}); got != "+1w" {
+		t.Errorf("repeaterCookie = %q, want %q", got, "+1w")
+	}
+	if got := repeaterCookie(&org.Timestamp{Raw: "2026-08-10 Mon"}); got != "" {
+		t.Errorf("repeaterCookie = %q, want empty", got)
+	}
+	if got := repeaterCookie(nil); got != "" {
+		t.Errorf("repeaterCookie(nil) = %q, want empty", got)
 	}
 }
 
@@ -139,6 +247,80 @@ func TestAgendaEntriesExcludesBeyondWindow(t *testing.T) {
 	entries := m.agendaEntries(now, 14)
 	if len(entries) != 1 || entries[0].h.Title != "Just inside" {
 		t.Fatalf("agendaEntries = %+v, want just 'Just inside'", entries)
+	}
+}
+
+func TestAgendaEntriesRecurringPastDueShowsAsOverdueWithMissedCount(t *testing.T) {
+	now := truncateToDate(time.Now())
+	// Scheduled 17 days ago, weekly: current occurrence is 3 days ago
+	// (occurrences at -17, -10, -3; +4 hasn't arrived), 2 missed on top.
+	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now.AddDate(0, 0, -17)))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+
+	entries := m.agendaEntries(now, 14)
+	if len(entries) != 1 {
+		t.Fatalf("agendaEntries = %d entries, want 1: %+v", len(entries), entries)
+	}
+	want := now.AddDate(0, 0, -3)
+	if !entries[0].date.Equal(want) {
+		t.Errorf("entries[0].date = %v, want current occurrence %v", entries[0].date, want)
+	}
+	if entries[0].repeater != "+1w" {
+		t.Errorf("entries[0].repeater = %q, want %q", entries[0].repeater, "+1w")
+	}
+	if entries[0].missed != 2 {
+		t.Errorf("entries[0].missed = %d, want 2", entries[0].missed)
+	}
+	if got := agendaSection(entries[0].date, now); got != "Overdue" {
+		t.Errorf("agendaSection(current occurrence) = %q, want %q (a skipped recurring item stays visible)", got, "Overdue")
+	}
+}
+
+func TestAgendaItemRowShowsRepeaterCookie(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* NEXT Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	line := stripANSI(m.renderRow(m.rows[1]))
+	if !strings.Contains(line, "+1w") {
+		t.Errorf("agenda item row = %q, want the repeater cookie shown alongside the date", line)
+	}
+}
+
+func TestAgendaItemRowShowsMissedCountWhenOverdue(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now.AddDate(0, 0, -17)))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	line := stripANSI(m.renderRow(m.rows[1]))
+	if !strings.Contains(line, "(2x)") {
+		t.Errorf("overdue recurring item row = %q, want a %q missed-count marker", line, "(2x)")
+	}
+}
+
+func TestAgendaItemRowOmitsMissedCountWhenNotOverdue(t *testing.T) {
+	now := truncateToDate(time.Now())
+	// Due today exactly (no slip) and a not-yet-due future occurrence:
+	// neither should show a missed-count marker.
+	orgText := fmt.Sprintf("* TODO Due today, on schedule\n  SCHEDULED: <%s +1w>\n* TODO Not due yet\n  SCHEDULED: <%s +1w>\n",
+		ts(now), ts(now.AddDate(0, 0, 3)))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	for _, r := range m.rows {
+		if !r.isAgendaItem {
+			continue
+		}
+		line := stripANSI(m.renderRow(r))
+		if strings.Contains(line, "x)") {
+			t.Errorf("row = %q, should have no missed-count marker (not overdue)", line)
+		}
 	}
 }
 
