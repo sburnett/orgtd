@@ -842,16 +842,172 @@ func writeTempOrgFile(t *testing.T, content string) string {
 	return tmp.Name()
 }
 
-func TestIKeyNoopOnFileRow(t *testing.T) {
+func TestFinishEditFileReloadsFromDisk(t *testing.T) {
+	ws := loadFixtureCopy(t)
+	m := New(ws)
+	fileIdx := findFileRow(t, m, "inbox.org")
+	m.cursor = fileIdx
+	oldFile := m.rows[fileIdx].file
+
+	// Simulate an external editor changing the file directly on disk.
+	if err := os.WriteFile(oldFile.Path, []byte("#+TITLE: Inbox\n\n* TODO Edited directly on disk\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	updated, cmd := m.Update(fileEditFinishedMsg{target: oldFile})
+	m = updated.(Model)
+	if cmd != nil {
+		t.Errorf("finishEditFile should not return a follow-up command")
+	}
+
+	newFile := m.ws.Files[0]
+	if newFile == oldFile {
+		t.Fatalf("expected the *org.File pointer to be replaced")
+	}
+	if len(newFile.Headlines) != 1 || newFile.Headlines[0].Title != "Edited directly on disk" {
+		t.Fatalf("reloaded file = %#v, want the on-disk content", newFile.Headlines)
+	}
+	if m.rows[fileIdx].file != newFile {
+		t.Errorf("row list wasn't rebuilt with the new file")
+	}
+	if m.cursor != fileIdx {
+		t.Errorf("cursor = %d, want to stay on the file row %d", m.cursor, fileIdx)
+	}
+}
+
+func TestFinishEditFileMarksFileClean(t *testing.T) {
+	ws := loadFixtureCopy(t)
+	m := New(ws)
+	fileIdx := findFileRow(t, m, "inbox.org")
+	oldFile := m.rows[fileIdx].file
+	// Dirty it first, so we can confirm the reload clears that state
+	// (the editor already wrote the file — nothing left for orgtd to
+	// save).
+	m.dirty[oldFile] = true
+
+	if err := os.WriteFile(oldFile.Path, []byte("#+TITLE: Inbox\n\n* TODO Edited directly on disk\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	updated, _ := m.Update(fileEditFinishedMsg{target: oldFile})
+	m = updated.(Model)
+
+	if m.dirty[m.ws.Files[0]] {
+		t.Errorf("reloaded file shows as dirty, want clean (already saved by the editor)")
+	}
+}
+
+func TestFinishEditFileClearsMarksAndClarifyTargetOnThatFile(t *testing.T) {
+	ws := loadFixtureCopy(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+	m.enterClarifyView()
+	oldFile := m.ws.Files[0]
+
+	if err := os.WriteFile(oldFile.Path, []byte("#+TITLE: Inbox\n\n* TODO Something else entirely\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	updated, _ := m.Update(fileEditFinishedMsg{target: oldFile})
+	m = updated.(Model)
+
+	if _, ok := m.marks['a']; ok {
+		t.Errorf("mark 'a' survived the file being reloaded out from under it")
+	}
+	if m.clarifyTarget != nil {
+		t.Errorf("clarifyTarget = %v, want nil (its file was reloaded)", m.clarifyTarget)
+	}
+}
+
+func TestFinishEditFileErrorShowsMessage(t *testing.T) {
+	ws := loadFixtureCopy(t)
+	m := New(ws)
+	oldFile := m.ws.Files[0]
+
+	updated, _ := m.Update(fileEditFinishedMsg{target: oldFile, err: errors.New("boom")})
+	m = updated.(Model)
+
+	if m.message == "" {
+		t.Errorf("expected an error message when the editor exits with an error")
+	}
+	if m.ws.Files[0] != oldFile {
+		t.Errorf("file was replaced despite the editor erroring out")
+	}
+}
+
+func TestIKeyOnFileRowAsksForConfirmation(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = 0
 	if m.rows[0].file == nil {
 		t.Fatalf("fixture assumption broken: row 0 is not a file row")
 	}
-	_, cmd := sendKeyCmd(m, "i")
+	m, cmd := sendKeyCmd(m, "i")
 	if cmd != nil {
-		t.Errorf("expected no edit command when cursor is on a file row")
+		t.Errorf("expected no command yet — should wait for confirmation first")
+	}
+	if m.mode != confirmMode {
+		t.Fatalf("mode = %v, want confirmMode", m.mode)
+	}
+	if m.pendingFileEdit != m.rows[0].file {
+		t.Errorf("pendingFileEdit = %v, want the file row's file", m.pendingFileEdit)
+	}
+	if m.confirmMessage == "" {
+		t.Errorf("expected a non-empty confirmation message")
+	}
+}
+
+func TestConfirmingFileEditLaunchesTheEditor(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = 0
+	m = sendKey(m, "i")
+	if m.mode != confirmMode {
+		t.Fatalf("fixture assumption broken: expected confirmMode after i")
+	}
+
+	m, cmd := sendKeyCmd(m, "y")
+
+	if m.mode != normalMode {
+		t.Errorf("mode after y = %v, want normalMode", m.mode)
+	}
+	if cmd == nil {
+		t.Errorf("expected the edit command to be returned after confirming")
+	}
+	if m.pendingFileEdit != nil {
+		t.Errorf("pendingFileEdit = %v, want cleared after confirming", m.pendingFileEdit)
+	}
+}
+
+func TestDecliningFileEditCancelsWithoutEditing(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = 0
+	m = sendKey(m, "i")
+
+	m, cmd := sendKeyCmd(m, "n")
+
+	if m.mode != normalMode {
+		t.Errorf("mode after n = %v, want normalMode", m.mode)
+	}
+	if cmd != nil {
+		t.Errorf("expected no command after declining")
+	}
+	if m.pendingFileEdit != nil {
+		t.Errorf("pendingFileEdit = %v, want cleared after declining", m.pendingFileEdit)
+	}
+}
+
+func TestAnyOtherKeyDeclinesTheFileEditConfirmation(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = 0
+	m = sendKey(m, "i")
+
+	m, cmd := sendKeyCmd(m, "esc")
+
+	if m.mode != normalMode || cmd != nil {
+		t.Errorf("esc during confirmation: mode = %v, cmd = %v, want normalMode and nil", m.mode, cmd)
 	}
 }
 

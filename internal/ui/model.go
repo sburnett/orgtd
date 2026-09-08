@@ -150,6 +150,7 @@ const (
 	selectMode
 	deadlineMode
 	searchMode
+	confirmMode
 )
 
 // statusCandidate is one entry in the "set status" picker (R).
@@ -277,6 +278,9 @@ type Model struct {
 
 	lastSearchQuery   string // most recently confirmed search, repeated by n/N
 	lastSearchForward bool   // that search's direction ("n" repeats it, "N" reverses it)
+
+	confirmMessage  string    // prompt shown in confirmMode
+	pendingFileEdit *org.File // the file to open in $EDITOR if confirmMode's prompt is accepted ("y")
 
 	urlFormatterCmd string // external program that turns a bare URL into an org-mode link; disabled if empty
 
@@ -615,6 +619,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editFinishedMsg:
 		return m.finishEdit(msg)
 
+	case fileEditFinishedMsg:
+		return m.finishEditFile(msg)
+
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -629,6 +636,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDeadlineMode(msg)
 		case searchMode:
 			return m.updateSearchMode(msg)
+		case confirmMode:
+			return m.updateConfirmMode(msg)
 		default:
 			return m.updateNormalMode(msg)
 		}
@@ -869,6 +878,27 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // query happened to land), so backspacing genuinely retypes the query
 // rather than searching onward from the last match — matching vim's own
 // incsearch behavior.
+// updateConfirmMode handles a pending yes/no confirmation prompt (see
+// confirmMessage). "y"/"Y" accepts; anything else — "n", Esc, or any
+// other key — cancels, matching a typical CLI y/N prompt rather than
+// requiring a specific "no" keystroke.
+func (m Model) updateConfirmMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	accepted := msg.Type == tea.KeyRunes && (string(msg.Runes) == "y" || string(msg.Runes) == "Y")
+
+	pendingFileEdit := m.pendingFileEdit
+	m.mode = normalMode
+	m.confirmMessage = ""
+	m.pendingFileEdit = nil
+
+	if !accepted {
+		return m, nil
+	}
+	if pendingFileEdit != nil {
+		return m, m.startEditFile(pendingFileEdit)
+	}
+	return m, nil
+}
+
 func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
@@ -1595,11 +1625,91 @@ type editFinishedMsg struct {
 // there's nothing to edit or the editor couldn't be launched, in which
 // case any error is left in m.message.
 func (m *Model) startEdit() tea.Cmd {
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		if f := m.rows[m.cursor].file; f != nil {
+			// Editing a whole file discards undo history for it (and
+			// clears any mark/clarify-target on its headlines) even if
+			// the user ends up changing nothing — confirm first rather
+			// than doing that as a side effect of a single keystroke.
+			m.mode = confirmMode
+			m.pendingFileEdit = f
+			m.confirmMessage = fmt.Sprintf("Edit %s in $EDITOR? This clears undo history and marks for this file. [y/N]", filepath.Base(f.Path))
+			return nil
+		}
+	}
 	h := m.currentHeadline()
 	if h == nil {
 		return nil
 	}
 	return m.launchEditor(h, nil)
+}
+
+// fileEditFinishedMsg reports that the external editor launched by
+// startEditFile has exited, for a whole-file edit ("i" on a file row).
+type fileEditFinishedMsg struct {
+	target *org.File // the file being edited, identified by its old pointer
+	err    error
+}
+
+// startEditFile ("i" on a file row) opens that file directly in
+// $EDITOR — the real file on disk, not a temp copy, since there's no
+// synthetic context wrapper needed for editing a whole file the way
+// there is for a single entry (see launchEditor). On exit, the file is
+// simply reloaded from disk (see finishEditFile). There's no undo for
+// this — the editor already wrote the change directly to disk, so
+// there's no in-memory action to record or revert.
+func (m *Model) startEditFile(f *org.File) tea.Cmd {
+	editorCmd := buildEditorCommand(os.Getenv("EDITOR"), f.Path, "")
+	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
+		return fileEditFinishedMsg{target: f, err: err}
+	})
+}
+
+// finishEditFile reloads the just-edited file from disk, replacing its
+// old *org.File wholesale — every headline pointer it held is gone, so
+// any mark, clarify-target, or dirty-marker referencing one of them is
+// cleared (see clearRefsForFile) rather than left dangling. The
+// reloaded file itself is never marked dirty: the editor already wrote
+// it, so there's nothing more to save.
+func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)
+		return m, nil
+	}
+
+	newFile, err := org.ParseFile(msg.target.Path)
+	if err != nil {
+		m.message = fmt.Sprintf("Could not reload %s: %v", filepath.Base(msg.target.Path), err)
+		return m, nil
+	}
+
+	for i, f := range m.ws.Files {
+		if f == msg.target {
+			m.ws.Files[i] = newFile
+			break
+		}
+	}
+	m.clearRefsForFile(msg.target)
+	m.rebuildRows()
+	m.focusFile(newFile)
+	return m, nil
+}
+
+// clearRefsForFile removes every mark, clarify-target reference, and
+// dirty marker pointing at a headline in f, plus f's own file-level
+// dirty/saved-position bookkeeping — called after f's entire headline
+// tree has been discarded and replaced (a whole-file reload), since
+// none of those old headline pointers exist anywhere anymore.
+func (m *Model) clearRefsForFile(f *org.File) {
+	org.Walk(f.Headlines, func(h *org.Headline) {
+		if m.clarifyTarget == h {
+			m.clarifyTarget = nil
+		}
+		m.clearMarksFor(h)
+		delete(m.dirtyHeadlines, h)
+	})
+	delete(m.dirty, f)
+	delete(m.savedPos, f)
 }
 
 // editorsWithLineArg lists $EDITOR basenames known to support a leading
@@ -2634,6 +2744,8 @@ func (m Model) View() string {
 		}
 		b.WriteString(prefix + m.searchQuery)
 		b.WriteString(cursorStyle.Render(" "))
+	case m.mode == confirmMode:
+		b.WriteString(errorStyle.Render(m.confirmMessage))
 	case m.message != "":
 		b.WriteString(errorStyle.Render(m.message))
 	default:
