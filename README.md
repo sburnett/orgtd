@@ -173,6 +173,16 @@ advances however many intervals it takes to land on or after today;
 `.+1w` advances one interval from *today*, ignoring the old date
 entirely.
 
+Because the keyword never actually changes on a repeating item, `r`
+(which always computes "the next state after the current one") can get
+stuck: once it reaches a done-class state and the repeat fires, the next
+`r` press starts from that same pre-completion state and just re-triggers
+the repeat again, rather than advancing to `CANCELLED` or wrapping
+around. This matches real org-mode's own bare-cycling command, which has
+the identical quirk for the same reason. Use `R` (then the state's
+letter, e.g. `c` for `CANCELLED`) to jump straight to a specific state in
+one step instead.
+
 Round-tripping is format-*preserving* rather than byte-exact: body text
 and file preamble pass through untouched, but a headline, planning, or
 property line orgtd re-serializes after any edit is regenerated from its
