@@ -130,6 +130,64 @@ func TestParseProperties(t *testing.T) {
 	}
 }
 
+func TestSetPropertyAddsNewKeyToOrder(t *testing.T) {
+	h := &Headline{}
+	h.SetProperty("LAST_REPEAT", "[2026-09-07 Mon 14:32]")
+	if got := h.Properties["LAST_REPEAT"]; got != "[2026-09-07 Mon 14:32]" {
+		t.Errorf("Properties[LAST_REPEAT] = %q", got)
+	}
+	if want := []string{"LAST_REPEAT"}; len(h.PropertyOrder) != 1 || h.PropertyOrder[0] != want[0] {
+		t.Errorf("PropertyOrder = %#v, want %#v", h.PropertyOrder, want)
+	}
+}
+
+func TestSetPropertyOverwritesWithoutDuplicatingOrder(t *testing.T) {
+	h := &Headline{}
+	h.SetProperty("ID", "abc")
+	h.SetProperty("ID", "xyz")
+	if got := h.Properties["ID"]; got != "xyz" {
+		t.Errorf("Properties[ID] = %q, want %q", got, "xyz")
+	}
+	if len(h.PropertyOrder) != 1 {
+		t.Errorf("PropertyOrder = %#v, want exactly one entry", h.PropertyOrder)
+	}
+}
+
+func TestSetPropertyPreservesExistingOrder(t *testing.T) {
+	f := mustParse(t)
+	task := f.Headlines[0].Children[0] // has ID, then CAPTURED_AT
+	task.SetProperty("LAST_REPEAT", "[2026-09-07 Mon 14:32]")
+	want := []string{"ID", "CAPTURED_AT", "LAST_REPEAT"}
+	if len(task.PropertyOrder) != len(want) {
+		t.Fatalf("PropertyOrder = %#v, want %#v", task.PropertyOrder, want)
+	}
+	for i, k := range want {
+		if task.PropertyOrder[i] != k {
+			t.Errorf("PropertyOrder[%d] = %q, want %q", i, task.PropertyOrder[i], k)
+		}
+	}
+}
+
+func TestDeletePropertyRemovesKeyAndOrderEntry(t *testing.T) {
+	f := mustParse(t)
+	task := f.Headlines[0].Children[0]
+	task.DeleteProperty("ID")
+	if _, exists := task.Properties["ID"]; exists {
+		t.Error("Properties still has ID after DeleteProperty")
+	}
+	if want := []string{"CAPTURED_AT"}; len(task.PropertyOrder) != 1 || task.PropertyOrder[0] != want[0] {
+		t.Errorf("PropertyOrder = %#v, want %#v", task.PropertyOrder, want)
+	}
+}
+
+func TestDeletePropertyOnMissingKeyIsNoop(t *testing.T) {
+	h := &Headline{}
+	h.DeleteProperty("NOPE") // must not panic on a nil Properties map
+	if h.Properties != nil || h.PropertyOrder != nil {
+		t.Errorf("DeleteProperty on empty headline mutated it: %#v", h)
+	}
+}
+
 func TestParseBody(t *testing.T) {
 	f := mustParse(t)
 	task := f.Headlines[0].Children[0]

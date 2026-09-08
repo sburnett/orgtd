@@ -1575,11 +1575,22 @@ func (m *Model) rotateStatus() {
 
 // applyStatus sets the current headline's keyword, stamping or clearing
 // CLOSED to match org-mode's convention of recording when an item
-// entered (or left) a DONE-class state.
+// entered (or left) a DONE-class state — unless h is completing
+// (transitioning from a non-done to a done-class keyword) and has a
+// repeating SCHEDULED/DEADLINE, in which case repeatAdvanceForCompletion
+// takes over instead: per org-mode, the keyword never actually changes
+// and the repeating timestamp(s) advance rather than the item closing.
 func (m *Model) applyStatus(keyword string) {
 	h := m.currentHeadline()
 	if h == nil {
 		return
+	}
+
+	if org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword) {
+		if a := m.repeatAdvanceForCompletion(h); a != nil {
+			m.pushUndo(a)
+			return
+		}
 	}
 
 	newClosed := h.Closed

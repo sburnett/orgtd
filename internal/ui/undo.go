@@ -41,6 +41,43 @@ func (a *statusChangeAction) revert(m *Model) *org.Headline {
 func (a *statusChangeAction) file() *org.File           { return a.f }
 func (a *statusChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
+// repeatAdvanceAction records completing a repeating item (see
+// repeatAdvanceForCompletion): unlike statusChangeAction, the keyword
+// itself never changes — instead SCHEDULED and/or DEADLINE advance to
+// their next occurrence, and the completion is recorded via the
+// :LAST_REPEAT: property rather than CLOSED, matching org-mode.
+// hadLastRepeat distinguishes "restore the old value" from "the property
+// didn't exist before this action" on revert.
+type repeatAdvanceAction struct {
+	h                            *org.Headline
+	f                            *org.File
+	oldScheduled, newScheduled   *org.Timestamp
+	oldDeadline, newDeadline     *org.Timestamp
+	oldLastRepeat, newLastRepeat string
+	hadLastRepeat                bool
+}
+
+func (a *repeatAdvanceAction) apply(m *Model) *org.Headline {
+	a.h.Scheduled = a.newScheduled
+	a.h.Deadline = a.newDeadline
+	a.h.SetProperty("LAST_REPEAT", a.newLastRepeat)
+	return a.h
+}
+
+func (a *repeatAdvanceAction) revert(m *Model) *org.Headline {
+	a.h.Scheduled = a.oldScheduled
+	a.h.Deadline = a.oldDeadline
+	if a.hadLastRepeat {
+		a.h.SetProperty("LAST_REPEAT", a.oldLastRepeat)
+	} else {
+		a.h.DeleteProperty("LAST_REPEAT")
+	}
+	return a.h
+}
+
+func (a *repeatAdvanceAction) file() *org.File           { return a.f }
+func (a *repeatAdvanceAction) affected() []*org.Headline { return []*org.Headline{a.h} }
+
 // deadlineChangeAction records a DEADLINE change ("gd"), including
 // clearing it (newDeadline nil). Like statusChangeAction, the mutation
 // is in place, so the same headline pointer is "affected" either way.

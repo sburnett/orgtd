@@ -163,6 +163,16 @@ planning lines, `:PROPERTIES:` drawers, and free-text body content.
 TODO keywords are fixed: `TODO`, `NEXT`, `WAITING`, `SOMEDAY` (active),
 `DONE`, `CANCELLED` (done — stamps `CLOSED` automatically).
 
+Marking an item with a repeating `SCHEDULED`/`DEADLINE` (a trailing
+cookie like `+1w`, `++1w`, or `.+1w`) as done matches org-mode: the
+keyword doesn't actually change, and the repeating timestamp(s) advance
+to their next occurrence instead, with the completion recorded via a
+`:LAST_REPEAT:` property rather than `CLOSED`. `+1w` advances exactly one
+interval from the old date (however overdue that leaves it); `++1w`
+advances however many intervals it takes to land on or after today;
+`.+1w` advances one interval from *today*, ignoring the old date
+entirely.
+
 Round-tripping is format-*preserving* rather than byte-exact: body text
 and file preamble pass through untouched, but a headline, planning, or
 property line orgtd re-serializes after any edit is regenerated from its

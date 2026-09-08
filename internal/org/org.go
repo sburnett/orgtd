@@ -83,6 +83,33 @@ type Headline struct {
 	Children []*Headline
 }
 
+// SetProperty sets key to value in h's property drawer, appending key to
+// PropertyOrder (in first-seen order, matching how Parse itself builds
+// it) if it isn't already present.
+func (h *Headline) SetProperty(key, value string) {
+	if h.Properties == nil {
+		h.Properties = make(map[string]string)
+	}
+	if _, exists := h.Properties[key]; !exists {
+		h.PropertyOrder = append(h.PropertyOrder, key)
+	}
+	h.Properties[key] = value
+}
+
+// DeleteProperty removes key from h's property drawer, if present.
+func (h *Headline) DeleteProperty(key string) {
+	if _, exists := h.Properties[key]; !exists {
+		return
+	}
+	delete(h.Properties, key)
+	for i, k := range h.PropertyOrder {
+		if k == key {
+			h.PropertyOrder = append(h.PropertyOrder[:i], h.PropertyOrder[i+1:]...)
+			break
+		}
+	}
+}
+
 // File is a parsed org file.
 type File struct {
 	Path      string
