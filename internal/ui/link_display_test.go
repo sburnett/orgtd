@@ -9,7 +9,7 @@ import (
 )
 
 func TestRenderTitleForDisplayShowsDescriptionUnderlined(t *testing.T) {
-	got := renderTitleForDisplay("Read the [[https://example.com/rfc][RFC]] before Monday", lipgloss.NewStyle())
+	got := renderTitleForDisplay("Read the [[https://example.com/rfc][RFC]] before Monday", lipgloss.NewStyle(), "")
 
 	if strings.Contains(got, "[[") || strings.Contains(got, "]]") {
 		t.Errorf("rendered title still contains raw link syntax: %q", got)
@@ -24,7 +24,7 @@ func TestRenderTitleForDisplayShowsDescriptionUnderlined(t *testing.T) {
 }
 
 func TestRenderTitleForDisplayFallsBackToURLWithoutDescription(t *testing.T) {
-	got := renderTitleForDisplay("See [[https://example.com/page]] for details", lipgloss.NewStyle())
+	got := renderTitleForDisplay("See [[https://example.com/page]] for details", lipgloss.NewStyle(), "")
 
 	plain := stripANSI(got)
 	if plain != "See https://example.com/page for details" {
@@ -33,14 +33,14 @@ func TestRenderTitleForDisplayFallsBackToURLWithoutDescription(t *testing.T) {
 }
 
 func TestRenderTitleForDisplayLeavesPlainTitleUnaffected(t *testing.T) {
-	got := renderTitleForDisplay("Just a plain title", lipgloss.NewStyle())
+	got := renderTitleForDisplay("Just a plain title", lipgloss.NewStyle(), "")
 	if got != "Just a plain title" {
 		t.Errorf("plain title unexpectedly changed: %q", got)
 	}
 }
 
 func TestRenderTitleForDisplayHandlesMultipleLinks(t *testing.T) {
-	got := renderTitleForDisplay("Compare [[https://a.example.com][A]] and [[https://b.example.com][B]]", lipgloss.NewStyle())
+	got := renderTitleForDisplay("Compare [[https://a.example.com][A]] and [[https://b.example.com][B]]", lipgloss.NewStyle(), "")
 	plain := stripANSI(got)
 	if plain != "Compare A and B" {
 		t.Errorf("plain text = %q, want %q", plain, "Compare A and B")
@@ -49,7 +49,7 @@ func TestRenderTitleForDisplayHandlesMultipleLinks(t *testing.T) {
 
 func TestRenderTitleForDisplayComposesWithBaseStyleWithoutBreakingIt(t *testing.T) {
 	base := lipgloss.NewStyle().Strikethrough(true)
-	got := renderTitleForDisplay("Read [[https://example.com][it]] later", base)
+	got := renderTitleForDisplay("Read [[https://example.com][it]] later", base, "")
 
 	plain := stripANSI(got)
 	if plain != "Read it later" {

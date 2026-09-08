@@ -58,6 +58,11 @@ var (
 	// so the current line and the pinned overlay read as different
 	// things.
 	cursorBg = lipgloss.AdaptiveColor{Light: "#cce0ff", Dark: "#2d3f5e"}
+
+	// searchHighlightBg marks every occurrence of the active search term
+	// (see activeSearchQuery) — vim's 'hlsearch' — layered on top of
+	// whatever background (if any) a segment already carries.
+	searchHighlightBg = lipgloss.AdaptiveColor{Light: "#fff099", Dark: "#5c4a00"}
 )
 
 // bgSpan renders s with only a background color — no other styling —
@@ -66,6 +71,53 @@ var (
 // adjacent styled segment's own reset code fires.
 func bgSpan(bg lipgloss.TerminalColor, s string) string {
 	return lipgloss.NewStyle().Background(bg).Render(s)
+}
+
+// activeSearchQuery is the search term row rendering should highlight
+// (see highlightMatches): the query typed so far while actively
+// searching, or the last confirmed search otherwise — matching vim's
+// 'hlsearch', which keeps highlighting the last search until a new one
+// starts or it's cleared (:noh).
+func (m Model) activeSearchQuery() string {
+	if m.mode == searchMode {
+		return m.searchQuery
+	}
+	return m.lastSearchQuery
+}
+
+// highlightMatches renders s with every case-insensitive occurrence of
+// query given an extra searchHighlightBg background layered on top of
+// base, and everything else rendered plainly with base. Each segment is
+// rendered independently (not nested) so this composes correctly
+// regardless of what background base itself already carries. A blank
+// query renders s with base unchanged.
+func highlightMatches(s, query string, base lipgloss.Style) string {
+	if query == "" {
+		return base.Render(s)
+	}
+	lowerS := strings.ToLower(s)
+	lowerQ := strings.ToLower(query)
+	highlight := base.Background(searchHighlightBg)
+
+	var b strings.Builder
+	last := 0
+	for {
+		rel := strings.Index(lowerS[last:], lowerQ)
+		if rel < 0 {
+			break
+		}
+		start := last + rel
+		end := start + len(query)
+		if start > last {
+			b.WriteString(base.Render(s[last:start]))
+		}
+		b.WriteString(highlight.Render(s[start:end]))
+		last = end
+	}
+	if last < len(s) {
+		b.WriteString(base.Render(s[last:]))
+	}
+	return b.String()
 }
 
 // joinBg joins parts with a bg-tinted single space, the background-aware
@@ -97,6 +149,7 @@ const (
 	commandMode
 	selectMode
 	deadlineMode
+	searchMode
 )
 
 // statusCandidate is one entry in the "set status" picker (R).
@@ -217,6 +270,13 @@ type Model struct {
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
 
 	deadlineInput string // typed so far, in deadlineMode
+
+	searchQuery   string // typed so far, in searchMode
+	searchForward bool   // true for "/" (forward), false for "?" (backward)
+	searchOrigin  int    // cursor position when the search started, restored on Esc
+
+	lastSearchQuery   string // most recently confirmed search, repeated by n/N
+	lastSearchForward bool   // that search's direction ("n" repeats it, "N" reverses it)
 
 	urlFormatterCmd string // external program that turns a bare URL into an org-mode link; disabled if empty
 
@@ -567,6 +627,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSelectMode(msg)
 		case deadlineMode:
 			return m.updateDeadlineMode(msg)
+		case searchMode:
+			return m.updateSearchMode(msg)
 		default:
 			return m.updateNormalMode(msg)
 		}
@@ -621,6 +683,26 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = commandMode
 		m.commandInput = ""
 		return m, nil
+
+	case "/":
+		m.mode = searchMode
+		m.searchForward = true
+		m.searchOrigin = m.cursor
+		m.searchQuery = ""
+		return m, nil
+
+	case "?":
+		m.mode = searchMode
+		m.searchForward = false
+		m.searchOrigin = m.cursor
+		m.searchQuery = ""
+		return m, nil
+
+	case "n":
+		m.repeatSearch(m.lastSearchForward)
+
+	case "N":
+		m.repeatSearch(!m.lastSearchForward)
 
 	case "j", "down":
 		m.moveCursor(1)
@@ -782,6 +864,125 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateSearchMode handles "/"/"?" incremental search: every keystroke
+// re-searches from searchOrigin (not from wherever the previous partial
+// query happened to land), so backspacing genuinely retypes the query
+// rather than searching onward from the last match — matching vim's own
+// incsearch behavior.
+func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = normalMode
+		m.cursor = m.searchOrigin
+		m.searchQuery = ""
+		m.ensureVisible()
+		return m, nil
+
+	case tea.KeyEnter:
+		m.mode = normalMode
+		if m.searchQuery != "" {
+			m.lastSearchQuery = m.searchQuery
+			m.lastSearchForward = m.searchForward
+		}
+		m.searchQuery = ""
+		return m, nil
+
+	case tea.KeyBackspace:
+		// Vim exits command-line-like modes when backspace is pressed
+		// with nothing left to delete (see updateCommandMode); mirrored
+		// here, reverting the cursor like Esc does.
+		r := []rune(m.searchQuery)
+		if len(r) == 0 {
+			m.mode = normalMode
+			m.cursor = m.searchOrigin
+			m.ensureVisible()
+			return m, nil
+		}
+		m.searchQuery = string(r[:len(r)-1])
+		m.performIncrementalSearch()
+		return m, nil
+
+	case tea.KeySpace:
+		m.searchQuery += " "
+		m.performIncrementalSearch()
+		return m, nil
+
+	case tea.KeyRunes:
+		m.searchQuery += string(msg.Runes)
+		m.performIncrementalSearch()
+		return m, nil
+	}
+	return m, nil
+}
+
+// performIncrementalSearch re-jumps the cursor from searchOrigin to the
+// nearest match of the query typed so far, in searchForward's direction
+// — called after every keystroke in searchMode. Leaves the cursor at
+// searchOrigin if the query is empty or matches nothing.
+func (m *Model) performIncrementalSearch() {
+	m.cursor = m.searchOrigin
+	if m.searchQuery != "" {
+		if idx, ok := m.findMatch(m.searchOrigin, m.searchQuery, m.searchForward); ok {
+			m.cursor = idx
+		}
+	}
+	m.ensureVisible()
+}
+
+// repeatSearch ("n"/"N") repeats the last confirmed search from the
+// current cursor position, in the given direction.
+func (m *Model) repeatSearch(forward bool) {
+	if m.lastSearchQuery == "" {
+		return
+	}
+	if idx, ok := m.findMatch(m.cursor, m.lastSearchQuery, forward); ok {
+		m.cursor = idx
+	}
+}
+
+// findMatch searches m.rows for the nearest row — excluding start
+// itself — whose searchable text (see rowSearchText) contains query,
+// case-insensitively, moving forward or backward from start and
+// wrapping around the ends (vim's default 'wrapscan' behavior).
+func (m *Model) findMatch(start int, query string, forward bool) (int, bool) {
+	n := len(m.rows)
+	if n == 0 {
+		return 0, false
+	}
+	q := strings.ToLower(query)
+	step := 1
+	if !forward {
+		step = -1
+	}
+	for i := 1; i <= n; i++ {
+		idx := ((start+step*i)%n + n) % n
+		if strings.Contains(strings.ToLower(rowSearchText(m.rows[idx])), q) {
+			return idx, true
+		}
+	}
+	return 0, false
+}
+
+// rowSearchText returns the text of r that "/"/"?" search against.
+func rowSearchText(r row) string {
+	switch {
+	case r.section != "":
+		return r.section
+	case r.file != nil:
+		return filepath.Base(r.file.Path)
+	case r.isBodyLine:
+		return r.bodyText
+	case r.headline != nil:
+		h := r.headline
+		text := h.Keyword + " " + h.Title
+		if len(h.Tags) > 0 {
+			text += " " + strings.Join(h.Tags, " ")
+		}
+		return text
+	}
+	return ""
+}
+
 func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type != tea.KeyTab {
 		// Any key other than Tab dismisses a shown completion list —
@@ -835,7 +1036,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline",
-	"delmarks", "delmarks!",
+	"delmarks", "delmarks!", "noh", "nohlsearch",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -928,6 +1129,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "redo":
 		m.redo()
+
+	case "noh", "nohlsearch":
+		m.lastSearchQuery = ""
 
 	case "agenda":
 		m.switchToView(agendaView)
@@ -1787,10 +1991,10 @@ var bareURLRe = regexp.MustCompile(`https?://[^\s\[\]]+`)
 // to the title (e.g. doneTitleStyle for a DONE/CANCELLED item); every
 // segment — link or plain text — is rendered with base (underlined,
 // for a link) so the two compose without nesting escape codes.
-func renderTitleForDisplay(title string, base lipgloss.Style) string {
+func renderTitleForDisplay(title string, base lipgloss.Style, query string) string {
 	matches := orgLinkRe.FindAllStringSubmatchIndex(title, -1)
 	if len(matches) == 0 {
-		return base.Render(title)
+		return highlightMatches(title, query, base)
 	}
 	linkStyle := base.Underline(true)
 
@@ -1808,13 +2012,13 @@ func renderTitleForDisplay(title string, base lipgloss.Style) string {
 			display = url
 		}
 		if start > last {
-			b.WriteString(base.Render(title[last:start]))
+			b.WriteString(highlightMatches(title[last:start], query, base))
 		}
-		b.WriteString(linkStyle.Render(display))
+		b.WriteString(highlightMatches(display, query, linkStyle))
 		last = end
 	}
 	if last < len(title) {
-		b.WriteString(base.Render(title[last:]))
+		b.WriteString(highlightMatches(title[last:], query, base))
 	}
 	return b.String()
 }
@@ -2423,6 +2627,13 @@ func (m Model) View() string {
 	case m.mode == deadlineMode:
 		b.WriteString(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
 		b.WriteString(cursorStyle.Render(" "))
+	case m.mode == searchMode:
+		prefix := "/"
+		if !m.searchForward {
+			prefix = "?"
+		}
+		b.WriteString(prefix + m.searchQuery)
+		b.WriteString(cursorStyle.Render(" "))
 	case m.message != "":
 		b.WriteString(errorStyle.Render(m.message))
 	default:
@@ -2550,15 +2761,17 @@ func (m Model) renderRow(r row) string {
 // only the first styled segment instead of the whole line. This is the
 // same technique renderPinnedRow uses for the overlay background.
 func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
+	query := m.activeSearchQuery()
 	switch {
 	case r.section != "":
 		// Flush left (no gutter/indent), unlike every item row below it,
 		// so a section header stands out at a glance in a long agenda.
-		return fileStyle.Background(bg).Render(r.section)
+		return highlightMatches(r.section, query, fileStyle.Background(bg))
 	case r.file != nil:
 		// Blank mark column: files themselves are never marked, but this
 		// keeps every row's dirty marker lined up in the same column.
-		return bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + fileStyle.Background(bg).Render(filepath.Base(r.file.Path))
+		name := highlightMatches(filepath.Base(r.file.Path), query, fileStyle.Background(bg))
+		return bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
 	case r.isAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
 	case r.isBodyLine:
@@ -2580,7 +2793,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	line := m.markColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
-		line += bgSpan(bg, "  ") + tagStyle.Background(bg).Render(":"+strings.Join(h.Tags, ":")+":")
+		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, tagStyle.Background(bg))
 	}
 
 	if ts := planningSummary(h); ts != "" {
@@ -2597,23 +2810,24 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 // lipgloss.NoColor{} outside the pinned header, where nothing is
 // tinted.
 func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor) []string {
+	query := m.activeSearchQuery()
 	var parts []string
 	if h.Keyword != "" {
 		style, ok := keywordStyles[h.Keyword]
 		if !ok {
 			style = lipgloss.NewStyle()
 		}
-		parts = append(parts, style.Background(bg).Render(h.Keyword))
+		parts = append(parts, highlightMatches(h.Keyword, query, style.Background(bg)))
 	}
 	if h.Priority != "" {
-		parts = append(parts, bgSpan(bg, fmt.Sprintf("[#%s]", h.Priority)))
+		parts = append(parts, highlightMatches(fmt.Sprintf("[#%s]", h.Priority), query, lipgloss.NewStyle().Background(bg)))
 	}
 
 	base := lipgloss.NewStyle().Background(bg)
 	if org.IsDoneKeyword(h.Keyword) {
 		base = doneTitleStyle.Background(bg)
 	}
-	parts = append(parts, renderTitleForDisplay(h.Title, base))
+	parts = append(parts, renderTitleForDisplay(h.Title, base, query))
 	return parts
 }
 
@@ -2626,7 +2840,7 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 	line := m.markColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
-		line += bgSpan(bg, "  ") + tagStyle.Background(bg).Render(":"+strings.Join(h.Tags, ":")+":")
+		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), tagStyle.Background(bg))
 	}
 
 	fileName := ""
@@ -2651,7 +2865,7 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := strings.Repeat("  ", r.level)
 	blanks := bgSpan(bg, "   "+indent+"  ") // mark + gutter + space, then indent, then fold + space
-	return blanks + bodyStyle.Background(bg).Render(strings.TrimSpace(r.bodyText))
+	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), bodyStyle.Background(bg))
 }
 
 // renderStatusSelector renders the R status picker's single status-line
