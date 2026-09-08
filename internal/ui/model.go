@@ -2656,13 +2656,13 @@ func (m Model) pinnedHeaderLines() []string {
 		if m.clarifyTarget == nil {
 			lines = append(lines, m.padLineToWidth(statusStyle.Background(overlayBg).Render("  Inbox is empty."), overlayBg))
 		} else {
-			lines = append(lines, m.renderPinnedRow("●", m.clarifyTarget))
+			lines = append(lines, m.renderPinnedRow("●", m.clarifyTarget, true))
 		}
 	}
 	if letters := m.sortedMarkLetters(); len(letters) > 0 {
 		lines = append(lines, m.padLineToWidth(fileStyle.Background(overlayBg).Render("Active marks:"), overlayBg))
 		for _, letter := range letters {
-			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter]))
+			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
 		}
 	}
 	if len(lines) == 0 {
@@ -2691,11 +2691,24 @@ func (m Model) sortedMarkLetters() []rune {
 // and title — the same format regardless of which pinned section it's
 // in, and regardless of h's actual level in its file's tree. The whole
 // line carries the overlay background, padded to fill the terminal
-// width.
-func (m Model) renderPinnedRow(marker string, h *org.Headline) string {
+// width. forClarify appends h's CREATED property (if it has one) and any
+// SCHEDULED/DEADLINE/CLOSED planning line (via planningSummary, the same
+// rendering the outline view itself uses) — on for the clarify target,
+// where knowing how long an item has sat in the inbox and whether it
+// already has a date is useful triage context; off for marks, which can
+// point at any headline in the outline and aren't about triage.
+func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) string {
 	line := pinMarkerStyle.Background(overlayBg).Render(marker) +
 		bgSpan(overlayBg, "  ") +
 		joinBg(m.renderKeywordAndTitle(h, overlayBg), overlayBg)
+	if forClarify {
+		if created := h.Properties["CREATED"]; created != "" {
+			line += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render("Created: "+created)
+		}
+		if planning := planningSummary(h); planning != "" {
+			line += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render(planning)
+		}
+	}
 	return m.padLineToWidth(line, overlayBg)
 }
 

@@ -72,9 +72,11 @@ inbox_file = "inbox.org"
   date. `SOMEDAY` items are excluded entirely. An item with both a
   schedule and a deadline can appear in two sections.
 - **Clarify** (`:clarify`) — pins the inbox's first top-level headline to
-  the top of the screen while you navigate the rest of the outline to
-  file it away; deleting the pinned item advances to the next one.
-  `:outline` returns to the plain outline from either view.
+  the top of the screen, alongside its `CREATED` property (so you can see
+  how long it's been sitting there) and any `SCHEDULED`/`DEADLINE` it
+  already has, while you navigate the rest of the outline to file it
+  away; deleting the pinned item advances to the next one. `:outline`
+  returns to the plain outline from either view.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 

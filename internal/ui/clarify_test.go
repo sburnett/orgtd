@@ -55,6 +55,124 @@ func TestClarifyHeaderRendersPinnedItem(t *testing.T) {
 	}
 }
 
+func TestClarifyHeaderShowsCreatedProperty(t *testing.T) {
+	ws := agendaFixture(t, "* TODO New idea\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	if !strings.Contains(lines[1], "Created: [2026-09-07 Mon 14:32]") {
+		t.Errorf("line 1 = %q, want the CREATED property shown", lines[1])
+	}
+}
+
+func TestClarifyHeaderOmitsCreatedLabelWhenPropertyAbsent(t *testing.T) {
+	ws := agendaFixture(t, "* TODO No created property\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	if strings.Contains(lines[1], "Created:") {
+		t.Errorf("line 1 = %q, should not mention Created when the property is absent", lines[1])
+	}
+}
+
+func TestClarifyHeaderShowsDeadline(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Follow up\n  DEADLINE: <2026-09-20 Sun>\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	if !strings.Contains(lines[1], "DEADLINE: <2026-09-20 Sun>") {
+		t.Errorf("line 1 = %q, want the DEADLINE shown", lines[1])
+	}
+}
+
+func TestClarifyHeaderShowsScheduled(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Follow up\n  SCHEDULED: <2026-09-10 Thu>\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	if !strings.Contains(lines[1], "SCHEDULED: <2026-09-10 Thu>") {
+		t.Errorf("line 1 = %q, want the SCHEDULED date shown", lines[1])
+	}
+}
+
+func TestClarifyHeaderShowsCreatedAndDeadlineTogether(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Follow up\n  DEADLINE: <2026-09-20 Sun>\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	if !strings.Contains(lines[1], "Created: [2026-09-07 Mon 14:32]") || !strings.Contains(lines[1], "DEADLINE: <2026-09-20 Sun>") {
+		t.Errorf("line 1 = %q, want both CREATED and DEADLINE shown", lines[1])
+	}
+}
+
+func TestClarifyHeaderOmitsDateWhenAbsent(t *testing.T) {
+	ws := agendaFixture(t, "* TODO No date at all\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	for _, want := range []string{"SCHEDULED:", "DEADLINE:", "CLOSED:"} {
+		if strings.Contains(lines[1], want) {
+			t.Errorf("line 1 = %q, should not mention %q when absent", lines[1], want)
+		}
+	}
+}
+
+func TestMarkedRowDoesNotShowDeadline(t *testing.T) {
+	// Check the pinned mark line specifically (not the whole View()
+	// output): the headline's own real outline row legitimately shows
+	// its DEADLINE too (via the same planningSummary the outline always
+	// uses), so asserting over the whole screen wouldn't isolate what
+	// the pinned *mark* row itself renders.
+	ws := agendaFixture(t, "* TODO Follow up\n  DEADLINE: <2026-09-20 Sun>\n")
+	m := New(ws)
+	m.cursor = 1 // the headline row, after the file row
+
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+
+	lines := m.pinnedHeaderLines()
+	markLine := stripANSI(lines[1]) // 0: "Active marks:" label, 1: the "a" mark row
+	if strings.Contains(markLine, "DEADLINE:") {
+		t.Errorf("marks pinned row = %q, should not show DEADLINE", markLine)
+	}
+}
+
+func TestMarkedRowDoesNotShowCreatedProperty(t *testing.T) {
+	// CREATED is shown for the clarify target (useful triage context),
+	// but not for marks, which can point at any headline in the outline
+	// and aren't about triage — see renderPinnedRow's showCreated param.
+	ws := agendaFixture(t, "* TODO Has created\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
+	m := New(ws)
+	m.cursor = 1 // the headline row, after the file row
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+
+	m = sendKey(m, "m")
+	m = sendKey(m, "a")
+
+	out := stripANSI(m.View())
+	if strings.Contains(out, "Created:") {
+		t.Errorf("marks pinned row should not show CREATED: %q", out)
+	}
+}
+
 func TestClarifySeparatorLineCarriesOverlayBackground(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
