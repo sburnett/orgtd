@@ -1,0 +1,32 @@
+# Sample orgtd config file.
+#
+# Copy this to $XDG_CONFIG_HOME/orgtd/config.toml (or ~/.config/orgtd/config.toml
+# if $XDG_CONFIG_HOME is unset), then uncomment and edit whatever you need.
+# Every key is optional and independent — orgtd runs fine with none of them
+# set, or with only some of them uncommented.
+#
+# Each key also has a command-line flag of the same purpose; an explicit
+# flag always overrides the value here. See `orgtd -h`, or the README, for
+# the full precedence rules (org_dir specifically can also be set via
+# $ORGTD_DIR, which beats this file but loses to an explicit -dir flag).
+
+# Directory containing your .org files (loaded non-recursively). "~" is
+# expanded to your home directory. Default: $ORGTD_DIR, then ~/org.
+# org_dir = "~/org"
+
+# External editor for `i` (edit entry/file). Anything your shell would
+# accept after $EDITOR works, including extra arguments (e.g. "code --wait").
+# Default: $EDITOR, then vim.
+# editor = "emacsclient -t"
+
+# External program invoked as `<prog> <url>` to convert a bare URL, found
+# while editing an entry, into an org-mode link — its stdout replaces the
+# URL. Leave unset to disable this (the default).
+# url_formatter = "url2org"
+
+# How many days ahead of today the agenda view's "Upcoming" section
+# covers. Default: 14.
+# agenda_window_days = 14
+
+# Base name of the file :clarify treats as the inbox. Default: inbox.org.
+# inbox_file = "inbox.org"

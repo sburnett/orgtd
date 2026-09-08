@@ -32,15 +32,34 @@ go build -o orgtd ./cmd/orgtd
 orgtd --dir ~/org
 ```
 
-| Flag | Default | Meaning |
-|---|---|---|
-| `--dir` | `$ORGTD_DIR` or `~/org` | Directory containing `.org` files (loaded non-recursively) |
-| `--url-formatter` | *(disabled)* | External program invoked as `<prog> <url>` to convert a bare URL typed while editing into an org-mode link (its stdout replaces the URL) |
-| `--agenda-days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
-| `--inbox-file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
+| Flag | Config key | Default | Meaning |
+|---|---|---|---|
+| `--dir` | `org_dir` | `$ORGTD_DIR`, then `org_dir`, then `~/org` | Directory containing `.org` files (loaded non-recursively) |
+| `--url-formatter` | `url_formatter` | *(disabled)* | External program invoked as `<prog> <url>` to convert a bare URL typed while editing into an org-mode link (its stdout replaces the URL) |
+| `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
+| `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
+| `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
+| `--config` | — | `$XDG_CONFIG_HOME/orgtd/config.toml` (or `~/.config/orgtd/config.toml`) | Path to the config file below |
 
 Every `.org` file directly inside `--dir` is loaded, sorted alphabetically.
 Subdirectories are not scanned.
+
+### Config file
+
+Any setting above can also go in a TOML config file, so you don't have to
+repeat flags on every invocation. An explicit flag always overrides the
+config file; `--dir` can additionally be overridden by `$ORGTD_DIR`,
+which takes precedence over the config file but not over an explicit
+flag. The config file itself, and every key in it, is optional — orgtd
+works fine with none of it present.
+
+```toml
+org_dir = "~/org"          # "~" is expanded
+editor = "emacsclient -t"  # falls back to $EDITOR, then vim, if unset
+url_formatter = ""
+agenda_window_days = 14
+inbox_file = "inbox.org"
+```
 
 ## Views
 

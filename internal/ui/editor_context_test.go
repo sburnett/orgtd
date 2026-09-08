@@ -7,6 +7,22 @@ import (
 	"testing"
 )
 
+func TestEditorCommandPrefersOverrideOverEditorEnv(t *testing.T) {
+	t.Setenv("EDITOR", "nano")
+	m := New(agendaFixture(t, "* TODO x\n"), WithEditor("emacsclient -t"))
+	if got := m.editorCommand(); got != "emacsclient -t" {
+		t.Errorf("editorCommand() = %q, want the WithEditor override", got)
+	}
+}
+
+func TestEditorCommandFallsBackToEditorEnvWhenUnset(t *testing.T) {
+	t.Setenv("EDITOR", "nano")
+	m := New(agendaFixture(t, "* TODO x\n"))
+	if got := m.editorCommand(); got != "nano" {
+		t.Errorf("editorCommand() = %q, want $EDITOR (%q)", got, "nano")
+	}
+}
+
 func TestStripCommentLinesPreservesDirectivesAndRealContent(t *testing.T) {
 	input := strings.Join([]string{
 		"* TODO Real headline",

@@ -285,6 +285,7 @@ type Model struct {
 	pendingFileEdit *org.File // the file to open in $EDITOR if confirmMode's prompt is accepted ("y")
 
 	urlFormatterCmd string // external program that turns a bare URL into an org-mode link; disabled if empty
+	editorOverride  string // takes precedence over $EDITOR when set (see WithEditor); empty means "use $EDITOR"
 
 	view       viewKind
 	agendaDays int // how many days ahead the agenda's "Upcoming" section covers
@@ -313,6 +314,13 @@ type Option func(*Model)
 // default).
 func WithURLFormatter(cmd string) Option {
 	return func(m *Model) { m.urlFormatterCmd = cmd }
+}
+
+// WithEditor overrides $EDITOR as the external editor orgtd launches for
+// `i` and file edits (see editorCommand). cmd == "" leaves $EDITOR as the
+// source (the default).
+func WithEditor(cmd string) Option {
+	return func(m *Model) { m.editorOverride = cmd }
 }
 
 // WithAgendaDays sets how many days ahead of today the agenda view's
@@ -1661,7 +1669,7 @@ type fileEditFinishedMsg struct {
 // this — the editor already wrote the change directly to disk, so
 // there's no in-memory action to record or revert.
 func (m *Model) startEditFile(f *org.File) tea.Cmd {
-	editorCmd := buildEditorCommand(os.Getenv("EDITOR"), f.Path, "")
+	editorCmd := buildEditorCommand(m.editorCommand(), f.Path, "")
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return fileEditFinishedMsg{target: f, err: err}
 	})
@@ -1727,6 +1735,16 @@ var editorsWithLineArg = map[string]bool{
 	"nano": true,
 }
 
+// editorCommand returns the external editor to launch: m.editorOverride
+// (see WithEditor) if set, else $EDITOR — matching DESIGN.md's config
+// file semantics ("editor... falls back to $EDITOR if unset").
+func (m Model) editorCommand() string {
+	if m.editorOverride != "" {
+		return m.editorOverride
+	}
+	return os.Getenv("EDITOR")
+}
+
 // buildEditorCommand builds the *exec.Cmd for opening path in the editor
 // named by editorEnv ($EDITOR's value; "vim" if empty), splitting off
 // any extra words as leading arguments (e.g. "code --wait"). For an
@@ -1772,7 +1790,7 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 		return nil
 	}
 
-	editorCmd := buildEditorCommand(os.Getenv("EDITOR"), path, before)
+	editorCmd := buildEditorCommand(m.editorCommand(), path, before)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
