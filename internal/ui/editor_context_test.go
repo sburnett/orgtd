@@ -295,6 +295,99 @@ func TestBuildEditorCommandSkipsLineArgForUnknownEditors(t *testing.T) {
 	}
 }
 
+// TestSplitCommandFields guards against a real bug: the naive
+// strings.Fields split (used by both buildEditorCommand and
+// runURLFormatter before this) has no concept of quoting, so a
+// configured command with a quoted multi-word argument — e.g.
+// `myformatter --template "a template" x` — got torn apart into
+// separate fields with the literal quote characters still attached
+// ("\"a", "template\"") instead of becoming one argument ("a template").
+func TestSplitCommandFields(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"myformatter", []string{"myformatter"}},
+		{"myformatter an-argument", []string{"myformatter", "an-argument"}},
+		{"myformatter first second", []string{"myformatter", "first", "second"}},
+		{`myformatter "an argument"`, []string{"myformatter", "an argument"}},
+		{`myformatter --template "a template" x`, []string{"myformatter", "--template", "a template", "x"}},
+		{`myformatter 'single quoted'`, []string{"myformatter", "single quoted"}},
+		{`myformatter foo"bar baz"qux`, []string{"myformatter", "foobar bazqux"}}, // quote embedded mid-word
+		{`  myformatter   spaced  `, []string{"myformatter", "spaced"}},           // extra whitespace collapses
+		{`myformatter "unterminated`, []string{"myformatter", "unterminated"}},    // unterminated quote: don't drop it
+	}
+	for _, c := range cases {
+		got := splitCommandFields(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("splitCommandFields(%q) = %#v, want %#v", c.in, got, c.want)
+			continue
+		}
+		for i := range c.want {
+			if got[i] != c.want[i] {
+				t.Errorf("splitCommandFields(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
+// TestExpandHomeField guards against a real bug: a command typed on the
+// command line (--editor, --url-formatter) gets "~" expanded for free by
+// the invoking shell before orgtd ever sees it, but the identical value
+// read from the config file reaches us raw and unexpanded (no shell is
+// involved there), so "~/bin/myformatter" was handed to exec.Command
+// completely literally and failed to launch — silently, since a failed
+// exec just leaves input unchanged.
+func TestExpandHomeField(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory available")
+	}
+	cases := []struct{ in, want string }{
+		{"~", home},
+		{"~/bin/myformatter", filepath.Join(home, "bin/myformatter")},
+		{"~/", filepath.Join(home, "")},
+		{"/absolute/path", "/absolute/path"}, // unaffected
+		{"relative/path", "relative/path"},   // unaffected
+		{"~user/path", "~user/path"},         // unaffected: not "~" or "~/..."
+		{"", ""},                             // unaffected
+	}
+	for _, c := range cases {
+		if got := expandHomeField(c.in); got != c.want {
+			t.Errorf("expandHomeField(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestBuildEditorCommandExpandsHomeInEditorPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory available")
+	}
+	cmd := buildEditorCommand("~/bin/myeditor --wait", "/tmp/x.org", "")
+	want := filepath.Join(home, "bin/myeditor")
+	if cmd.Args[0] != want {
+		t.Errorf("Args[0] = %q, want %q (expanded)", cmd.Args[0], want)
+	}
+	if cmd.Args[1] != "--wait" {
+		t.Errorf("Args[1] = %q, want %q (unaffected extra arg)", cmd.Args[1], "--wait")
+	}
+}
+
+func TestBuildEditorCommandHandlesQuotedArgument(t *testing.T) {
+	cmd := buildEditorCommand(`myeditor --template "a template" -x`, "/tmp/x.org", "")
+	want := []string{"myeditor", "--template", "a template", "-x", "/tmp/x.org"}
+	if len(cmd.Args) != len(want) {
+		t.Fatalf("Args = %#v, want %#v", cmd.Args, want)
+	}
+	for i := range want {
+		if cmd.Args[i] != want[i] {
+			t.Errorf("Args[%d] = %q, want %q", i, cmd.Args[i], want[i])
+		}
+	}
+}
+
 func TestBuildEditorCommandPreservesExtraArgsAndOrder(t *testing.T) {
 	cmd := buildEditorCommand("emacs -nw --debug-init", "/tmp/x.org", "# one line\n")
 	want := []string{"emacs", "-nw", "--debug-init", "+2", "/tmp/x.org"}

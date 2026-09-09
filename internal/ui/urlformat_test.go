@@ -66,6 +66,53 @@ func TestRunURLFormatterHandlesMultipleExtraArguments(t *testing.T) {
 	}
 }
 
+// TestRunURLFormatterExpandsHomeInConfiguredPath is the exact bug
+// reported: url_formatter = "~/scripts/url_formatter.py" ran fine when
+// passed on the command line (the shell expands "~" before orgtd ever
+// sees argv) but silently did nothing when set to the identical value
+// in the config file (no shell is involved there, so exec.Command
+// received a literal "~/..." path, found no such program, and the
+// error was swallowed — leaving the URL unformatted with no visible
+// failure). Simulates the config-file path by setting $HOME to a temp
+// directory and placing the fake formatter under it.
+func TestRunURLFormatterExpandsHomeInConfiguredPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	scriptDir := filepath.Join(home, "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	scriptPath := filepath.Join(scriptDir, "url_formatter.py")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\necho \"[[$1][Formatted]]\"\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	m := Model{urlFormatterCmd: "~/scripts/url_formatter.py"}
+	got := m.runURLFormatter("https://example.com")
+	want := "[[https://example.com][Formatted]]"
+	if got != want {
+		t.Errorf("runURLFormatter = %q, want %q (the tilde-prefixed path should have run)", got, want)
+	}
+}
+
+// TestRunURLFormatterHandlesQuotedArgumentWithSpaces guards against a
+// second, distinct bug in the same area: even after urlFormatterCmd
+// started being split at all, the split itself (strings.Fields) had no
+// concept of quoting, so a quoted multi-word argument — e.g.
+// `myformatter "an argument"` — was torn into two mangled fields
+// (`"an`, `argument"`, quote characters and all) instead of becoming one
+// argument ("an argument").
+func TestRunURLFormatterHandlesQuotedArgumentWithSpaces(t *testing.T) {
+	script := writeFakeFormatter(t, `echo "1=[$1] 2=[$2]"`)
+	m := Model{urlFormatterCmd: script + ` "an argument"`}
+
+	got := m.runURLFormatter("https://example.com")
+	want := "1=[an argument] 2=[https://example.com]"
+	if got != want {
+		t.Errorf("runURLFormatter = %q, want %q", got, want)
+	}
+}
+
 func TestFormatURLsCommandWithExtraArguments(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "[[$2][arg=$1]]"`)
 	m := Model{urlFormatterCmd: script + " an-argument"}

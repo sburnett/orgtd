@@ -15,13 +15,18 @@
 # org_dir = "~/org"
 
 # External editor for `i` (edit entry/file). Anything your shell would
-# accept after $EDITOR works, including extra arguments (e.g. "code --wait").
-# Default: $EDITOR, then vim.
+# accept after $EDITOR works, including extra arguments (e.g. "code --wait"),
+# a double- or single-quoted argument containing spaces, and "~" in any word
+# (expanded to your home directory, same as on the command line — unlike a
+# real shell, nothing else expands it for a config file value). Default:
+# $EDITOR, then vim.
 # editor = "emacsclient -t"
 
 # External program invoked as `<prog> <url>` to convert a bare URL, found
 # while editing an entry, into an org-mode link — its stdout replaces the
-# URL. Leave unset to disable this (the default).
+# URL. May include extra arguments and "~" the same way editor can, e.g.
+# "~/bin/myformatter --template \"a template\"". Leave unset to disable
+# this (the default).
 # url_formatter = "url2org"
 
 # Extra bare-URL prefixes recognized beyond http:// and https://, e.g. for

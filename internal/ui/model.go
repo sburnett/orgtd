@@ -1791,6 +1791,81 @@ func (m Model) editorCommand() string {
 	return os.Getenv("EDITOR")
 }
 
+// splitCommandFields splits s into command-line-style fields the way a
+// shell would for simple cases: runs of non-whitespace are one field
+// each, except that a single- or double-quoted span is treated as part
+// of the enclosing field (quotes stripped) and may itself contain
+// whitespace — e.g. `myformatter --template "a template" x` splits into
+// ["myformatter", "--template", "a template", "x"]. This is a minimal
+// word-splitter, not a shell parser: no escape sequences, no variable
+// expansion, no nesting — just enough for a configured command
+// (urlFormatterCmd, $EDITOR) to carry an argument containing spaces,
+// which plain strings.Fields cannot do (it would tear "a template"
+// apart into two fields, quote characters and all). An unterminated
+// quote isn't an error — whatever was captured is still emitted as a
+// field, rather than the whole config value being discarded.
+func splitCommandFields(s string) []string {
+	var fields []string
+	var cur strings.Builder
+	inField := false
+	var quote rune
+
+	flush := func() {
+		if inField {
+			fields = append(fields, cur.String())
+			cur.Reset()
+			inField = false
+		}
+	}
+
+	for _, r := range s {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+			inField = true
+		case unicode.IsSpace(r):
+			flush()
+		default:
+			cur.WriteRune(r)
+			inField = true
+		}
+	}
+	flush()
+	return fields
+}
+
+// expandHomeField expands a leading "~" or "~/..." in field to the
+// user's home directory, the way an interactive shell expands a tilde
+// word during its own word-splitting. This matters specifically for
+// editor/urlFormatterCmd: typed on the command line, a value like
+// "~/bin/myformatter" is already expanded by the shell before orgtd
+// ever sees argv, but the identical value read from the config file
+// reaches us as a raw, unexpanded string — no shell is involved there —
+// so it would otherwise be handed to exec.Command completely literally
+// and fail to launch (silently, from the caller's perspective, since a
+// failed exec just leaves the input unchanged). Applied per-field
+// (after splitCommandFields), not to the whole command string, so a
+// tilde in a later argument is expanded too, not just a leading one.
+func expandHomeField(field string) string {
+	if field != "~" && !strings.HasPrefix(field, "~/") {
+		return field
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return field
+	}
+	if field == "~" {
+		return home
+	}
+	return filepath.Join(home, field[2:])
+}
+
 // buildEditorCommand builds the *exec.Cmd for opening path in the editor
 // named by editorEnv ($EDITOR's value; "vim" if empty), splitting off
 // any extra words as leading arguments (e.g. "code --wait"). For an
@@ -1799,9 +1874,12 @@ func (m Model) editorCommand() string {
 // context text written ahead of it in the file; its newline count is
 // exactly the 1-based line the real content starts on).
 func buildEditorCommand(editorEnv, path, before string) *exec.Cmd {
-	fields := strings.Fields(editorEnv)
+	fields := splitCommandFields(editorEnv)
 	if len(fields) == 0 {
 		fields = []string{"vim"}
+	}
+	for i, f := range fields {
+		fields[i] = expandHomeField(f)
 	}
 	args := append([]string{}, fields[1:]...)
 	if editorsWithLineArg[filepath.Base(fields[0])] {
@@ -2356,18 +2434,27 @@ func (m *Model) formatURLs(text string) string {
 
 // runURLFormatter invokes the configured urlFormatterCmd as
 // `<program> <extra args...> <url>` and returns its trimmed stdout.
-// urlFormatterCmd is split on whitespace the same way buildEditorCommand
-// splits $EDITOR (e.g. "myformatter -x" runs "myformatter" with "-x" as
-// a leading argument before url) — without this, a formatter configured
-// with any extra arguments would fail every time: exec.Command treats
-// its first argument as a literal executable name, so "myformatter -x"
-// unsplit means "look for a program literally named 'myformatter -x'",
-// which never exists. On any failure (exec error, empty output), it
-// returns url unchanged.
+// urlFormatterCmd is split via splitCommandFields, the same quote-aware
+// splitter buildEditorCommand uses for $EDITOR (e.g. `myformatter
+// --template "a template"` runs "myformatter" with "--template" and "a
+// template" as leading arguments before url), and each field has a
+// leading "~" expanded via expandHomeField — without either of these, a
+// formatter configured with any extra arguments, or with a path under
+// the home directory, would fail every time: exec.Command treats its
+// first argument as a literal executable name, so an unsplit
+// "myformatter -x" means "look for a program literally named
+// 'myformatter -x'", and an unexpanded "~/bin/myformatter" (correct on
+// the command line, where the shell expands it, but not from the config
+// file, where nothing does) means "look for a program literally named
+// '~/bin/myformatter'" — neither ever exists. On any failure (exec
+// error, empty output), it returns url unchanged.
 func (m *Model) runURLFormatter(url string) string {
-	fields := strings.Fields(m.urlFormatterCmd)
+	fields := splitCommandFields(m.urlFormatterCmd)
 	if len(fields) == 0 {
 		return url
+	}
+	for i, f := range fields {
+		fields[i] = expandHomeField(f)
 	}
 	args := append(append([]string{}, fields[1:]...), url)
 	out, err := exec.Command(fields[0], args...).Output()
