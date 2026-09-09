@@ -284,8 +284,10 @@ type Model struct {
 	confirmMessage  string    // prompt shown in confirmMode
 	pendingFileEdit *org.File // the file to open in $EDITOR if confirmMode's prompt is accepted ("y")
 
-	urlFormatterCmd string // external program that turns a bare URL into an org-mode link; disabled if empty
-	editorOverride  string // takes precedence over $EDITOR when set (see WithEditor); empty means "use $EDITOR"
+	urlFormatterCmd      string         // external program that turns a bare URL into an org-mode link; disabled if empty
+	urlFormatterPrefixes []string       // extra bare-URL prefixes beyond http(s)://, e.g. "bit.ly/", "go/" (see WithURLFormatterPrefixes)
+	bareURLRe            *regexp.Regexp // compiled from urlFormatterPrefixes at construction time; see buildBareURLRegexp
+	editorOverride       string         // takes precedence over $EDITOR when set (see WithEditor); empty means "use $EDITOR"
 
 	view       viewKind
 	agendaDays int // how many days ahead the agenda's "Upcoming" section covers
@@ -314,6 +316,17 @@ type Option func(*Model)
 // default).
 func WithURLFormatter(cmd string) Option {
 	return func(m *Model) { m.urlFormatterCmd = cmd }
+}
+
+// WithURLFormatterPrefixes adds extra bare-URL prefixes formatURLs
+// recognizes beyond the built-in http:// and https:// — e.g. "bit.ly/"
+// for a shortlink service, or "go/" for an internal go-link convention.
+// Each is matched only at a word boundary (see buildBareURLRegexp), so
+// a short prefix like "go/" doesn't also match mid-word. Has no effect
+// unless WithURLFormatter is also set, since there'd be nothing to
+// format a bare URL into otherwise.
+func WithURLFormatterPrefixes(prefixes []string) Option {
+	return func(m *Model) { m.urlFormatterPrefixes = prefixes }
 }
 
 // WithEditor overrides $EDITOR as the external editor orgtd launches for
@@ -358,6 +371,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 	for _, opt := range opts {
 		opt(&m)
 	}
+	m.bareURLRe = buildBareURLRegexp(m.urlFormatterPrefixes)
 	m.rebuildRows()
 	return m
 }
@@ -2165,9 +2179,35 @@ func isBlankHeadlineTitle(title string) bool {
 // description if present, else the url) in the row list.
 var orgLinkRe = regexp.MustCompile(`\[\[([^\]\[]+)\](?:\[([^\]\[]*)\])?\]`)
 
-// bareURLRe matches a URL not already wrapped in link brackets. It stops
-// at '[' and ']' so it can never span into or out of an org-mode link.
-var bareURLRe = regexp.MustCompile(`https?://[^\s\[\]]+`)
+// defaultURLSchemes are always recognized as bare-URL prefixes,
+// independent of whatever extra prefixes the user configures (see
+// WithURLFormatterPrefixes) for things like a shortlink service
+// ("bit.ly/...") or an internal go-link convention ("go/...") that don't
+// carry a scheme.
+var defaultURLSchemes = []string{"https://", "http://"}
+
+// buildBareURLRegexp compiles the regexp formatURLs uses to find a bare
+// URL not already wrapped in link brackets: one of defaultURLSchemes, or
+// one of extraPrefixes, followed by a run of non-whitespace,
+// non-bracket characters (stopping at '[' or ']' so a match can never
+// span into or out of an org-mode link). Each extra prefix is guarded
+// with \b so it only matches at a word boundary — without that, a short
+// prefix like "go/" would also match mid-word inside something like
+// "embargo/foo". The built-in schemes don't need this guard: nothing
+// realistic precedes "https://" mid-word.
+func buildBareURLRegexp(extraPrefixes []string) *regexp.Regexp {
+	alts := make([]string, 0, len(defaultURLSchemes)+len(extraPrefixes))
+	for _, p := range defaultURLSchemes {
+		alts = append(alts, regexp.QuoteMeta(p))
+	}
+	for _, p := range extraPrefixes {
+		if p == "" {
+			continue
+		}
+		alts = append(alts, `\b`+regexp.QuoteMeta(p))
+	}
+	return regexp.MustCompile(`(?:` + strings.Join(alts, "|") + `)[^\s\[\]]+`)
+}
 
 // renderTitleForDisplay renders title for the row list: each org-mode
 // link is replaced with just its display text (the description, or the
@@ -2215,7 +2255,13 @@ func (m *Model) formatURLs(text string) string {
 	if m.urlFormatterCmd == "" {
 		return text
 	}
-	matches := bareURLRe.FindAllStringIndex(text, -1)
+	if m.bareURLRe == nil {
+		// New() normally builds this from urlFormatterPrefixes; fall
+		// back to building it here too, so a Model constructed as a
+		// literal (as several tests do) never panics on a nil regexp.
+		m.bareURLRe = buildBareURLRegexp(m.urlFormatterPrefixes)
+	}
+	matches := m.bareURLRe.FindAllStringIndex(text, -1)
 	if len(matches) == 0 {
 		return text
 	}

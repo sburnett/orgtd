@@ -96,6 +96,87 @@ func TestFormatURLsHandlesMultipleDistinctURLs(t *testing.T) {
 	}
 }
 
+func TestBuildBareURLRegexpMatchesConfiguredPrefixes(t *testing.T) {
+	re := buildBareURLRegexp([]string{"bit.ly/", "go/"})
+	cases := []struct {
+		text string
+		want string // "" means no match expected
+	}{
+		{"See bit.ly/xyz for details.", "bit.ly/xyz"},
+		{"Check go/my-shortlink please", "go/my-shortlink"},
+		{"https://example.com/page still works", "https://example.com/page"},
+		{"http://example.com/page still works", "http://example.com/page"},
+		{"embargo/foo should not match", ""},  // "go/" mid-word
+		{"orbit.ly/foo should not match", ""}, // "bit.ly/" mid-word
+		{"a bit.ly/foo at word start matches", "bit.ly/foo"},
+	}
+	for _, c := range cases {
+		got := re.FindString(c.text)
+		if got != c.want {
+			t.Errorf("buildBareURLRegexp match in %q = %q, want %q", c.text, got, c.want)
+		}
+	}
+}
+
+func TestBuildBareURLRegexpIgnoresEmptyPrefix(t *testing.T) {
+	re := buildBareURLRegexp([]string{"", "go/"})
+	if got := re.FindString("go/x"); got != "go/x" {
+		t.Errorf("match = %q, want %q", got, "go/x")
+	}
+}
+
+func TestFormatURLsFormatsConfiguredPrefix(t *testing.T) {
+	m := Model{
+		urlFormatterCmd:      writeFakeFormatter(t, `echo "[[$1][Formatted]]"`),
+		urlFormatterPrefixes: []string{"bit.ly/", "go/"},
+	}
+	text := "See bit.ly/xyz and go/my-shortlink for details."
+	want := "See [[bit.ly/xyz][Formatted]] and [[go/my-shortlink][Formatted]] for details."
+	if got := m.formatURLs(text); got != want {
+		t.Errorf("formatURLs = %q, want %q", got, want)
+	}
+}
+
+func TestFormatURLsWithConfiguredPrefixesStillRequiresWordBoundary(t *testing.T) {
+	m := Model{
+		urlFormatterCmd:      writeFakeFormatter(t, `echo "[[$1][Formatted]]"`),
+		urlFormatterPrefixes: []string{"go/"},
+	}
+	text := "embargo/foo should not become a link"
+	if got := m.formatURLs(text); got != text {
+		t.Errorf("formatURLs = %q, want unchanged (mid-word match)", got)
+	}
+}
+
+func TestFormatURLsWithoutConfiguredPrefixesDoesNotMatchThem(t *testing.T) {
+	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}
+	text := "See go/my-shortlink for details."
+	if got := m.formatURLs(text); got != text {
+		t.Errorf("formatURLs = %q, want unchanged (no prefixes configured)", got)
+	}
+}
+
+func TestWithURLFormatterPrefixesAppliedThroughNew(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws,
+		WithURLFormatter(writeFakeFormatter(t, `echo "[[$1][Formatted Title]]"`)),
+		WithURLFormatterPrefixes([]string{"go/"}),
+	)
+	idx := findRow(t, m, "Call the vet about Fido's checkup")
+	m.cursor = idx
+	old := m.currentHeadline()
+
+	path := writeTempOrgFile(t, "* TODO Call the vet about Fido's checkup\n  See go/my-shortlink for details.\n")
+
+	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
+	m = updated.(Model)
+
+	body := strings.Join(m.rows[idx].headline.Body, "\n")
+	if !strings.Contains(body, "[[go/my-shortlink][Formatted Title]]") {
+		t.Errorf("body after edit = %q, want the formatted go/ link", body)
+	}
+}
+
 func TestFormatURLsAppliedDuringFinishEdit(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws, WithURLFormatter(writeFakeFormatter(t, `echo "[[$1][Formatted Title]]"`)))

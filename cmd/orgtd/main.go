@@ -18,6 +18,7 @@ import (
 func main() {
 	dir := flag.String("dir", "", "directory containing org files (default: $ORGTD_DIR, then the config file's org_dir, then ~/org)")
 	urlFormatter := flag.String("url-formatter", "", "external program invoked as `<prog> <url>` to convert a bare URL, found while editing an entry, into an org-mode link (its stdout replaces the URL); disabled if empty (default: the config file's url_formatter, else disabled)")
+	urlFormatterPrefixes := flag.String("url-formatter-prefixes", "", "comma-separated extra bare-URL prefixes beyond http:// and https://, e.g. \"bit.ly/,go/\" (default: the config file's url_formatter_prefixes, else none)")
 	agendaDays := flag.Int("agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
 	inboxFile := flag.String("inbox-file", "", "base name of the file :clarify treats as the inbox (default: the config file's inbox_file, else inbox.org)")
 	editor := flag.String("editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
@@ -38,12 +39,13 @@ func main() {
 	}
 
 	s := resolveSettings(flagValues{
-		dir:          *dir,
-		urlFormatter: *urlFormatter,
-		agendaDays:   *agendaDays,
-		inboxFile:    *inboxFile,
-		editor:       *editor,
-		explicit:     explicit,
+		dir:                  *dir,
+		urlFormatter:         *urlFormatter,
+		urlFormatterPrefixes: splitPrefixes(*urlFormatterPrefixes),
+		agendaDays:           *agendaDays,
+		inboxFile:            *inboxFile,
+		editor:               *editor,
+		explicit:             explicit,
 	}, os.Getenv("ORGTD_DIR"), cfg)
 
 	ws, err := workspace.Load(s.dir)
@@ -55,6 +57,7 @@ func main() {
 	p := tea.NewProgram(
 		ui.New(ws,
 			ui.WithURLFormatter(s.urlFormatter),
+			ui.WithURLFormatterPrefixes(s.urlFormatterPrefixes),
 			ui.WithAgendaDays(s.agendaDays),
 			ui.WithInboxFile(s.inboxFile),
 			ui.WithEditor(s.editor),

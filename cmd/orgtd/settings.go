@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sburnett/orgtd/internal/config"
 )
@@ -11,11 +12,12 @@ import (
 // after merging command-line flags, $ORGTD_DIR, the config file, and
 // built-in defaults per resolveSettings' precedence rules.
 type settings struct {
-	dir          string
-	urlFormatter string
-	agendaDays   int
-	inboxFile    string
-	editor       string
+	dir                  string
+	urlFormatter         string
+	urlFormatterPrefixes []string
+	agendaDays           int
+	inboxFile            string
+	editor               string
 }
 
 // flagValues is the raw output of flag parsing: each flag's value
@@ -27,6 +29,7 @@ type settings struct {
 // unset-and-still-zero one falls through to the config file).
 type flagValues struct {
 	dir, urlFormatter, inboxFile, editor string
+	urlFormatterPrefixes                 []string
 	agendaDays                           int
 	explicit                             map[string]bool
 }
@@ -44,11 +47,12 @@ type flagValues struct {
 //     (disabled/14/"inbox.org"/"", meaning $EDITOR) for everything else.
 func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) settings {
 	s := settings{
-		dir:          f.dir,
-		urlFormatter: f.urlFormatter,
-		agendaDays:   f.agendaDays,
-		inboxFile:    f.inboxFile,
-		editor:       f.editor,
+		dir:                  f.dir,
+		urlFormatter:         f.urlFormatter,
+		urlFormatterPrefixes: f.urlFormatterPrefixes,
+		agendaDays:           f.agendaDays,
+		inboxFile:            f.inboxFile,
+		editor:               f.editor,
 	}
 
 	switch {
@@ -63,6 +67,9 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 
 	if !f.explicit["url-formatter"] && cfg.URLFormatter != "" {
 		s.urlFormatter = cfg.URLFormatter
+	}
+	if !f.explicit["url-formatter-prefixes"] && len(cfg.URLFormatterPrefixes) > 0 {
+		s.urlFormatterPrefixes = cfg.URLFormatterPrefixes
 	}
 	if !f.explicit["agenda-days"] && cfg.AgendaWindowDays != 0 {
 		s.agendaDays = cfg.AgendaWindowDays
@@ -86,4 +93,18 @@ func defaultOrgDir() string {
 		return "org"
 	}
 	return filepath.Join(home, "org")
+}
+
+// splitPrefixes parses the -url-formatter-prefixes flag's comma-separated
+// value ("bit.ly/,go/") into a slice, trimming whitespace around each
+// entry and dropping empty ones (so a trailing comma, or the flag simply
+// being unset, yields nil rather than a slice with a blank entry).
+func splitPrefixes(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

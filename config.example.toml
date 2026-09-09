@@ -24,6 +24,12 @@
 # URL. Leave unset to disable this (the default).
 # url_formatter = "url2org"
 
+# Extra bare-URL prefixes recognized beyond http:// and https://, e.g. for
+# shortlinks with no scheme. Each is only matched at a word boundary, so
+# "go/" won't also match inside "embargo/foo". Has no effect unless
+# url_formatter is also set. Default: none.
+# url_formatter_prefixes = ["bit.ly/", "go/"]
+
 # How many days ahead of today the agenda view's "Upcoming" section
 # covers. Default: 14.
 # agenda_window_days = 14

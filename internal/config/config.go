@@ -23,6 +23,13 @@ type Config struct {
 	URLFormatter     string `toml:"url_formatter"`
 	AgendaWindowDays int    `toml:"agenda_window_days"`
 	InboxFile        string `toml:"inbox_file"`
+
+	// URLFormatterPrefixes are extra bare-URL prefixes recognized beyond
+	// the built-in http:// and https://, e.g. "bit.ly/" for a shortlink
+	// service or "go/" for an internal go-link convention — text
+	// starting with one of these (at a word boundary) gets passed
+	// through URLFormatter the same as a real http(s) URL would.
+	URLFormatterPrefixes []string `toml:"url_formatter_prefixes"`
 }
 
 // DefaultPath returns the config file location orgtd reads unless

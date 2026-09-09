@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ func TestLoadMissingFileReturnsZeroValueNoError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if *c != (Config{}) {
+	if !reflect.DeepEqual(*c, Config{}) {
 		t.Errorf("Load(missing) = %+v, want zero value", *c)
 	}
 }
@@ -23,19 +24,21 @@ editor = "emacsclient -t"
 url_formatter = "url2org"
 agenda_window_days = 30
 inbox_file = "capture.org"
+url_formatter_prefixes = ["bit.ly/", "go/"]
 `)
 	c, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
-		OrgDir:           "/tmp/myorg",
-		Editor:           "emacsclient -t",
-		URLFormatter:     "url2org",
-		AgendaWindowDays: 30,
-		InboxFile:        "capture.org",
+		OrgDir:               "/tmp/myorg",
+		Editor:               "emacsclient -t",
+		URLFormatter:         "url2org",
+		AgendaWindowDays:     30,
+		InboxFile:            "capture.org",
+		URLFormatterPrefixes: []string{"bit.ly/", "go/"},
 	}
-	if *c != want {
+	if !reflect.DeepEqual(*c, want) {
 		t.Errorf("Load = %+v, want %+v", *c, want)
 	}
 }

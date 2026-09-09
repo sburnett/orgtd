@@ -36,6 +36,7 @@ orgtd --dir ~/org
 |---|---|---|---|
 | `--dir` | `org_dir` | `$ORGTD_DIR`, then `org_dir`, then `~/org` | Directory containing `.org` files (loaded non-recursively) |
 | `--url-formatter` | `url_formatter` | *(disabled)* | External program invoked as `<prog> <url>` to convert a bare URL typed while editing into an org-mode link (its stdout replaces the URL) |
+| `--url-formatter-prefixes` | `url_formatter_prefixes` | *(none)* | Extra bare-URL prefixes recognized beyond `http://`/`https://`, e.g. `bit.ly/` or `go/` for shortlinks — comma-separated on the flag, a TOML array in the config file. Each is only matched at a word boundary, so `go/` won't match inside `embargo/foo` |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
@@ -57,6 +58,7 @@ works fine with none of it present.
 org_dir = "~/org"          # "~" is expanded
 editor = "emacsclient -t"  # falls back to $EDITOR, then vim, if unset
 url_formatter = ""
+url_formatter_prefixes = ["bit.ly/", "go/"]
 agenda_window_days = 14
 inbox_file = "inbox.org"
 ```
