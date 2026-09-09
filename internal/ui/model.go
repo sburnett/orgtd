@@ -2298,10 +2298,22 @@ func (m *Model) formatURLs(text string) string {
 }
 
 // runURLFormatter invokes the configured urlFormatterCmd as
-// `urlFormatterCmd <url>` and returns its trimmed stdout. On any failure
-// (exec error, empty output), it returns url unchanged.
+// `<program> <extra args...> <url>` and returns its trimmed stdout.
+// urlFormatterCmd is split on whitespace the same way buildEditorCommand
+// splits $EDITOR (e.g. "myformatter -x" runs "myformatter" with "-x" as
+// a leading argument before url) — without this, a formatter configured
+// with any extra arguments would fail every time: exec.Command treats
+// its first argument as a literal executable name, so "myformatter -x"
+// unsplit means "look for a program literally named 'myformatter -x'",
+// which never exists. On any failure (exec error, empty output), it
+// returns url unchanged.
 func (m *Model) runURLFormatter(url string) string {
-	out, err := exec.Command(m.urlFormatterCmd, url).Output()
+	fields := strings.Fields(m.urlFormatterCmd)
+	if len(fields) == 0 {
+		return url
+	}
+	args := append(append([]string{}, fields[1:]...), url)
+	out, err := exec.Command(fields[0], args...).Output()
 	if err != nil {
 		return url
 	}

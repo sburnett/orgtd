@@ -36,6 +36,55 @@ func TestFormatURLsReplacesBareURL(t *testing.T) {
 	}
 }
 
+// TestRunURLFormatterSplitsCommandAndArguments guards against a real
+// bug: urlFormatterCmd wasn't split on whitespace before being passed to
+// exec.Command, so a configured command with extra arguments (e.g.
+// "myformatter an-argument", exactly as one would write it in the
+// config file or on -url-formatter) would look for a single executable
+// literally named "myformatter an-argument" — which never exists — and
+// silently fail every time, leaving the URL unformatted with no visible
+// error.
+func TestRunURLFormatterSplitsCommandAndArguments(t *testing.T) {
+	script := writeFakeFormatter(t, `echo "$1-$2"`)
+	m := Model{urlFormatterCmd: script + " an-argument"}
+
+	got := m.runURLFormatter("https://example.com")
+	want := "an-argument-https://example.com"
+	if got != want {
+		t.Errorf("runURLFormatter = %q, want %q (extra argument then url)", got, want)
+	}
+}
+
+func TestRunURLFormatterHandlesMultipleExtraArguments(t *testing.T) {
+	script := writeFakeFormatter(t, `echo "$1|$2|$3"`)
+	m := Model{urlFormatterCmd: script + " first second"}
+
+	got := m.runURLFormatter("https://example.com")
+	want := "first|second|https://example.com"
+	if got != want {
+		t.Errorf("runURLFormatter = %q, want %q", got, want)
+	}
+}
+
+func TestFormatURLsCommandWithExtraArguments(t *testing.T) {
+	script := writeFakeFormatter(t, `echo "[[$2][arg=$1]]"`)
+	m := Model{urlFormatterCmd: script + " an-argument"}
+	text := "See https://example.com/page for details."
+
+	want := "See [[https://example.com/page][arg=an-argument]] for details."
+	if got := m.formatURLs(text); got != want {
+		t.Errorf("formatURLs = %q, want %q", got, want)
+	}
+}
+
+func TestRunURLFormatterEmptyCommandReturnsURLUnchanged(t *testing.T) {
+	m := Model{urlFormatterCmd: "   "}
+	url := "https://example.com"
+	if got := m.runURLFormatter(url); got != url {
+		t.Errorf("runURLFormatter with a blank command = %q, want the url unchanged", got)
+	}
+}
+
 func TestFormatURLsLeavesExistingLinkWithDescriptionAlone(t *testing.T) {
 	calls := filepath.Join(t.TempDir(), "calls.log")
 	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo called >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}
