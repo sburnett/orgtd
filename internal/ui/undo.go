@@ -140,10 +140,11 @@ func (a *subtreeReplaceAction) affected() []*org.Headline {
 // file, which parent (nil if top-level), and its index within that
 // parent's children (or the file's top-level list).
 type insertContext struct {
-	f      *org.File
-	parent *org.Headline
-	index  int
-	origin *org.Headline // headline the cursor was on before o/O; refocused on rollback
+	f          *org.File
+	parent     *org.Headline
+	index      int
+	origin     *org.Headline // headline the cursor was on before o/O; refocused on rollback
+	originFile *org.File     // fallback for rollback focus if origin is nil (cursor was on a file row); usually f itself, except for :capture/gC, whose insertion target (the inbox) can differ from wherever the cursor actually was
 }
 
 // spliceAction is the shared machinery behind insertAction and
@@ -341,7 +342,11 @@ func (m *Model) commitInsert(ctx insertContext, tentative *org.Headline, final [
 func (m *Model) rollbackInsert(ctx insertContext, tentative *org.Headline) {
 	m.spliceReplace([]*org.Headline{tentative}, nil)
 	m.rebuildRows()
-	m.focusTarget(ctx.origin, ctx.f)
+	originFile := ctx.originFile
+	if originFile == nil {
+		originFile = ctx.f
+	}
+	m.focusTarget(ctx.origin, originFile)
 	m.recomputeDirty()
 }
 

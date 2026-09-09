@@ -832,6 +832,10 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "C":
 		if wasPendingZ {
 			m.foldCloseAll()
+		} else if wasPendingG {
+			if cmd := m.startCapture(); cmd != nil {
+				return m, cmd
+			}
 		}
 
 	case "a":
@@ -1091,7 +1095,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // type and want completed.
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
-	"undo", "redo", "agenda", "clarify", "outline",
+	"undo", "redo", "agenda", "clarify", "outline", "capture",
 	"delmarks", "delmarks!", "noh", "nohlsearch",
 }
 
@@ -1197,6 +1201,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "outline":
 		m.switchToView(outlineView)
+
+	case "capture":
+		return m, m.startCapture()
 
 	case "delmarks":
 		m.message = "Usage: :delmarks <letters> or :delmarks!"
@@ -1966,21 +1973,71 @@ func (m *Model) resolveInsertPosition(before bool) (f *org.File, parent *org.Hea
 }
 
 // insertHeadline inserts a blank headline (see resolveInsertPosition for
-// where) and opens it in $EDITOR, pre-filled with a CREATED property set
-// to now — org-mode's standard (if not automatic) convention for
-// recording an entry's creation time, e.g. via org-capture's %U escape.
-// It's part of the editable template, not stamped after the fact, so
-// it's just as overridable or deletable as anything else the user types
-// before saving. The insert isn't recorded in undo history until the
-// editor session finishes successfully (see commitInsert), so the whole
-// "open a headline, type into it" session is one undo step, matching
-// vim's o/O.
+// where) and opens it in $EDITOR. The insert isn't recorded in undo
+// history until the editor session finishes successfully (see
+// commitInsert), so the whole "open a headline, type into it" session is
+// one undo step, matching vim's o/O.
 func (m *Model) insertHeadline(before bool) tea.Cmd {
 	f, parent, idx, level, origin, ok := m.resolveInsertPosition(before)
 	if !ok {
 		return nil
 	}
+	return m.insertHeadlineAt(f, parent, idx, level, origin, nil)
+}
 
+// startCapture (:capture, "gC") appends a blank top-level headline to
+// the end of the inbox file and opens it in $EDITOR — a dedicated
+// quick-add path, distinct from o/O, that always targets the inbox
+// regardless of the current cursor position or view (agenda, clarify,
+// or scrolled to some other file entirely in outline). A no-op (with a
+// status message) if the inbox file isn't loaded.
+func (m *Model) startCapture() tea.Cmd {
+	f := m.findInboxFile()
+	if f == nil {
+		m.message = fmt.Sprintf("No %s file in this org directory", m.inboxFile)
+		return nil
+	}
+	// origin is the headline the cursor is currently on, if any, so
+	// cancelling the capture returns focus there rather than to the
+	// inbox — capture is meant to not disturb whatever you were doing.
+	// originFile covers the file-row case (origin nil): without it,
+	// rollback would fall back to insertContext.f, which for capture is
+	// always the inbox, not necessarily wherever the cursor actually was.
+	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile())
+}
+
+// currentRowFile returns the file the cursor's current row belongs to:
+// the row's own file if it's a file-header row, else the file that owns
+// its headline. Used by startCapture as rollbackInsert's fallback focus
+// target when the cursor isn't on a headline (see insertContext.originFile).
+func (m *Model) currentRowFile() *org.File {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return nil
+	}
+	r := m.rows[m.cursor]
+	if r.file != nil {
+		return r.file
+	}
+	if r.headline != nil {
+		return m.fileForHeadline(r.headline)
+	}
+	return nil
+}
+
+// insertHeadlineAt is the shared machinery behind insertHeadline and
+// startCapture: splices a blank headline into f (at index within
+// parent's children, or f's top-level list if parent is nil) and opens
+// it in $EDITOR, pre-filled with a CREATED property set to now —
+// org-mode's standard (if not automatic) convention for recording an
+// entry's creation time, e.g. via org-capture's %U escape. It's part of
+// the editable template, not stamped after the fact, so it's just as
+// overridable or deletable as anything else the user types before
+// saving. origin (and originFile, its fallback when origin is nil) is
+// refocused if the session is rolled back — see rollbackInsert. The
+// insert isn't recorded in undo history until the editor session
+// finishes successfully (see commitInsert), so the whole "open a
+// headline, type into it" session is one undo step.
+func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
 	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
 	if parent != nil {
@@ -1991,7 +2048,7 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 	m.rebuildRows()
 	m.focusHeadline(tentative)
 
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin}
+	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile}
 	cmd := m.launchEditor(tentative, &ctx)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank

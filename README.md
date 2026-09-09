@@ -115,6 +115,7 @@ stop), and so on.
 | `r` | Rotate the current entry's TODO state |
 | `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
+| `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`) |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
 ### Marks
@@ -153,6 +154,7 @@ ambiguous.
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
 | `:agenda` / `:clarify` / `:outline` | Switch views |
+| `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
 
