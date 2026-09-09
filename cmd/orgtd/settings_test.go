@@ -109,6 +109,21 @@ func TestResolveSettingsZeroAgendaDaysInConfigIsTreatedAsUnset(t *testing.T) {
 	}
 }
 
+func TestDebugLogPath(t *testing.T) {
+	cases := []struct {
+		configFilePath string
+		want           string
+	}{
+		{"/home/sam/.config/orgtd/config.toml", "/home/sam/.config/orgtd/debug.log"},
+		{"/some/other/dir/orgtd.toml", "/some/other/dir/debug.log"},
+	}
+	for _, c := range cases {
+		if got := debugLogPath(c.configFilePath); got != c.want {
+			t.Errorf("debugLogPath(%q) = %q, want %q", c.configFilePath, got, c.want)
+		}
+	}
+}
+
 func TestSplitPrefixes(t *testing.T) {
 	cases := []struct {
 		in   string

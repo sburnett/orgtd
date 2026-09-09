@@ -6,6 +6,7 @@ package ui
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2446,25 +2447,43 @@ func (m *Model) formatURLs(text string) string {
 // 'myformatter -x'", and an unexpanded "~/bin/myformatter" (correct on
 // the command line, where the shell expands it, but not from the config
 // file, where nothing does) means "look for a program literally named
-// '~/bin/myformatter'" — neither ever exists. On any failure (exec
-// error, empty output), it returns url unchanged.
+// '~/bin/myformatter'" — neither ever exists. Every attempt is logged
+// via the standard log package, including the subprocess's stderr on
+// failure — cmd/orgtd redirects it to a file at startup, since the TUI
+// itself owns the terminal and plain log output can't share it. Without
+// this, silently leaving the URL unchanged on any error gives no clue
+// why; a failure also sets m.message so it's visible without leaving
+// the app or checking the log.
 func (m *Model) runURLFormatter(url string) string {
 	fields := splitCommandFields(m.urlFormatterCmd)
 	if len(fields) == 0 {
+		log.Printf("url formatter: urlFormatterCmd %q has no fields after splitting; skipping %q", m.urlFormatterCmd, url)
 		return url
 	}
 	for i, f := range fields {
 		fields[i] = expandHomeField(f)
 	}
 	args := append(append([]string{}, fields[1:]...), url)
+	log.Printf("url formatter: running %v", append([]string{fields[0]}, args...))
+
 	out, err := exec.Command(fields[0], args...).Output()
 	if err != nil {
+		detail := err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			detail = fmt.Sprintf("%v (stderr: %s)", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		log.Printf("url formatter: %s failed: %s", fields[0], detail)
+		m.message = fmt.Sprintf("URL formatter failed (see debug.log): %s", detail)
 		return url
 	}
+
 	formatted := strings.TrimSpace(string(out))
 	if formatted == "" {
+		log.Printf("url formatter: %s produced no output for %q", fields[0], url)
+		m.message = "URL formatter produced no output (see debug.log)"
 		return url
 	}
+	log.Printf("url formatter: %s -> %q", fields[0], formatted)
 	return formatted
 }
 

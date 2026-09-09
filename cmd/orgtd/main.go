@@ -6,6 +6,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,6 +49,20 @@ func main() {
 		editor:               *editor,
 		explicit:             explicit,
 	}, os.Getenv("ORGTD_DIR"), cfg)
+
+	// The TUI owns the terminal once it starts, so plain log output
+	// can't share it — redirect to a file instead. Discarding (rather
+	// than falling back to stderr) if it can't be opened keeps that
+	// guarantee even then, at the cost of losing the log entirely in
+	// that rare case.
+	if logFile, err := os.OpenFile(debugLogPath(path), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		defer logFile.Close()
+		log.SetOutput(logFile)
+	} else {
+		log.SetOutput(io.Discard)
+	}
+	log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v agenda_days=%d inbox_file=%q",
+		s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.agendaDays, s.inboxFile)
 
 	ws, err := workspace.Load(s.dir)
 	if err != nil {

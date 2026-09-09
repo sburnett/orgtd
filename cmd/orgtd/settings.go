@@ -95,6 +95,20 @@ func defaultOrgDir() string {
 	return filepath.Join(home, "org")
 }
 
+// debugLogPath returns the log file main.go directs the standard log
+// package's output to: a debug.log next to whichever config file was
+// actually loaded (or would be, if none exists yet — configFilePath is
+// the resolved path regardless), so it's discoverable without a
+// separate setting to remember. Existing logging (e.g. every URL
+// formatter attempt, success or failure, including the subprocess's own
+// stderr) lands there — useful for exactly the "this works on one
+// machine but not another" question a status-line message alone can't
+// answer, since the TUI's own screen can't share a terminal with plain
+// log output.
+func debugLogPath(configFilePath string) string {
+	return filepath.Join(filepath.Dir(configFilePath), "debug.log")
+}
+
 // splitPrefixes parses the -url-formatter-prefixes flag's comma-separated
 // value ("bit.ly/,go/") into a slice, trimming whitespace around each
 // entry and dropping empty ones (so a trailing comma, or the flag simply

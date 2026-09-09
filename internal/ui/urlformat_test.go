@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,25 @@ func writeFakeFormatter(t *testing.T, body string) string {
 	return path
 }
 
+// captureLog redirects the standard log package's output to a buffer
+// for the duration of the test (restored on cleanup), so tests can
+// assert on what runURLFormatter logs — the whole point of that
+// logging is to be inspectable outside the running TUI, so this is the
+// only way to verify it actually happened.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prevOut := log.Writer()
+	prevFlags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0) // no timestamp prefix, so assertions can match exact text
+	t.Cleanup(func() {
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+	return &buf
+}
+
 func TestFormatURLsNoopWhenDisabled(t *testing.T) {
 	m := Model{}
 	text := "See https://example.com/page for details."
@@ -33,6 +54,76 @@ func TestFormatURLsReplacesBareURL(t *testing.T) {
 	want := "See [[https://example.com/page][Formatted]] for details."
 	if got := m.formatURLs(text); got != want {
 		t.Errorf("formatURLs = %q, want %q", got, want)
+	}
+}
+
+func TestRunURLFormatterLogsSuccessfulAttempt(t *testing.T) {
+	logBuf := captureLog(t)
+	script := writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)
+	m := Model{urlFormatterCmd: script}
+
+	m.runURLFormatter("https://example.com")
+
+	logged := logBuf.String()
+	if !strings.Contains(logged, "running") || !strings.Contains(logged, script) {
+		t.Errorf("log = %q, want it to record the command actually run", logged)
+	}
+	if !strings.Contains(logged, "[[https://example.com][Formatted]]") {
+		t.Errorf("log = %q, want it to record the successful result", logged)
+	}
+}
+
+func TestRunURLFormatterLogsFailureWithStderr(t *testing.T) {
+	logBuf := captureLog(t)
+	script := writeFakeFormatter(t, `echo "boom: no such template" >&2; exit 1`)
+	m := Model{urlFormatterCmd: script}
+
+	got := m.runURLFormatter("https://example.com")
+
+	if got != "https://example.com" {
+		t.Errorf("runURLFormatter = %q, want the url unchanged on failure", got)
+	}
+	logged := logBuf.String()
+	if !strings.Contains(logged, "failed") {
+		t.Errorf("log = %q, want it to record the failure", logged)
+	}
+	if !strings.Contains(logged, "boom: no such template") {
+		t.Errorf("log = %q, want it to include the subprocess's stderr", logged)
+	}
+	if m.message == "" || !strings.Contains(m.message, "debug.log") {
+		t.Errorf("m.message = %q, want a visible failure notice pointing at the log", m.message)
+	}
+}
+
+func TestRunURLFormatterLogsEmptyOutput(t *testing.T) {
+	logBuf := captureLog(t)
+	script := writeFakeFormatter(t, `true`) // exits 0, prints nothing
+	m := Model{urlFormatterCmd: script}
+
+	got := m.runURLFormatter("https://example.com")
+
+	if got != "https://example.com" {
+		t.Errorf("runURLFormatter = %q, want the url unchanged on empty output", got)
+	}
+	if logged := logBuf.String(); !strings.Contains(logged, "no output") {
+		t.Errorf("log = %q, want it to record the empty-output case", logged)
+	}
+	if m.message == "" {
+		t.Error("expected a visible message for the empty-output case")
+	}
+}
+
+func TestRunURLFormatterLogsCommandNotFound(t *testing.T) {
+	logBuf := captureLog(t)
+	m := Model{urlFormatterCmd: "/no/such/program/anywhere"}
+
+	got := m.runURLFormatter("https://example.com")
+
+	if got != "https://example.com" {
+		t.Errorf("runURLFormatter = %q, want the url unchanged", got)
+	}
+	if logged := logBuf.String(); !strings.Contains(logged, "failed") {
+		t.Errorf("log = %q, want it to record the failure even when the program doesn't exist", logged)
 	}
 }
 

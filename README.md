@@ -63,6 +63,18 @@ agenda_window_days = 14
 inbox_file = "inbox.org"
 ```
 
+### Debug log
+
+orgtd logs to a `debug.log` file next to whichever config file it loaded
+(or would load — the location doesn't depend on one actually existing),
+e.g. `~/.config/orgtd/debug.log`. The main use today is the URL
+formatter: every attempt is logged with the exact command run, and any
+failure includes the subprocess's own stderr — useful for tracking down
+why a formatter that works on one machine doesn't on another (a bad
+path, a missing interpreter, a script erroring out) without needing to
+leave the TUI mid-edit to find out. A failure also shows a message on
+orgtd's own status line pointing at the log.
+
 ## Views
 
 - **Outline** (default) — every loaded file, its headlines, and any
