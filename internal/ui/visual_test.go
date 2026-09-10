@@ -115,8 +115,8 @@ func TestVisualModeSetStatusAppliesToEveryRowIndependently(t *testing.T) {
 
 	undoDepthBefore := m.undoPos
 	m = sendKey(m, "R")
-	if m.mode != selectMode || !m.selectModeVisual {
-		t.Fatalf("mode after visual R = %v (selectModeVisual=%v), want selectMode with selectModeVisual=true", m.mode, m.selectModeVisual)
+	if m.mode != selectMode || len(m.selectModeTargets) != 3 {
+		t.Fatalf("mode after visual R = %v (selectModeTargets=%v), want selectMode with 3 targets", m.mode, m.selectModeTargets)
 	}
 	m = sendKey(m, "d") // "d" uniquely filters to the DONE candidate and auto-applies
 

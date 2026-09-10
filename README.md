@@ -136,11 +136,13 @@ stop), and so on.
 | `i` | Edit the current entry (and its subtree) in `$EDITOR`. On a file's own header row, edits the whole file directly instead (after a confirmation, since this discards undo history and marks for that file) |
 | `o` / `O` | Insert a new entry after / before the current one (or at the end/start of a file, from a file header row). The template opened in `$EDITOR` is prefilled with a `CREATED` property set to now — edit or delete it like anything else before saving |
 | `dd` | Delete the current entry and its subtree (undoable; also fills the paste register) |
+| `<N>dd` | Delete the current entry and the next N-1 entries and their subtrees, as one undo step (e.g. `3dd` deletes 3 entries). A count of 1 (or none) is exactly plain `dd`, register included; a higher count doesn't fill the register, since there'd be more than one entry to put there |
 | `yy` | Yank the current entry and its subtree into the paste register, without deleting it |
 | `p` / `P` | Paste the register's contents after / before the current entry, re-indented to fit |
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
 | `r` | Rotate the current entry's TODO state |
 | `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
+| `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`) |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |

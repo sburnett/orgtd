@@ -272,13 +272,21 @@ type Model struct {
 	pendingZ     bool // pending 'z' of a fold command (zo/zc/za/zO/zC/zA)
 	pendingM     bool // pending 'm' of "m<letter>" (set a mark)
 	pendingQuote bool // pending '\'' of "'<letter>" (jump to a mark)
+	pendingCount int  // numeric prefix built up so far for "dd"/"R" (e.g. "3dd", "2R"); 0 means none typed
 
 	register *org.Headline // last deleted (dd) or yanked (yy) entry, pasted (as a copy) by p/P
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
 
-	visualAnchor     int  // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
-	selectModeVisual bool // true when selectMode (R) was entered from visualMode, so applySelectedStatus applies to the whole visual selection instead of just the current headline
+	visualAnchor int // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
+
+	// selectModeTargets holds the entries a pending R (selectMode) should
+	// apply the chosen status to, if more than just the current one — set
+	// when R is invoked from visual mode (the whole selection) or with a
+	// numeric prefix (the current entry plus the next N-1, see
+	// countRowRange). nil for a plain R, meaning "just the current
+	// headline" (see applyChosenStatus).
+	selectModeTargets []*org.Headline
 
 	mode               mode
 	commandInput       string
@@ -861,6 +869,26 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// A digit builds up a numeric prefix for "dd"/"R" (e.g. "3dd", "2R")
+	// instead of being handled by the switch below — intercepted here for
+	// the same reason as m/' above. A leading zero (no digits typed yet)
+	// is not a valid count on its own — there's no "0" command to
+	// distinguish it from — so it falls through as a plain, currently
+	// unbound key instead of starting a count. Any other key that isn't
+	// "d" or "R" themselves clears a pending count rather than silently
+	// applying to some other command later — the prefix is scoped to
+	// exactly these two.
+	if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+		if d := int(key[0] - '0'); d > 0 || m.pendingCount > 0 {
+			m.pendingCount = m.pendingCount*10 + d
+		}
+		m.ensureVisible()
+		return m, nil
+	}
+	if key != "d" && key != "R" {
+		m.pendingCount = 0
+	}
+
 	switch key {
 	case ":":
 		m.mode = commandMode
@@ -937,9 +965,15 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.rotateStatus()
 
 	case "R":
+		count := m.pendingCount
+		m.pendingCount = 0
 		if m.currentHeadline() != nil {
 			m.mode = selectMode
-			m.selectModeVisual = false
+			if count > 1 {
+				m.selectModeTargets = m.headlinesInRowRange(m.countRowRange(count))
+			} else {
+				m.selectModeTargets = nil
+			}
 			m.selectFilter = ""
 			m.selectIndex = m.currentStatusIndex()
 		}
@@ -1014,8 +1048,14 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		if wasPendingG {
 			m.startSetDeadline()
+			m.pendingCount = 0
 		} else if wasPendingD {
-			m.deleteHeadline()
+			if m.pendingCount > 1 {
+				m.deleteHeadlineCount(m.pendingCount)
+			} else {
+				m.deleteHeadline()
+			}
+			m.pendingCount = 0
 		} else {
 			m.pendingD = true
 		}
@@ -1123,9 +1163,9 @@ func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.deleteVisualSelection()
 
 	case "R":
-		if len(m.visualSelectedHeadlines()) > 0 {
+		if headlines := m.visualSelectedHeadlines(); len(headlines) > 0 {
 			m.mode = selectMode
-			m.selectModeVisual = true
+			m.selectModeTargets = headlines
 			m.selectFilter = ""
 			m.selectIndex = m.currentStatusIndex()
 		}
@@ -1140,7 +1180,7 @@ func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // status is chosen) completes.
 func (m *Model) exitVisualMode() {
 	m.mode = normalMode
-	m.selectModeVisual = false
+	m.selectModeTargets = nil
 }
 
 // visualRange returns the current visual selection's row range,
@@ -1155,13 +1195,44 @@ func (m *Model) visualRange() (start, end int) {
 	return m.entryStart(a), m.entryEnd(b)
 }
 
+// countRowRange returns the row range covering n consecutive entries
+// starting at the cursor's own entry, which counts as the first of the
+// n — giving "dd"/"R" a numeric prefix (e.g. "3dd", "2R") the same
+// row-range shape as a visual selection, so both can share
+// headlinesInRowRange and the bulk operations built on it. n < 1 is
+// treated as 1 (just the current entry, i.e. no prefix). Running out of
+// rows before reaching n just stops at the last entry there is, the same
+// way vim's own counted commands clamp at the end of the buffer.
+func (m *Model) countRowRange(n int) (start, end int) {
+	if n < 1 {
+		n = 1
+	}
+	start = m.entryStart(m.cursor)
+	end = start
+	counted := 1
+	for i := start + 1; i < len(m.rows) && counted < n; i++ {
+		if m.rows[i].isBodyLine {
+			continue
+		}
+		end = i
+		counted++
+	}
+	return start, m.entryEnd(end)
+}
+
 // visualSelectedHeadlines returns every distinct headline with a row
-// inside the current visual selection, in top-to-bottom order — a
-// selected headline may contribute several rows (its body, its
-// children), but appears once here regardless. Rows with no headline
-// (file/section/:config rows) are skipped.
+// inside the current visual selection — see headlinesInRowRange.
 func (m *Model) visualSelectedHeadlines() []*org.Headline {
-	start, end := m.visualRange()
+	return m.headlinesInRowRange(m.visualRange())
+}
+
+// headlinesInRowRange returns every distinct headline with a row inside
+// [start, end], in top-to-bottom order — shared by visualSelectedHeadlines
+// (a visual-mode selection) and the numeric-prefix commands (via
+// countRowRange). A selected headline may contribute several rows (its
+// body, its children), but appears once here regardless; rows with no
+// headline (file/section/:config rows) are skipped.
+func (m *Model) headlinesInRowRange(start, end int) []*org.Headline {
 	seen := make(map[*org.Headline]bool)
 	var out []*org.Headline
 	for i := start; i <= end && i >= 0 && i < len(m.rows); i++ {
@@ -1204,16 +1275,39 @@ func visualTopmostHeadlines(headlines []*org.Headline) []*org.Headline {
 }
 
 // deleteVisualSelection removes every top-level selected entry (and its
-// subtree) — the visual-mode equivalent of dd. Deletions are grouped
-// into one undo step per file touched (a batchAction — see undo.go), so
-// a selection confined to a single file, overwhelmingly the common case,
-// undoes in one step; a selection spanning files takes one step per
-// file, since undo/dirty tracking is inherently per-file. Unlike dd,
-// this doesn't populate the paste register — there's no single entry to
-// put there, and p/P only ever pastes one.
+// subtree) — the visual-mode equivalent of dd. See deleteHeadlineSet for
+// the shared mechanics.
 func (m *Model) deleteVisualSelection() {
 	headlines := visualTopmostHeadlines(m.visualSelectedHeadlines())
 	m.exitVisualMode()
+	m.deleteHeadlineSet(headlines)
+}
+
+// deleteHeadlineCount implements a numeric-prefixed "dd" (e.g. "3dd"):
+// deletes the current entry and the next n-1 entries. A no-op on a file
+// row, matching plain dd. See deleteHeadlineSet for the shared mechanics.
+func (m *Model) deleteHeadlineCount(n int) {
+	if m.currentHeadline() == nil {
+		return
+	}
+	headlines := visualTopmostHeadlines(m.headlinesInRowRange(m.countRowRange(n)))
+	m.deleteHeadlineSet(headlines)
+}
+
+// deleteHeadlineSet removes every headline in headlines (each with its
+// own subtree) — the shared implementation behind bulk delete, whether
+// the selection came from visual mode (deleteVisualSelection) or a
+// numeric prefix (deleteHeadlineCount). headlines is assumed already
+// topmost-filtered (see visualTopmostHeadlines) — deleting an ancestor
+// already removes its whole subtree, so a selected descendant needs no
+// delete of its own. Deletions are grouped into one undo step per file
+// touched (a batchAction — see undo.go), so a selection confined to a
+// single file, overwhelmingly the common case, undoes in one step; a
+// selection spanning files takes one step per file, since undo/dirty
+// tracking is inherently per-file. Unlike dd, this doesn't populate the
+// paste register — there's no single entry to put there, and p/P only
+// ever pastes one.
+func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 	if len(headlines) == 0 {
 		return
 	}
@@ -1294,14 +1388,15 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 	}
 }
 
-// applyStatusToVisualSelection sets keyword on every headline in the
-// current visual selection — unlike bulk delete, a status change never
-// cascades to descendants on its own, so every selected row (nested or
-// not) is changed independently, not just the topmost ones. Grouped into
-// one undo step per file touched, same as deleteVisualSelection.
-func (m *Model) applyStatusToVisualSelection(keyword, label string) {
-	headlines := m.visualSelectedHeadlines()
-	m.exitVisualMode()
+// applyStatusToHeadlineSet sets keyword on every headline in headlines —
+// the shared implementation behind bulk status change, whether the
+// selection came from visual mode or a numeric-prefixed R (see
+// applyChosenStatus). Unlike bulk delete, a status change never cascades
+// to descendants on its own, so every headline given is changed
+// independently, not just the topmost ones (callers don't
+// topmost-filter). Grouped into one undo step per file touched, same as
+// deleteHeadlineSet.
+func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, label string) {
 	if len(headlines) == 0 {
 		return
 	}
@@ -1713,7 +1808,7 @@ func (m Model) updateSelectMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.mode = normalMode
 		m.selectFilter = ""
-		m.selectModeVisual = false
+		m.selectModeTargets = nil
 		return m, nil
 
 	case tea.KeyEnter:
@@ -1806,13 +1901,14 @@ func (m Model) applySelectedStatus() (tea.Model, tea.Cmd) {
 }
 
 // applyChosenStatus applies keyword (labeled label, for the bulk status
-// message) to either the whole visual selection or just the current
-// headline, depending on how the R picker now resolving was entered —
-// shared by applySelectedStatus (Enter) and typeSelectChar's
-// single-match auto-apply.
+// message) to either selectModeTargets (set when the R picker now
+// resolving was entered from visual mode or with a numeric prefix) or
+// just the current headline otherwise — shared by applySelectedStatus
+// (Enter) and typeSelectChar's single-match auto-apply.
 func (m *Model) applyChosenStatus(keyword, label string) {
-	if m.selectModeVisual {
-		m.applyStatusToVisualSelection(keyword, label)
+	if targets := m.selectModeTargets; len(targets) > 0 {
+		m.selectModeTargets = nil
+		m.applyStatusToHeadlineSet(targets, keyword, label)
 		return
 	}
 	m.applyStatus(keyword)
@@ -3788,8 +3884,8 @@ func (m Model) renderStatusSelector() string {
 	}
 
 	prefix := " Set status:  "
-	if m.selectModeVisual {
-		prefix = fmt.Sprintf(" Set status for %d selected:  ", len(m.visualSelectedHeadlines()))
+	if n := len(m.selectModeTargets); n > 0 {
+		prefix = fmt.Sprintf(" Set status for %d selected:  ", n)
 	}
 	line := prefix + strings.Join(parts, "   ")
 	if m.selectFilter != "" {
