@@ -152,6 +152,7 @@ const (
 	deadlineMode
 	searchMode
 	confirmMode
+	visualMode
 )
 
 // statusCandidate is one entry in the "set status" picker (R).
@@ -266,6 +267,9 @@ type Model struct {
 	register *org.Headline // last deleted (dd) or yanked (yy) entry, pasted (as a copy) by p/P
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
+
+	visualAnchor     int  // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
+	selectModeVisual bool // true when selectMode (R) was entered from visualMode, so applySelectedStatus applies to the whole visual selection instead of just the current headline
 
 	mode               mode
 	commandInput       string
@@ -797,6 +801,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearchMode(msg)
 		case confirmMode:
 			return m.updateConfirmMode(msg)
+		case visualMode:
+			return m.updateVisualMode(msg)
 		default:
 			return m.updateNormalMode(msg)
 		}
@@ -924,8 +930,15 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "R":
 		if m.currentHeadline() != nil {
 			m.mode = selectMode
+			m.selectModeVisual = false
 			m.selectFilter = ""
 			m.selectIndex = m.currentStatusIndex()
+		}
+
+	case "V":
+		if len(m.rows) > 0 {
+			m.mode = visualMode
+			m.visualAnchor = m.cursor
 		}
 
 	case "i":
@@ -1034,6 +1047,269 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m.ensureVisible()
 	return m, nil
+}
+
+// updateVisualMode handles "V" (visual line selection): plain navigation
+// keys extend the selection (from visualAnchor to the cursor, snapped to
+// whole entries — see visualRange) exactly as they move the cursor in
+// normal mode, while "d" and "R" act on every entry currently selected.
+// Only a subset of normal mode's keys apply here — anything that isn't
+// navigation or one of the two bulk operations (editing a single entry,
+// folding, marks, paste, ...) has no obvious bulk meaning and is left
+// unbound rather than guessed at.
+func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	wasPendingG := m.pendingG
+	m.pendingG = false
+	m.message = ""
+
+	switch key {
+	case "esc", "V":
+		m.exitVisualMode()
+
+	case "j", "down":
+		m.moveCursor(1)
+
+	case "k", "up":
+		m.moveCursor(-1)
+
+	case "}":
+		m.jumpParagraph(1)
+
+	case "{":
+		m.jumpParagraph(-1)
+
+	case "l":
+		m.moveDeeper()
+
+	case "h":
+		m.moveShallower()
+
+	case "g":
+		if wasPendingG {
+			m.cursor = 0
+		} else {
+			m.pendingG = true
+		}
+
+	case "G":
+		if n := len(m.rows); n > 0 {
+			m.cursor = m.entryStart(n - 1)
+		}
+
+	case "^":
+		m.jumpToSubtreeTop()
+
+	case "$":
+		m.jumpToSubtreeBottom()
+
+	case "ctrl+d":
+		m.moveCursor(m.pageSize() / 2)
+
+	case "ctrl+u":
+		m.moveCursor(-m.pageSize() / 2)
+
+	case "d":
+		m.deleteVisualSelection()
+
+	case "R":
+		if len(m.visualSelectedHeadlines()) > 0 {
+			m.mode = selectMode
+			m.selectModeVisual = true
+			m.selectFilter = ""
+			m.selectIndex = m.currentStatusIndex()
+		}
+	}
+
+	m.ensureVisible()
+	return m, nil
+}
+
+// exitVisualMode leaves visual selection and returns to normal mode —
+// used by Esc/V (cancel) and once a bulk operation (d, or R after a
+// status is chosen) completes.
+func (m *Model) exitVisualMode() {
+	m.mode = normalMode
+	m.selectModeVisual = false
+}
+
+// visualRange returns the current visual selection's row range,
+// inclusive, snapped (via entryStart/entryEnd, the same snapping the
+// single-cursor highlight uses) so it always covers whole entries —
+// never starting or ending mid-body.
+func (m *Model) visualRange() (start, end int) {
+	a, b := m.visualAnchor, m.cursor
+	if a > b {
+		a, b = b, a
+	}
+	return m.entryStart(a), m.entryEnd(b)
+}
+
+// visualSelectedHeadlines returns every distinct headline with a row
+// inside the current visual selection, in top-to-bottom order — a
+// selected headline may contribute several rows (its body, its
+// children), but appears once here regardless. Rows with no headline
+// (file/section/:config rows) are skipped.
+func (m *Model) visualSelectedHeadlines() []*org.Headline {
+	start, end := m.visualRange()
+	seen := make(map[*org.Headline]bool)
+	var out []*org.Headline
+	for i := start; i <= end && i >= 0 && i < len(m.rows); i++ {
+		h := m.rows[i].headline
+		if h == nil || seen[h] {
+			continue
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	return out
+}
+
+// visualTopmostHeadlines filters headlines down to those not descended
+// from another headline also in headlines — used by bulk delete, since
+// deleting an ancestor already removes its whole subtree (see
+// deleteHeadline), so a selected descendant needs no delete of its own
+// (and, by the time headlines' own deletes actually run, attempting one
+// would either be redundant or operate on a detached, no-longer-visible
+// copy).
+func visualTopmostHeadlines(headlines []*org.Headline) []*org.Headline {
+	selected := make(map[*org.Headline]bool, len(headlines))
+	for _, h := range headlines {
+		selected[h] = true
+	}
+	var out []*org.Headline
+	for _, h := range headlines {
+		underSelectedAncestor := false
+		for p := h.Parent; p != nil; p = p.Parent {
+			if selected[p] {
+				underSelectedAncestor = true
+				break
+			}
+		}
+		if !underSelectedAncestor {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// deleteVisualSelection removes every top-level selected entry (and its
+// subtree) — the visual-mode equivalent of dd. Deletions are grouped
+// into one undo step per file touched (a batchAction — see undo.go), so
+// a selection confined to a single file, overwhelmingly the common case,
+// undoes in one step; a selection spanning files takes one step per
+// file, since undo/dirty tracking is inherently per-file. Unlike dd,
+// this doesn't populate the paste register — there's no single entry to
+// put there, and p/P only ever pastes one.
+func (m *Model) deleteVisualSelection() {
+	headlines := visualTopmostHeadlines(m.visualSelectedHeadlines())
+	m.exitVisualMode()
+	if len(headlines) == 0 {
+		return
+	}
+
+	type target struct {
+		h      *org.Headline
+		f      *org.File
+		parent *org.Headline
+		idx    int
+	}
+	var order []*org.File
+	byFile := make(map[*org.File][]target)
+	for _, h := range headlines {
+		f, parent, idx := m.insertPosition(h)
+		if idx < 0 {
+			continue
+		}
+		if _, ok := byFile[f]; !ok {
+			order = append(order, f)
+		}
+		byFile[f] = append(byFile[f], target{h, f, parent, idx})
+	}
+
+	for _, f := range order {
+		targets := byFile[f]
+		// Descending index so removing one entry doesn't shift another
+		// still-to-be-removed entry's already-captured index — safe
+		// regardless of parent, since a splice only ever affects its own
+		// parent's list.
+		sort.SliceStable(targets, func(i, j int) bool { return targets[i].idx > targets[j].idx })
+		actions := make([]undoAction, len(targets))
+		for i, t := range targets {
+			actions[i] = &deleteAction{spliceAction{f: t.f, parent: t.parent, index: t.idx, headlines: []*org.Headline{t.h}, inTree: true}}
+		}
+		m.pushUndo(&batchAction{actions: actions})
+		// clarifyTarget/marks bookkeeping, same as dd's deleteHeadline —
+		// done after the delete is actually applied (advanceClarifyTarget
+		// must see the removal to skip past the deleted entry, not just
+		// re-read the same one that's about to go).
+		for _, t := range targets {
+			if m.view == clarifyView && t.h == m.clarifyTarget {
+				m.advanceClarifyTarget()
+			}
+			org.Walk([]*org.Headline{t.h}, m.clearMarksFor)
+		}
+	}
+	m.message = fmt.Sprintf("Deleted %d entries", len(headlines))
+}
+
+// buildStatusChangeAction returns the undoAction that setting h's
+// keyword to keyword would produce — a repeatAdvanceAction if h is
+// completing a repeating item (see repeatAdvanceForCompletion), or a
+// plain statusChangeAction otherwise — without applying or pushing it,
+// so bulk operations (visual-mode R) can batch several of these into one
+// undo step the same way applyStatus handles a single one.
+func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAction {
+	if org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword) {
+		if a := m.repeatAdvanceForCompletion(h); a != nil {
+			return a
+		}
+	}
+
+	newClosed := h.Closed
+	switch {
+	case org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword):
+		newClosed = &org.Timestamp{Raw: time.Now().Format("2006-01-02 Mon 15:04")}
+	case !org.IsDoneKeyword(keyword) && org.IsDoneKeyword(h.Keyword):
+		newClosed = nil
+	}
+
+	return &statusChangeAction{
+		h:          h,
+		f:          m.fileForHeadline(h),
+		oldKeyword: h.Keyword,
+		newKeyword: keyword,
+		oldClosed:  h.Closed,
+		newClosed:  newClosed,
+	}
+}
+
+// applyStatusToVisualSelection sets keyword on every headline in the
+// current visual selection — unlike bulk delete, a status change never
+// cascades to descendants on its own, so every selected row (nested or
+// not) is changed independently, not just the topmost ones. Grouped into
+// one undo step per file touched, same as deleteVisualSelection.
+func (m *Model) applyStatusToVisualSelection(keyword, label string) {
+	headlines := m.visualSelectedHeadlines()
+	m.exitVisualMode()
+	if len(headlines) == 0 {
+		return
+	}
+
+	var order []*org.File
+	byFile := make(map[*org.File][]undoAction)
+	for _, h := range headlines {
+		f := m.fileForHeadline(h)
+		if _, ok := byFile[f]; !ok {
+			order = append(order, f)
+		}
+		byFile[f] = append(byFile[f], m.buildStatusChangeAction(h, keyword))
+	}
+	for _, f := range order {
+		m.pushUndo(&batchAction{actions: byFile[f]})
+	}
+	m.message = fmt.Sprintf("Set %d entries to %s", len(headlines), label)
 }
 
 // updateSearchMode handles "/"/"?" incremental search: every keystroke
@@ -1428,6 +1704,7 @@ func (m Model) updateSelectMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.mode = normalMode
 		m.selectFilter = ""
+		m.selectModeVisual = false
 		return m, nil
 
 	case tea.KeyEnter:
@@ -1482,7 +1759,7 @@ func (m *Model) typeSelectChar(r rune) {
 	m.selectFilter = candidateFilter
 	m.selectIndex = 0
 	if len(matches) == 1 {
-		m.applyStatus(matches[0].keyword)
+		m.applyChosenStatus(matches[0].keyword, matches[0].label)
 		m.mode = normalMode
 		m.selectFilter = ""
 	}
@@ -1515,8 +1792,21 @@ func (m Model) applySelectedStatus() (tea.Model, tea.Cmd) {
 	if idx >= len(matches) {
 		idx = len(matches) - 1
 	}
-	m.applyStatus(matches[idx].keyword)
+	m.applyChosenStatus(matches[idx].keyword, matches[idx].label)
 	return m, nil
+}
+
+// applyChosenStatus applies keyword (labeled label, for the bulk status
+// message) to either the whole visual selection or just the current
+// headline, depending on how the R picker now resolving was entered —
+// shared by applySelectedStatus (Enter) and typeSelectChar's
+// single-match auto-apply.
+func (m *Model) applyChosenStatus(keyword, label string) {
+	if m.selectModeVisual {
+		m.applyStatusToVisualSelection(keyword, label)
+		return
+	}
+	m.applyStatus(keyword)
 }
 
 // currentStatusIndex returns the statusCandidates index matching the
@@ -1756,35 +2046,14 @@ func (m *Model) rotateStatus() {
 // repeating SCHEDULED/DEADLINE, in which case repeatAdvanceForCompletion
 // takes over instead: per org-mode, the keyword never actually changes
 // and the repeating timestamp(s) advance rather than the item closing.
+// See buildStatusChangeAction, which does the actual work (shared with
+// visual-mode R's bulk apply).
 func (m *Model) applyStatus(keyword string) {
 	h := m.currentHeadline()
 	if h == nil {
 		return
 	}
-
-	if org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword) {
-		if a := m.repeatAdvanceForCompletion(h); a != nil {
-			m.pushUndo(a)
-			return
-		}
-	}
-
-	newClosed := h.Closed
-	switch {
-	case org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword):
-		newClosed = &org.Timestamp{Raw: time.Now().Format("2006-01-02 Mon 15:04")}
-	case !org.IsDoneKeyword(keyword) && org.IsDoneKeyword(h.Keyword):
-		newClosed = nil
-	}
-
-	m.pushUndo(&statusChangeAction{
-		h:          h,
-		f:          m.fileForHeadline(h),
-		oldKeyword: h.Keyword,
-		newKeyword: keyword,
-		oldClosed:  h.Closed,
-		newClosed:  newClosed,
-	})
+	m.pushUndo(m.buildStatusChangeAction(h, keyword))
 }
 
 // fileForHeadline returns the file h (or one of its ancestors) belongs
@@ -3155,8 +3424,12 @@ func (m Model) View() string {
 	// An entry's body lines highlight along with it — the whole entry is
 	// one item, not a separately-steppable row per line — so extend the
 	// highlight from the cursor over any of its own body lines that
-	// immediately follow.
-	highlightEnd := m.entryEnd(m.cursor)
+	// immediately follow. In visual mode the highlight instead covers the
+	// whole selection, from visualAnchor to the cursor.
+	highlightStart, highlightEnd := m.cursor, m.entryEnd(m.cursor)
+	if m.mode == visualMode {
+		highlightStart, highlightEnd = m.visualRange()
+	}
 
 	var b strings.Builder
 	for _, line := range m.pinnedHeaderLines() {
@@ -3168,7 +3441,7 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 		var line string
-		if i >= m.cursor && i <= highlightEnd {
+		if i >= highlightStart && i <= highlightEnd {
 			line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
 		} else {
 			line = m.renderRow(m.rows[i])
@@ -3215,6 +3488,11 @@ func (m Model) View() string {
 		b.WriteString(cursorStyle.Render(" "))
 	case m.mode == confirmMode:
 		b.WriteString(errorStyle.Render(m.confirmMessage))
+	case m.mode == visualMode:
+		b.WriteString(statusStyle.Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, R: set status, Esc: cancel)", len(m.visualSelectedHeadlines()))))
+		if m.message != "" {
+			b.WriteString("  " + errorStyle.Render(m.message))
+		}
 	case m.message != "":
 		b.WriteString(errorStyle.Render(m.message))
 	default:
@@ -3492,7 +3770,11 @@ func (m Model) renderStatusSelector() string {
 		parts = append(parts, label)
 	}
 
-	line := " Set status:  " + strings.Join(parts, "   ")
+	prefix := " Set status:  "
+	if m.selectModeVisual {
+		prefix = fmt.Sprintf(" Set status for %d selected:  ", len(m.visualSelectedHeadlines()))
+	}
+	line := prefix + strings.Join(parts, "   ")
 	if m.selectFilter != "" {
 		line += "   (" + m.selectFilter + ")"
 	}

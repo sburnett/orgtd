@@ -41,6 +41,50 @@ func (a *statusChangeAction) revert(m *Model) *org.Headline {
 func (a *statusChangeAction) file() *org.File           { return a.f }
 func (a *statusChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
+// batchAction groups several undoActions that all touch the same file
+// into a single undo/redo step, applying them in order and reverting
+// them in reverse — used by visual-mode bulk operations (bulk delete,
+// bulk status change) so selecting several entries and changing them at
+// once undoes as one step, the same as a single-entry change does.
+// file() and affected() assume every sub-action shares one file, which
+// callers must guarantee (constructing one batchAction per file
+// touched) — recomputeDirty's per-file accounting would otherwise
+// silently miss a sub-action's file.
+type batchAction struct {
+	actions []undoAction
+}
+
+func (a *batchAction) apply(m *Model) *org.Headline {
+	var last *org.Headline
+	for _, sub := range a.actions {
+		last = sub.apply(m)
+	}
+	return last
+}
+
+func (a *batchAction) revert(m *Model) *org.Headline {
+	var last *org.Headline
+	for i := len(a.actions) - 1; i >= 0; i-- {
+		last = a.actions[i].revert(m)
+	}
+	return last
+}
+
+func (a *batchAction) file() *org.File {
+	if len(a.actions) == 0 {
+		return nil
+	}
+	return a.actions[0].file()
+}
+
+func (a *batchAction) affected() []*org.Headline {
+	var out []*org.Headline
+	for _, sub := range a.actions {
+		out = append(out, sub.affected()...)
+	}
+	return out
+}
+
 // repeatAdvanceAction records completing a repeating item (see
 // repeatAdvanceForCompletion): unlike statusChangeAction, the keyword
 // itself never changes — instead SCHEDULED and/or DEADLINE advance to

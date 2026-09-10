@@ -145,6 +145,14 @@ stop), and so on.
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`) |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
+### Visual selection
+
+| Key | Action |
+|---|---|
+| `V` | Enter visual line selection at the current entry. Navigation keys (`j`/`k`, `gg`/`G`, `{`/`}`, `l`/`h`, `^`/`$`, `ctrl-d`/`ctrl-u`) extend the selection instead of just moving; `V` again or `Esc` cancels it |
+| `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one) |
+| `R` | (in visual mode) Open the same status picker as normal-mode `R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched |
+
 ### Marks
 
 | Key | Action |
