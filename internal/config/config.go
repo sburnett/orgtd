@@ -24,6 +24,14 @@ type Config struct {
 	AgendaWindowDays int    `toml:"agenda_window_days"`
 	InboxFile        string `toml:"inbox_file"`
 
+	// HideDoneAfterHours is how many hours after a DONE/CANCELLED
+	// headline's CLOSED timestamp it's hidden from the outline view (the
+	// feature can still be toggled off at runtime with :toggledone,
+	// regardless of this value). Zero means "not set", per this
+	// package's own zero-value convention, and falls back to the
+	// built-in default of 24.
+	HideDoneAfterHours int `toml:"hide_done_after_hours"`
+
 	// URLFormatterPrefixes are extra bare-URL prefixes recognized beyond
 	// the built-in http:// and https://, e.g. "bit.ly/" for a shortlink
 	// service or "go/" for an internal go-link convention — text

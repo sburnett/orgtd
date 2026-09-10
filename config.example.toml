@@ -41,3 +41,8 @@
 
 # Base name of the file :clarify treats as the inbox. Default: inbox.org.
 # inbox_file = "inbox.org"
+
+# How many hours after a DONE/CANCELLED item's CLOSED timestamp it's
+# hidden from the outline view. Hidden items (and their subtrees) can
+# still be shown again at any time with :toggledone. Default: 24.
+# hide_done_after_hours = 24

@@ -23,6 +23,7 @@ func main() {
 	urlFormatterPrefixes := flag.String("url-formatter-prefixes", "", "comma-separated extra bare-URL prefixes beyond http:// and https://, e.g. \"bit.ly/,go/\" (default: the config file's url_formatter_prefixes, else none)")
 	agendaDays := flag.Int("agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
 	inboxFile := flag.String("inbox-file", "", "base name of the file :clarify treats as the inbox (default: the config file's inbox_file, else inbox.org)")
+	hideDoneAfterHours := flag.Int("hide-done-after-hours", 0, "how many hours after a DONE/CANCELLED item's CLOSED timestamp it's hidden from the outline view; :toggledone shows everything again (default: the config file's hide_done_after_hours, else 24)")
 	editor := flag.String("editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
 	configPath := flag.String("config", "", "path to the TOML config file (default: "+config.DefaultPath()+")")
 	flag.Parse()
@@ -46,6 +47,7 @@ func main() {
 		urlFormatterPrefixes: splitPrefixes(*urlFormatterPrefixes),
 		agendaDays:           *agendaDays,
 		inboxFile:            *inboxFile,
+		hideDoneAfterHours:   *hideDoneAfterHours,
 		editor:               *editor,
 		explicit:             explicit,
 	}, os.Getenv("ORGTD_DIR"), cfg)
@@ -61,8 +63,8 @@ func main() {
 	} else {
 		log.SetOutput(io.Discard)
 	}
-	log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v agenda_days=%d inbox_file=%q",
-		s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.agendaDays, s.inboxFile)
+	log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v agenda_days=%d inbox_file=%q hide_done_after_hours=%d",
+		s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.agendaDays, s.inboxFile, s.hideDoneAfterHours)
 
 	ws, err := workspace.Load(s.dir)
 	if err != nil {
@@ -76,6 +78,7 @@ func main() {
 			ui.WithURLFormatterPrefixes(s.urlFormatterPrefixes),
 			ui.WithAgendaDays(s.agendaDays),
 			ui.WithInboxFile(s.inboxFile),
+			ui.WithHideDoneAfterHours(s.hideDoneAfterHours),
 			ui.WithEditor(s.editor),
 		),
 		tea.WithAltScreen(),

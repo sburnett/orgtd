@@ -17,6 +17,7 @@ type settings struct {
 	urlFormatterPrefixes []string
 	agendaDays           int
 	inboxFile            string
+	hideDoneAfterHours   int
 	editor               string
 }
 
@@ -31,6 +32,7 @@ type flagValues struct {
 	dir, urlFormatter, inboxFile, editor string
 	urlFormatterPrefixes                 []string
 	agendaDays                           int
+	hideDoneAfterHours                   int
 	explicit                             map[string]bool
 }
 
@@ -52,6 +54,7 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 		urlFormatterPrefixes: f.urlFormatterPrefixes,
 		agendaDays:           f.agendaDays,
 		inboxFile:            f.inboxFile,
+		hideDoneAfterHours:   f.hideDoneAfterHours,
 		editor:               f.editor,
 	}
 
@@ -76,6 +79,9 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 	}
 	if !f.explicit["inbox-file"] && cfg.InboxFile != "" {
 		s.inboxFile = cfg.InboxFile
+	}
+	if !f.explicit["hide-done-after-hours"] && cfg.HideDoneAfterHours != 0 {
+		s.hideDoneAfterHours = cfg.HideDoneAfterHours
 	}
 	if !f.explicit["editor"] && cfg.Editor != "" {
 		s.editor = cfg.Editor

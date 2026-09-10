@@ -295,6 +295,9 @@ type Model struct {
 
 	inboxFile     string        // base name of the file :clarify treats as the inbox
 	clarifyTarget *org.Headline // the inbox item currently pinned for clarification, in clarifyView; nil if the inbox is empty
+
+	hideDoneAfterHours int  // how many hours after CLOSED a DONE/CANCELLED item disappears from the outline; see WithHideDoneAfterHours
+	hideDoneEnabled    bool // whether hideDoneAfterHours filtering is active; off by default (see New), toggled by :toggledone, turned on at startup by WithHideDoneAfterHours
 }
 
 // viewKind selects what rebuildRows populates m.rows with.
@@ -358,16 +361,36 @@ func WithInboxFile(name string) Option {
 	}
 }
 
+// WithHideDoneAfterHours turns on hiding DONE/CANCELLED headlines (and
+// their whole subtrees — see appendHeadlines) whose CLOSED timestamp is
+// more than hours in the past from the outline view; hours <= 0 keeps
+// the built-in threshold (24) rather than turning filtering on with a
+// meaningless one. Not passing this option at all leaves filtering off
+// from the start — the zero-value Model default, which is what every
+// caller that doesn't care about this feature (chiefly tests) relies
+// on — even though hideDoneAfterHours itself still carries a default
+// value either way. Once on, filtering can still be toggled off
+// entirely at runtime with :toggledone, and back on again the same way.
+func WithHideDoneAfterHours(hours int) Option {
+	return func(m *Model) {
+		if hours > 0 {
+			m.hideDoneAfterHours = hours
+		}
+		m.hideDoneEnabled = true
+	}
+}
+
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
-		ws:             ws,
-		collapsed:      make(map[*org.Headline]bool),
-		dirty:          make(map[*org.File]bool),
-		dirtyHeadlines: make(map[*org.Headline]bool),
-		savedPos:       make(map[*org.File]int),
-		agendaDays:     14,
-		inboxFile:      "inbox.org",
+		ws:                 ws,
+		collapsed:          make(map[*org.Headline]bool),
+		dirty:              make(map[*org.File]bool),
+		dirtyHeadlines:     make(map[*org.Headline]bool),
+		savedPos:           make(map[*org.File]int),
+		agendaDays:         14,
+		inboxFile:          "inbox.org",
+		hideDoneAfterHours: 24,
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -588,8 +611,31 @@ func (m *Model) switchToView(v viewKind) {
 	m.rebuildRows()
 }
 
+// toggleHideDone flips whether stale DONE/CANCELLED items (older than
+// hideDoneAfterHours, per CLOSED) are hidden from the outline — a full
+// on/off switch for the filtering, independent of the configured
+// threshold, so a stale item is never more than a ":toggledone" away.
+// Re-focuses the headline the cursor was on before the toggle, if it's
+// still present among the rebuilt rows.
+func (m *Model) toggleHideDone() {
+	h := m.currentHeadline()
+	m.hideDoneEnabled = !m.hideDoneEnabled
+	m.rebuildRows()
+	if h != nil {
+		m.focusHeadline(h)
+	}
+	if m.hideDoneEnabled {
+		m.message = fmt.Sprintf("Hiding DONE/CANCELLED items closed more than %dh ago", m.hideDoneAfterHours)
+	} else {
+		m.message = "Showing all DONE/CANCELLED items"
+	}
+}
+
 func (m *Model) appendHeadlines(headlines []*org.Headline) {
 	for _, h := range headlines {
+		if m.hiddenAsStaleDone(h) {
+			continue
+		}
 		m.rows = append(m.rows, row{headline: h, level: h.Level})
 		if !m.collapsed[h] {
 			m.appendBodyLines(h)
@@ -598,6 +644,24 @@ func (m *Model) appendHeadlines(headlines []*org.Headline) {
 			}
 		}
 	}
+}
+
+// hiddenAsStaleDone reports whether h should be omitted from the outline
+// (along with its whole subtree, and any body text) because hide-done
+// filtering is enabled (see :toggledone) and h is a DONE/CANCELLED
+// headline whose CLOSED timestamp is further than hideDoneAfterHours in
+// the past. A DONE/CANCELLED headline with no CLOSED timestamp (e.g.
+// hand-edited) or an unparseable one is never hidden — there's no age to
+// judge it by.
+func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
+	if !m.hideDoneEnabled || !org.IsDoneKeyword(h.Keyword) || h.Closed == nil {
+		return false
+	}
+	closed, _, err := parseFlexibleDate(h.Closed.Raw)
+	if err != nil {
+		return false
+	}
+	return time.Since(closed) > time.Duration(m.hideDoneAfterHours)*time.Hour
 }
 
 // appendBodyLines appends one row per line of h's free-text body,
@@ -1097,7 +1161,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "capture",
-	"delmarks", "delmarks!", "noh", "nohlsearch",
+	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -1208,6 +1272,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "delmarks":
 		m.message = "Usage: :delmarks <letters> or :delmarks!"
+
+	case "toggledone":
+		m.toggleHideDone()
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)

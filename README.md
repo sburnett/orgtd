@@ -39,6 +39,7 @@ orgtd --dir ~/org
 | `--url-formatter-prefixes` | `url_formatter_prefixes` | *(none)* | Extra bare-URL prefixes recognized beyond `http://`/`https://`, e.g. `bit.ly/` or `go/` for shortlinks — comma-separated on the flag, a TOML array in the config file. Each is only matched at a word boundary, so `go/` won't match inside `embargo/foo` |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
+| `--hide-done-after-hours` | `hide_done_after_hours` | `24` | How many hours after a `DONE`/`CANCELLED` item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggledone` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
 | `--config` | — | `$XDG_CONFIG_HOME/orgtd/config.toml` (or `~/.config/orgtd/config.toml`) | Path to the config file below |
 
@@ -61,6 +62,7 @@ url_formatter = ""
 url_formatter_prefixes = ["bit.ly/", "go/"]
 agenda_window_days = 14
 inbox_file = "inbox.org"
+hide_done_after_hours = 24
 ```
 
 ### Debug log
@@ -78,7 +80,10 @@ orgtd's own status line pointing at the log.
 ## Views
 
 - **Outline** (default) — every loaded file, its headlines, and any
-  free-text body underneath them, all foldable.
+  free-text body underneath them, all foldable. A `DONE`/`CANCELLED`
+  headline (and its whole subtree) whose `CLOSED` timestamp is older
+  than `hide_done_after_hours` (default 24) is hidden — `:toggledone`
+  shows everything again, and toggles back.
 - **Agenda** (`:agenda`) — a flat, date-driven view across every file:
   **Overdue**, **Due Today**, and **Upcoming** sections built from
   `SCHEDULED`/`DEADLINE` timestamps, plus a **Next Actions** section
@@ -169,6 +174,7 @@ ambiguous.
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
+| `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |
 
 Plain `q` does **not** quit — only `:q`/`:quit` do (`ctrl-c` always quits
 immediately, without the unsaved-changes check).
