@@ -1022,6 +1022,57 @@ func TestIKeyOnHeadlineReturnsEditCmd(t *testing.T) {
 	// Deliberately not invoking cmd() — that would actually launch $EDITOR.
 }
 
+// TestAKeyOnHeadlineReturnsEditCmd mirrors TestIKeyOnHeadlineReturnsEditCmd:
+// "A" goes through the exact same startEditWithPlacement path as "i",
+// just with a different editorCursorPlacement, so it should behave
+// identically at this level (mode, non-nil command).
+func TestAKeyOnHeadlineReturnsEditCmd(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	_, cmd := sendKeyCmd(m, "A")
+	if cmd == nil {
+		t.Fatalf("expected a non-nil edit command")
+	}
+	// Deliberately not invoking cmd() — that would actually launch $EDITOR.
+}
+
+func TestAKeyOnFileRowAsksForConfirmation(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = 0
+	if m.rows[0].file == nil {
+		t.Fatalf("fixture assumption broken: row 0 is not a file row")
+	}
+	m, cmd := sendKeyCmd(m, "A")
+	if cmd != nil {
+		t.Errorf("expected no command yet — should wait for confirmation first")
+	}
+	if m.mode != confirmMode {
+		t.Fatalf("mode = %v, want confirmMode", m.mode)
+	}
+	if m.pendingFileEdit != m.rows[0].file {
+		t.Errorf("pendingFileEdit = %v, want the file row's file", m.pendingFileEdit)
+	}
+}
+
+// TestZAStillTogglesFoldRecursively guards against a regression: "A" now
+// also means "start editing with the cursor at the end of the first
+// line" in normal mode, so the existing "zA" chord (fold toggle,
+// recursive) must still take priority over that when 'z' was pressed
+// first.
+func TestZAStillTogglesFoldRecursively(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Parent\n** TODO Child\n")
+	m := New(ws)
+	m.cursor = findRow(t, m, "Parent")
+
+	m = sendKey(m, "z")
+	_, cmd := sendKeyCmd(m, "A")
+	if cmd != nil {
+		t.Error("zA should toggle folding, not launch the editor")
+	}
+}
+
 func TestEditReplacesHeadlineContent(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)

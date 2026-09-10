@@ -263,7 +263,7 @@ func TestBuildEditorCommandAddsLineArgForKnownEditors(t *testing.T) {
 
 	for _, editorEnv := range []string{"vim", "nvim", "vi", "gvim", "mvim", "emacs", "emacsclient", "nano"} {
 		t.Run(editorEnv, func(t *testing.T) {
-			cmd := buildEditorCommand(editorEnv, "/tmp/x.org", before)
+			cmd := buildEditorCommand(editorEnv, "/tmp/x.org", before, noCursorPlacement, 0)
 			if len(cmd.Args) < 3 {
 				t.Fatalf("Args = %v, want at least [name, +N, path]", cmd.Args)
 			}
@@ -282,7 +282,7 @@ func TestBuildEditorCommandAddsLineArgForKnownEditors(t *testing.T) {
 func TestBuildEditorCommandSkipsLineArgForUnknownEditors(t *testing.T) {
 	for _, editorEnv := range []string{"code --wait", "subl", "nvim-but-not-really", "cat"} {
 		t.Run(editorEnv, func(t *testing.T) {
-			cmd := buildEditorCommand(editorEnv, "/tmp/x.org", "# a\n# b\n")
+			cmd := buildEditorCommand(editorEnv, "/tmp/x.org", "# a\n# b\n", noCursorPlacement, 0)
 			for _, a := range cmd.Args {
 				if strings.HasPrefix(a, "+") {
 					t.Errorf("Args = %v, unexpectedly contains a +N line argument", cmd.Args)
@@ -365,7 +365,7 @@ func TestBuildEditorCommandExpandsHomeInEditorPath(t *testing.T) {
 	if err != nil {
 		t.Skip("no home directory available")
 	}
-	cmd := buildEditorCommand("~/bin/myeditor --wait", "/tmp/x.org", "")
+	cmd := buildEditorCommand("~/bin/myeditor --wait", "/tmp/x.org", "", noCursorPlacement, 0)
 	want := filepath.Join(home, "bin/myeditor")
 	if cmd.Args[0] != want {
 		t.Errorf("Args[0] = %q, want %q (expanded)", cmd.Args[0], want)
@@ -376,7 +376,7 @@ func TestBuildEditorCommandExpandsHomeInEditorPath(t *testing.T) {
 }
 
 func TestBuildEditorCommandHandlesQuotedArgument(t *testing.T) {
-	cmd := buildEditorCommand(`myeditor --template "a template" -x`, "/tmp/x.org", "")
+	cmd := buildEditorCommand(`myeditor --template "a template" -x`, "/tmp/x.org", "", noCursorPlacement, 0)
 	want := []string{"myeditor", "--template", "a template", "-x", "/tmp/x.org"}
 	if len(cmd.Args) != len(want) {
 		t.Fatalf("Args = %#v, want %#v", cmd.Args, want)
@@ -389,7 +389,7 @@ func TestBuildEditorCommandHandlesQuotedArgument(t *testing.T) {
 }
 
 func TestBuildEditorCommandPreservesExtraArgsAndOrder(t *testing.T) {
-	cmd := buildEditorCommand("emacs -nw --debug-init", "/tmp/x.org", "# one line\n")
+	cmd := buildEditorCommand("emacs -nw --debug-init", "/tmp/x.org", "# one line\n", noCursorPlacement, 0)
 	want := []string{"emacs", "-nw", "--debug-init", "+2", "/tmp/x.org"}
 	if len(cmd.Args) != len(want) {
 		t.Fatalf("Args = %v, want %v", cmd.Args, want)
@@ -402,12 +402,83 @@ func TestBuildEditorCommandPreservesExtraArgsAndOrder(t *testing.T) {
 }
 
 func TestBuildEditorCommandDefaultsToVimWhenEditorUnset(t *testing.T) {
-	cmd := buildEditorCommand("", "/tmp/x.org", "# a\n")
+	cmd := buildEditorCommand("", "/tmp/x.org", "# a\n", noCursorPlacement, 0)
 	if cmd.Args[0] != "vim" {
 		t.Errorf("Args[0] = %q, want vim (the default)", cmd.Args[0])
 	}
 	if got := cmd.Args[len(cmd.Args)-2]; got != "+2" {
 		t.Errorf("line arg = %q, want +2", got)
+	}
+}
+
+func TestCursorPlacementArgEntryStartForVimFamily(t *testing.T) {
+	for _, base := range []string{"vi", "vim", "nvim", "gvim", "mvim"} {
+		t.Run(base, func(t *testing.T) {
+			got := cursorPlacementArg(base, 4, 5, cursorAtEntryStart)
+			want := "+call cursor(4,5)|startinsert"
+			if got != want {
+				t.Errorf("cursorPlacementArg(%q, ...) = %q, want %q", base, got, want)
+			}
+		})
+	}
+}
+
+func TestCursorPlacementArgLineEndForVimFamily(t *testing.T) {
+	for _, base := range []string{"vi", "vim", "nvim", "gvim", "mvim"} {
+		t.Run(base, func(t *testing.T) {
+			got := cursorPlacementArg(base, 4, 5, cursorAtLineEnd)
+			want := "+4|startinsert!"
+			if got != want {
+				t.Errorf("cursorPlacementArg(%q, ...) = %q, want %q", base, got, want)
+			}
+		})
+	}
+}
+
+func TestCursorPlacementArgFallsBackToBareLineForNonVimEditors(t *testing.T) {
+	for _, base := range []string{"emacs", "emacsclient", "nano"} {
+		for _, placement := range []editorCursorPlacement{cursorAtEntryStart, cursorAtLineEnd} {
+			got := cursorPlacementArg(base, 4, 5, placement)
+			if got != "+4" {
+				t.Errorf("cursorPlacementArg(%q, placement=%v) = %q, want the bare \"+4\" — %s has no insert-mode concept to start", base, placement, got, base)
+			}
+		}
+	}
+}
+
+func TestCursorPlacementArgNoPlacementIsAlwaysBareEvenForVim(t *testing.T) {
+	if got := cursorPlacementArg("vim", 4, 5, noCursorPlacement); got != "+4" {
+		t.Errorf("cursorPlacementArg(vim, noCursorPlacement) = %q, want \"+4\"", got)
+	}
+}
+
+func TestBuildEditorCommandEntryStartPlacementForVim(t *testing.T) {
+	// "before" is 3 lines of context, so the real content starts on line 4.
+	before := "# inbox.org\n#\n# * some parent\n"
+	cmd := buildEditorCommand("vim", "/tmp/x.org", before, cursorAtEntryStart, 5)
+	lineArg := cmd.Args[len(cmd.Args)-2]
+	if want := "+call cursor(4,5)|startinsert"; lineArg != want {
+		t.Errorf("line arg = %q, want %q", lineArg, want)
+	}
+}
+
+func TestBuildEditorCommandLineEndPlacementForVim(t *testing.T) {
+	cmd := buildEditorCommand("nvim", "/tmp/x.org", "# one\n", cursorAtLineEnd, 99)
+	lineArg := cmd.Args[len(cmd.Args)-2]
+	if want := "+2|startinsert!"; lineArg != want {
+		t.Errorf("line arg = %q, want %q (col is irrelevant to cursorAtLineEnd)", lineArg, want)
+	}
+}
+
+func TestBuildEditorCommandEntryStartPlacementFallsBackForEmacsAndNano(t *testing.T) {
+	for _, editorEnv := range []string{"emacs", "nano"} {
+		t.Run(editorEnv, func(t *testing.T) {
+			cmd := buildEditorCommand(editorEnv, "/tmp/x.org", "# one\n", cursorAtEntryStart, 5)
+			lineArg := cmd.Args[len(cmd.Args)-2]
+			if lineArg != "+2" {
+				t.Errorf("line arg = %q, want the bare \"+2\"", lineArg)
+			}
+		})
 	}
 }
 
@@ -421,7 +492,7 @@ func TestBuildEditorCommandLineNumberMatchesContextLength(t *testing.T) {
 		{"# one\n# two\n# three\n# four\n# five\n", "+6"},
 	}
 	for _, c := range cases {
-		cmd := buildEditorCommand("vim", "/tmp/x.org", c.before)
+		cmd := buildEditorCommand("vim", "/tmp/x.org", c.before, noCursorPlacement, 0)
 		got := cmd.Args[len(cmd.Args)-2]
 		if got != c.want {
 			t.Errorf("buildEditorCommand with %d context lines: line arg = %q, want %q",

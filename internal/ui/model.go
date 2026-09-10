@@ -1037,6 +1037,8 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "A":
 		if wasPendingZ {
 			m.foldToggleAll()
+		} else if cmd := m.startEditAppend(); cmd != nil {
+			return m, cmd
 		}
 
 	case "u":
@@ -2191,17 +2193,39 @@ type editFinishedMsg struct {
 	err    error
 }
 
-// startEdit writes the current headline (and its entire subtree) to a
-// temp file and opens it in $EDITOR for editing in place. Returns nil if
-// there's nothing to edit or the editor couldn't be launched, in which
-// case any error is left in m.message.
+// startEdit ("i") writes the current headline (and its entire subtree)
+// to a temp file and opens it in $EDITOR for editing in place — for a
+// vim-family editor, with the cursor already placed right after the
+// bullet ("* ") and insert mode already started, so typing begins
+// immediately without a manual "i" or cursor motion in the editor
+// itself. See startEditAppend for "A", and startEditWithPlacement for
+// the shared mechanics.
 func (m *Model) startEdit() tea.Cmd {
+	return m.startEditWithPlacement(cursorAtEntryStart)
+}
+
+// startEditAppend ("A") is startEdit, but positions the cursor at the
+// end of the entry's first line instead of right after the bullet —
+// vim's own "A" (append at end of line), once the editor's open.
+func (m *Model) startEditAppend() tea.Cmd {
+	return m.startEditWithPlacement(cursorAtLineEnd)
+}
+
+// startEditWithPlacement is the shared implementation behind startEdit
+// ("i") and startEditAppend ("A") — writes the current headline (and its
+// entire subtree) to a temp file and opens it in $EDITOR, positioning
+// the cursor per placement. Returns nil if there's nothing to edit or
+// the editor couldn't be launched, in which case any error is left in
+// m.message.
+func (m *Model) startEditWithPlacement(placement editorCursorPlacement) tea.Cmd {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		if f := m.rows[m.cursor].file; f != nil {
 			// Editing a whole file discards undo history for it (and
 			// clears any mark/clarify-target on its headlines) even if
 			// the user ends up changing nothing — confirm first rather
 			// than doing that as a side effect of a single keystroke.
+			// Both i and A land here identically: there's no single
+			// entry to position a cursor within.
 			m.mode = confirmMode
 			m.pendingFileEdit = f
 			m.confirmMessage = fmt.Sprintf("Edit %s in $EDITOR? This clears undo history and marks for this file. [y/N]", filepath.Base(f.Path))
@@ -2212,7 +2236,7 @@ func (m *Model) startEdit() tea.Cmd {
 	if h == nil {
 		return nil
 	}
-	return m.launchEditor(h, nil)
+	return m.launchEditor(h, nil, placement)
 }
 
 // fileEditFinishedMsg reports that the external editor launched by
@@ -2230,7 +2254,7 @@ type fileEditFinishedMsg struct {
 // this — the editor already wrote the change directly to disk, so
 // there's no in-memory action to record or revert.
 func (m *Model) startEditFile(f *org.File) tea.Cmd {
-	editorCmd := buildEditorCommand(m.editorCommand(), f.Path, "")
+	editorCmd := buildEditorCommand(m.editorCommand(), f.Path, "", noCursorPlacement, 0)
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return fileEditFinishedMsg{target: f, err: err}
 	})
@@ -2294,6 +2318,61 @@ var editorsWithLineArg = map[string]bool{
 	"vi": true, "vim": true, "nvim": true, "gvim": true, "mvim": true,
 	"emacs": true, "emacsclient": true,
 	"nano": true,
+}
+
+// vimFamily is the subset of editorsWithLineArg that additionally
+// understands vim's ex-command syntax — a "+{command}" argument
+// executing an arbitrary command, not just a bare line number — used to
+// start "i"/"A" directly in insert mode at a specific spot (see
+// cursorPlacementArg). emacs/emacsclient and nano share the "+N" line
+// convention but have no equivalent notion of "insert mode" to start
+// (nano isn't modal; plain emacs isn't either), so they always just get
+// a bare "+N" regardless of placement.
+var vimFamily = map[string]bool{
+	"vi": true, "vim": true, "nvim": true, "gvim": true, "mvim": true,
+}
+
+// editorCursorPlacement selects where launchEditor positions the cursor,
+// and whether it starts the editor directly in insert mode, when the
+// configured editor is vim-family (see vimFamily) — a plain "+N" line
+// jump for anything else, or for noCursorPlacement.
+type editorCursorPlacement int
+
+const (
+	// noCursorPlacement just lands on the entry's first line, same as
+	// always — used for o/O, where the entry is a blank template rather
+	// than existing text to jump into a specific spot of.
+	noCursorPlacement editorCursorPlacement = iota
+	// cursorAtEntryStart ("i") puts the cursor right after the bullet —
+	// e.g. column 3 for a level-1 headline ("* " is 2 characters) — in
+	// insert mode, so typing immediately inserts text there exactly as
+	// pressing vim's own "i" at that spot would.
+	cursorAtEntryStart
+	// cursorAtLineEnd ("A") puts the cursor at the end of the entry's
+	// first line, in insert mode — vim's own "A" (append at end of
+	// line), landing on whichever text (keyword, title, tags) the line
+	// actually ends with.
+	cursorAtLineEnd
+)
+
+// cursorPlacementArg returns the "+..." argument buildEditorCommand
+// should pass for the given editor basename, startLine (1-based), col
+// (1-based, meaningful only for cursorAtEntryStart), and placement.
+// Non-vim-family editors (or noCursorPlacement) always get a bare
+// "+startLine" — see editorCursorPlacement and vimFamily.
+func cursorPlacementArg(editorBase string, startLine, col int, placement editorCursorPlacement) string {
+	if vimFamily[editorBase] {
+		switch placement {
+		case cursorAtEntryStart:
+			return fmt.Sprintf("+call cursor(%d,%d)|startinsert", startLine, col)
+		case cursorAtLineEnd:
+			// startinsert! is vim's own "A": moves to the end of the
+			// current line before entering insert mode, so there's no
+			// need to compute or pass a column at all.
+			return fmt.Sprintf("+%d|startinsert!", startLine)
+		}
+	}
+	return fmt.Sprintf("+%d", startLine)
 }
 
 // editorCommand returns the external editor to launch: m.editorOverride
@@ -2384,11 +2463,15 @@ func expandHomeField(field string) string {
 // buildEditorCommand builds the *exec.Cmd for opening path in the editor
 // named by editorEnv ($EDITOR's value; "vim" if empty), splitting off
 // any extra words as leading arguments (e.g. "code --wait"). For an
-// editor in editorsWithLineArg, it also inserts a "+N" argument so the
-// editor opens with the cursor on the real content (before is the
-// context text written ahead of it in the file; its newline count is
-// exactly the 1-based line the real content starts on).
-func buildEditorCommand(editorEnv, path, before string) *exec.Cmd {
+// editor in editorsWithLineArg, it also inserts a "+..." argument (see
+// cursorPlacementArg) so the editor opens with the cursor on the real
+// content — or, for a vim-family editor with placement other than
+// noCursorPlacement, at a specific column within it and already in
+// insert mode (before is the context text written ahead of it in the
+// file; its newline count is exactly the 1-based line the real content
+// starts on). col is the 1-based column cursorAtEntryStart should land
+// on; unused otherwise.
+func buildEditorCommand(editorEnv, path, before string, placement editorCursorPlacement, col int) *exec.Cmd {
 	fields := splitCommandFields(editorEnv)
 	if len(fields) == 0 {
 		fields = []string{"vim"}
@@ -2397,9 +2480,10 @@ func buildEditorCommand(editorEnv, path, before string) *exec.Cmd {
 		fields[i] = expandHomeField(f)
 	}
 	args := append([]string{}, fields[1:]...)
-	if editorsWithLineArg[filepath.Base(fields[0])] {
+	base := filepath.Base(fields[0])
+	if editorsWithLineArg[base] {
 		startLine := strings.Count(before, "\n") + 1
-		args = append(args, fmt.Sprintf("+%d", startLine))
+		args = append(args, cursorPlacementArg(base, startLine, col, placement))
 	}
 	args = append(args, path)
 	return exec.Command(fields[0], args...)
@@ -2408,10 +2492,12 @@ func buildEditorCommand(editorEnv, path, before string) *exec.Cmd {
 // launchEditor writes h to a temp file and opens it in $EDITOR (vim by
 // default), suspending the TUI for the duration. ctx tags the resulting
 // editFinishedMsg so finishEdit knows whether this is an o/O insert
-// session or a plain `i` edit. Returns nil if the temp file couldn't be
-// created or the editor couldn't be started, in which case the error is
-// left in m.message.
-func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
+// session or a plain `i`/`A` edit. placement (see editorCursorPlacement)
+// controls where a vim-family editor lands the cursor and whether it
+// starts in insert mode already. Returns nil if the temp file couldn't
+// be created or the editor couldn't be started, in which case the error
+// is left in m.message.
+func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement editorCursorPlacement) tea.Cmd {
 	tmp, err := os.CreateTemp("", "orgtd-edit-*.org")
 	if err != nil {
 		m.message = fmt.Sprintf("Could not create temp file: %v", err)
@@ -2429,7 +2515,7 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext) tea.Cmd {
 		return nil
 	}
 
-	editorCmd := buildEditorCommand(m.editorCommand(), path, before)
+	editorCmd := buildEditorCommand(m.editorCommand(), path, before, placement, h.Level+2)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
@@ -2642,7 +2728,7 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	m.focusHeadline(tentative)
 
 	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile}
-	cmd := m.launchEditor(tentative, &ctx)
+	cmd := m.launchEditor(tentative, &ctx, noCursorPlacement)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank
 		// placeholder headline behind with no way to remove it.
