@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 func TestEditorCommandPrefersOverrideOverEditorEnv(t *testing.T) {
@@ -479,6 +481,57 @@ func TestBuildEditorCommandEntryStartPlacementFallsBackForEmacsAndNano(t *testin
 				t.Errorf("line arg = %q, want the bare \"+2\"", lineArg)
 			}
 		})
+	}
+}
+
+func TestResolveCursorPlacementDowngradesToLineEndForBlankEntry(t *testing.T) {
+	// A fresh o/O template: no keyword, no priority, no title — nothing
+	// follows the bullet, so the desired column (right after "* ") is
+	// one past the line's last real character.
+	h := &org.Headline{Level: 1}
+	placement, col := resolveCursorPlacement(h, cursorAtEntryStart)
+	if placement != cursorAtLineEnd {
+		t.Errorf("placement = %v, want cursorAtLineEnd (nothing follows the bullet)", placement)
+	}
+	if col != 3 {
+		t.Errorf("col = %d, want 3 (unused by cursorAtLineEnd, but still level+2)", col)
+	}
+}
+
+func TestResolveCursorPlacementKeepsEntryStartWhenTitleExists(t *testing.T) {
+	h := &org.Headline{Level: 1, Keyword: "TODO", Title: "Buy milk"}
+	placement, col := resolveCursorPlacement(h, cursorAtEntryStart)
+	if placement != cursorAtEntryStart {
+		t.Errorf("placement = %v, want cursorAtEntryStart (there's real text on the line)", placement)
+	}
+	if col != 3 {
+		t.Errorf("col = %d, want 3 (right after \"* \")", col)
+	}
+}
+
+func TestResolveCursorPlacementHandlesDeeperLevelsWithKeywordButNoTitle(t *testing.T) {
+	// Level 2 with a keyword but no title yet renders as "** TODO "
+	// (writeHeadline always writes a trailing space after the keyword).
+	// The desired column (level+2 = 4, right after "** ") lands on "T",
+	// a real character — well within the line — so this should stay
+	// cursorAtEntryStart even though the title itself is still blank.
+	h := &org.Headline{Level: 2, Keyword: "TODO"}
+	placement, col := resolveCursorPlacement(h, cursorAtEntryStart)
+	if placement != cursorAtEntryStart {
+		t.Errorf("placement = %v, want cursorAtEntryStart: column %d (\"T\" of TODO) is a real character on \"** TODO \"", placement, col)
+	}
+	if col != 4 {
+		t.Errorf("col = %d, want 4 (level 2 -> \"** \" is 3 characters)", col)
+	}
+}
+
+func TestResolveCursorPlacementNeverAppliesToOtherPlacements(t *testing.T) {
+	h := &org.Headline{Level: 1}
+	if placement, _ := resolveCursorPlacement(h, cursorAtLineEnd); placement != cursorAtLineEnd {
+		t.Errorf("cursorAtLineEnd should pass through unchanged, got %v", placement)
+	}
+	if placement, _ := resolveCursorPlacement(h, noCursorPlacement); placement != noCursorPlacement {
+		t.Errorf("noCursorPlacement should pass through unchanged, got %v", placement)
 	}
 }
 

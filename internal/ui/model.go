@@ -2340,13 +2340,15 @@ type editorCursorPlacement int
 
 const (
 	// noCursorPlacement just lands on the entry's first line, same as
-	// always — used for o/O, where the entry is a blank template rather
-	// than existing text to jump into a specific spot of.
+	// always — used only for a whole-file edit (startEditFile), where
+	// there's no single entry to position a cursor within.
 	noCursorPlacement editorCursorPlacement = iota
-	// cursorAtEntryStart ("i") puts the cursor right after the bullet —
-	// e.g. column 3 for a level-1 headline ("* " is 2 characters) — in
-	// insert mode, so typing immediately inserts text there exactly as
-	// pressing vim's own "i" at that spot would.
+	// cursorAtEntryStart ("i", "o"/"O") puts the cursor right after the
+	// bullet — e.g. column 3 for a level-1 headline ("* " is 2
+	// characters) — in insert mode, so typing immediately inserts text
+	// there exactly as pressing vim's own "i" at that spot would. For
+	// o/O the entry is a blank template, so this is also where its
+	// title will end up starting.
 	cursorAtEntryStart
 	// cursorAtLineEnd ("A") puts the cursor at the end of the entry's
 	// first line, in insert mode — vim's own "A" (append at end of
@@ -2373,6 +2375,29 @@ func cursorPlacementArg(editorBase string, startLine, col int, placement editorC
 		}
 	}
 	return fmt.Sprintf("+%d", startLine)
+}
+
+// resolveCursorPlacement returns the placement and (1-based) column
+// launchEditor should actually request for h, downgrading
+// cursorAtEntryStart to cursorAtLineEnd when nothing follows the bullet
+// yet (a blank o/O template): vim's cursor()+startinsert needs the
+// target column to be an existing character — cursor() clamps to the
+// line's last real character rather than allowing a column one past the
+// end — so requesting the bullet's very next column on a line that ends
+// exactly there would land one character too early, ahead of the
+// bullet's own trailing space instead of after it. cursorAtLineEnd's
+// startinsert! (append) sidesteps this entirely: with nothing after the
+// bullet, "end of line" and "right after the bullet" are the exact same
+// position anyway. col is meaningless for any other placement.
+func resolveCursorPlacement(h *org.Headline, placement editorCursorPlacement) (editorCursorPlacement, int) {
+	col := h.Level + 2
+	if placement == cursorAtEntryStart {
+		firstLine, _, _ := strings.Cut(org.RenderHeadline(h), "\n")
+		if col > len(firstLine) {
+			placement = cursorAtLineEnd
+		}
+	}
+	return placement, col
 }
 
 // editorCommand returns the external editor to launch: m.editorOverride
@@ -2515,7 +2540,8 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement edit
 		return nil
 	}
 
-	editorCmd := buildEditorCommand(m.editorCommand(), path, before, placement, h.Level+2)
+	placement, col := resolveCursorPlacement(h, placement)
+	editorCmd := buildEditorCommand(m.editorCommand(), path, before, placement, col)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
@@ -2703,10 +2729,13 @@ func (m *Model) currentRowFile() *org.File {
 	return nil
 }
 
-// insertHeadlineAt is the shared machinery behind insertHeadline and
-// startCapture: splices a blank headline into f (at index within
+// insertHeadlineAt is the shared machinery behind insertHeadline (o/O)
+// and startCapture: splices a blank headline into f (at index within
 // parent's children, or f's top-level list if parent is nil) and opens
-// it in $EDITOR, pre-filled with a CREATED property set to now —
+// it in $EDITOR — for a vim-family editor, cursor already right after
+// the bullet and in insert mode (see cursorAtEntryStart), so typing the
+// new title can start immediately — pre-filled with a CREATED property
+// set to now —
 // org-mode's standard (if not automatic) convention for recording an
 // entry's creation time, e.g. via org-capture's %U escape. It's part of
 // the editable template, not stamped after the fact, so it's just as
@@ -2728,7 +2757,7 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	m.focusHeadline(tentative)
 
 	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile}
-	cmd := m.launchEditor(tentative, &ctx, noCursorPlacement)
+	cmd := m.launchEditor(tentative, &ctx, cursorAtEntryStart)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank
 		// placeholder headline behind with no way to remove it.
