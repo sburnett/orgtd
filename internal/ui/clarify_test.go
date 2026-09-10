@@ -336,6 +336,166 @@ func TestClarifyTargetSurvivesEditingIt(t *testing.T) {
 	}
 }
 
+func TestClarifyEnterSkipsLeadingDoneAndCancelledItems(t *testing.T) {
+	ws := agendaFixture(t, "* DONE Old resolved\n* CANCELLED Also resolved\n* TODO Real work\n* TODO More work\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+
+	if m.clarifyTarget == nil || m.clarifyTarget.Title != "Real work" {
+		t.Fatalf("clarifyTarget = %v, want the first non-done item", m.clarifyTarget)
+	}
+}
+
+func TestClarifyAllItemsDoneLeavesNilTarget(t *testing.T) {
+	ws := agendaFixture(t, "* DONE One\n* CANCELLED Two\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+
+	if m.clarifyTarget != nil {
+		t.Errorf("clarifyTarget = %v, want nil (every inbox item is done)", m.clarifyTarget)
+	}
+}
+
+func TestClarifyMarkingTargetDoneAdvancesToNextPendingItem(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	first := m.clarifyTarget
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "c") // jump to the real row, so R operates on it
+	m = sendKey(m, "R")
+	m = sendKey(m, "d") // "d" uniquely filters to DONE and auto-applies
+
+	if m.clarifyTarget == first {
+		t.Fatalf("clarifyTarget unchanged after marking it done")
+	}
+	if m.clarifyTarget == nil || m.clarifyTarget.Title != "Second" {
+		t.Errorf("clarifyTarget after marking First done = %v, want Second", m.clarifyTarget)
+	}
+}
+
+func TestClarifyMarkingTargetDoneWithNoOtherPendingItemsLeavesNilTarget(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Only item\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "c")
+	m = sendKey(m, "R")
+	m = sendKey(m, "d")
+
+	if m.clarifyTarget != nil {
+		t.Errorf("clarifyTarget = %v, want nil (the only item is now done)", m.clarifyTarget)
+	}
+}
+
+func TestClarifyBulkStatusChangeAdvancesPastTarget(t *testing.T) {
+	// A count-prefixed R (2R) marks First and Second done in one bulk
+	// step — the clarify target (First) should skip past both, landing
+	// on Third, exactly as if they'd been marked done individually.
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n* TODO Third\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "c")
+	m = sendKey(m, "2")
+	m = sendKey(m, "R")
+	m = sendKey(m, "d")
+
+	if m.clarifyTarget == nil || m.clarifyTarget.Title != "Third" {
+		t.Errorf("clarifyTarget after bulk-marking First and Second done = %v, want Third", m.clarifyTarget)
+	}
+}
+
+func TestClarifyNextCommandSkipsDoneItems(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* DONE Skipped\n* TODO Third\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	if m.clarifyTarget.Title != "First" {
+		t.Fatalf("fixture assumption broken: clarifyTarget = %v", m.clarifyTarget)
+	}
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "next")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.clarifyTarget == nil || m.clarifyTarget.Title != "Third" {
+		t.Errorf("clarifyTarget after :next = %v, want Third (Skipped is DONE)", m.clarifyTarget)
+	}
+}
+
+func TestClarifyPrevCommandSkipsDoneItems(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* CANCELLED Skipped\n* TODO Third\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	// Manually advance to Third first, then step back with :prev.
+	f := m.findInboxFile()
+	m.clarifyTarget = f.Headlines[2]
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "prev")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.clarifyTarget == nil || m.clarifyTarget.Title != "First" {
+		t.Errorf("clarifyTarget after :prev = %v, want First (Skipped is CANCELLED)", m.clarifyTarget)
+	}
+}
+
+func TestClarifyNextCommandAtLastItemShowsMessage(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+	f := m.findInboxFile()
+	m.clarifyTarget = f.Headlines[1] // already the last item
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "next")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.clarifyTarget.Title != "Second" {
+		t.Errorf("clarifyTarget after :next at the last item = %v, want unchanged Second", m.clarifyTarget)
+	}
+	if m.message == "" {
+		t.Error("expected a status message explaining there's nowhere further to go")
+	}
+}
+
+func TestClarifyPrevCommandAtFirstItemShowsMessage(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	m.enterClarifyView()
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "prev")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.clarifyTarget.Title != "First" {
+		t.Errorf("clarifyTarget after :prev at the first item = %v, want unchanged First", m.clarifyTarget)
+	}
+	if m.message == "" {
+		t.Error("expected a status message explaining there's nowhere further to go")
+	}
+}
+
+func TestNextAndPrevCommandsNoopOutsideClarifyView(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
+	m := New(ws, WithInboxFile("agenda.org"))
+	// Not entering clarify view — plain outline view.
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "next")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.view != outlineView {
+		t.Errorf("view after :next outside clarify = %v, want unchanged outlineView", m.view)
+	}
+	if m.message == "" {
+		t.Error("expected a message explaining :next only works in clarify view")
+	}
+}
+
 func TestWithInboxFileOption(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Custom inbox item\n")
 	m := New(ws, WithInboxFile("agenda.org"))

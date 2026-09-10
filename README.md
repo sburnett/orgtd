@@ -96,11 +96,13 @@ logging is on.
   listing every `NEXT`-keyword headline regardless of whether it has a
   date. `SOMEDAY` items are excluded entirely. An item with both a
   schedule and a deadline can appear in two sections.
-- **Clarify** (`:clarify`) — pins the inbox's first top-level headline to
-  the top of the screen, alongside its `CREATED` property (so you can see
-  how long it's been sitting there) and any `SCHEDULED`/`DEADLINE` it
-  already has, while you navigate the rest of the outline to file it
-  away; deleting the pinned item advances to the next one. `:outline`
+- **Clarify** (`:clarify`) — pins the inbox's first non-`DONE`/`CANCELLED`
+  top-level headline to the top of the screen, alongside its `CREATED`
+  property (so you can see how long it's been sitting there) and any
+  `SCHEDULED`/`DEADLINE` it already has, while you navigate the rest of
+  the outline to file it away; deleting the pinned item, or marking it
+  `DONE`/`CANCELLED`, advances to the next pending one. `:next` / `:prev`
+  step to the next/previous pending inbox item manually, and `:outline`
   returns to the plain outline from either view.
 - **Config** (`:config`) — a read-only listing of every configurable
   setting's current, effective value (after flags/config
@@ -197,6 +199,7 @@ ambiguous.
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
 | `:agenda` / `:clarify` / `:outline` / `:config` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
+| `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |
