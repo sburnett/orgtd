@@ -41,11 +41,12 @@ func TestResolveSettingsConfigFileOverridesDefaults(t *testing.T) {
 		InboxFile:            "capture.org",
 		HideDoneAfterHours:   48,
 		Editor:               "emacsclient -t",
+		Debug:                true,
 	}
 	got := resolveSettings(flags(), "", cfg)
 	want := settings{
 		dir: "/from/config", urlFormatter: "url2org", urlFormatterPrefixes: []string{"bit.ly/", "go/"},
-		agendaDays: 30, inboxFile: "capture.org", hideDoneAfterHours: 48, editor: "emacsclient -t",
+		agendaDays: 30, inboxFile: "capture.org", hideDoneAfterHours: 48, editor: "emacsclient -t", debug: true,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSettings = %+v, want %+v", got, want)
@@ -55,9 +56,9 @@ func TestResolveSettingsConfigFileOverridesDefaults(t *testing.T) {
 func TestResolveSettingsExplicitFlagBeatsConfigFile(t *testing.T) {
 	f := withExplicit(flagValues{
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: []string{"flag-prefix/"},
-		agendaDays: 7, inboxFile: "flag-inbox.org", hideDoneAfterHours: 12, editor: "vim",
+		agendaDays: 7, inboxFile: "flag-inbox.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
 		explicit: map[string]bool{},
-	}, "dir", "url-formatter", "url-formatter-prefixes", "agenda-days", "inbox-file", "hide-done-after-hours", "editor")
+	}, "dir", "url-formatter", "url-formatter-prefixes", "agenda-days", "inbox-file", "hide-done-after-hours", "editor", "debug")
 	cfg := &config.Config{
 		OrgDir:               "/from/config",
 		URLFormatter:         "cfg-fmt",
@@ -66,11 +67,12 @@ func TestResolveSettingsExplicitFlagBeatsConfigFile(t *testing.T) {
 		InboxFile:            "cfg-inbox.org",
 		HideDoneAfterHours:   48,
 		Editor:               "emacs",
+		Debug:                true,
 	}
 	got := resolveSettings(f, "/from/env", cfg)
 	want := settings{
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: []string{"flag-prefix/"},
-		agendaDays: 7, inboxFile: "flag-inbox.org", hideDoneAfterHours: 12, editor: "vim",
+		agendaDays: 7, inboxFile: "flag-inbox.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSettings = %+v, want %+v", got, want)
@@ -118,6 +120,23 @@ func TestResolveSettingsZeroHideDoneAfterHoursInConfigIsTreatedAsUnset(t *testin
 	got := resolveSettings(flags(), "", &config.Config{HideDoneAfterHours: 0})
 	if got.hideDoneAfterHours != 0 {
 		t.Errorf("hideDoneAfterHours = %d, want 0 (falls through to the flag's own default)", got.hideDoneAfterHours)
+	}
+}
+
+func TestResolveSettingsDebugDefaultsToOffAndFollowsConfigFile(t *testing.T) {
+	if got := resolveSettings(flags(), "", &config.Config{}).debug; got {
+		t.Errorf("debug = %v, want false with nothing set", got)
+	}
+	if got := resolveSettings(flags(), "", &config.Config{Debug: true}).debug; !got {
+		t.Errorf("debug = %v, want true when the config file sets debug = true", got)
+	}
+}
+
+func TestResolveSettingsExplicitDebugFlagBeatsConfigFile(t *testing.T) {
+	f := withExplicit(flagValues{debug: false, explicit: map[string]bool{}}, "debug")
+	got := resolveSettings(f, "", &config.Config{Debug: true})
+	if got.debug {
+		t.Error("an explicit -debug=false should beat the config file's debug = true")
 	}
 }
 

@@ -46,3 +46,7 @@
 # hidden from the outline view. Hidden items (and their subtrees) can
 # still be shown again at any time with :toggledone. Default: 24.
 # hide_done_after_hours = 24
+
+# Log debug info (every URL formatter attempt/failure, etc.) to a
+# debug.log file next to this config file. Off by default.
+# debug = true

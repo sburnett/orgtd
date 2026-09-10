@@ -50,6 +50,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		WithAgendaDays(30),
 		WithInboxFile("capture.org"),
 		WithHideDoneAfterHours(48),
+		WithDebug(true),
 	)
 	m.switchToView(configView)
 	lines := configLines(m)
@@ -62,6 +63,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		"Agenda window: 30 days",
 		"Inbox file: capture.org",
 		"Hide done after: 48 hours (currently on",
+		"Debug logging: on",
 	} {
 		if !containsSubstring(lines, want) {
 			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)
@@ -98,6 +100,7 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"Agenda window: 14 days",
 		"Inbox file: inbox.org",
 		"currently off",
+		"Debug logging: off",
 	} {
 		if !containsSubstring(lines, want) {
 			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)

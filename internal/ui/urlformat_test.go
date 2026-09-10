@@ -76,7 +76,7 @@ func TestRunURLFormatterLogsSuccessfulAttempt(t *testing.T) {
 func TestRunURLFormatterLogsFailureWithStderr(t *testing.T) {
 	logBuf := captureLog(t)
 	script := writeFakeFormatter(t, `echo "boom: no such template" >&2; exit 1`)
-	m := Model{urlFormatterCmd: script}
+	m := Model{urlFormatterCmd: script, debug: true}
 
 	got := m.runURLFormatter("https://example.com")
 
@@ -92,6 +92,18 @@ func TestRunURLFormatterLogsFailureWithStderr(t *testing.T) {
 	}
 	if m.message == "" || !strings.Contains(m.message, "debug.log") {
 		t.Errorf("m.message = %q, want a visible failure notice pointing at the log", m.message)
+	}
+}
+
+func TestRunURLFormatterFailureHintsAtEnablingDebugWhenOff(t *testing.T) {
+	captureLog(t)
+	script := writeFakeFormatter(t, `exit 1`)
+	m := Model{urlFormatterCmd: script} // debug left false (the default)
+
+	m.runURLFormatter("https://example.com")
+
+	if m.message == "" || strings.Contains(m.message, "debug.log") {
+		t.Errorf("m.message = %q, want a hint to enable --debug, not a pointer at a file nothing was written to", m.message)
 	}
 }
 

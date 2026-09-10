@@ -300,6 +300,8 @@ type Model struct {
 
 	hideDoneAfterHours int  // how many hours after CLOSED a DONE/CANCELLED item disappears from the outline; see WithHideDoneAfterHours
 	hideDoneEnabled    bool // whether hideDoneAfterHours filtering is active; off by default (see New), toggled by :toggledone, turned on at startup by WithHideDoneAfterHours
+
+	debug bool // whether main.go turned on debug logging (see WithDebug); the Model itself never logs anything based on this — it's only carried here so :config can report it
 }
 
 // viewKind selects what rebuildRows populates m.rows with.
@@ -381,6 +383,14 @@ func WithHideDoneAfterHours(hours int) Option {
 		}
 		m.hideDoneEnabled = true
 	}
+}
+
+// WithDebug records whether main.go turned on debug logging, purely so
+// the :config view can report it accurately — the Model doesn't consult
+// this for anything else, since logging itself is set up once, globally,
+// before the Model even exists (see main.go).
+func WithDebug(enabled bool) Option {
+	return func(m *Model) { m.debug = enabled }
 }
 
 // New builds a viewer model over ws. Every headline starts expanded.
@@ -648,6 +658,7 @@ func (m *Model) appendConfigRows() {
 	line("Agenda window: %d days", m.agendaDays)
 	line("Inbox file: %s", m.inboxFile)
 	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.hideDoneAfterHours, onOff(m.hideDoneEnabled))
+	line("Debug logging: %s", onOff(m.debug))
 }
 
 // onOff renders b as "on"/"off", for a status line reporting a toggle's
@@ -657,6 +668,17 @@ func onOff(b bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+// debugLogHint returns a parenthesized suffix pointing a failure message
+// at debug.log when debug logging is actually on (see WithDebug); when
+// it's off, nothing was written there, so this instead points at how to
+// turn it on rather than sending the user to a file that doesn't exist.
+func (m Model) debugLogHint() string {
+	if m.debug {
+		return " (see debug.log)"
+	}
+	return " (rerun with --debug for details)"
 }
 
 // toggleHideDone flips whether stale DONE/CANCELLED items (older than
@@ -2591,14 +2613,14 @@ func (m *Model) runURLFormatter(url string) string {
 			detail = fmt.Sprintf("%v (stderr: %s)", err, strings.TrimSpace(string(exitErr.Stderr)))
 		}
 		log.Printf("url formatter: %s failed: %s", fields[0], detail)
-		m.message = fmt.Sprintf("URL formatter failed (see debug.log): %s", detail)
+		m.message = fmt.Sprintf("URL formatter failed%s: %s", m.debugLogHint(), detail)
 		return url
 	}
 
 	formatted := strings.TrimSpace(string(out))
 	if formatted == "" {
 		log.Printf("url formatter: %s produced no output for %q", fields[0], url)
-		m.message = "URL formatter produced no output (see debug.log)"
+		m.message = "URL formatter produced no output" + m.debugLogHint()
 		return url
 	}
 	log.Printf("url formatter: %s -> %q", fields[0], formatted)

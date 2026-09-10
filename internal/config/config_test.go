@@ -26,6 +26,7 @@ agenda_window_days = 30
 inbox_file = "capture.org"
 url_formatter_prefixes = ["bit.ly/", "go/"]
 hide_done_after_hours = 48
+debug = true
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -39,6 +40,7 @@ hide_done_after_hours = 48
 		InboxFile:            "capture.org",
 		URLFormatterPrefixes: []string{"bit.ly/", "go/"},
 		HideDoneAfterHours:   48,
+		Debug:                true,
 	}
 	if !reflect.DeepEqual(*c, want) {
 		t.Errorf("Load = %+v, want %+v", *c, want)

@@ -38,6 +38,13 @@ type Config struct {
 	// starting with one of these (at a word boundary) gets passed
 	// through URLFormatter the same as a real http(s) URL would.
 	URLFormatterPrefixes []string `toml:"url_formatter_prefixes"`
+
+	// Debug turns on logging (URL formatter attempts/failures, etc.) to
+	// a debug.log file next to this config file. Off by default — false
+	// is indistinguishable from "not set" (this package's usual
+	// zero-value convention), which is fine here since false is also the
+	// built-in default.
+	Debug bool `toml:"debug"`
 }
 
 // DefaultPath returns the config file location orgtd reads unless

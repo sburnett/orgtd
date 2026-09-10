@@ -19,6 +19,7 @@ type settings struct {
 	inboxFile            string
 	hideDoneAfterHours   int
 	editor               string
+	debug                bool
 }
 
 // flagValues is the raw output of flag parsing: each flag's value
@@ -33,6 +34,7 @@ type flagValues struct {
 	urlFormatterPrefixes                 []string
 	agendaDays                           int
 	hideDoneAfterHours                   int
+	debug                                bool
 	explicit                             map[string]bool
 }
 
@@ -56,6 +58,7 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 		inboxFile:            f.inboxFile,
 		hideDoneAfterHours:   f.hideDoneAfterHours,
 		editor:               f.editor,
+		debug:                f.debug,
 	}
 
 	switch {
@@ -86,6 +89,9 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 	if !f.explicit["editor"] && cfg.Editor != "" {
 		s.editor = cfg.Editor
 	}
+	if !f.explicit["debug"] && cfg.Debug {
+		s.debug = true
+	}
 
 	return s
 }
@@ -102,15 +108,15 @@ func defaultOrgDir() string {
 }
 
 // debugLogPath returns the log file main.go directs the standard log
-// package's output to: a debug.log next to whichever config file was
-// actually loaded (or would be, if none exists yet — configFilePath is
-// the resolved path regardless), so it's discoverable without a
-// separate setting to remember. Existing logging (e.g. every URL
-// formatter attempt, success or failure, including the subprocess's own
-// stderr) lands there — useful for exactly the "this works on one
-// machine but not another" question a status-line message alone can't
-// answer, since the TUI's own screen can't share a terminal with plain
-// log output.
+// package's output to when debug logging is on (see settings.debug): a
+// debug.log next to whichever config file was actually loaded (or would
+// be, if none exists yet — configFilePath is the resolved path
+// regardless), so it's discoverable without a separate setting to
+// remember. Existing logging (e.g. every URL formatter attempt, success
+// or failure, including the subprocess's own stderr) lands there —
+// useful for exactly the "this works on one machine but not another"
+// question a status-line message alone can't answer, since the TUI's
+// own screen can't share a terminal with plain log output.
 func debugLogPath(configFilePath string) string {
 	return filepath.Join(filepath.Dir(configFilePath), "debug.log")
 }

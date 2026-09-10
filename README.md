@@ -41,7 +41,10 @@ orgtd --dir ~/org
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
 | `--hide-done-after-hours` | `hide_done_after_hours` | `24` | How many hours after a `DONE`/`CANCELLED` item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggledone` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
+| `--debug` | `debug` | *(off)* | Log debug info (see Debug log, below) to `debug.log` next to the config file |
 | `--config` | — | `$XDG_CONFIG_HOME/orgtd/config.toml` (or `~/.config/orgtd/config.toml`) | Path to the config file below |
+
+`:config` shows the current, effective value of everything above.
 
 Every `.org` file directly inside `--dir` is loaded, sorted alphabetically.
 Subdirectories are not scanned.
@@ -63,10 +66,12 @@ url_formatter_prefixes = ["bit.ly/", "go/"]
 agenda_window_days = 14
 inbox_file = "inbox.org"
 hide_done_after_hours = 24
+debug = false
 ```
 
 ### Debug log
 
+Off by default. With `--debug` (or `debug = true` in the config file),
 orgtd logs to a `debug.log` file next to whichever config file it loaded
 (or would load — the location doesn't depend on one actually existing),
 e.g. `~/.config/orgtd/debug.log`. The main use today is the URL
@@ -75,7 +80,8 @@ failure includes the subprocess's own stderr — useful for tracking down
 why a formatter that works on one machine doesn't on another (a bad
 path, a missing interpreter, a script erroring out) without needing to
 leave the TUI mid-edit to find out. A failure also shows a message on
-orgtd's own status line pointing at the log.
+orgtd's own status line pointing at the log, whether or not debug
+logging is on.
 
 ## Views
 
