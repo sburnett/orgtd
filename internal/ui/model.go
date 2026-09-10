@@ -232,6 +232,8 @@ type row struct {
 	agendaDate     time.Time // the date this agenda item row is shown for, if agendaLabel is set
 	agendaRepeater string    // e.g. "+1w", if agendaDate was computed from a recurring timestamp; empty otherwise
 	agendaMissed   int       // occurrences skipped since agendaDate, shown as "(Nx)"; only ever set on an Overdue row
+
+	text string // set for a plain read-only informational row (:config view); rendered flush left, never interactive
 }
 
 // Model is the Bubble Tea model for the viewer.
@@ -307,6 +309,7 @@ const (
 	outlineView viewKind = iota
 	agendaView
 	clarifyView
+	configView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -409,6 +412,8 @@ func (m *Model) rebuildRows() {
 	switch m.view {
 	case agendaView:
 		m.appendAgendaRows()
+	case configView:
+		m.appendConfigRows()
 	default:
 		for _, f := range m.ws.Files {
 			m.rows = append(m.rows, row{file: f})
@@ -609,6 +614,49 @@ func (m *Model) switchToView(v viewKind) {
 	m.cursor = 0
 	m.offset = 0
 	m.rebuildRows()
+}
+
+// appendConfigRows populates m.rows for config view: one read-only line
+// per configurable setting, showing its effective current value (after
+// flags/config-file/built-in-default resolution has already happened in
+// main.go — this view has no idea which of those a value came from,
+// only what it ended up as).
+func (m *Model) appendConfigRows() {
+	line := func(format string, args ...any) {
+		m.rows = append(m.rows, row{text: fmt.Sprintf(format, args...)})
+	}
+
+	line("Org directory: %s", m.ws.Dir)
+
+	editor := m.editorCommand()
+	if editor == "" {
+		editor = "vim (default)"
+	}
+	line("Editor: %s", editor)
+
+	if m.urlFormatterCmd == "" {
+		line("URL formatter: (disabled)")
+	} else {
+		line("URL formatter: %s", m.urlFormatterCmd)
+	}
+	prefixes := "(none)"
+	if len(m.urlFormatterPrefixes) > 0 {
+		prefixes = strings.Join(m.urlFormatterPrefixes, ", ")
+	}
+	line("URL formatter prefixes: %s", prefixes)
+
+	line("Agenda window: %d days", m.agendaDays)
+	line("Inbox file: %s", m.inboxFile)
+	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.hideDoneAfterHours, onOff(m.hideDoneEnabled))
+}
+
+// onOff renders b as "on"/"off", for a status line reporting a toggle's
+// current state (e.g. hide-done filtering in appendConfigRows).
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
 
 // toggleHideDone flips whether stale DONE/CANCELLED items (older than
@@ -1160,7 +1208,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // type and want completed.
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
-	"undo", "redo", "agenda", "clarify", "outline", "capture",
+	"undo", "redo", "agenda", "clarify", "outline", "config", "capture",
 	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone",
 }
 
@@ -1266,6 +1314,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "outline":
 		m.switchToView(outlineView)
+
+	case "config":
+		m.switchToView(configView)
 
 	case "capture":
 		return m, m.startCapture()
@@ -3166,8 +3217,11 @@ func (m Model) View() string {
 // Unknown width (m.width <= 0) never triggers a split.
 func (m *Model) normalStatusLines() []string {
 	place := m.ws.Dir
-	if m.view == agendaView {
+	switch m.view {
+	case agendaView:
 		place = "agenda"
+	case configView:
+		place = "config"
 	}
 	main := fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 	h := m.currentHeadline()
@@ -3271,6 +3325,10 @@ func (m Model) renderRow(r row) string {
 func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	query := m.activeSearchQuery()
 	switch {
+	case r.text != "":
+		// Flush left, unstyled beyond the cursor's own background — a
+		// :config row is plain informational text, not a headline.
+		return highlightMatches(r.text, query, lipgloss.NewStyle().Background(bg))
 	case r.section != "":
 		// Flush left (no gutter/indent), unlike every item row below it,
 		// so a section header stands out at a glance in a long agenda.

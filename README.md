@@ -96,6 +96,10 @@ orgtd's own status line pointing at the log.
   already has, while you navigate the rest of the outline to file it
   away; deleting the pinned item advances to the next one. `:outline`
   returns to the plain outline from either view.
+- **Config** (`:config`) — a read-only listing of every configurable
+  setting's current, effective value (after flags/config
+  file/built-in-default resolution), including whether hide-done
+  filtering is currently on or off. `:outline` returns to the outline.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
@@ -170,7 +174,7 @@ ambiguous.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` | Switch views |
+| `:agenda` / `:clarify` / `:outline` / `:config` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
