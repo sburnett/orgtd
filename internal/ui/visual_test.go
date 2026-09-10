@@ -233,6 +233,38 @@ func TestVisualModeDeleteInClarifyViewAdvancesClarifyTarget(t *testing.T) {
 	}
 }
 
+func TestVisualModeOnlyCursorEntryUsesCursorBg(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n* TODO Third\n")
+	m := New(ws)
+	m.width, m.height = 60, 10
+	m.cursor = findRow(t, m, "First")
+	m = sendKey(m, "V")
+	m = sendKey(m, "j")
+	m = sendKey(m, "j") // selection now covers First..Third; cursor sits on Third
+
+	out := m.View()
+	lines := strings.Split(out, "\n")
+
+	firstIdx, secondIdx, thirdIdx := findRow(t, m, "First"), findRow(t, m, "Second"), findRow(t, m, "Third")
+	firstLine, secondLine, thirdLine := lines[firstIdx], lines[secondIdx], lines[thirdIdx]
+
+	wantCursorLine := m.padLineToWidth(m.renderRowWithBg(m.rows[thirdIdx], cursorBg), cursorBg)
+	if thirdLine != wantCursorLine {
+		t.Errorf("cursor row (Third) = %q, want the cursorBg-highlighted line %q", thirdLine, wantCursorLine)
+	}
+	if firstLine == wantCursorLine || secondLine == wantCursorLine {
+		t.Error("non-cursor rows in the visual selection should not render with the same background as the cursor row")
+	}
+	if firstLine == thirdLine || secondLine == thirdLine {
+		t.Error("cursor row and other selected rows rendered identically; expected visually distinct backgrounds")
+	}
+
+	wantSecondLine := m.padLineToWidth(m.renderRowWithBg(m.rows[secondIdx], visualSelectionBg), visualSelectionBg)
+	if secondLine != wantSecondLine {
+		t.Errorf("non-cursor selected row (Second) = %q, want the visualSelectionBg-highlighted line %q", secondLine, wantSecondLine)
+	}
+}
+
 // findHeadlineByTitle returns the headline with the given title among
 // m's current rows, failing the test if there's no such row.
 func findHeadlineByTitle(t *testing.T, m Model, title string) *org.Headline {

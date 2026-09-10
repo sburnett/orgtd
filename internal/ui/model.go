@@ -57,8 +57,17 @@ var (
 	// cursorBg highlights the row under the cursor, filling the whole
 	// terminal width — a distinct, more prominent shade than overlayBg
 	// so the current line and the pinned overlay read as different
-	// things.
+	// things. In visual mode, only the cursor's own entry keeps this
+	// shade (see visualSelectionBg for the rest of the selection), so
+	// which end of a multi-entry selection is the actual cursor is
+	// always unambiguous.
 	cursorBg = lipgloss.AdaptiveColor{Light: "#cce0ff", Dark: "#2d3f5e"}
+
+	// visualSelectionBg highlights the part of a visual-mode selection
+	// that isn't the cursor's own entry — a softer tint of cursorBg's
+	// same hue, so the whole selection still reads as one contiguous
+	// block while staying visibly less prominent than the cursor itself.
+	visualSelectionBg = lipgloss.AdaptiveColor{Light: "#e2ecfb", Dark: "#212d42"}
 
 	// searchHighlightBg marks every occurrence of the active search term
 	// (see activeSearchQuery) — vim's 'hlsearch' — layered on top of
@@ -3424,11 +3433,16 @@ func (m Model) View() string {
 	// An entry's body lines highlight along with it — the whole entry is
 	// one item, not a separately-steppable row per line — so extend the
 	// highlight from the cursor over any of its own body lines that
-	// immediately follow. In visual mode the highlight instead covers the
-	// whole selection, from visualAnchor to the cursor.
-	highlightStart, highlightEnd := m.cursor, m.entryEnd(m.cursor)
+	// immediately follow. In visual mode, the rest of the selection (from
+	// visualAnchor to the cursor) is also highlighted, but with
+	// visualSelectionBg rather than cursorBg — otherwise the whole block
+	// looks uniform and there'd be no way to tell which end is actually
+	// the cursor (e.g. before extending the selection further, or right
+	// after Esc leaves the cursor wherever it was).
+	cursorStart, cursorEnd := m.cursor, m.entryEnd(m.cursor)
+	selStart, selEnd := cursorStart, cursorEnd
 	if m.mode == visualMode {
-		highlightStart, highlightEnd = m.visualRange()
+		selStart, selEnd = m.visualRange()
 	}
 
 	var b strings.Builder
@@ -3441,9 +3455,12 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 		var line string
-		if i >= highlightStart && i <= highlightEnd {
+		switch {
+		case i >= cursorStart && i <= cursorEnd:
 			line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
-		} else {
+		case i >= selStart && i <= selEnd:
+			line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], visualSelectionBg), visualSelectionBg)
+		default:
 			line = m.renderRow(m.rows[i])
 		}
 		b.WriteString(line)

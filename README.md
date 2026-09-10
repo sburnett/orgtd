@@ -153,6 +153,10 @@ stop), and so on.
 | `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one) |
 | `R` | (in visual mode) Open the same status picker as normal-mode `R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched |
 
+The cursor's own entry keeps the usual highlight color; the rest of the
+selection is shaded differently, so which end is the actual cursor is
+always clear.
+
 ### Marks
 
 | Key | Action |
