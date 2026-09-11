@@ -1230,6 +1230,14 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "pgup":
 		m.moveCursor(-m.pageSize())
+
+	case "ctrl+e":
+		m.scrollView(1)
+		return m, nil
+
+	case "ctrl+y":
+		m.scrollView(-1)
+		return m, nil
 	}
 
 	m.ensureVisible()
@@ -1302,6 +1310,14 @@ func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "pgup":
 		m.moveCursor(-m.pageSize())
+
+	case "ctrl+e":
+		m.scrollView(1)
+		return m, nil
+
+	case "ctrl+y":
+		m.scrollView(-1)
+		return m, nil
 
 	case "d":
 		m.deleteVisualSelection()
@@ -4133,6 +4149,35 @@ func (m *Model) entryEnd(i int) int {
 		end++
 	}
 	return end
+}
+
+// scrollView shifts the viewport by delta lines (positive scrolls the view
+// down, negative scrolls it up) independently of the cursor — Ctrl-E and
+// Ctrl-Y, like vim, move the window a single line at a time and leave the
+// cursor right where it was, only dragging it along when the scroll would
+// otherwise push it off the newly visible window (off the top when
+// scrolling down, off the bottom when scrolling up). Callers must skip the
+// usual cursor-driven m.ensureVisible() afterward, since that would just
+// recompute the offset from the cursor and undo the scroll.
+func (m *Model) scrollView(delta int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	offset := m.offset + delta
+	if offset < 0 {
+		offset = 0
+	}
+	if max := len(m.rows) - 1; offset > max {
+		offset = max
+	}
+	m.offset = offset
+
+	bottom := m.offset + m.pageSize() - 1
+	if m.cursor < m.offset {
+		m.cursor = m.entryStart(m.offset)
+	} else if m.entryEnd(m.cursor) > bottom {
+		m.cursor = m.entryStart(bottom)
+	}
 }
 
 func (m Model) View() string {
