@@ -288,6 +288,11 @@ type Model struct {
 	// lockColumn) and enforced by refuseIfImmutable/filterImmutable.
 	immutable map[*org.Headline]bool
 
+	// execLog records every external command run since startup (URL
+	// formatters, $EDITOR), for :log — see execLog's own doc comment for
+	// why it's a pointer rather than a plain value.
+	execLog *execLog
+
 	visualAnchor int // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
 
 	// selectModeTargets holds the entries a pending R (selectMode) should
@@ -351,6 +356,7 @@ const (
 	agendaView
 	clarifyView
 	configView
+	logView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -451,6 +457,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		dirtyHeadlines:     make(map[*org.Headline]bool),
 		savedPos:           make(map[*org.File]int),
 		immutable:          make(map[*org.Headline]bool),
+		execLog:            &execLog{},
 		agendaDays:         14,
 		inboxFile:          "inbox.org",
 		hideDoneAfterHours: 24,
@@ -474,6 +481,8 @@ func (m *Model) rebuildRows() {
 		m.appendAgendaRows()
 	case configView:
 		m.appendConfigRows()
+	case logView:
+		m.appendLogRows()
 	default:
 		for _, f := range m.ws.Files {
 			m.rows = append(m.rows, row{file: f})
@@ -777,6 +786,24 @@ func (m *Model) appendConfigRows() {
 	line("Inbox file: %s", m.inboxFile)
 	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.hideDoneAfterHours, onOff(m.hideDoneEnabled))
 	line("Debug logging: %s", onOff(m.debug))
+}
+
+// appendLogRows populates m.rows for :log — every external command
+// orgtd has run since startup (see execLog), oldest first, each entry
+// (a command starting, one of its output lines, or its exit code)
+// stamped with its own timestamp and which stream it came from, if
+// applicable. A snapshot taken right now — if a :format-links batch (or
+// anything else) logs more while this view is already open, re-run
+// :log to see it; the view itself doesn't live-update.
+func (m *Model) appendLogRows() {
+	entries := m.execLog.snapshot()
+	if len(entries) == 0 {
+		m.rows = append(m.rows, row{text: "No external commands have been run yet."})
+		return
+	}
+	for _, e := range entries {
+		m.rows = append(m.rows, row{text: fmt.Sprintf("%s  %-6s  %s", e.time.Format("15:04:05.000"), e.kind.label(), e.text)})
+	}
 }
 
 // onOff renders b as "on"/"off", for a status line reporting a toggle's
@@ -1732,7 +1759,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "config", "capture",
-	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links",
+	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -1866,6 +1893,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "format-links":
 		return m, m.startFormatLinks()
+
+	case "log":
+		m.switchToView(logView)
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
@@ -2418,6 +2448,7 @@ type fileEditFinishedMsg struct {
 // there's no in-memory action to record or revert.
 func (m *Model) startEditFile(f *org.File) tea.Cmd {
 	editorCmd := buildEditorCommand(m.editorCommand(), f.Path, "", noCursorPlacement, 0)
+	m.execLog.append(execLogStart, strings.Join(editorCmd.Args, " "))
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return fileEditFinishedMsg{target: f, err: err}
 	})
@@ -2430,6 +2461,7 @@ func (m *Model) startEditFile(f *org.File) tea.Cmd {
 // reloaded file itself is never marked dirty: the editor already wrote
 // it, so there's nothing more to save.
 func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
+	m.execLog.append(execLogExit, fmt.Sprintf("exit code %d", exitCodeFromError(msg.err)))
 	if msg.err != nil {
 		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)
 		return m, nil
@@ -2705,6 +2737,7 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement edit
 
 	placement, col := resolveCursorPlacement(h, placement)
 	editorCmd := buildEditorCommand(m.editorCommand(), path, before, placement, col)
+	m.execLog.append(execLogStart, strings.Join(editorCmd.Args, " "))
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
@@ -3303,7 +3336,9 @@ func bareURLSpansOutsideLinks(re *regexp.Regexp, text string) [][2]int {
 // itself owns the terminal and plain log output can't share it. Without
 // this, silently leaving the URL unchanged on any error gives no clue
 // why; a failure also sets m.message so it's visible without leaving
-// the app or checking the log.
+// the app or checking the log. The actual run goes through
+// runLoggedCommand, which also records it (start, every output line, and
+// its exit code) in m.execLog for :log.
 func (m *Model) runURLFormatter(url string) string {
 	fields := splitCommandFields(m.urlFormatterCmd)
 	if len(fields) == 0 {
@@ -3316,7 +3351,7 @@ func (m *Model) runURLFormatter(url string) string {
 	args := append(append([]string{}, fields[1:]...), url)
 	log.Printf("url formatter: running %v", append([]string{fields[0]}, args...))
 
-	out, err := exec.Command(fields[0], args...).Output()
+	out, err := runLoggedCommand(m.execLog, fields[0], args, "")
 	if err != nil {
 		detail := err.Error()
 		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
@@ -3327,7 +3362,7 @@ func (m *Model) runURLFormatter(url string) string {
 		return url
 	}
 
-	formatted := strings.TrimSpace(string(out))
+	formatted := strings.TrimSpace(out)
 	if formatted == "" {
 		log.Printf("url formatter: %s produced no output for %q", fields[0], url)
 		m.message = "URL formatter produced no output" + m.debugLogHint()
@@ -3344,8 +3379,12 @@ func (m *Model) runURLFormatter(url string) string {
 // process per URL, which could be prohibitively slow for a large batch.
 // Returns exactly len(urls) formatted strings, in the same order;
 // anything else (a run failure, or a line-count mismatch) is an error,
-// since there'd be no reliable way to match output back to input.
-func runBatchURLFormatter(urlFormatterCmd string, urls []string) ([]string, error) {
+// since there'd be no reliable way to match output back to input. The
+// run itself goes through runLoggedCommand, which records it in elog
+// (start, every output line as it's produced, and its exit code) for
+// :log — this runs on its own goroutine (see startFormatLinks), so elog
+// must be safe for concurrent use, which is exactly what it's for.
+func runBatchURLFormatter(elog *execLog, urlFormatterCmd string, urls []string) ([]string, error) {
 	fields := splitCommandFields(urlFormatterCmd)
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("url formatter command is empty")
@@ -3354,11 +3393,10 @@ func runBatchURLFormatter(urlFormatterCmd string, urls []string) ([]string, erro
 		fields[i] = expandHomeField(f)
 	}
 
-	cmd := exec.Command(fields[0], fields[1:]...)
-	cmd.Stdin = strings.NewReader(strings.Join(urls, "\n") + "\n")
+	stdin := strings.Join(urls, "\n") + "\n"
 	log.Printf("url formatter (batch): running %v with %d url(s) on stdin", append([]string{fields[0]}, fields[1:]...), len(urls))
 
-	out, err := cmd.Output()
+	out, err := runLoggedCommand(elog, fields[0], fields[1:], stdin)
 	if err != nil {
 		detail := err.Error()
 		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
@@ -3368,7 +3406,7 @@ func runBatchURLFormatter(urlFormatterCmd string, urls []string) ([]string, erro
 		return nil, fmt.Errorf("%s", detail)
 	}
 
-	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(urls) == 0 {
 		return nil, nil
 	}
@@ -3490,8 +3528,9 @@ func (m *Model) startFormatLinks() tea.Cmd {
 	}
 	m.message = fmt.Sprintf("Formatting links for %d entries in the background...", len(targets))
 
+	elog := m.execLog
 	return func() tea.Msg {
-		formatted, err := runBatchURLFormatter(formatterCmd, urls)
+		formatted, err := runBatchURLFormatter(elog, formatterCmd, urls)
 		return formatLinksMsg{targets: targets, formatted: formatted, err: err}
 	}
 }
@@ -3579,6 +3618,7 @@ func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
 // leaving no trace.
 func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	defer os.Remove(msg.path)
+	m.execLog.append(execLogExit, fmt.Sprintf("exit code %d", exitCodeFromError(msg.err)))
 
 	if msg.err != nil {
 		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)
@@ -4204,6 +4244,8 @@ func (m *Model) normalStatusLines() []string {
 		place = "agenda"
 	case configView:
 		place = "config"
+	case logView:
+		place = "log"
 	}
 	main := fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 	h := m.currentHeadline()

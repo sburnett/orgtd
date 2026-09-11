@@ -110,6 +110,13 @@ logging is on.
   setting's current, effective value (after flags/config
   file/built-in-default resolution), including whether hide-done
   filtering is currently on or off. `:outline` returns to the outline.
+- **Log** (`:log`) — a read-only, chronological list of every external
+  command orgtd has run since it started (`$EDITOR`, and any configured
+  URL formatter, live or batch): a line when it starts, one line per
+  stdout/stderr line as it's produced, and a line for its exit code,
+  each individually timestamped and tagged `START`/`STDOUT`/`STDERR`/
+  `EXIT`. Doesn't live-update — re-run `:log` to see anything logged
+  since it was last opened. `:outline` returns to the outline.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
@@ -199,7 +206,7 @@ ambiguous.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` / `:config` | Switch views |
+| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
