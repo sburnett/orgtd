@@ -35,8 +35,9 @@ orgtd --dir ~/org
 | Flag | Config key | Default | Meaning |
 |---|---|---|---|
 | `--dir` | `org_dir` | `$ORGTD_DIR`, then `org_dir`, then `~/org` | Directory containing `.org` files (loaded non-recursively) |
-| `--url-formatter` | `url_formatter` | *(disabled)* | External program invoked as `<prog> <url>` to convert a bare URL typed while editing into an org-mode link (its stdout replaces the URL). May include extra arguments, e.g. `myformatter --template "a template"` — split shell-style (a double- or single-quoted argument can contain spaces), and a leading `~` in any word is expanded, same as typing it in a shell. The same program is also invoked in batch mode by `:format-links` (see below) — called with no trailing URL argument, it should instead read URLs one per line from stdin and print the same number of formatted lines to stdout |
+| `--url-formatter` | `url_formatter` | *(disabled)* | External program invoked as `<prog> <url>` to convert a bare URL typed while editing into an org-mode link (its stdout replaces the URL). May include extra arguments, e.g. `myformatter --template "a template"` — split shell-style (a double- or single-quoted argument can contain spaces), and a leading `~` in any word is expanded, same as typing it in a shell. Also used by `:format-links` (see below) unless `--format-links-url-formatter` overrides it |
 | `--url-formatter-prefixes` | `url_formatter_prefixes` | *(none)* | Extra bare-URL prefixes recognized beyond `http://`/`https://`, e.g. `bit.ly/` or `go/` for shortlinks — comma-separated on the flag, a TOML array in the config file. Each is only matched at a word boundary, so `go/` won't match inside `embargo/foo` |
+| `--format-links-url-formatter` | `format_links_url_formatter` | *(same as `url_formatter`)* | External program `:format-links` (see below) invokes in batch mode — called with no trailing URL argument, it should instead read URLs one per line from stdin and print the same number of formatted lines to stdout. Configured separately from `url_formatter` since a batch-capable command may differ from (or take different arguments than) whatever handles a single URL while editing |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
 | `--hide-done-after-hours` | `hide_done_after_hours` | `24` | How many hours after a `DONE`/`CANCELLED` item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggledone` shows everything again, and toggles back |
@@ -63,6 +64,7 @@ org_dir = "~/org"          # "~" is expanded
 editor = "emacsclient -t"  # falls back to $EDITOR, then vim, if unset
 url_formatter = ""
 url_formatter_prefixes = ["bit.ly/", "go/"]
+format_links_url_formatter = ""  # falls back to url_formatter if unset
 agenda_window_days = 14
 inbox_file = "inbox.org"
 hide_done_after_hours = 24
@@ -200,7 +202,7 @@ ambiguous.
 | `:agenda` / `:clarify` / `:outline` / `:config` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
-| `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `url_formatter` in the background (see `--url-formatter`, above). Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
+| `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |

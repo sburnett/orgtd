@@ -97,6 +97,47 @@ func TestStartFormatLinksLocksTargetsAndSetsMessage(t *testing.T) {
 	}
 }
 
+func TestFormatLinksFormatterCmdFallsBackToURLFormatter(t *testing.T) {
+	m := New(agendaFixture(t, "* TODO x\n"), WithURLFormatter("live-editor-formatter"))
+	if got := m.formatLinksFormatterCmd(); got != "live-editor-formatter" {
+		t.Errorf("formatLinksFormatterCmd() = %q, want it to fall back to WithURLFormatter's value", got)
+	}
+}
+
+func TestFormatLinksFormatterCmdUsesItsOwnSettingWhenSet(t *testing.T) {
+	m := New(agendaFixture(t, "* TODO x\n"),
+		WithURLFormatter("live-editor-formatter"),
+		WithFormatLinksURLFormatter("batch-formatter"),
+	)
+	if got := m.formatLinksFormatterCmd(); got != "batch-formatter" {
+		t.Errorf("formatLinksFormatterCmd() = %q, want its own configured value, not the live-editor one", got)
+	}
+}
+
+func TestStartFormatLinksInvokesTheFormatLinksSpecificFormatter(t *testing.T) {
+	// The batch formatter script echoes marker text back so we can tell
+	// which of the two configured commands actually ran.
+	batchScript := writeBatchFakeFormatter(t, `echo "[[$line][FromBatchFormatter]]"`)
+	ws := agendaFixture(t, "* TODO url https://example.com/a\n")
+	m := New(ws,
+		WithURLFormatter("/no/such/live-editor-formatter"), // would fail if ever invoked
+		WithFormatLinksURLFormatter(batchScript),
+	)
+	h := findHeadlineByTitle(t, m, "url https://example.com/a")
+
+	cmd := m.startFormatLinks()
+	msg := cmd().(formatLinksMsg)
+	if msg.err != nil {
+		t.Fatalf("batch formatting failed: %v (should have used the format-links-specific formatter, not url_formatter)", msg.err)
+	}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if h.Title != "url [[https://example.com/a][FromBatchFormatter]]" {
+		t.Errorf("title = %q, want it formatted by the format-links-specific formatter", h.Title)
+	}
+}
+
 func TestFormatLinksCommandNoFormatterConfiguredShowsMessage(t *testing.T) {
 	ws := agendaFixture(t, "* TODO url https://example.com/a\n")
 	m := New(ws) // no WithURLFormatter

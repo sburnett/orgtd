@@ -47,6 +47,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		WithEditor("emacsclient -t"),
 		WithURLFormatter("url2org"),
 		WithURLFormatterPrefixes([]string{"bit.ly/", "go/"}),
+		WithFormatLinksURLFormatter("batch-formatter"),
 		WithAgendaDays(30),
 		WithInboxFile("capture.org"),
 		WithHideDoneAfterHours(48),
@@ -60,6 +61,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		"Editor: emacsclient -t",
 		"URL formatter: url2org",
 		"URL formatter prefixes: bit.ly/, go/",
+		"Format-links URL formatter: batch-formatter",
 		"Agenda window: 30 days",
 		"Inbox file: capture.org",
 		"Hide done after: 48 hours (currently on",
@@ -88,6 +90,16 @@ func TestConfigViewReflectsHideDoneToggle(t *testing.T) {
 	}
 }
 
+func TestConfigViewNotesFormatLinksFallsBackToURLFormatter(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Something\n")
+	m := New(ws, WithURLFormatter("url2org")) // no WithFormatLinksURLFormatter
+	m.switchToView(configView)
+
+	if !containsSubstring(configLines(m), "Format-links URL formatter: url2org (same as URL formatter)") {
+		t.Errorf("config view lines = %#v, want it to note the format-links formatter falls back to url_formatter", configLines(m))
+	}
+}
+
 func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
 	m := New(ws)
@@ -97,6 +109,7 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 	for _, want := range []string{
 		"URL formatter: (disabled)",
 		"URL formatter prefixes: (none)",
+		"Format-links URL formatter: (disabled)",
 		"Agenda window: 14 days",
 		"Inbox file: inbox.org",
 		"currently off",

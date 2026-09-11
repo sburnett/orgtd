@@ -25,6 +25,7 @@ url_formatter = "url2org"
 agenda_window_days = 30
 inbox_file = "capture.org"
 url_formatter_prefixes = ["bit.ly/", "go/"]
+format_links_url_formatter = "batch-formatter"
 hide_done_after_hours = 48
 debug = true
 `)
@@ -33,14 +34,15 @@ debug = true
 		t.Fatalf("Load: %v", err)
 	}
 	want := Config{
-		OrgDir:               "/tmp/myorg",
-		Editor:               "emacsclient -t",
-		URLFormatter:         "url2org",
-		AgendaWindowDays:     30,
-		InboxFile:            "capture.org",
-		URLFormatterPrefixes: []string{"bit.ly/", "go/"},
-		HideDoneAfterHours:   48,
-		Debug:                true,
+		OrgDir:                  "/tmp/myorg",
+		Editor:                  "emacsclient -t",
+		URLFormatter:            "url2org",
+		AgendaWindowDays:        30,
+		InboxFile:               "capture.org",
+		URLFormatterPrefixes:    []string{"bit.ly/", "go/"},
+		FormatLinksURLFormatter: "batch-formatter",
+		HideDoneAfterHours:      48,
+		Debug:                   true,
 	}
 	if !reflect.DeepEqual(*c, want) {
 		t.Errorf("Load = %+v, want %+v", *c, want)

@@ -39,6 +39,14 @@ type Config struct {
 	// through URLFormatter the same as a real http(s) URL would.
 	URLFormatterPrefixes []string `toml:"url_formatter_prefixes"`
 
+	// FormatLinksURLFormatter is the external program :format-links
+	// invokes in batch mode (one URL per stdin line, the same number of
+	// formatted lines back on stdout) — configured separately from
+	// URLFormatter since a batch-capable command may differ from (or
+	// take different arguments than) whatever handles a single URL while
+	// editing. Empty means "use URLFormatter for :format-links too".
+	FormatLinksURLFormatter string `toml:"format_links_url_formatter"`
+
 	// Debug turns on logging (URL formatter attempts/failures, etc.) to
 	// a debug.log file next to this config file. Off by default — false
 	// is indistinguishable from "not set" (this package's usual

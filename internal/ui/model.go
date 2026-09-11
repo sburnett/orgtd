@@ -318,10 +318,18 @@ type Model struct {
 	confirmMessage  string    // prompt shown in confirmMode
 	pendingFileEdit *org.File // the file to open in $EDITOR if confirmMode's prompt is accepted ("y")
 
-	urlFormatterCmd      string         // external program that turns a bare URL into an org-mode link; disabled if empty
+	urlFormatterCmd      string         // external program that turns a bare URL into an org-mode link when editing an entry; disabled if empty
 	urlFormatterPrefixes []string       // extra bare-URL prefixes beyond http(s)://, e.g. "bit.ly/", "go/" (see WithURLFormatterPrefixes)
 	bareURLRe            *regexp.Regexp // compiled from urlFormatterPrefixes at construction time; see buildBareURLRegexp
 	editorOverride       string         // takes precedence over $EDITOR when set (see WithEditor); empty means "use $EDITOR"
+
+	// formatLinksURLFormatterCmd is the external program :format-links
+	// invokes in batch mode (see runBatchURLFormatter) — configured
+	// separately from urlFormatterCmd since a batch-capable command may
+	// differ from (or take different arguments than) whatever handles a
+	// single URL while editing. Empty means "use urlFormatterCmd for
+	// :format-links too" — see formatLinksFormatterCmd.
+	formatLinksURLFormatterCmd string
 
 	view       viewKind
 	agendaDays int // how many days ahead the agenda's "Upcoming" section covers
@@ -356,6 +364,16 @@ type Option func(*Model)
 // default).
 func WithURLFormatter(cmd string) Option {
 	return func(m *Model) { m.urlFormatterCmd = cmd }
+}
+
+// WithFormatLinksURLFormatter sets the external program :format-links
+// invokes in batch mode — called with no trailing URL argument, it's
+// expected to read URLs one per line from stdin and print the same
+// number of formatted lines to stdout (see runBatchURLFormatter). A
+// blank cmd (the default) means :format-links uses urlFormatterCmd
+// instead, same as everything else — see formatLinksFormatterCmd.
+func WithFormatLinksURLFormatter(cmd string) Option {
+	return func(m *Model) { m.formatLinksURLFormatterCmd = cmd }
 }
 
 // WithURLFormatterPrefixes adds extra bare-URL prefixes formatURLs
@@ -746,6 +764,14 @@ func (m *Model) appendConfigRows() {
 		prefixes = strings.Join(m.urlFormatterPrefixes, ", ")
 	}
 	line("URL formatter prefixes: %s", prefixes)
+
+	if formatLinksCmd := m.formatLinksFormatterCmd(); formatLinksCmd == "" {
+		line("Format-links URL formatter: (disabled)")
+	} else if m.formatLinksURLFormatterCmd != "" {
+		line("Format-links URL formatter: %s", formatLinksCmd)
+	} else {
+		line("Format-links URL formatter: %s (same as URL formatter)", formatLinksCmd)
+	}
 
 	line("Agenda window: %d days", m.agendaDays)
 	line("Inbox file: %s", m.inboxFile)
@@ -3414,17 +3440,31 @@ type formatLinksMsg struct {
 	err       error
 }
 
+// formatLinksFormatterCmd returns the external program :format-links
+// should invoke in batch mode: formatLinksURLFormatterCmd if set (see
+// WithFormatLinksURLFormatter), else urlFormatterCmd — the same command
+// used for live in-editor formatting, so configuring only url_formatter
+// (as before this option existed) still works for :format-links too.
+func (m *Model) formatLinksFormatterCmd() string {
+	if m.formatLinksURLFormatterCmd != "" {
+		return m.formatLinksURLFormatterCmd
+	}
+	return m.urlFormatterCmd
+}
+
 // startFormatLinks (":format-links") locks every entry with an
 // unformatted bare URL (see collectFormatLinksTargets) — immediately,
 // on the main goroutine, before this Cmd even runs — then hands all of
-// their URLs to urlFormatterCmd in one external process, running in the
-// background so the rest of the app stays fully usable while it's in
-// flight (unlike the synchronous, foreground formatting a single `i`
-// edit does). Locked entries show a gutter marker (see lockColumn) and
-// refuse any command that would change them (see refuseIfImmutable/
-// filterImmutable) until finishFormatLinks unlocks them.
+// their URLs to formatLinksFormatterCmd in one external process, running
+// in the background so the rest of the app stays fully usable while
+// it's in flight (unlike the synchronous, foreground formatting a
+// single `i` edit does). Locked entries show a gutter marker (see
+// lockColumn) and refuse any command that would change them (see
+// refuseIfImmutable/filterImmutable) until finishFormatLinks unlocks
+// them.
 func (m *Model) startFormatLinks() tea.Cmd {
-	if m.urlFormatterCmd == "" {
+	formatterCmd := m.formatLinksFormatterCmd()
+	if formatterCmd == "" {
 		m.message = "No URL formatter configured (see :config)"
 		return nil
 	}
@@ -3438,9 +3478,8 @@ func (m *Model) startFormatLinks() tea.Cmd {
 	}
 	m.message = fmt.Sprintf("Formatting links for %d entries in the background...", len(targets))
 
-	urlFormatterCmd := m.urlFormatterCmd
 	return func() tea.Msg {
-		formatted, err := runBatchURLFormatter(urlFormatterCmd, urls)
+		formatted, err := runBatchURLFormatter(formatterCmd, urls)
 		return formatLinksMsg{targets: targets, formatted: formatted, err: err}
 	}
 }

@@ -12,14 +12,15 @@ import (
 // after merging command-line flags, $ORGTD_DIR, the config file, and
 // built-in defaults per resolveSettings' precedence rules.
 type settings struct {
-	dir                  string
-	urlFormatter         string
-	urlFormatterPrefixes []string
-	agendaDays           int
-	inboxFile            string
-	hideDoneAfterHours   int
-	editor               string
-	debug                bool
+	dir                     string
+	urlFormatter            string
+	urlFormatterPrefixes    []string
+	formatLinksURLFormatter string
+	agendaDays              int
+	inboxFile               string
+	hideDoneAfterHours      int
+	editor                  string
+	debug                   bool
 }
 
 // flagValues is the raw output of flag parsing: each flag's value
@@ -31,6 +32,7 @@ type settings struct {
 // unset-and-still-zero one falls through to the config file).
 type flagValues struct {
 	dir, urlFormatter, inboxFile, editor string
+	formatLinksURLFormatter              string
 	urlFormatterPrefixes                 []string
 	agendaDays                           int
 	hideDoneAfterHours                   int
@@ -51,14 +53,15 @@ type flagValues struct {
 //     (disabled/14/"inbox.org"/"", meaning $EDITOR) for everything else.
 func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) settings {
 	s := settings{
-		dir:                  f.dir,
-		urlFormatter:         f.urlFormatter,
-		urlFormatterPrefixes: f.urlFormatterPrefixes,
-		agendaDays:           f.agendaDays,
-		inboxFile:            f.inboxFile,
-		hideDoneAfterHours:   f.hideDoneAfterHours,
-		editor:               f.editor,
-		debug:                f.debug,
+		dir:                     f.dir,
+		urlFormatter:            f.urlFormatter,
+		urlFormatterPrefixes:    f.urlFormatterPrefixes,
+		formatLinksURLFormatter: f.formatLinksURLFormatter,
+		agendaDays:              f.agendaDays,
+		inboxFile:               f.inboxFile,
+		hideDoneAfterHours:      f.hideDoneAfterHours,
+		editor:                  f.editor,
+		debug:                   f.debug,
 	}
 
 	switch {
@@ -76,6 +79,9 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 	}
 	if !f.explicit["url-formatter-prefixes"] && len(cfg.URLFormatterPrefixes) > 0 {
 		s.urlFormatterPrefixes = cfg.URLFormatterPrefixes
+	}
+	if !f.explicit["format-links-url-formatter"] && cfg.FormatLinksURLFormatter != "" {
+		s.formatLinksURLFormatter = cfg.FormatLinksURLFormatter
 	}
 	if !f.explicit["agenda-days"] && cfg.AgendaWindowDays != 0 {
 		s.agendaDays = cfg.AgendaWindowDays

@@ -21,6 +21,7 @@ func main() {
 	dir := flag.String("dir", "", "directory containing org files (default: $ORGTD_DIR, then the config file's org_dir, then ~/org)")
 	urlFormatter := flag.String("url-formatter", "", "external program invoked as `<prog> <url>` to convert a bare URL, found while editing an entry, into an org-mode link (its stdout replaces the URL); disabled if empty (default: the config file's url_formatter, else disabled)")
 	urlFormatterPrefixes := flag.String("url-formatter-prefixes", "", "comma-separated extra bare-URL prefixes beyond http:// and https://, e.g. \"bit.ly/,go/\" (default: the config file's url_formatter_prefixes, else none)")
+	formatLinksURLFormatter := flag.String("format-links-url-formatter", "", "external program :format-links invokes in batch mode (no url argument; reads urls one per line from stdin, prints the same number of formatted lines to stdout) (default: the config file's format_links_url_formatter, else the same as -url-formatter)")
 	agendaDays := flag.Int("agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
 	inboxFile := flag.String("inbox-file", "", "base name of the file :clarify treats as the inbox (default: the config file's inbox_file, else inbox.org)")
 	hideDoneAfterHours := flag.Int("hide-done-after-hours", 0, "how many hours after a DONE/CANCELLED item's CLOSED timestamp it's hidden from the outline view; :toggledone shows everything again (default: the config file's hide_done_after_hours, else 24)")
@@ -43,15 +44,16 @@ func main() {
 	}
 
 	s := resolveSettings(flagValues{
-		dir:                  *dir,
-		urlFormatter:         *urlFormatter,
-		urlFormatterPrefixes: splitPrefixes(*urlFormatterPrefixes),
-		agendaDays:           *agendaDays,
-		inboxFile:            *inboxFile,
-		hideDoneAfterHours:   *hideDoneAfterHours,
-		editor:               *editor,
-		debug:                *debug,
-		explicit:             explicit,
+		dir:                     *dir,
+		urlFormatter:            *urlFormatter,
+		urlFormatterPrefixes:    splitPrefixes(*urlFormatterPrefixes),
+		formatLinksURLFormatter: *formatLinksURLFormatter,
+		agendaDays:              *agendaDays,
+		inboxFile:               *inboxFile,
+		hideDoneAfterHours:      *hideDoneAfterHours,
+		editor:                  *editor,
+		debug:                   *debug,
+		explicit:                explicit,
 	}, os.Getenv("ORGTD_DIR"), cfg)
 
 	// The TUI owns the terminal once it starts, so plain log output
@@ -69,8 +71,8 @@ func main() {
 		} else {
 			log.SetOutput(io.Discard)
 		}
-		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v agenda_days=%d inbox_file=%q hide_done_after_hours=%d",
-			s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.agendaDays, s.inboxFile, s.hideDoneAfterHours)
+		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q hide_done_after_hours=%d",
+			s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.formatLinksURLFormatter, s.agendaDays, s.inboxFile, s.hideDoneAfterHours)
 	} else {
 		log.SetOutput(io.Discard)
 	}
@@ -85,6 +87,7 @@ func main() {
 		ui.New(ws,
 			ui.WithURLFormatter(s.urlFormatter),
 			ui.WithURLFormatterPrefixes(s.urlFormatterPrefixes),
+			ui.WithFormatLinksURLFormatter(s.formatLinksURLFormatter),
 			ui.WithAgendaDays(s.agendaDays),
 			ui.WithInboxFile(s.inboxFile),
 			ui.WithHideDoneAfterHours(s.hideDoneAfterHours),
