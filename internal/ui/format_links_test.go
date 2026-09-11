@@ -141,6 +141,33 @@ func TestImmutableEntryGutterShowsLockIndicator(t *testing.T) {
 	}
 }
 
+func TestImmutableEntryRendersFaint(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
+	m := New(ws, WithURLFormatter("fake"))
+	m.width = 60
+
+	lockedIdx := findRow(t, m, "First")
+	unlockedIdx := findRow(t, m, "Second")
+
+	before := m.renderRow(m.rows[lockedIdx])
+	if strings.Contains(before, "\x1b[2") {
+		t.Fatalf("row should not already render faint before locking: %q", before)
+	}
+
+	h := findHeadlineByTitle(t, m, "First")
+	m.immutable[h] = true
+
+	locked := m.renderRow(m.rows[lockedIdx])
+	unlocked := m.renderRow(m.rows[unlockedIdx])
+
+	if !strings.Contains(locked, "\x1b[2") {
+		t.Errorf("locked row should render with the faint (dim) SGR attribute: %q", locked)
+	}
+	if strings.Contains(unlocked, "\x1b[2") {
+		t.Errorf("unlocked row should not render faint: %q", unlocked)
+	}
+}
+
 func TestImmutableEntryRefusesDelete(t *testing.T) {
 	ws := agendaFixture(t, "* TODO url https://example.com/a\n* TODO other\n")
 	m := New(ws, WithURLFormatter("fake"))

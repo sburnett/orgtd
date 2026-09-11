@@ -200,7 +200,7 @@ ambiguous.
 | `:agenda` / `:clarify` / `:outline` / `:config` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
-| `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `url_formatter` in the background (see `--url-formatter`, above). Affected entries lock (shown with a `◆` in the gutter) — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
+| `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `url_formatter` in the background (see `--url-formatter`, above). Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |

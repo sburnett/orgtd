@@ -4254,6 +4254,19 @@ func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	return bgSpan(bg, " ")
 }
 
+// fadeIfImmutable applies a faint (dim) rendering attribute to style
+// when h is locked by :format-links, on top of whatever foreground
+// color style already carries — so a locked entry's keyword, title,
+// tags, and timestamp all wash out together, distinguishing it at a
+// glance from an ordinary row, without needing a special case for every
+// possible keyword color. Unchanged otherwise.
+func (m Model) fadeIfImmutable(style lipgloss.Style, h *org.Headline) lipgloss.Style {
+	if m.immutable[h] {
+		return style.Faint(true)
+	}
+	return style
+}
+
 // renderRow renders r with no highlight — the ordinary case, used for
 // every row except the one under the cursor. See renderRowWithBg.
 func (m Model) renderRow(r row) string {
@@ -4305,11 +4318,11 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
-		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, tagStyle.Background(bg))
+		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
 
 	if ts := planningSummary(h); ts != "" {
-		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(ts)
+		line += bgSpan(bg, "  ") + m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(ts)
 	}
 
 	return line
@@ -4329,16 +4342,19 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 		if !ok {
 			style = lipgloss.NewStyle()
 		}
+		style = m.fadeIfImmutable(style, h)
 		parts = append(parts, highlightMatches(h.Keyword, query, style.Background(bg)))
 	}
 	if h.Priority != "" {
-		parts = append(parts, highlightMatches(fmt.Sprintf("[#%s]", h.Priority), query, lipgloss.NewStyle().Background(bg)))
+		style := m.fadeIfImmutable(lipgloss.NewStyle(), h)
+		parts = append(parts, highlightMatches(fmt.Sprintf("[#%s]", h.Priority), query, style.Background(bg)))
 	}
 
-	base := lipgloss.NewStyle().Background(bg)
+	base := lipgloss.NewStyle()
 	if org.IsDoneKeyword(h.Keyword) {
-		base = doneTitleStyle.Background(bg)
+		base = doneTitleStyle
 	}
+	base = m.fadeIfImmutable(base, h).Background(bg)
 	parts = append(parts, renderTitleForDisplay(h.Title, base, query))
 	return parts
 }
@@ -4352,13 +4368,14 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
-		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), tagStyle.Background(bg))
+		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
 
 	fileName := ""
 	if f := m.fileForHeadline(h); f != nil {
 		fileName = filepath.Base(f.Path)
 	}
+	timestamp := m.fadeIfImmutable(timestampStyle, h).Background(bg)
 	if r.agendaLabel != "" {
 		label := r.agendaLabel
 		if r.agendaMissed > 0 {
@@ -4368,10 +4385,10 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 		if r.agendaRepeater != "" {
 			date += " " + r.agendaRepeater
 		}
-		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(fmt.Sprintf("[%s]  %s: %s", fileName, label, date))
+		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", fileName, label, date))
 	} else {
 		// A Next Actions entry: no date to show, just which file it's in.
-		line += bgSpan(bg, "  ") + timestampStyle.Background(bg).Render(fmt.Sprintf("[%s]", fileName))
+		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", fileName))
 	}
 
 	return line
@@ -4385,7 +4402,8 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := strings.Repeat("  ", r.level)
 	blanks := bgSpan(bg, "    "+indent+"  ") // mark + lock + gutter + space, then indent, then fold + space
-	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), bodyStyle.Background(bg))
+	style := m.fadeIfImmutable(bodyStyle, r.headline).Background(bg)
+	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), style)
 }
 
 // renderStatusSelector renders the R status picker's single status-line
