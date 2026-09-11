@@ -346,6 +346,9 @@ type Model struct {
 	hideDoneEnabled    bool // whether hideDoneAfterHours filtering is active; off by default (see New), toggled by :toggledone, turned on at startup by WithHideDoneAfterHours
 
 	debug bool // whether main.go turned on debug logging (see WithDebug); the Model itself never logs anything based on this — it's only carried here so :config can report it
+
+	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
+	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
 }
 
 // viewKind selects what rebuildRows populates m.rows with.
@@ -357,6 +360,7 @@ const (
 	clarifyView
 	configView
 	logView
+	diffView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -483,6 +487,8 @@ func (m *Model) rebuildRows() {
 		m.appendConfigRows()
 	case logView:
 		m.appendLogRows()
+	case diffView:
+		m.appendDiffRows()
 	default:
 		for _, f := range m.ws.Files {
 			m.rows = append(m.rows, row{file: f})
@@ -807,6 +813,75 @@ func (m *Model) appendLogRows() {
 	for _, e := range entries {
 		m.rows = append(m.rows, row{text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.time.Format("15:04:05.000"), e.kind.label(), pidLabel(e.pid), e.text)})
 	}
+}
+
+// appendDiffRows populates m.rows for :diff: the working-tree diff (see
+// showDiff/runGitDiff) for every file currently open in the outline, one
+// row per line, verbatim (like :log's output lines, no further parsing
+// or styling) — or a placeholder if there's nothing to show, no files
+// are open, or the last attempt failed (e.g. the org directory isn't
+// inside a git repository at all).
+func (m *Model) appendDiffRows() {
+	if m.diffErr != "" {
+		m.rows = append(m.rows, row{text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
+		return
+	}
+	if len(m.ws.Files) == 0 {
+		m.rows = append(m.rows, row{text: "No files open in the outline."})
+		return
+	}
+	if strings.TrimSpace(m.diffOutput) == "" {
+		m.rows = append(m.rows, row{text: "No changes."})
+		return
+	}
+	for _, line := range strings.Split(m.diffOutput, "\n") {
+		m.rows = append(m.rows, row{text: line})
+	}
+}
+
+// showDiff (":diff") runs `git diff` for every file currently open in
+// the outline and switches to diff view to show the result. Run
+// synchronously — unlike :format-links' potentially slow, arbitrary
+// external formatter, `git diff` on a handful of local org files is
+// fast, so there's no need for the async tea.Cmd/Msg dance that keeps
+// the app responsive during a longer-running command.
+func (m *Model) showDiff() {
+	m.diffOutput, m.diffErr = "", ""
+	if len(m.ws.Files) > 0 {
+		out, err := m.runGitDiff()
+		if err != nil {
+			m.diffErr = gitDiffErrorText(err)
+		} else {
+			m.diffOutput = out
+		}
+	}
+	m.switchToView(diffView)
+}
+
+// runGitDiff runs `git diff` scoped to every file currently open in the
+// outline (m.ws.Files), with git itself pointed at the workspace
+// directory (via -C, rather than relying on orgtd's own working
+// directory) so a repository rooted there or above is found either way.
+// Logged like any other external command — see runLoggedCommand.
+func (m *Model) runGitDiff() (string, error) {
+	args := []string{"-C", m.ws.Dir, "diff", "--"}
+	for _, f := range m.ws.Files {
+		args = append(args, f.Path)
+	}
+	return runLoggedCommand(m.execLog, "git", args, "")
+}
+
+// gitDiffErrorText extracts the most useful message from a failed
+// runGitDiff call: git's own stderr (e.g. "fatal: not a git
+// repository...") when there is one, else the raw error (e.g. "git" not
+// being installed at all).
+func gitDiffErrorText(err error) string {
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
+			return msg
+		}
+	}
+	return err.Error()
 }
 
 // onOff renders b as "on"/"off", for a status line reporting a toggle's
@@ -1790,7 +1865,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "config", "capture",
-	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log",
+	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -1927,6 +2002,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "log":
 		m.switchToView(logView)
+
+	case "diff":
+		m.showDiff()
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
@@ -4306,6 +4384,8 @@ func (m *Model) normalStatusLines() []string {
 		place = "config"
 	case logView:
 		place = "log"
+	case diffView:
+		place = "diff"
 	}
 	main := fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 	h := m.currentHeadline()

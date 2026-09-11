@@ -123,6 +123,14 @@ logging is on.
   invocation. Doesn't live-update — re-run `:log` to see anything logged
   since it was last opened.
   `:outline` returns to the outline.
+- **Diff** (`:diff`) — the raw `git diff` output for every file
+  currently open in the outline, run fresh each time against whatever
+  git repository contains the org directory (git itself resolves the
+  repo root, so it doesn't need to be the org directory's own top
+  level). Shows a placeholder if there are no changes, no files open,
+  or the org directory isn't inside a git repository at all (the
+  underlying error is shown instead). Also recorded in `:log`, like any
+  other external command. `:outline` returns to the outline.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
@@ -214,7 +222,7 @@ ambiguous.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` | Switch views |
+| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
