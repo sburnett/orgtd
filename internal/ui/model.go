@@ -46,7 +46,7 @@ var (
 	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	shortcutStyle  = lipgloss.NewStyle().Bold(true)
 	pinMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
-	lockedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+	lockedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
 	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("245"))
 
 	// overlayBg is the subtle background tint for the pinned header
@@ -4242,12 +4242,14 @@ func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 
 // lockColumn is a headline row's :format-links gutter column — a column
 // of its own (see gutter, markColumn), so it shows up alongside the
-// dirty marker and any mark/clarify pin rather than hiding them. "L"
-// while h is locked (see m.immutable), blank otherwise. bg is the
+// dirty marker and any mark/clarify pin rather than hiding them. "◆"
+// (U+25C6 BLACK DIAMOND — plain single-width Unicode, same block as the
+// "●" mark/clarify glyph, so it renders reliably anywhere that already
+// does) while h is locked (see m.immutable), blank otherwise. bg is the
 // background it's rendered with (see gutter).
 func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	if m.immutable[h] {
-		return lockedStyle.Background(bg).Render("L")
+		return lockedStyle.Background(bg).Render("◆")
 	}
 	return bgSpan(bg, " ")
 }

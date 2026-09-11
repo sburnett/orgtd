@@ -136,8 +136,8 @@ func TestImmutableEntryGutterShowsLockIndicator(t *testing.T) {
 
 	idx := findRow(t, m, "url https://example.com/a")
 	line := stripANSI(m.renderRow(m.rows[idx]))
-	if !strings.Contains(line, "L") {
-		t.Errorf("locked row = %q, want the L lock indicator", line)
+	if !strings.Contains(line, "◆") {
+		t.Errorf("locked row = %q, want the ◆ lock indicator", line)
 	}
 }
 
