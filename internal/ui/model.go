@@ -3132,9 +3132,21 @@ func isBlankHeadlineTitle(title string) bool {
 // orgLinkRe matches an existing org-mode link, "[[url]]" or
 // "[[url][description]]" — group 1 is the url, group 2 the description
 // (absent for the no-description form). Used both to make formatURLs
-// leave existing links alone, and to render a link's display text (the
-// description if present, else the url) in the row list.
-var orgLinkRe = regexp.MustCompile(`\[\[([^\]\[]+)\](?:\[([^\]\[]*)\])?\]`)
+// (and :format-links) leave existing links alone, and to render a
+// link's display text (the description if present, else the url) in
+// the row list.
+//
+// The description is matched non-greedily against *any* character, up
+// to the nearest following "]]" — deliberately not excluding "[" and
+// "]" the way the url group does, matching real org-mode's own lenient
+// link grammar (it finds the closest "]]", rather than forbidding
+// brackets in a description outright). Without this, a formatter output
+// like "[[https://example.com][Some [bracketed] title]]" — a
+// perfectly valid org-mode link — would fail to match here at all: the
+// url inside it would then still look "bare" on the next :format-links
+// or in-editor pass, sending it through the formatter again and
+// double-wrapping it.
+var orgLinkRe = regexp.MustCompile(`\[\[([^\]\[]+)\](?:\[(.*?)\])?\]`)
 
 // defaultURLSchemes are always recognized as bare-URL prefixes,
 // independent of whatever extra prefixes the user configures (see

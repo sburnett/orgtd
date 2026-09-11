@@ -84,6 +84,57 @@ func TestRowRenderingUsesDisplayTextForLinks(t *testing.T) {
 	}
 }
 
+// TestOrgLinkReMatchesDescriptionContainingBrackets guards a real bug: a
+// description with a literal bracket in it (e.g. a formatter's output
+// for a page titled "Bracket [disambiguation]") is perfectly valid
+// org-mode link syntax — org-mode itself just looks for the nearest
+// following "]]", it doesn't forbid brackets in the description. Our
+// own orgLinkRe used to exclude them outright, so a link like this
+// never matched at all, leaving its url looking "bare" on every
+// subsequent scan and sending it through the formatter again.
+func TestOrgLinkReMatchesDescriptionContainingBrackets(t *testing.T) {
+	title := "See [[https://example.com][Bracket [disambiguation] page]] for context"
+	matches := orgLinkRe.FindAllStringSubmatch(title, -1)
+	if len(matches) != 1 {
+		t.Fatalf("matches = %#v, want exactly 1", matches)
+	}
+	if url := matches[0][1]; url != "https://example.com" {
+		t.Errorf("url = %q, want https://example.com", url)
+	}
+	if desc := matches[0][2]; desc != "Bracket [disambiguation] page" {
+		t.Errorf("description = %q, want %q", desc, "Bracket [disambiguation] page")
+	}
+}
+
+// TestOrgLinkReStopsAtNearestClosingBracketsAcrossMultipleLinks guards
+// against the opposite failure mode: the now-permissive, non-greedy
+// description shouldn't swallow past its own link's "]]" into whatever
+// follows, even when a second link comes right after.
+func TestOrgLinkReStopsAtNearestClosingBracketsAcrossMultipleLinks(t *testing.T) {
+	title := "[[https://a.example.com][A [bracketed] note]] and [[https://b.example.com][B]]"
+	matches := orgLinkRe.FindAllStringSubmatch(title, -1)
+	if len(matches) != 2 {
+		t.Fatalf("matches = %#v, want exactly 2", matches)
+	}
+	if got := matches[0][2]; got != "A [bracketed] note" {
+		t.Errorf("first description = %q, want %q", got, "A [bracketed] note")
+	}
+	if got := matches[1][1]; got != "https://b.example.com" {
+		t.Errorf("second url = %q, want https://b.example.com", got)
+	}
+	if got := matches[1][2]; got != "B" {
+		t.Errorf("second description = %q, want %q", got, "B")
+	}
+}
+
+func TestRenderTitleForDisplayHandlesBracketedDescription(t *testing.T) {
+	got := renderTitleForDisplay("See [[https://example.com][Bracket [disambiguation] page]] now", lipgloss.NewStyle(), "")
+	plain := stripANSI(got)
+	if plain != "See Bracket [disambiguation] page now" {
+		t.Errorf("plain text = %q, want %q", plain, "See Bracket [disambiguation] page now")
+	}
+}
+
 func TestLinksInTitleExtractsURLs(t *testing.T) {
 	got := linksInTitle("Compare [[https://a.example.com][A]] and [[https://b.example.com]]")
 	want := []string{"https://a.example.com", "https://b.example.com"}

@@ -37,6 +37,24 @@ func TestCollectFormatLinksTargetsFindsBareURLsAndSkipsFormattedOnes(t *testing.
 	}
 }
 
+// TestCollectFormatLinksTargetsSkipsLinkWithBracketedDescription guards
+// the actual bug report: a link whose description contains a bracket
+// (e.g. a formatter's own earlier output for a page titled "Bracket
+// [disambiguation]") is valid org-mode syntax, but used to fail our own
+// orgLinkRe match entirely — so :format-links would treat its url as
+// still bare and re-run it through the formatter every time, expanding
+// it again on top of itself.
+func TestCollectFormatLinksTargetsSkipsLinkWithBracketedDescription(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Already linked [[https://example.com/a][Bracket [disambiguation] title]]\n")
+	m := New(ws, WithURLFormatter("fake"))
+
+	targets, urls := m.collectFormatLinksTargets()
+
+	if len(targets) != 0 || len(urls) != 0 {
+		t.Errorf("targets = %v, urls = %v, want none (the url is already inside a valid link)", targets, urls)
+	}
+}
+
 func TestCollectFormatLinksTargetsScansBodyLinesToo(t *testing.T) {
 	ws := agendaFixture(t, "* TODO No url in the title\n  A body line with https://example.com/b in it.\n")
 	m := New(ws, WithURLFormatter("fake"))

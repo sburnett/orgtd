@@ -250,6 +250,27 @@ func TestFormatURLsLeavesExistingLinkWithDescriptionAlone(t *testing.T) {
 	}
 }
 
+// TestFormatURLsLeavesLinkWithBracketedDescriptionAlone is the actual
+// bug report: a link whose description contains a bracket (e.g. a page
+// titled "Bracket [disambiguation]") is valid org-mode syntax, but used
+// to fail our own orgLinkRe match entirely, leaving its url looking
+// bare — sending it through the formatter again and double-wrapping it
+// (e.g. "[[url][[[url][Formatted]]]]") on every subsequent pass.
+func TestFormatURLsLeavesLinkWithBracketedDescriptionAlone(t *testing.T) {
+	calls := filepath.Join(t.TempDir(), "calls.log")
+	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo called >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}
+	text := "Already a link: [[https://example.com/page][Bracket [disambiguation] title]]"
+
+	got := m.formatURLs(text)
+
+	if got != text {
+		t.Errorf("formatURLs modified a link with a bracketed description:\n%s", got)
+	}
+	if data, err := os.ReadFile(calls); err == nil && len(data) > 0 {
+		t.Errorf("formatter was invoked on a url already inside a link: %s", data)
+	}
+}
+
 func TestFormatURLsLeavesBareLinkWithoutDescriptionAlone(t *testing.T) {
 	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}
 	text := "See [[https://example.com/page]] for details."
