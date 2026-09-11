@@ -37,18 +37,35 @@ func (k execLogKind) label() string {
 }
 
 // execLogEntry is one line of :log output: something that happened at
-// time, tagged kind.
+// time, tagged kind. pid is 0 if the process never actually started
+// (e.g. an execLogExit entry recording a failure to even launch it) —
+// see pidLabel for how that's distinguished from a real, if unlikely,
+// pid of 0 in the rendered view.
 type execLogEntry struct {
 	time time.Time
 	kind execLogKind
+	pid  int
 	text string
 }
 
+// pidLabel renders pid for display: "-" for 0 (no process ever
+// started), the number otherwise.
+func pidLabel(pid int) string {
+	if pid == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", pid)
+}
+
 // execLog collects every external command orgtd has run since startup —
-// a start entry (the resolved command line), one entry per line of
+// a start entry (its pid and full argument list), one entry per line of
 // stdout/stderr as it's produced (each independently timestamped, not
 // all at once when the command finishes), and an exit entry with the
-// resulting exit code — for the :log command (see appendLogRows).
+// resulting exit code — for the :log command (see appendLogRows). Every
+// entry but a "failed to even start" exit carries the pid of the
+// process it came from, so entries from two commands that happen to run
+// concurrently (e.g. a :format-links batch alongside a live in-editor
+// formatter invocation) can still be told apart in the merged timeline.
 //
 // A *execLog is shared, via its pointer, across every copy of Model
 // (see New) — Model itself is copied on every Update, but the log
@@ -65,13 +82,13 @@ type execLog struct {
 // literal (as plenty of tests, and formerly all of them, do) rather
 // than through New() has no log to append to; logging is simply
 // disabled for it, the same way m.bareURLRe tolerates being unbuilt.
-func (l *execLog) append(kind execLogKind, text string) {
+func (l *execLog) append(kind execLogKind, pid int, text string) {
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.entries = append(l.entries, execLogEntry{time: time.Now(), kind: kind, text: text})
+	l.entries = append(l.entries, execLogEntry{time: time.Now(), kind: kind, pid: pid, text: text})
 }
 
 // snapshot returns a copy of every entry recorded so far, for :log to
@@ -113,42 +130,46 @@ func exitCodeFromError(err error) int {
 const maxLoggedLineSize = 1 << 20
 
 // runLoggedCommand starts name (with args), records it in elog — a
-// start entry, every stdout/stderr line as it's produced (each with its
-// own timestamp), and an exit entry — and returns once it exits:
-// combined stdout (trimmed of its own trailing newline) and an error in
-// exactly the shape exec.Cmd.Output() itself would produce (including
-// an *exec.ExitError with Stderr populated on a non-zero exit), so
-// callers built around that convention don't need to change. stdin, if
+// start entry (once actually running, so its pid is known and real —
+// see logStartFailure for the alternative when it never gets that far),
+// every stdout/stderr line as it's produced (each with its own
+// timestamp), and an exit entry — and returns once it exits: combined
+// stdout (trimmed of its own trailing newline) and an error in exactly
+// the shape exec.Cmd.Output() itself would produce (including an
+// *exec.ExitError with Stderr populated on a non-zero exit), so callers
+// built around that convention don't need to change. stdin, if
 // non-empty, is written to the child's stdin and then closed; empty
 // means the child gets no stdin at all (its stdin is simply closed
 // immediately, same as exec.Cmd's own zero-value Stdin).
 func runLoggedCommand(elog *execLog, name string, args []string, stdin string) (string, error) {
 	cmd := exec.Command(name, args...)
-	elog.append(execLogStart, strings.Join(append([]string{name}, args...), " "))
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		elog.append(execLogExit, fmt.Sprintf("failed to start: %v", err))
+		logStartFailure(elog, name, args, err)
 		return "", err
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		elog.append(execLogExit, fmt.Sprintf("failed to start: %v", err))
+		logStartFailure(elog, name, args, err)
 		return "", err
 	}
 	var stdinPipe io.WriteCloser
 	if stdin != "" {
 		stdinPipe, err = cmd.StdinPipe()
 		if err != nil {
-			elog.append(execLogExit, fmt.Sprintf("failed to start: %v", err))
+			logStartFailure(elog, name, args, err)
 			return "", err
 		}
 	}
 
 	if err := cmd.Start(); err != nil {
-		elog.append(execLogExit, fmt.Sprintf("failed to start: %v", err))
+		logStartFailure(elog, name, args, err)
 		return "", err
 	}
+
+	pid := cmd.Process.Pid
+	elog.append(execLogStart, pid, strings.Join(append([]string{name}, args...), " "))
 
 	if stdinPipe != nil {
 		go func() {
@@ -160,12 +181,12 @@ func runLoggedCommand(elog *execLog, name string, args []string, stdin string) (
 	var stdoutBuf, stderrBuf strings.Builder
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go scanIntoLog(stdoutPipe, elog, execLogStdout, &stdoutBuf, &wg)
-	go scanIntoLog(stderrPipe, elog, execLogStderr, &stderrBuf, &wg)
+	go scanIntoLog(stdoutPipe, elog, execLogStdout, pid, &stdoutBuf, &wg)
+	go scanIntoLog(stderrPipe, elog, execLogStderr, pid, &stderrBuf, &wg)
 	wg.Wait() // must finish reading before Wait(), per exec.Cmd's own doc comment
 
 	waitErr := cmd.Wait()
-	elog.append(execLogExit, fmt.Sprintf("exit code %d", exitCodeFromError(waitErr)))
+	elog.append(execLogExit, pid, fmt.Sprintf("exit code %d", exitCodeFromError(waitErr)))
 
 	stdout := strings.TrimRight(stdoutBuf.String(), "\n")
 	if waitErr != nil {
@@ -178,12 +199,21 @@ func runLoggedCommand(elog *execLog, name string, args []string, stdin string) (
 	return stdout, nil
 }
 
+// logStartFailure records a command that never actually started (pipe
+// setup or Start() itself failed) as a single exit entry — pid 0, since
+// none was ever assigned — naming what was being attempted (including
+// its arguments) alongside why. There's deliberately no separate start
+// entry in this case: a "start" that never happened isn't one.
+func logStartFailure(elog *execLog, name string, args []string, err error) {
+	elog.append(execLogExit, 0, fmt.Sprintf("failed to start %s: %v", strings.Join(append([]string{name}, args...), " "), err))
+}
+
 // scanIntoLog reads r line by line, appending each (with a trailing
 // newline, reconstructing the stream for callers that want the combined
-// text) to buf, and individually — tagged kind, timestamped — to elog.
-// One of the two goroutines runLoggedCommand starts per child process,
-// one for stdout and one for stderr.
-func scanIntoLog(r io.Reader, elog *execLog, kind execLogKind, buf *strings.Builder, wg *sync.WaitGroup) {
+// text) to buf, and individually — tagged kind, timestamped, with pid —
+// to elog. One of the two goroutines runLoggedCommand starts per child
+// process, one for stdout and one for stderr.
+func scanIntoLog(r io.Reader, elog *execLog, kind execLogKind, pid int, buf *strings.Builder, wg *sync.WaitGroup) {
 	defer wg.Done()
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLoggedLineSize)
@@ -191,6 +221,26 @@ func scanIntoLog(r io.Reader, elog *execLog, kind execLogKind, buf *strings.Buil
 		line := scanner.Text()
 		buf.WriteString(line)
 		buf.WriteByte('\n')
-		elog.append(kind, line)
+		elog.append(kind, pid, line)
 	}
+}
+
+// logCompletedProcess records an already-finished process in elog — a
+// start entry (its pid and full argument list) if it actually started,
+// then an exit entry either way (pid 0, and err's own message standing
+// in for a real exit code, if it never did). Used for $EDITOR
+// invocations (see launchEditor/startEditFile): tea.ExecProcess gives no
+// hook for "the process just started", only a callback once it's
+// finished, so unlike runLoggedCommand's own live start entry, both of
+// these are necessarily logged together, after the fact — cmd.Process
+// (populated by Start(), called internally by tea.ExecProcess on the
+// very *exec.Cmd passed to it) is the only place the real pid comes
+// from, and it's only readable once we're back here.
+func logCompletedProcess(elog *execLog, cmd *exec.Cmd, err error) {
+	pid := 0
+	if cmd != nil && cmd.Process != nil {
+		pid = cmd.Process.Pid
+		elog.append(execLogStart, pid, strings.Join(cmd.Args, " "))
+	}
+	elog.append(execLogExit, pid, fmt.Sprintf("exit code %d", exitCodeFromError(err)))
 }

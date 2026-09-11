@@ -8,7 +8,7 @@ import (
 
 func TestExecLogNilSafe(t *testing.T) {
 	var l *execLog
-	l.append(execLogStart, "should not panic")
+	l.append(execLogStart, 123, "should not panic")
 	if got := l.snapshot(); got != nil {
 		t.Errorf("snapshot() on a nil *execLog = %v, want nil", got)
 	}
@@ -16,10 +16,10 @@ func TestExecLogNilSafe(t *testing.T) {
 
 func TestExecLogAppendAndSnapshot(t *testing.T) {
 	l := &execLog{}
-	l.append(execLogStart, "running foo")
-	l.append(execLogStdout, "line one")
-	l.append(execLogStderr, "a warning")
-	l.append(execLogExit, "exit code 0")
+	l.append(execLogStart, 111, "running foo")
+	l.append(execLogStdout, 111, "line one")
+	l.append(execLogStderr, 111, "a warning")
+	l.append(execLogExit, 111, "exit code 0")
 
 	got := l.snapshot()
 	if len(got) != 4 {
@@ -34,6 +34,9 @@ func TestExecLogAppendAndSnapshot(t *testing.T) {
 		if got[i].text != wantText[i] {
 			t.Errorf("entry %d text = %q, want %q", i, got[i].text, wantText[i])
 		}
+		if got[i].pid != 111 {
+			t.Errorf("entry %d pid = %d, want 111", i, got[i].pid)
+		}
 		if got[i].time.IsZero() {
 			t.Errorf("entry %d has a zero timestamp", i)
 		}
@@ -42,11 +45,20 @@ func TestExecLogAppendAndSnapshot(t *testing.T) {
 
 func TestExecLogSnapshotIsACopy(t *testing.T) {
 	l := &execLog{}
-	l.append(execLogStart, "first")
+	l.append(execLogStart, 1, "first")
 	snap := l.snapshot()
-	l.append(execLogStart, "second")
+	l.append(execLogStart, 1, "second")
 	if len(snap) != 1 {
 		t.Errorf("earlier snapshot = %#v, should not see entries appended after it was taken", snap)
+	}
+}
+
+func TestPidLabel(t *testing.T) {
+	if got := pidLabel(0); got != "-" {
+		t.Errorf("pidLabel(0) = %q, want %q (no process ever started)", got, "-")
+	}
+	if got := pidLabel(4242); got != "4242" {
+		t.Errorf("pidLabel(4242) = %q, want %q", got, "4242")
 	}
 }
 
@@ -77,7 +89,7 @@ func TestExitCodeFromErrorUnstartableProgram(t *testing.T) {
 	}
 }
 
-func TestRunLoggedCommandRecordsStartStdoutStderrAndExit(t *testing.T) {
+func TestRunLoggedCommandRecordsStartWithPidAndArgsStdoutStderrAndExit(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "out line 1"; echo "err line 1" >&2; echo "out line 2"`)
 	l := &execLog{}
 
@@ -93,8 +105,12 @@ func TestRunLoggedCommandRecordsStartStdoutStderrAndExit(t *testing.T) {
 	if len(entries) != 5 { // start, 2 stdout, 1 stderr, exit
 		t.Fatalf("entries = %#v, want 5", entries)
 	}
-	if entries[0].kind != execLogStart || !strings.Contains(entries[0].text, "arg1") {
-		t.Errorf("first entry = %#v, want a start entry mentioning the arg", entries[0])
+	start := entries[0]
+	if start.kind != execLogStart || !strings.Contains(start.text, "arg1") {
+		t.Errorf("first entry = %#v, want a start entry mentioning the arg", start)
+	}
+	if start.pid == 0 {
+		t.Errorf("start entry pid = 0, want the real (non-zero) child pid")
 	}
 	last := entries[len(entries)-1]
 	if last.kind != execLogExit || last.text != "exit code 0" {
@@ -102,6 +118,9 @@ func TestRunLoggedCommandRecordsStartStdoutStderrAndExit(t *testing.T) {
 	}
 	var sawStdout, sawStderr bool
 	for _, e := range entries[1 : len(entries)-1] {
+		if e.pid != start.pid {
+			t.Errorf("entry %#v pid does not match the start entry's pid %d", e, start.pid)
+		}
 		switch e.kind {
 		case execLogStdout:
 			sawStdout = true
@@ -116,6 +135,9 @@ func TestRunLoggedCommandRecordsStartStdoutStderrAndExit(t *testing.T) {
 	}
 	if !sawStdout || !sawStderr {
 		t.Errorf("entries = %#v, want at least one stdout and one stderr entry", entries)
+	}
+	if last.pid != start.pid {
+		t.Errorf("exit entry pid = %d, want it to match the start entry's pid %d", last.pid, start.pid)
 	}
 }
 
@@ -145,20 +167,26 @@ func TestRunLoggedCommandPopulatesExitErrorStderr(t *testing.T) {
 	}
 }
 
-func TestRunLoggedCommandOnUnstartableProgramLogsStartAndFailure(t *testing.T) {
+// TestRunLoggedCommandOnUnstartableProgramLogsOnlyAFailureExit guards a
+// deliberate asymmetry: a process that never actually starts gets no
+// start entry at all (there's no real pid, and no meaningful "started"
+// moment) — just one exit-kind entry (pid "-") naming what was
+// attempted and why it failed.
+func TestRunLoggedCommandOnUnstartableProgramLogsOnlyAFailureExit(t *testing.T) {
 	l := &execLog{}
-	_, err := runLoggedCommand(l, "/no/such/program/anywhere", nil, "")
+	_, err := runLoggedCommand(l, "/no/such/program/anywhere", []string{"arg1"}, "")
 	if err == nil {
 		t.Fatal("expected an error")
 	}
 	entries := l.snapshot()
-	if len(entries) != 2 {
-		t.Fatalf("entries = %#v, want 2 (start, exit/failure)", entries)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v, want exactly 1 (no start entry for a process that never started)", entries)
 	}
-	if entries[0].kind != execLogStart {
-		t.Errorf("first entry = %#v, want a start entry", entries[0])
+	e := entries[0]
+	if e.kind != execLogExit || e.pid != 0 {
+		t.Errorf("entry = %#v, want an exit entry with pid 0", e)
 	}
-	if entries[1].kind != execLogExit || !strings.Contains(entries[1].text, "failed to start") {
-		t.Errorf("second entry = %#v, want a failure exit entry", entries[1])
+	if !strings.Contains(e.text, "failed to start") || !strings.Contains(e.text, "arg1") {
+		t.Errorf("entry text = %q, want it to mention the failure and the attempted arguments", e.text)
 	}
 }

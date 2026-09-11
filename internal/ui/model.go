@@ -790,11 +790,14 @@ func (m *Model) appendConfigRows() {
 
 // appendLogRows populates m.rows for :log — every external command
 // orgtd has run since startup (see execLog), oldest first, each entry
-// (a command starting, one of its output lines, or its exit code)
-// stamped with its own timestamp and which stream it came from, if
-// applicable. A snapshot taken right now — if a :format-links batch (or
-// anything else) logs more while this view is already open, re-run
-// :log to see it; the view itself doesn't live-update.
+// (a command starting — with its arguments — one of its output lines,
+// or its exit code) stamped with its own timestamp, which stream it
+// came from if applicable, and the process's pid ("-" if it never
+// actually started), so entries from two commands that happened to run
+// concurrently can still be told apart. A snapshot taken right now — if
+// a :format-links batch (or anything else) logs more while this view is
+// already open, re-run :log to see it; the view itself doesn't
+// live-update.
 func (m *Model) appendLogRows() {
 	entries := m.execLog.snapshot()
 	if len(entries) == 0 {
@@ -802,7 +805,7 @@ func (m *Model) appendLogRows() {
 		return
 	}
 	for _, e := range entries {
-		m.rows = append(m.rows, row{text: fmt.Sprintf("%s  %-6s  %s", e.time.Format("15:04:05.000"), e.kind.label(), e.text)})
+		m.rows = append(m.rows, row{text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.time.Format("15:04:05.000"), e.kind.label(), pidLabel(e.pid), e.text)})
 	}
 }
 
@@ -2359,6 +2362,7 @@ type editFinishedMsg struct {
 	path   string
 	target *org.Headline
 	insert *insertContext
+	cmd    *exec.Cmd // the editor process, for logCompletedProcess (its Process field is only populated once tea.ExecProcess has actually started it)
 	err    error
 }
 
@@ -2436,6 +2440,7 @@ func (m *Model) fileHasImmutableHeadline(f *org.File) bool {
 // startEditFile has exited, for a whole-file edit ("i" on a file row).
 type fileEditFinishedMsg struct {
 	target *org.File // the file being edited, identified by its old pointer
+	cmd    *exec.Cmd // the editor process, for logCompletedProcess (its Process field is only populated once tea.ExecProcess has actually started it)
 	err    error
 }
 
@@ -2448,9 +2453,8 @@ type fileEditFinishedMsg struct {
 // there's no in-memory action to record or revert.
 func (m *Model) startEditFile(f *org.File) tea.Cmd {
 	editorCmd := buildEditorCommand(m.editorCommand(), f.Path, "", noCursorPlacement, 0)
-	m.execLog.append(execLogStart, strings.Join(editorCmd.Args, " "))
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
-		return fileEditFinishedMsg{target: f, err: err}
+		return fileEditFinishedMsg{target: f, cmd: editorCmd, err: err}
 	})
 }
 
@@ -2461,7 +2465,7 @@ func (m *Model) startEditFile(f *org.File) tea.Cmd {
 // reloaded file itself is never marked dirty: the editor already wrote
 // it, so there's nothing more to save.
 func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
-	m.execLog.append(execLogExit, fmt.Sprintf("exit code %d", exitCodeFromError(msg.err)))
+	logCompletedProcess(m.execLog, msg.cmd, msg.err)
 	if msg.err != nil {
 		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)
 		return m, nil
@@ -2737,10 +2741,9 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement edit
 
 	placement, col := resolveCursorPlacement(h, placement)
 	editorCmd := buildEditorCommand(m.editorCommand(), path, before, placement, col)
-	m.execLog.append(execLogStart, strings.Join(editorCmd.Args, " "))
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
-		return editFinishedMsg{path: path, target: h, insert: ctx, err: err}
+		return editFinishedMsg{path: path, target: h, insert: ctx, cmd: editorCmd, err: err}
 	})
 }
 
@@ -3618,7 +3621,7 @@ func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
 // leaving no trace.
 func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	defer os.Remove(msg.path)
-	m.execLog.append(execLogExit, fmt.Sprintf("exit code %d", exitCodeFromError(msg.err)))
+	logCompletedProcess(m.execLog, msg.cmd, msg.err)
 
 	if msg.err != nil {
 		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)

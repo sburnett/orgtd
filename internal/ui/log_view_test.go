@@ -20,6 +20,26 @@ func exitErrorForTest(t *testing.T, code int) error {
 	return err
 }
 
+// startedCmdForTest returns a real *exec.Cmd that has actually been
+// started (and reaped), so its Process field is populated the same way
+// tea.ExecProcess having called Start() on the editor's own *exec.Cmd
+// leaves it — for tests that construct an editFinishedMsg/
+// fileEditFinishedMsg directly (skipping tea.ExecProcess entirely,
+// which would otherwise really launch $EDITOR) but still want
+// logCompletedProcess to see a real pid, the way it would after a
+// genuine edit session.
+func startedCmdForTest(t *testing.T) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("true", "arg1", "arg2")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	return cmd
+}
+
 func TestLogCommandSwitchesToLogView(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
 	m := New(ws)
@@ -115,7 +135,7 @@ func TestLogViewIncludesBatchFormatLinksRuns(t *testing.T) {
 	}
 }
 
-func TestLogViewIncludesEditorStartAndExit(t *testing.T) {
+func TestLogViewIncludesEditorStartWithPidAndArgsAndExit(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
@@ -125,9 +145,15 @@ func TestLogViewIncludesEditorStartAndExit(t *testing.T) {
 		t.Fatal("expected a non-nil edit command")
 	}
 	// Deliberately not invoking cmd() (that would launch a real editor);
-	// launchEditor already logs the start entry synchronously, before
-	// returning the tea.ExecProcess command.
-	updated, _ := m.Update(editFinishedMsg{path: writeTempOrgFile(t, "* TODO Call the vet about Fido's checkup\n"), target: m.currentHeadline()})
+	// instead simulate tea.ExecProcess having actually started and
+	// finished one, so logCompletedProcess (called from finishEdit) sees
+	// a real, populated *exec.Cmd.
+	editorCmd := startedCmdForTest(t)
+	updated, _ := m.Update(editFinishedMsg{
+		path:   writeTempOrgFile(t, "* TODO Call the vet about Fido's checkup\n"),
+		target: m.currentHeadline(),
+		cmd:    editorCmd,
+	})
 	m = updated.(Model)
 	m.switchToView(logView)
 
@@ -135,6 +161,12 @@ func TestLogViewIncludesEditorStartAndExit(t *testing.T) {
 	for _, r := range m.rows {
 		if strings.Contains(r.text, "START") {
 			sawStart = true
+			if !strings.Contains(r.text, "arg1") || !strings.Contains(r.text, "arg2") {
+				t.Errorf("start row = %q, want it to mention the editor's arguments", r.text)
+			}
+			if !strings.Contains(r.text, pidLabel(editorCmd.Process.Pid)) {
+				t.Errorf("start row = %q, want it to mention pid %d", r.text, editorCmd.Process.Pid)
+			}
 		}
 		if strings.Contains(r.text, "EXIT") && strings.Contains(r.text, "exit code 0") {
 			sawExit = true
@@ -167,5 +199,26 @@ func TestLogViewRecordsNonZeroEditorExitCode(t *testing.T) {
 	}
 	if !sawExit7 {
 		t.Errorf("rows = %#v, want an EXIT entry with code 7", m.rows)
+	}
+}
+
+func TestLogViewNoStartEntryWhenEditorNeverStarted(t *testing.T) {
+	// err with no cmd (nil Process) simulates $EDITOR itself not being
+	// found at all — there's no real process, so no start entry, just
+	// the exit-style failure (see logCompletedProcess).
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+
+	m.startEdit()
+	updated, _ := m.Update(editFinishedMsg{path: "/does/not/matter", target: h, err: exitErrorForTest(t, 1)})
+	m = updated.(Model)
+	m.switchToView(logView)
+
+	for _, r := range m.rows {
+		if strings.Contains(r.text, "START") {
+			t.Errorf("rows = %#v, should have no START entry when the editor's *exec.Cmd was never provided", m.rows)
+		}
 	}
 }
