@@ -790,14 +790,14 @@ func (m *Model) appendConfigRows() {
 
 // appendLogRows populates m.rows for :log — every external command
 // orgtd has run since startup (see execLog), oldest first, each entry
-// (a command starting — with its arguments — one of its output lines,
-// or its exit code) stamped with its own timestamp, which stream it
-// came from if applicable, and the process's pid ("-" if it never
-// actually started), so entries from two commands that happened to run
-// concurrently can still be told apart. A snapshot taken right now — if
-// a :format-links batch (or anything else) logs more while this view is
-// already open, re-run :log to see it; the view itself doesn't
-// live-update.
+// (a command starting — with its arguments — one line fed to its stdin,
+// one of its output lines, or its exit code) stamped with its own
+// timestamp, which stream it came from if applicable, and the process's
+// pid ("-" if it never actually started), so entries from two commands
+// that happened to run concurrently can still be told apart. A snapshot
+// taken right now — if a :format-links batch (or anything else) logs
+// more while this view is already open, re-run :log to see it; the view
+// itself doesn't live-update.
 func (m *Model) appendLogRows() {
 	entries := m.execLog.snapshot()
 	if len(entries) == 0 {

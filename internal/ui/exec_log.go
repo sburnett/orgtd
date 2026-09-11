@@ -15,6 +15,7 @@ type execLogKind int
 
 const (
 	execLogStart execLogKind = iota
+	execLogStdin
 	execLogStdout
 	execLogStderr
 	execLogExit
@@ -25,6 +26,8 @@ func (k execLogKind) label() string {
 	switch k {
 	case execLogStart:
 		return "START"
+	case execLogStdin:
+		return "STDIN"
 	case execLogStdout:
 		return "STDOUT"
 	case execLogStderr:
@@ -58,14 +61,15 @@ func pidLabel(pid int) string {
 }
 
 // execLog collects every external command orgtd has run since startup —
-// a start entry (its pid and full argument list), one entry per line of
-// stdout/stderr as it's produced (each independently timestamped, not
-// all at once when the command finishes), and an exit entry with the
-// resulting exit code — for the :log command (see appendLogRows). Every
-// entry but a "failed to even start" exit carries the pid of the
-// process it came from, so entries from two commands that happen to run
-// concurrently (e.g. a :format-links batch alongside a live in-editor
-// formatter invocation) can still be told apart in the merged timeline.
+// a start entry (its pid and full argument list), one entry per line
+// fed to its stdin (if any), one entry per line of stdout/stderr as
+// it's produced (each independently timestamped, not all at once when
+// the command finishes), and an exit entry with the resulting exit
+// code — for the :log command (see appendLogRows). Every entry but a
+// "failed to even start" exit carries the pid of the process it came
+// from, so entries from two commands that happen to run concurrently
+// (e.g. a :format-links batch alongside a live in-editor formatter
+// invocation) can still be told apart in the merged timeline.
 //
 // A *execLog is shared, via its pointer, across every copy of Model
 // (see New) — Model itself is copied on every Update, but the log
@@ -132,15 +136,16 @@ const maxLoggedLineSize = 1 << 20
 // runLoggedCommand starts name (with args), records it in elog — a
 // start entry (once actually running, so its pid is known and real —
 // see logStartFailure for the alternative when it never gets that far),
-// every stdout/stderr line as it's produced (each with its own
-// timestamp), and an exit entry — and returns once it exits: combined
-// stdout (trimmed of its own trailing newline) and an error in exactly
-// the shape exec.Cmd.Output() itself would produce (including an
-// *exec.ExitError with Stderr populated on a non-zero exit), so callers
-// built around that convention don't need to change. stdin, if
-// non-empty, is written to the child's stdin and then closed; empty
-// means the child gets no stdin at all (its stdin is simply closed
-// immediately, same as exec.Cmd's own zero-value Stdin).
+// one entry per line of stdin (if any) up front, every stdout/stderr
+// line as it's produced (each with its own timestamp), and an exit
+// entry — and returns once it exits: combined stdout (trimmed of its
+// own trailing newline) and an error in exactly the shape
+// exec.Cmd.Output() itself would produce (including an *exec.ExitError
+// with Stderr populated on a non-zero exit), so callers built around
+// that convention don't need to change. stdin, if non-empty, is written
+// to the child's stdin and then closed; empty means the child gets no
+// stdin at all (its stdin is simply closed immediately, same as
+// exec.Cmd's own zero-value Stdin) and nothing is logged for it.
 func runLoggedCommand(elog *execLog, name string, args []string, stdin string) (string, error) {
 	cmd := exec.Command(name, args...)
 
@@ -172,6 +177,13 @@ func runLoggedCommand(elog *execLog, name string, args []string, stdin string) (
 	elog.append(execLogStart, pid, strings.Join(append([]string{name}, args...), " "))
 
 	if stdinPipe != nil {
+		// Logged up front, all at once — unlike stdout/stderr, the whole
+		// content is already in hand rather than arriving progressively
+		// from the child, so there's nothing to wait on before recording
+		// it (writing it to the pipe happens concurrently, below).
+		for _, line := range strings.Split(strings.TrimRight(stdin, "\n"), "\n") {
+			elog.append(execLogStdin, pid, line)
+		}
 		go func() {
 			io.WriteString(stdinPipe, stdin)
 			stdinPipe.Close()

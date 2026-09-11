@@ -113,13 +113,15 @@ logging is on.
 - **Log** (`:log`) — a read-only, chronological list of every external
   command orgtd has run since it started (`$EDITOR`, and any configured
   URL formatter, live or batch): a line when it starts (with its pid and
-  full argument list), one line per stdout/stderr line as it's produced,
-  and a line for its exit code, each individually timestamped, tagged
-  `START`/`STDOUT`/`STDERR`/`EXIT`, and marked with the process's pid
-  (`-` if it never actually started) — useful for telling apart two
-  commands that happen to run at once, e.g. a `:format-links` batch
-  alongside a live in-editor formatter invocation. Doesn't live-update —
-  re-run `:log` to see anything logged since it was last opened.
+  full argument list), one line per line fed to its stdin (if any, e.g.
+  every URL a `:format-links` batch sends), one line per stdout/stderr
+  line as it's produced, and a line for its exit code, each individually
+  timestamped, tagged `START`/`STDIN`/`STDOUT`/`STDERR`/`EXIT`, and
+  marked with the process's pid (`-` if it never actually started) —
+  useful for telling apart two commands that happen to run at once, e.g.
+  a `:format-links` batch alongside a live in-editor formatter
+  invocation. Doesn't live-update — re-run `:log` to see anything logged
+  since it was last opened.
   `:outline` returns to the outline.
 
 Marks (see below) stay pinned at the top of the screen in every view.

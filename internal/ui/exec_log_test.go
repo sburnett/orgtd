@@ -152,6 +152,53 @@ func TestRunLoggedCommandFeedsStdin(t *testing.T) {
 	}
 }
 
+func TestRunLoggedCommandLogsStdinLines(t *testing.T) {
+	script := writeFakeFormatter(t, `cat >/dev/null`)
+	l := &execLog{}
+
+	_, err := runLoggedCommand(l, script, nil, "line one\nline two\nline three\n")
+	if err != nil {
+		t.Fatalf("runLoggedCommand: %v", err)
+	}
+
+	entries := l.snapshot()
+	var stdinLines []string
+	var pid int
+	for _, e := range entries {
+		if e.kind == execLogStdin {
+			stdinLines = append(stdinLines, e.text)
+			pid = e.pid
+		}
+	}
+	want := []string{"line one", "line two", "line three"}
+	if len(stdinLines) != len(want) {
+		t.Fatalf("stdin entries = %#v, want %v", stdinLines, want)
+	}
+	for i := range want {
+		if stdinLines[i] != want[i] {
+			t.Errorf("stdin entry %d = %q, want %q", i, stdinLines[i], want[i])
+		}
+	}
+	if pid == 0 {
+		t.Error("stdin entries should carry the real child pid")
+	}
+}
+
+func TestRunLoggedCommandLogsNoStdinEntriesWhenStdinEmpty(t *testing.T) {
+	script := writeFakeFormatter(t, `true`)
+	l := &execLog{}
+
+	if _, err := runLoggedCommand(l, script, nil, ""); err != nil {
+		t.Fatalf("runLoggedCommand: %v", err)
+	}
+
+	for _, e := range l.snapshot() {
+		if e.kind == execLogStdin {
+			t.Errorf("unexpected stdin entry %#v when no stdin was given", e)
+		}
+	}
+}
+
 func TestRunLoggedCommandPopulatesExitErrorStderr(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "boom" >&2; exit 1`)
 	_, err := runLoggedCommand(&execLog{}, script, nil, "")

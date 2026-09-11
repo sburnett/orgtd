@@ -121,17 +121,20 @@ func TestLogViewIncludesBatchFormatLinksRuns(t *testing.T) {
 	m = updated.(Model)
 	m.switchToView(logView)
 
-	var sawStart, sawExit bool
+	var sawStart, sawStdin, sawExit bool
 	for _, r := range m.rows {
 		if strings.Contains(r.text, "START") && strings.Contains(r.text, script) {
 			sawStart = true
+		}
+		if strings.Contains(r.text, "STDIN") && strings.Contains(r.text, "https://example.com/a") {
+			sawStdin = true
 		}
 		if strings.Contains(r.text, "EXIT") && strings.Contains(r.text, "exit code 0") {
 			sawExit = true
 		}
 	}
-	if !sawStart || !sawExit {
-		t.Errorf("rows = %#v, missing the batch formatter's START/EXIT entries", m.rows)
+	if !sawStart || !sawStdin || !sawExit {
+		t.Errorf("rows = %#v, missing the batch formatter's START/STDIN/EXIT entries", m.rows)
 	}
 }
 
