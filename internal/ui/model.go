@@ -326,6 +326,15 @@ type Model struct {
 	confirmMessage  string    // prompt shown in confirmMode
 	pendingFileEdit *org.File // the file to open in $EDITOR if confirmMode's prompt is accepted ("y")
 
+	// pendingUntrackedFiles/pendingUntrackedThen back a second,
+	// independent use of confirmMode: requestAddUntracked, asking
+	// whether to `git add` files :diff/:commit found aren't tracked at
+	// all yet, before continuing either way (see updateConfirmMode).
+	// Never set at the same time as pendingFileEdit — the two questions
+	// are asked from unrelated commands.
+	pendingUntrackedFiles []string
+	pendingUntrackedThen  func(m *Model)
+
 	urlFormatterCmd      string         // external program that turns a bare URL into an org-mode link when editing an entry; disabled if empty
 	urlFormatterPrefixes []string       // extra bare-URL prefixes beyond http(s)://, e.g. "bit.ly/", "go/" (see WithURLFormatterPrefixes)
 	bareURLRe            *regexp.Regexp // compiled from urlFormatterPrefixes at construction time; see buildBareURLRegexp
@@ -842,13 +851,26 @@ func (m *Model) appendDiffRows() {
 	}
 }
 
-// showDiff (":diff") runs `git diff` for every file currently open in
-// the outline and switches to diff view to show the result. Run
-// synchronously — unlike :format-links' potentially slow, arbitrary
-// external formatter, `git diff` on a handful of local org files is
-// fast, so there's no need for the async tea.Cmd/Msg dance that keeps
-// the app responsive during a longer-running command.
+// showDiff (":diff") shows the result of `git diff` for every file
+// currently open in the outline — after first checking whether any of
+// them isn't tracked by git at all yet (see requestAddUntracked); if
+// so, this pauses on that question and only actually runs the diff (via
+// runDiffNow) once it's answered.
 func (m *Model) showDiff() {
+	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
+		m.requestAddUntracked(untracked, func(m *Model) { m.runDiffNow() })
+		return
+	}
+	m.runDiffNow()
+}
+
+// runDiffNow does showDiff's actual work once there's nothing left to
+// ask about: runs `git diff` and switches to diff view to show the
+// result. Run synchronously — unlike :format-links' potentially slow,
+// arbitrary external formatter, `git diff` on a handful of local org
+// files is fast, so there's no need for the async tea.Cmd/Msg dance
+// that keeps the app responsive during a longer-running command.
+func (m *Model) runDiffNow() {
 	m.diffOutput, m.diffErr = "", ""
 	if len(m.ws.Files) > 0 {
 		out, err := m.runGitDiff()
@@ -861,16 +883,70 @@ func (m *Model) showDiff() {
 	m.switchToView(diffView)
 }
 
-// runGitDiff runs `git diff` scoped to every file currently open in the
-// outline (m.ws.Files), with git itself pointed at the workspace
+// runGitDiff runs `git diff HEAD` scoped to every file currently open in
+// the outline (m.ws.Files), with git itself pointed at the workspace
 // directory (via -C, rather than relying on orgtd's own working
 // directory) so a repository rooted there or above is found either way.
-// Logged like any other external command — see runLoggedCommand.
+// Diffed against HEAD rather than a plain `git diff` (which only shows
+// unstaged changes) so a file `git add`ed via requestAddUntracked but
+// not yet committed still shows up as an addition here, instead of
+// looking like nothing happened. Logged like any other external
+// command — see runLoggedCommand.
 func (m *Model) runGitDiff() (string, error) {
-	args := []string{"-C", m.ws.Dir, "diff", "--"}
+	args := []string{"-C", m.ws.Dir, "diff", "HEAD", "--"}
 	for _, f := range m.ws.Files {
 		args = append(args, f.Path)
 	}
+	return runLoggedCommand(m.execLog, "git", args, "")
+}
+
+// untrackedFiles returns the paths, among m.ws.Files, that git doesn't
+// track at all yet — via `git ls-files --others --exclude-standard`,
+// scoped to just those paths so files elsewhere in the repo (or
+// gitignored entirely) never show up. Returns (nil, nil) if there are
+// no open files or nothing is untracked; the error return is only for a
+// genuine failure to even ask (not a git repository, git missing,
+// ...) — callers treat that the same as "nothing untracked" and let the
+// diff/commit that follows surface the real problem instead.
+func (m *Model) untrackedFiles() ([]string, error) {
+	if len(m.ws.Files) == 0 {
+		return nil, nil
+	}
+	args := []string{"-C", m.ws.Dir, "ls-files", "--others", "--exclude-standard", "--"}
+	for _, f := range m.ws.Files {
+		args = append(args, f.Path)
+	}
+	out, err := runLoggedCommand(m.execLog, "git", args, "")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+// requestAddUntracked interrupts :diff/:commit with a y/N confirmation
+// (reusing confirmMode, alongside its existing file-edit prompt — see
+// pendingUntrackedFiles/pendingUntrackedThen) when untrackedFiles found
+// something. then runs either way once answered (see
+// updateConfirmMode): `git add`ing untracked first if accepted, or
+// completely unchanged if declined — a deliberately untracked file
+// shouldn't block diffing/committing everything else.
+func (m *Model) requestAddUntracked(untracked []string, then func(m *Model)) {
+	m.mode = confirmMode
+	m.confirmMessage = fmt.Sprintf("Not tracked by git: %s. Add to git? [y/N]", strings.Join(untracked, ", "))
+	m.pendingUntrackedFiles = untracked
+	m.pendingUntrackedThen = then
+}
+
+// gitAdd runs `git add` for exactly the given paths (as returned by
+// untrackedFiles — already suitable as pathspecs from within the
+// workspace directory), so accepting requestAddUntracked's prompt never
+// stages anything beyond what it named. Logged like any other external
+// command.
+func (m *Model) gitAdd(paths []string) (string, error) {
+	args := append([]string{"-C", m.ws.Dir, "add", "--"}, paths...)
 	return runLoggedCommand(m.execLog, "git", args, "")
 }
 
@@ -893,12 +969,26 @@ func gitErrorText(err error) string {
 // what's about to be committed via :diff, and reusing that view's own
 // file scope — rather than letting :commit imply some other set of
 // files — keeps "what :diff shows" and "what :commit commits" the same
-// thing.
+// thing. As with :diff, first checks for files git doesn't track at all
+// yet (see requestAddUntracked) — `git commit -- <pathspec>` silently
+// skips a file that was never even `git add`ed once, so without this an
+// untracked org file would just never make it into a commit.
 func (m *Model) startCommit() {
 	if m.view != diffView {
 		m.message = ":commit only works in diff view — see :diff"
 		return
 	}
+	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
+		m.requestAddUntracked(untracked, func(m *Model) { m.openCommitPrompt() })
+		return
+	}
+	m.openCommitPrompt()
+}
+
+// openCommitPrompt opens the one-line commit-message prompt itself,
+// split out from startCommit so requestAddUntracked can defer straight
+// to it once its own question is answered.
+func (m *Model) openCommitPrompt() {
 	m.mode = commitMessageMode
 	m.commitMessageInput = ""
 }
@@ -1795,9 +1885,28 @@ func (m Model) updateConfirmMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	accepted := msg.Type == tea.KeyRunes && (string(msg.Runes) == "y" || string(msg.Runes) == "Y")
 
 	pendingFileEdit := m.pendingFileEdit
+	untrackedFiles := m.pendingUntrackedFiles
+	untrackedThen := m.pendingUntrackedThen
 	m.mode = normalMode
 	m.confirmMessage = ""
 	m.pendingFileEdit = nil
+	m.pendingUntrackedFiles = nil
+	m.pendingUntrackedThen = nil
+
+	// requestAddUntracked's question (unlike the file-edit one below)
+	// continues either way once answered — declining just means
+	// skipping the `git add`, not abandoning the :diff/:commit that
+	// asked in the first place.
+	if untrackedThen != nil {
+		if accepted {
+			if _, err := m.gitAdd(untrackedFiles); err != nil {
+				m.message = fmt.Sprintf("git add failed: %s", gitErrorText(err))
+				return m, nil
+			}
+		}
+		untrackedThen(&m)
+		return m, nil
+	}
 
 	if !accepted {
 		return m, nil
