@@ -144,6 +144,32 @@ func (a *deadlineChangeAction) revert(m *Model) *org.Headline {
 func (a *deadlineChangeAction) file() *org.File           { return a.f }
 func (a *deadlineChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
+// linkFormatAction records :format-links rewriting one headline's Title
+// and/or Body to replace bare URLs with their formatted org-mode link
+// equivalents (see finishFormatLinks). The mutation is in place, so the
+// same headline pointer is "affected" either way.
+type linkFormatAction struct {
+	h                  *org.Headline
+	f                  *org.File
+	oldTitle, newTitle string
+	oldBody, newBody   []string
+}
+
+func (a *linkFormatAction) apply(m *Model) *org.Headline {
+	a.h.Title = a.newTitle
+	a.h.Body = a.newBody
+	return a.h
+}
+
+func (a *linkFormatAction) revert(m *Model) *org.Headline {
+	a.h.Title = a.oldTitle
+	a.h.Body = a.oldBody
+	return a.h
+}
+
+func (a *linkFormatAction) file() *org.File           { return a.f }
+func (a *linkFormatAction) affected() []*org.Headline { return []*org.Headline{a.h} }
+
 // subtreeReplaceAction records an `i` edit: oldSet (almost always a
 // single headline and its subtree) was replaced by newSet (one or more
 // headlines, e.g. if the edit split the entry into siblings). applied
@@ -483,14 +509,35 @@ func (m *Model) pushUndo(a undoAction) {
 	m.recomputeDirty()
 }
 
-// undo reverts the most recently applied action, if any.
+// actionTouchesImmutable reports whether any headline a would apply or
+// revert against is currently locked by :format-links (see m.immutable)
+// — checked by undo/redo before acting, so stepping through history
+// can't rewrite an entry's Title/Body out from under an in-flight batch
+// of URL replacements computed against its current text.
+func (m *Model) actionTouchesImmutable(a undoAction) bool {
+	for _, h := range a.affected() {
+		if m.immutable[h] {
+			return true
+		}
+	}
+	return false
+}
+
+// undo reverts the most recently applied action, if any. Refuses (with
+// a status message, doing nothing else) if the action touches a
+// headline currently locked by :format-links — see
+// actionTouchesImmutable.
 func (m *Model) undo() {
 	if m.undoPos == 0 {
 		m.message = "Already at oldest change"
 		return
 	}
+	a := m.undoStack[m.undoPos-1]
+	if m.actionTouchesImmutable(a) {
+		m.message = "Cannot undo: an entry involved is being formatted by :format-links"
+		return
+	}
 	m.undoPos--
-	a := m.undoStack[m.undoPos]
 	target := a.revert(m)
 	m.rebuildRows()
 	m.focusTarget(target, a.file())
@@ -498,13 +545,18 @@ func (m *Model) undo() {
 	m.message = "1 change undone"
 }
 
-// redo re-applies the next available action, if any.
+// redo re-applies the next available action, if any. Same
+// :format-links guard as undo.
 func (m *Model) redo() {
 	if m.undoPos >= len(m.undoStack) {
 		m.message = "Already at newest change"
 		return
 	}
 	a := m.undoStack[m.undoPos]
+	if m.actionTouchesImmutable(a) {
+		m.message = "Cannot redo: an entry involved is being formatted by :format-links"
+		return
+	}
 	target := a.apply(m)
 	m.undoPos++
 	m.rebuildRows()

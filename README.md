@@ -35,7 +35,7 @@ orgtd --dir ~/org
 | Flag | Config key | Default | Meaning |
 |---|---|---|---|
 | `--dir` | `org_dir` | `$ORGTD_DIR`, then `org_dir`, then `~/org` | Directory containing `.org` files (loaded non-recursively) |
-| `--url-formatter` | `url_formatter` | *(disabled)* | External program invoked as `<prog> <url>` to convert a bare URL typed while editing into an org-mode link (its stdout replaces the URL). May include extra arguments, e.g. `myformatter --template "a template"` — split shell-style (a double- or single-quoted argument can contain spaces), and a leading `~` in any word is expanded, same as typing it in a shell |
+| `--url-formatter` | `url_formatter` | *(disabled)* | External program invoked as `<prog> <url>` to convert a bare URL typed while editing into an org-mode link (its stdout replaces the URL). May include extra arguments, e.g. `myformatter --template "a template"` — split shell-style (a double- or single-quoted argument can contain spaces), and a leading `~` in any word is expanded, same as typing it in a shell. The same program is also invoked in batch mode by `:format-links` (see below) — called with no trailing URL argument, it should instead read URLs one per line from stdin and print the same number of formatted lines to stdout |
 | `--url-formatter-prefixes` | `url_formatter_prefixes` | *(none)* | Extra bare-URL prefixes recognized beyond `http://`/`https://`, e.g. `bit.ly/` or `go/` for shortlinks — comma-separated on the flag, a TOML array in the config file. Each is only matched at a word boundary, so `go/` won't match inside `embargo/foo` |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
@@ -200,6 +200,7 @@ ambiguous.
 | `:agenda` / `:clarify` / `:outline` / `:config` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
+| `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `url_formatter` in the background (see `--url-formatter`, above). Affected entries lock (shown with an `L` in the gutter) — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |

@@ -270,11 +270,16 @@ func TestMarkedAndDirtyRowShowsBothIndicators(t *testing.T) {
 	m = sendKey(m, "r") // dirty it via a status rotate
 
 	line := []rune(stripANSI(m.renderRow(m.rows[idx])))
-	if len(line) < 2 || line[0] != 'a' {
+	if len(line) < 3 || line[0] != 'a' {
 		t.Fatalf("row = %q, want the mark in column 0", string(line))
 	}
-	if line[1] != '+' {
-		t.Errorf("row = %q, want the dirty marker in column 1 alongside the mark", string(line))
+	// Column 1 is the :format-links lock column (see lockColumn) — blank
+	// here since nothing is locked.
+	if line[1] != ' ' {
+		t.Errorf("row = %q, want the lock column blank in column 1", string(line))
+	}
+	if line[2] != '+' {
+		t.Errorf("row = %q, want the dirty marker in column 2 alongside the mark", string(line))
 	}
 }
 

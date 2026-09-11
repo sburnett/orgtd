@@ -46,6 +46,7 @@ var (
 	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	shortcutStyle  = lipgloss.NewStyle().Bold(true)
 	pinMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	lockedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
 	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("245"))
 
 	// overlayBg is the subtle background tint for the pinned header
@@ -278,6 +279,15 @@ type Model struct {
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
 
+	// immutable holds every headline currently locked by an in-flight
+	// :format-links batch (see startFormatLinks/finishFormatLinks) —
+	// nothing about it (status, deadline, title/body text, position,
+	// deletion) can change until the batch resolves and clears it, since
+	// the batch's replacement text is computed against a snapshot of its
+	// current content. Shown in the outline via a gutter marker (see
+	// lockColumn) and enforced by refuseIfImmutable/filterImmutable.
+	immutable map[*org.Headline]bool
+
 	visualAnchor int // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
 
 	// selectModeTargets holds the entries a pending R (selectMode) should
@@ -422,6 +432,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		dirty:              make(map[*org.File]bool),
 		dirtyHeadlines:     make(map[*org.Headline]bool),
 		savedPos:           make(map[*org.File]int),
+		immutable:          make(map[*org.Headline]bool),
 		agendaDays:         14,
 		inboxFile:          "inbox.org",
 		hideDoneAfterHours: 24,
@@ -861,6 +872,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fileEditFinishedMsg:
 		return m.finishEditFile(msg)
+
+	case formatLinksMsg:
+		return m.finishFormatLinks(msg)
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -1368,9 +1382,15 @@ func (m *Model) deleteHeadlineCount(n int) {
 // selection spanning files takes one step per file, since undo/dirty
 // tracking is inherently per-file. Unlike dd, this doesn't populate the
 // paste register — there's no single entry to put there, and p/P only
-// ever pastes one.
+// ever pastes one. Any headline locked by :format-links is silently
+// excluded first (see filterImmutable) rather than aborting the whole
+// operation; the summary message notes how many, if any.
 func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
+	headlines, skipped := m.filterImmutable(headlines)
 	if len(headlines) == 0 {
+		if skipped > 0 {
+			m.message = "All selected entries are locked by :format-links; nothing deleted"
+		}
 		return
 	}
 
@@ -1417,6 +1437,9 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 		}
 	}
 	m.message = fmt.Sprintf("Deleted %d entries", len(headlines))
+	if skipped > 0 {
+		m.message += fmt.Sprintf(" (%d skipped: locked by :format-links)", skipped)
+	}
 }
 
 // buildStatusChangeAction returns the undoAction that setting h's
@@ -1461,7 +1484,11 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 // target if it just became DONE/CANCELLED (see
 // advanceClarifyTargetIfDone).
 func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, label string) {
+	headlines, skipped := m.filterImmutable(headlines)
 	if len(headlines) == 0 {
+		if skipped > 0 {
+			m.message = "All selected entries are locked by :format-links; nothing changed"
+		}
 		return
 	}
 
@@ -1478,6 +1505,9 @@ func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, lab
 		m.pushUndo(&batchAction{actions: byFile[f]})
 	}
 	m.message = fmt.Sprintf("Set %d entries to %s", len(headlines), label)
+	if skipped > 0 {
+		m.message += fmt.Sprintf(" (%d skipped: locked by :format-links)", skipped)
+	}
 	m.advanceClarifyTargetIfDone()
 }
 
@@ -1676,7 +1706,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "config", "capture",
-	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev",
+	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -1807,6 +1837,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 		} else {
 			m.clarifyStep(-1)
 		}
+
+	case "format-links":
+		return m, m.startFormatLinks()
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
@@ -2123,7 +2156,7 @@ func prefillDateInput(ts *org.Timestamp) string {
 // no-op on file rows.
 func (m *Model) startSetDeadline() {
 	h := m.currentHeadline()
-	if h == nil {
+	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
 	m.mode = deadlineMode
@@ -2236,7 +2269,7 @@ func (m *Model) rotateStatus() {
 // advanceClarifyTargetIfDone).
 func (m *Model) applyStatus(keyword string) {
 	h := m.currentHeadline()
-	if h == nil {
+	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
 	m.pushUndo(m.buildStatusChangeAction(h, keyword))
@@ -2300,6 +2333,15 @@ func (m *Model) startEditAppend() tea.Cmd {
 func (m *Model) startEditWithPlacement(placement editorCursorPlacement) tea.Cmd {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		if f := m.rows[m.cursor].file; f != nil {
+			// A whole-file edit hands the raw file to $EDITOR directly,
+			// bypassing every other guard here — if any headline in it is
+			// locked by :format-links, refuse outright rather than risk
+			// the user rewriting (or deleting) it in a way finishEditFile
+			// has no way to detect or prevent.
+			if m.fileHasImmutableHeadline(f) {
+				m.message = "This file has entries being formatted by :format-links; can't edit the whole file yet"
+				return nil
+			}
 			// Editing a whole file discards undo history for it (and
 			// clears any mark/clarify-target on its headlines) even if
 			// the user ends up changing nothing — confirm first rather
@@ -2313,10 +2355,25 @@ func (m *Model) startEditWithPlacement(placement editorCursorPlacement) tea.Cmd 
 		}
 	}
 	h := m.currentHeadline()
-	if h == nil {
+	if h == nil || m.refuseIfImmutable(h) {
 		return nil
 	}
 	return m.launchEditor(h, nil, placement)
+}
+
+// fileHasImmutableHeadline reports whether any headline in f is
+// currently locked by an in-flight :format-links batch (see
+// m.immutable) — used to refuse a whole-file edit, which would
+// otherwise let the user rewrite an entry's raw text out from under the
+// batch with no way for finishFormatLinks to detect it.
+func (m *Model) fileHasImmutableHeadline(f *org.File) bool {
+	found := false
+	org.Walk(f.Headlines, func(h *org.Headline) {
+		if m.immutable[h] {
+			found = true
+		}
+	})
+	return found
 }
 
 // fileEditFinishedMsg reports that the external editor launched by
@@ -2846,12 +2903,41 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	return cmd
 }
 
+// refuseIfImmutable reports whether h is currently locked by an
+// in-flight :format-links batch (see m.immutable), setting an
+// explanatory status message if so. Every single-entry command that
+// would mutate h in some way (delete, status change, deadline, edit,
+// promote/demote) checks this before doing anything else.
+func (m *Model) refuseIfImmutable(h *org.Headline) bool {
+	if h == nil || !m.immutable[h] {
+		return false
+	}
+	m.message = "This entry is being formatted by :format-links and can't be changed yet"
+	return true
+}
+
+// filterImmutable removes any headline currently locked by an in-flight
+// :format-links batch from headlines, for a bulk command (visual-mode or
+// numeric-prefixed delete/status-change) to apply to the rest rather
+// than refusing the whole operation outright. skipped is how many were
+// removed, for the caller's summary message.
+func (m *Model) filterImmutable(headlines []*org.Headline) (kept []*org.Headline, skipped int) {
+	for _, h := range headlines {
+		if m.immutable[h] {
+			skipped++
+			continue
+		}
+		kept = append(kept, h)
+	}
+	return kept, skipped
+}
+
 // deleteHeadline removes the current headline and its whole subtree
 // ("dd"), storing a copy in the register so it can be pasted back with
-// p/P. A no-op on file rows.
+// p/P. A no-op on file rows, or on an entry locked by :format-links.
 func (m *Model) deleteHeadline() {
 	h := m.currentHeadline()
-	if h == nil {
+	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
 	f, parent, idx := m.insertPosition(h)
@@ -2913,7 +2999,7 @@ func (m *Model) pasteHeadline(before bool) {
 // onto.
 func (m *Model) demoteHeadline() {
 	h := m.currentHeadline()
-	if h == nil {
+	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
 	f, parent, idx := m.insertPosition(h)
@@ -2942,7 +3028,7 @@ func (m *Model) demoteHeadline() {
 // headline is already top-level.
 func (m *Model) promoteHeadline() {
 	h := m.currentHeadline()
-	if h == nil {
+	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
 	if h.Parent == nil {
@@ -3106,28 +3192,16 @@ func (m *Model) formatURLs(text string) string {
 		// literal (as several tests do) never panics on a nil regexp.
 		m.bareURLRe = buildBareURLRegexp(m.urlFormatterPrefixes)
 	}
-	matches := m.bareURLRe.FindAllStringIndex(text, -1)
-	if len(matches) == 0 {
+	spans := bareURLSpansOutsideLinks(m.bareURLRe, text)
+	if len(spans) == 0 {
 		return text
-	}
-	linkSpans := orgLinkRe.FindAllStringIndex(text, -1)
-	withinLink := func(pos int) bool {
-		for _, s := range linkSpans {
-			if pos >= s[0] && pos < s[1] {
-				return true
-			}
-		}
-		return false
 	}
 
 	cache := make(map[string]string)
 	var b strings.Builder
 	last := 0
-	for _, span := range matches {
+	for _, span := range spans {
 		start, end := span[0], span[1]
-		if withinLink(start) {
-			continue
-		}
 		url := text[start:end]
 		formatted, ok := cache[url]
 		if !ok {
@@ -3140,6 +3214,35 @@ func (m *Model) formatURLs(text string) string {
 	}
 	b.WriteString(text[last:])
 	return b.String()
+}
+
+// bareURLSpansOutsideLinks returns the start/end byte offsets (as
+// FindAllStringIndex would) of every match of re in text that doesn't
+// fall inside an existing org-mode link, in order — the shared
+// "which bare URLs actually need formatting" logic behind formatURLs
+// (one text at a time, during editing) and collectFormatLinksTargets
+// (every entry at once, for :format-links).
+func bareURLSpansOutsideLinks(re *regexp.Regexp, text string) [][2]int {
+	matches := re.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	linkSpans := orgLinkRe.FindAllStringIndex(text, -1)
+	withinLink := func(pos int) bool {
+		for _, s := range linkSpans {
+			if pos >= s[0] && pos < s[1] {
+				return true
+			}
+		}
+		return false
+	}
+	var out [][2]int
+	for _, span := range matches {
+		if !withinLink(span[0]) {
+			out = append(out, [2]int{span[0], span[1]})
+		}
+	}
+	return out
 }
 
 // runURLFormatter invokes the configured urlFormatterCmd as
@@ -3194,6 +3297,226 @@ func (m *Model) runURLFormatter(url string) string {
 	}
 	log.Printf("url formatter: %s -> %q", fields[0], formatted)
 	return formatted
+}
+
+// runBatchURLFormatter invokes urlFormatterCmd once, feeding it every
+// url (one per line) on its stdin instead of one at a time via a
+// trailing argument (see runURLFormatter) — used by :format-links to
+// format many URLs with a single external process instead of one
+// process per URL, which could be prohibitively slow for a large batch.
+// Returns exactly len(urls) formatted strings, in the same order;
+// anything else (a run failure, or a line-count mismatch) is an error,
+// since there'd be no reliable way to match output back to input.
+func runBatchURLFormatter(urlFormatterCmd string, urls []string) ([]string, error) {
+	fields := splitCommandFields(urlFormatterCmd)
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("url formatter command is empty")
+	}
+	for i, f := range fields {
+		fields[i] = expandHomeField(f)
+	}
+
+	cmd := exec.Command(fields[0], fields[1:]...)
+	cmd.Stdin = strings.NewReader(strings.Join(urls, "\n") + "\n")
+	log.Printf("url formatter (batch): running %v with %d url(s) on stdin", append([]string{fields[0]}, fields[1:]...), len(urls))
+
+	out, err := cmd.Output()
+	if err != nil {
+		detail := err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			detail = fmt.Sprintf("%v (stderr: %s)", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		log.Printf("url formatter (batch): %s failed: %s", fields[0], detail)
+		return nil, fmt.Errorf("%s", detail)
+	}
+
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(urls) == 0 {
+		return nil, nil
+	}
+	if len(lines) != len(urls) {
+		log.Printf("url formatter (batch): %s produced %d line(s), want %d", fields[0], len(lines), len(urls))
+		return nil, fmt.Errorf("%s produced %d line(s) of output, want %d (one per url)", fields[0], len(lines), len(urls))
+	}
+	log.Printf("url formatter (batch): %s -> %d formatted url(s)", fields[0], len(lines))
+	return lines, nil
+}
+
+// formatLinksSpan locates one bare URL within a headline's Title
+// (field == formatLinksTitleField) or one of its Body lines
+// (field == that line's index) — see collectFormatLinksTargets.
+type formatLinksSpan struct {
+	field      int
+	start, end int
+}
+
+// formatLinksTitleField is formatLinksSpan.field's sentinel for "this
+// span is in the headline's Title", distinguishing it from any
+// (non-negative) Body line index.
+const formatLinksTitleField = -1
+
+// formatLinksTarget is one headline :format-links found bare URLs in,
+// plus exactly where each one is — the pending edits, once formatted
+// text comes back for each (see finishFormatLinks).
+type formatLinksTarget struct {
+	h     *org.Headline
+	spans []formatLinksSpan
+}
+
+// collectFormatLinksTargets walks every headline in every loaded file
+// and returns each one that contains a bare URL not already wrapped in
+// an org-mode link, together with the flat, ordered list of those URLs
+// (target by target, Title then each Body line in order within a
+// target) — the same order finishFormatLinks later consumes the
+// external formatter's output in. A headline already locked by an
+// earlier, still-in-flight :format-links batch (see m.immutable) is
+// skipped: it's already queued, and rescanning it here against text
+// that batch hasn't rewritten yet would just queue the same URLs a
+// second time.
+func (m *Model) collectFormatLinksTargets() ([]*formatLinksTarget, []string) {
+	if m.bareURLRe == nil {
+		m.bareURLRe = buildBareURLRegexp(m.urlFormatterPrefixes)
+	}
+	var targets []*formatLinksTarget
+	var urls []string
+	for _, f := range m.ws.Files {
+		org.Walk(f.Headlines, func(h *org.Headline) {
+			if m.immutable[h] {
+				return
+			}
+			var spans []formatLinksSpan
+			for _, sp := range bareURLSpansOutsideLinks(m.bareURLRe, h.Title) {
+				spans = append(spans, formatLinksSpan{field: formatLinksTitleField, start: sp[0], end: sp[1]})
+				urls = append(urls, h.Title[sp[0]:sp[1]])
+			}
+			for i, line := range h.Body {
+				for _, sp := range bareURLSpansOutsideLinks(m.bareURLRe, line) {
+					spans = append(spans, formatLinksSpan{field: i, start: sp[0], end: sp[1]})
+					urls = append(urls, line[sp[0]:sp[1]])
+				}
+			}
+			if len(spans) > 0 {
+				targets = append(targets, &formatLinksTarget{h: h, spans: spans})
+			}
+		})
+	}
+	return targets, urls
+}
+
+// formatLinksMsg reports that a :format-links batch (see
+// startFormatLinks) has finished — targets and urls are exactly what
+// startFormatLinks sent, echoed back so finishFormatLinks doesn't need
+// any other state to line formatted back up with the entries it came
+// from. formatted is nil if err is set.
+type formatLinksMsg struct {
+	targets   []*formatLinksTarget
+	formatted []string
+	err       error
+}
+
+// startFormatLinks (":format-links") locks every entry with an
+// unformatted bare URL (see collectFormatLinksTargets) — immediately,
+// on the main goroutine, before this Cmd even runs — then hands all of
+// their URLs to urlFormatterCmd in one external process, running in the
+// background so the rest of the app stays fully usable while it's in
+// flight (unlike the synchronous, foreground formatting a single `i`
+// edit does). Locked entries show a gutter marker (see lockColumn) and
+// refuse any command that would change them (see refuseIfImmutable/
+// filterImmutable) until finishFormatLinks unlocks them.
+func (m *Model) startFormatLinks() tea.Cmd {
+	if m.urlFormatterCmd == "" {
+		m.message = "No URL formatter configured (see :config)"
+		return nil
+	}
+	targets, urls := m.collectFormatLinksTargets()
+	if len(targets) == 0 {
+		m.message = "No unformatted URLs found"
+		return nil
+	}
+	for _, t := range targets {
+		m.immutable[t.h] = true
+	}
+	m.message = fmt.Sprintf("Formatting links for %d entries in the background...", len(targets))
+
+	urlFormatterCmd := m.urlFormatterCmd
+	return func() tea.Msg {
+		formatted, err := runBatchURLFormatter(urlFormatterCmd, urls)
+		return formatLinksMsg{targets: targets, formatted: formatted, err: err}
+	}
+}
+
+// formatLinksFieldEdit pairs one formatLinksSpan with the formatted text
+// that should replace it, for applyFormatLinksEdits.
+type formatLinksFieldEdit struct {
+	span      formatLinksSpan
+	formatted string
+}
+
+// applyFormatLinksEdits rewrites text, replacing each edit's span with
+// its formatted text. edits must be in ascending span order (as
+// collectFormatLinksTargets produces them) and all refer to spans within
+// text; they're applied back to front so replacing a later span never
+// invalidates an earlier span's still-pending offsets.
+func applyFormatLinksEdits(text string, edits []formatLinksFieldEdit) string {
+	for i := len(edits) - 1; i >= 0; i-- {
+		e := edits[i]
+		text = text[:e.span.start] + e.formatted + text[e.span.end:]
+	}
+	return text
+}
+
+// finishFormatLinks applies a completed :format-links batch: every
+// targeted headline is unlocked (whether or not formatting actually
+// succeeded — a failed batch shouldn't leave entries stuck immutable
+// forever with no way to retry other than restarting orgtd), and on
+// success, each one's Title/Body is rewritten with its bare URLs
+// replaced by the formatter's output, grouped into one undo step per
+// file touched (a batchAction — see undo.go) the same way other bulk
+// operations are.
+func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
+	for _, t := range msg.targets {
+		delete(m.immutable, t.h)
+	}
+
+	if msg.err != nil {
+		m.message = fmt.Sprintf("Link formatting failed%s: %v", m.debugLogHint(), msg.err)
+		m.rebuildRows()
+		return m, nil
+	}
+
+	idx := 0
+	var order []*org.File
+	byFile := make(map[*org.File][]undoAction)
+	for _, t := range msg.targets {
+		editsByField := make(map[int][]formatLinksFieldEdit)
+		for _, sp := range t.spans {
+			editsByField[sp.field] = append(editsByField[sp.field], formatLinksFieldEdit{span: sp, formatted: msg.formatted[idx]})
+			idx++
+		}
+
+		newTitle := t.h.Title
+		if edits, ok := editsByField[formatLinksTitleField]; ok {
+			newTitle = applyFormatLinksEdits(newTitle, edits)
+		}
+		newBody := append([]string(nil), t.h.Body...)
+		for i := range newBody {
+			if edits, ok := editsByField[i]; ok {
+				newBody[i] = applyFormatLinksEdits(newBody[i], edits)
+			}
+		}
+
+		f := m.fileForHeadline(t.h)
+		action := &linkFormatAction{h: t.h, f: f, oldTitle: t.h.Title, newTitle: newTitle, oldBody: t.h.Body, newBody: newBody}
+		if _, ok := byFile[f]; !ok {
+			order = append(order, f)
+		}
+		byFile[f] = append(byFile[f], action)
+	}
+	for _, f := range order {
+		m.pushUndo(&batchAction{actions: byFile[f]})
+	}
+	m.message = fmt.Sprintf("Formatted links for %d entries", len(msg.targets))
+	return m, nil
 }
 
 // finishEdit reads back the edited entry and reparses it. For a plain
@@ -3917,6 +4240,18 @@ func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	return bgSpan(bg, " ")
 }
 
+// lockColumn is a headline row's :format-links gutter column — a column
+// of its own (see gutter, markColumn), so it shows up alongside the
+// dirty marker and any mark/clarify pin rather than hiding them. "L"
+// while h is locked (see m.immutable), blank otherwise. bg is the
+// background it's rendered with (see gutter).
+func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
+	if m.immutable[h] {
+		return lockedStyle.Background(bg).Render("L")
+	}
+	return bgSpan(bg, " ")
+}
+
 // renderRow renders r with no highlight — the ordinary case, used for
 // every row except the one under the cursor. See renderRowWithBg.
 func (m Model) renderRow(r row) string {
@@ -3942,10 +4277,11 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		// so a section header stands out at a glance in a long agenda.
 		return highlightMatches(r.section, query, fileStyle.Background(bg))
 	case r.file != nil:
-		// Blank mark column: files themselves are never marked, but this
-		// keeps every row's dirty marker lined up in the same column.
+		// Blank mark and lock columns: files themselves are never marked
+		// or locked by :format-links, but this keeps every row's dirty
+		// marker lined up in the same column.
 		name := highlightMatches(filepath.Base(r.file.Path), query, fileStyle.Background(bg))
-		return bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
+		return bgSpan(bg, " ") + bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
 	case r.isAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
 	case r.isBodyLine:
@@ -3964,7 +4300,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		fold = bgSpan(bg, glyph)
 	}
 
-	line := m.markColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
 		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, tagStyle.Background(bg))
@@ -4011,7 +4347,7 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 // or Deadline) it's shown for.
 func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
-	line := m.markColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	if len(h.Tags) > 0 {
 		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), tagStyle.Background(bg))
@@ -4046,7 +4382,7 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 // in a muted style so it doesn't compete visually with real entries.
 func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := strings.Repeat("  ", r.level)
-	blanks := bgSpan(bg, "   "+indent+"  ") // mark + gutter + space, then indent, then fold + space
+	blanks := bgSpan(bg, "    "+indent+"  ") // mark + lock + gutter + space, then indent, then fold + space
 	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), bodyStyle.Background(bg))
 }
 

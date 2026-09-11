@@ -1605,21 +1605,22 @@ func TestDirtyGutterIsLeftmostAndConsistentAcrossRows(t *testing.T) {
 	itemLine := stripANSI(m.renderRow(m.rows[itemIdx]))
 	nestedLine := stripANSI(m.renderRow(m.rows[nestedIdx]))
 
-	// Column 0 is the mark/clarify column, column 1 is the dirty marker
-	// — two separate columns (see markColumn/gutter) so a row that's
-	// both marked and dirty can show both at once. The dirty marker
-	// sits in column 1 for both the file row and the changed item,
-	// regardless of the item's indentation depth; column 0 is blank
-	// here since nothing is marked.
-	if r := []rune(fileLine); len(r) < 2 || r[0] != ' ' || r[1] != '+' {
+	// Column 0 is the mark/clarify column, column 1 is the :format-links
+	// lock column, column 2 is the dirty marker — three separate columns
+	// (see markColumn/lockColumn/gutter) so a row that's both marked and
+	// dirty (or locked, or all three) can show every indicator at once.
+	// The dirty marker sits in column 2 for both the file row and the
+	// changed item, regardless of the item's indentation depth; columns
+	// 0 and 1 are blank here since nothing is marked or locked.
+	if r := []rune(fileLine); len(r) < 3 || r[0] != ' ' || r[1] != ' ' || r[2] != '+' {
 		t.Errorf("file row gutter columns wrong: %q", fileLine)
 	}
-	if r := []rune(itemLine); len(r) < 2 || r[0] != ' ' || r[1] != '+' {
+	if r := []rune(itemLine); len(r) < 3 || r[0] != ' ' || r[1] != ' ' || r[2] != '+' {
 		t.Errorf("changed item row gutter columns wrong: %q", itemLine)
 	}
-	// An unrelated, more deeply nested row is unaffected and keeps both
-	// gutter columns blank.
-	if r := []rune(nestedLine); len(r) < 2 || r[0] != ' ' || r[1] != ' ' {
+	// An unrelated, more deeply nested row is unaffected and keeps every
+	// gutter column blank.
+	if r := []rune(nestedLine); len(r) < 3 || r[0] != ' ' || r[1] != ' ' || r[2] != ' ' {
 		t.Errorf("unrelated nested row should have blank gutter columns, got: %q", nestedLine)
 	}
 }
