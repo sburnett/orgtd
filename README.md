@@ -130,7 +130,9 @@ logging is on.
   level). Shows a placeholder if there are no changes, no files open,
   or the org directory isn't inside a git repository at all (the
   underlying error is shown instead). Also recorded in `:log`, like any
-  other external command. `:outline` returns to the outline.
+  other external command. `:outline` returns to the outline. `:commit`
+  (only available here — see below) commits and pushes what `:diff` is
+  showing.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
@@ -226,6 +228,7 @@ ambiguous.
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
+| `:commit` | Diff view only (see Views, above) — prompts for a commit message, then runs `git commit` scoped to the same files `:diff` shows, followed by `git push`. Refuses outside diff view. Runs synchronously (both commands can briefly block the UI, `git push` for as long as the remote takes to respond); a failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. Diff view refreshes afterward either way, so the result is immediately visible |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |

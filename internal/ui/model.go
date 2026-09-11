@@ -163,6 +163,7 @@ const (
 	searchMode
 	confirmMode
 	visualMode
+	commitMessageMode
 )
 
 // statusCandidate is one entry in the "set status" picker (R).
@@ -312,6 +313,8 @@ type Model struct {
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
 
 	deadlineInput string // typed so far, in deadlineMode
+
+	commitMessageInput string // typed so far, in commitMessageMode (see startCommit)
 
 	searchQuery   string // typed so far, in searchMode
 	searchForward bool   // true for "/" (forward), false for "?" (backward)
@@ -850,7 +853,7 @@ func (m *Model) showDiff() {
 	if len(m.ws.Files) > 0 {
 		out, err := m.runGitDiff()
 		if err != nil {
-			m.diffErr = gitDiffErrorText(err)
+			m.diffErr = gitErrorText(err)
 		} else {
 			m.diffOutput = out
 		}
@@ -871,17 +874,124 @@ func (m *Model) runGitDiff() (string, error) {
 	return runLoggedCommand(m.execLog, "git", args, "")
 }
 
-// gitDiffErrorText extracts the most useful message from a failed
-// runGitDiff call: git's own stderr (e.g. "fatal: not a git
-// repository...") when there is one, else the raw error (e.g. "git" not
-// being installed at all).
-func gitDiffErrorText(err error) string {
+// gitErrorText extracts the most useful message from a failed git
+// invocation (diff, commit, or push): git's own stderr (e.g. "fatal: not
+// a git repository...") when there is one, else the raw error (e.g.
+// "git" not being installed at all).
+func gitErrorText(err error) string {
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
 			return msg
 		}
 	}
 	return err.Error()
+}
+
+// startCommit (":commit") opens a one-line prompt for a commit message
+// (see updateCommitMessageMode/applyCommitMessageInput), restricted to
+// diff view: :commit only makes sense once you've actually looked at
+// what's about to be committed via :diff, and reusing that view's own
+// file scope — rather than letting :commit imply some other set of
+// files — keeps "what :diff shows" and "what :commit commits" the same
+// thing.
+func (m *Model) startCommit() {
+	if m.view != diffView {
+		m.message = ":commit only works in diff view — see :diff"
+		return
+	}
+	m.mode = commitMessageMode
+	m.commitMessageInput = ""
+}
+
+// updateCommitMessageMode handles the one-line commit-message prompt
+// opened by startCommit — Enter applies it (see applyCommitMessageInput),
+// Esc cancels without committing anything. Mirrors updateDeadlineMode.
+func (m Model) updateCommitMessageMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.KeyEnter {
+		m.message = ""
+	}
+
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = normalMode
+		m.commitMessageInput = ""
+		return m, nil
+
+	case tea.KeyEnter:
+		return m.applyCommitMessageInput()
+
+	case tea.KeyBackspace:
+		if r := []rune(m.commitMessageInput); len(r) > 0 {
+			m.commitMessageInput = string(r[:len(r)-1])
+		}
+		return m, nil
+
+	case tea.KeySpace:
+		m.commitMessageInput += " "
+		return m, nil
+
+	case tea.KeyRunes:
+		m.commitMessageInput += string(msg.Runes)
+		return m, nil
+	}
+	return m, nil
+}
+
+// applyCommitMessageInput commits every file currently open in the
+// outline (the same scope :diff shows) with the typed message, then
+// pushes — both run synchronously, same tradeoff as showDiff (simple,
+// but blocks the UI for as long as git takes to respond, including,
+// for the push, however long the remote takes). An empty message leaves
+// the prompt open rather than committing with nothing to describe the
+// change. A failed commit leaves the working tree untouched and never
+// attempts the push; a failed push still leaves the commit in place, so
+// the diff view is refreshed either way to show whatever actually
+// happened.
+func (m Model) applyCommitMessageInput() (tea.Model, tea.Cmd) {
+	m.message = ""
+	input := strings.TrimSpace(m.commitMessageInput)
+	if input == "" {
+		m.message = "Commit message can't be empty"
+		return m, nil
+	}
+
+	m.mode = normalMode
+	m.commitMessageInput = ""
+
+	if _, err := m.runGitCommit(input); err != nil {
+		m.message = fmt.Sprintf("git commit failed: %s", gitErrorText(err))
+		return m, nil
+	}
+	if _, err := m.runGitPush(); err != nil {
+		m.message = fmt.Sprintf("Committed, but git push failed: %s", gitErrorText(err))
+		m.showDiff()
+		return m, nil
+	}
+
+	m.message = "Committed and pushed"
+	m.showDiff()
+	return m, nil
+}
+
+// runGitCommit commits every file currently open in the outline
+// (m.ws.Files — the same scope runGitDiff uses) with message, from
+// within the workspace directory. Logged like any other external
+// command — see runLoggedCommand.
+func (m *Model) runGitCommit(message string) (string, error) {
+	args := []string{"-C", m.ws.Dir, "commit", "-m", message, "--"}
+	for _, f := range m.ws.Files {
+		args = append(args, f.Path)
+	}
+	return runLoggedCommand(m.execLog, "git", args, "")
+}
+
+// runGitPush runs a plain `git push` from within the workspace
+// directory — unlike diff and commit, a push isn't scoped to particular
+// files (there's no such thing as pushing only some files' history), so
+// it just pushes the current branch to its configured upstream. Logged
+// like any other external command — see runLoggedCommand.
+func (m *Model) runGitPush() (string, error) {
+	return runLoggedCommand(m.execLog, "git", []string{"-C", m.ws.Dir, "push"}, "")
 }
 
 // onOff renders b as "on"/"off", for a status line reporting a toggle's
@@ -1023,6 +1133,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearchMode(msg)
 		case confirmMode:
 			return m.updateConfirmMode(msg)
+		case commitMessageMode:
+			return m.updateCommitMessageMode(msg)
 		case visualMode:
 			return m.updateVisualMode(msg)
 		default:
@@ -1865,7 +1977,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "config", "capture",
-	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff",
+	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -2005,6 +2117,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "diff":
 		m.showDiff()
+
+	case "commit":
+		m.startCommit()
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
@@ -4336,6 +4451,15 @@ func (m Model) View() string {
 		// As above: an invalid date sets m.message but deliberately leaves
 		// the prompt open for correction (see applyDeadlineInput), so it
 		// must be shown here rather than only in the mode-less case below.
+		if m.message != "" {
+			b.WriteString("  " + errorStyle.Render(m.message))
+		}
+	case m.mode == commitMessageMode:
+		b.WriteString(" Commit message: " + m.commitMessageInput)
+		b.WriteString(cursorStyle.Render(" "))
+		// As above (deadlineMode): an empty message sets m.message but
+		// leaves the prompt open for correction (see
+		// applyCommitMessageInput), so it must be shown here too.
 		if m.message != "" {
 			b.WriteString("  " + errorStyle.Render(m.message))
 		}
