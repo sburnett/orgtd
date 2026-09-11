@@ -2,10 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/workspace"
 )
 
 // closedTS formats t the way applyStatus itself stamps a CLOSED
@@ -139,6 +143,56 @@ func TestToggleDoneCommandTogglesVisibility(t *testing.T) {
 
 	if i := rowIndex(m, "Old finished task"); i >= 0 {
 		t.Errorf(":toggledone again should re-hide the stale item, found at row %d", i)
+	}
+}
+
+// TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline guards a real
+// concern: hide-done filtering only ever affects rebuildRows' row
+// list — it never touches the underlying org.File.Headlines tree, which
+// is what :w (org.WriteFile -> org.RenderFile) actually walks. A hidden
+// entry should still round-trip to disk exactly as if it were visible.
+func TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "inbox.org")
+	content := fmt.Sprintf("* DONE Old finished task\n  CLOSED: [%s]\n* TODO Still active\n", closedTS(time.Now().Add(-48*time.Hour)))
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	f, err := org.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	ws := &workspace.Workspace{Dir: dir, Files: []*org.File{f}}
+	m := New(ws, WithHideDoneAfterHours(24))
+
+	if rowIndex(m, "Old finished task") >= 0 {
+		t.Fatalf("fixture assumption broken: stale DONE entry should be hidden from the outline")
+	}
+
+	// An unrelated edit, so the file is actually dirty and :w has
+	// something to write.
+	m.cursor = findRow(t, m, "Still active")
+	m = sendKey(m, "r") // TODO -> NEXT
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "w")
+	m, _ = sendKeyCmd(m, "enter")
+	if !strings.Contains(m.message, "Wrote") {
+		t.Fatalf("message = %q, want it to confirm the write", m.message)
+	}
+
+	reparsed, err := org.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile after :w: %v", err)
+	}
+	var found bool
+	org.Walk(reparsed.Headlines, func(h *org.Headline) {
+		if h.Title == "Old finished task" {
+			found = true
+		}
+	})
+	if !found {
+		t.Error("stale DONE entry, hidden from the outline, was dropped from disk on :w")
 	}
 }
 
