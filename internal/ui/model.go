@@ -1224,6 +1224,12 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "ctrl+u":
 		m.moveCursor(-m.pageSize() / 2)
+
+	case "pgdown":
+		m.moveCursor(m.pageSize())
+
+	case "pgup":
+		m.moveCursor(-m.pageSize())
 	}
 
 	m.ensureVisible()
@@ -1290,6 +1296,12 @@ func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "ctrl+u":
 		m.moveCursor(-m.pageSize() / 2)
+
+	case "pgdown":
+		m.moveCursor(m.pageSize())
+
+	case "pgup":
+		m.moveCursor(-m.pageSize())
 
 	case "d":
 		m.deleteVisualSelection()

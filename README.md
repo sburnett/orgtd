@@ -143,6 +143,7 @@ stop), and so on.
 | `l` / `h` | Move one level deeper (into the first child) / shallower (to the parent, or the file header for a top-level entry), falling back to `{`/`}`-style movement when there's nowhere deeper/shallower to go |
 | `^` / `$` | Move to the top / bottom of the current level (parent or file header; last child) |
 | `ctrl-d` / `ctrl-u` | Half-page down / up |
+| `Page Down` / `Page Up` | Full-page down / up |
 | `Tab`, `za`/`zo`/`zc`/`zA`/`zO`/`zC` | Toggle / open / close a fold, one level (lowercase) or recursively (uppercase) |
 | `Enter` | In agenda view, jump to that item's real place in the outline |
 
@@ -169,7 +170,7 @@ stop), and so on.
 
 | Key | Action |
 |---|---|
-| `V` | Enter visual line selection at the current entry. Navigation keys (`j`/`k`, `gg`/`G`, `{`/`}`, `l`/`h`, `^`/`$`, `ctrl-d`/`ctrl-u`) extend the selection instead of just moving; `V` again or `Esc` cancels it |
+| `V` | Enter visual line selection at the current entry. Navigation keys (`j`/`k`, `gg`/`G`, `{`/`}`, `l`/`h`, `^`/`$`, `ctrl-d`/`ctrl-u`, `Page Down`/`Page Up`) extend the selection instead of just moving; `V` again or `Esc` cancels it |
 | `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one) |
 | `R` | (in visual mode) Open the same status picker as normal-mode `R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched |
 
