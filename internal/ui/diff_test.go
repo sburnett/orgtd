@@ -113,7 +113,7 @@ func TestDiffShowsPlaceholderWhenNoFilesOpen(t *testing.T) {
 	}
 }
 
-func TestDiffShowsErrorWhenNotAGitRepository(t *testing.T) {
+func TestDiffRefusesWhenNotAGitRepository(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "todo.org"), []byte("* TODO Something\n"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -126,8 +126,11 @@ func TestDiffShowsErrorWhenNotAGitRepository(t *testing.T) {
 
 	m.showDiff()
 
-	if len(m.rows) != 1 || !strings.Contains(m.rows[0].text, "git diff failed") {
-		t.Errorf("rows = %#v, want a single 'git diff failed' row", m.rows)
+	if m.view == diffView {
+		t.Fatalf("view = diffView, want :diff to refuse rather than show a misleading diff")
+	}
+	if !strings.Contains(m.message, "Refusing to diff") || !strings.Contains(m.message, "isn't inside a git repository") {
+		t.Errorf("message = %q, want it to explain there's no git repository at all", m.message)
 	}
 }
 

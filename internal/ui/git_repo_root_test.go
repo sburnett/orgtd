@@ -85,30 +85,21 @@ func TestGitRepoRootRefusalWhenNotAGitRepositoryAtAll(t *testing.T) {
 	}
 }
 
-func TestDiffStillWorksWhenWorkspaceIsNestedInALargerRepo(t *testing.T) {
+func TestDiffRefusesWhenNestedInALargerRepo(t *testing.T) {
 	ws := gitRepoWithNestedWorkspace(t, "* TODO Old title\n", "* TODO New title\n")
 	m := New(ws)
 
 	m.showDiff()
 
-	if m.mode != normalMode {
-		t.Fatalf("mode after :diff nested in a larger repo = %v, want normalMode (diff itself is read-only, never blocked)", m.mode)
+	if m.view == diffView {
+		t.Fatalf("view = diffView, want :diff to refuse rather than show a misleading diff — it can't offer to git add anything here")
 	}
-	if m.view != diffView {
-		t.Fatalf("view = %v, want diffView", m.view)
-	}
-	var sawChange bool
-	for _, r := range m.rows {
-		if strings.Contains(r.text, "New title") {
-			sawChange = true
-		}
-	}
-	if !sawChange {
-		t.Errorf("rows = %#v, want the tracked file's change to still show up", m.rows)
+	if !strings.Contains(m.message, "Refusing to diff") || !strings.Contains(m.message, "root of its git repository") {
+		t.Errorf("message = %q, want it to explain the workspace isn't the repo root", m.message)
 	}
 }
 
-func TestDiffDoesNotOfferToAddUntrackedFilesWhenNestedInALargerRepo(t *testing.T) {
+func TestDiffRefusesWithoutOfferingToAddUntrackedFilesWhenNestedInALargerRepo(t *testing.T) {
 	ws := gitRepoWithNestedWorkspace(t, "* TODO Something\n", "")
 	newPath := filepath.Join(ws.Dir, "new.org")
 	if err := os.WriteFile(newPath, []byte("* TODO Brand new\n"), 0644); err != nil {
@@ -125,8 +116,8 @@ func TestDiffDoesNotOfferToAddUntrackedFilesWhenNestedInALargerRepo(t *testing.T
 	if m.mode == confirmMode {
 		t.Fatalf("mode = confirmMode, want :diff never to offer adding a file it can't safely git add")
 	}
-	if m.view != diffView {
-		t.Fatalf("view = %v, want diffView — the diff itself should still run", m.view)
+	if m.view == diffView {
+		t.Fatalf("view = diffView, want :diff to refuse outright rather than show a diff missing the untracked file")
 	}
 }
 

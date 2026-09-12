@@ -124,20 +124,19 @@ logging is on.
   since it was last opened.
   `:outline` returns to the outline.
 - **Diff** (`:diff`) — the raw `git diff HEAD` output for every file
-  currently open in the outline, run fresh each time against whatever
-  git repository contains the org directory (git itself resolves the
-  repo root, so `:diff` itself — being read-only — works even if the
-  org directory is only a subdirectory of a larger repository). If any
-  of those files isn't tracked by git at all yet *and* the org directory
-  is itself that repository's root (see `:commit`'s note below on why),
-  asks first (`[y/N]`) whether to `git add` it — declining, or the org
-  directory not being the repo root, just leaves it out of the diff,
-  same as it always was. Shows a placeholder if there are no changes, no
-  files open, or the org directory isn't inside a git repository at all
-  (the underlying error is shown instead). Also recorded in `:log`, like
-  any other external command. `:outline` returns to the outline.
-  `:commit` (only available here — see below) commits and pushes what
-  `:diff` is showing.
+  currently open in the outline. Refuses outright unless the org
+  directory is itself the *root* of its git repository (same
+  requirement, and the same reason, as `:commit` below) — since a diff
+  can't offer to `git add` an untracked file it isn't safe to touch,
+  showing one at all from a nested workspace (e.g. this project's own
+  `testdata/orgdir`) would just be misleading about what `:commit` could
+  actually do with it. When it does run: if any open file isn't tracked
+  by git yet, asks first (`[y/N]`) whether to `git add` it — declining
+  just leaves it out of the diff. Shows a placeholder if there are no
+  changes or no files open. Also recorded in `:log`, like any other
+  external command. `:outline` returns to the outline. `:commit` (only
+  available here — see below) commits and pushes what `:diff` is
+  showing.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 

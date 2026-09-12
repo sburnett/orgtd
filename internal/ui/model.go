@@ -831,8 +831,10 @@ func (m *Model) appendLogRows() {
 // showDiff/runGitDiff) for every file currently open in the outline, one
 // row per line, verbatim (like :log's output lines, no further parsing
 // or styling) — or a placeholder if there's nothing to show, no files
-// are open, or the last attempt failed (e.g. the org directory isn't
-// inside a git repository at all).
+// are open, or the diff itself failed despite the workspace being a
+// proper git repository root (showDiff already refuses before this is
+// ever reached otherwise) — e.g. a repository with no commits yet at
+// all, so there's no HEAD to diff against.
 func (m *Model) appendDiffRows() {
 	if m.diffErr != "" {
 		m.rows = append(m.rows, row{text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
@@ -852,18 +854,26 @@ func (m *Model) appendDiffRows() {
 }
 
 // showDiff (":diff") shows the result of `git diff` for every file
-// currently open in the outline — after first checking whether any of
-// them isn't tracked by git at all yet (see requestAddUntracked); if
-// so, and the workspace is actually safe to run `git add` against (see
-// gitRepoRootRefusal), this pauses on that question and only actually
-// runs the diff (via runDiffNow) once it's answered. If the workspace
-// isn't safe to mutate, the question is simply never asked — there's
-// nothing to offer adding to — and the diff (itself read-only, so
-// always safe to run regardless) proceeds straight away.
+// currently open in the outline — refusing altogether unless the
+// workspace is the root of its git repository (see
+// gitRepoRootRefusal), same as :commit: a diff run from some
+// subdirectory of a larger repo (or outside a repo entirely) would
+// never be able to offer adding an untracked file either, so showing it
+// at all would be misleading about what :commit could actually do with
+// it. Otherwise, first checks whether any open file isn't tracked by
+// git yet (see requestAddUntracked); if so, this pauses on that
+// question and only actually runs the diff (via runDiffNow) once it's
+// answered.
 func (m *Model) showDiff() {
-	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 && m.gitRepoRootRefusal() == "" {
-		m.requestAddUntracked(untracked, func(m *Model) { m.runDiffNow() })
-		return
+	if len(m.ws.Files) > 0 {
+		if reason := m.gitRepoRootRefusal(); reason != "" {
+			m.message = fmt.Sprintf("Refusing to diff: %s", reason)
+			return
+		}
+		if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
+			m.requestAddUntracked(untracked, func(m *Model) { m.runDiffNow() })
+			return
+		}
 	}
 	m.runDiffNow()
 }
