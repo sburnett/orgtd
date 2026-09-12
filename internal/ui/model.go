@@ -19,7 +19,9 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	naturaldate "github.com/tj/go-naturaldate"
 
 	"github.com/sburnett/orgtd/internal/org"
@@ -785,18 +787,62 @@ func (m *Model) switchToView(v viewKind) {
 }
 
 // appendHelpRows populates m.rows for :help: README.md's embedded
-// content (see WithReadme), one row per line, verbatim — same
-// plain-text-row treatment as :log/:diff, no markdown rendering. A
-// binary built without it wired up (WithReadme never called, e.g. a
-// bare Model{} in a test) shows a placeholder instead of an empty view.
+// content (see WithReadme), rendered through glamour into ANSI-styled
+// terminal markdown — headers, emphasis, code blocks, and (the original
+// motivation for using glamour at all) properly aligned tables — one
+// row per rendered line, same plain-text-row treatment as :log/:diff
+// otherwise (no further parsing here). Falls back to the raw markdown
+// if rendering itself fails (glamour has no reason to fail on our own
+// known-good README, but every other external-ish dependency in this
+// codebase is handled defensively too). A binary built without a
+// readme wired up (WithReadme never called, e.g. a bare Model{} in a
+// test) shows a placeholder instead of an empty view.
 func (m *Model) appendHelpRows() {
 	if m.readme == "" {
 		m.rows = append(m.rows, row{isTextLine: true, text: "No help available."})
 		return
 	}
-	for _, line := range strings.Split(strings.TrimRight(m.readme, "\n"), "\n") {
+	rendered, err := renderMarkdown(m.readme, m.helpWrapWidth())
+	if err != nil {
+		rendered = m.readme
+	}
+	for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
 		m.rows = append(m.rows, row{isTextLine: true, text: line})
 	}
+}
+
+// helpWrapWidth is the column width :help's markdown rendering wraps
+// to: the terminal's actual width once known (see the WindowSizeMsg
+// case in Update, which rebuilds help view's rows on a resize since
+// they're wrapped once here rather than at render time), or a
+// reasonable default before that first arrives — including in tests,
+// which mostly never send one at all.
+func (m *Model) helpWrapWidth() int {
+	if m.width > 0 {
+		return m.width
+	}
+	return 80
+}
+
+// renderMarkdown renders src as terminal-styled markdown via glamour,
+// wrapped to width, matching the app's own light/dark and color-profile
+// detection (via lipgloss, already resolved and cached from ordinary
+// rendering elsewhere) so :help's colors look consistent with
+// everything else rather than picking their own independently.
+func renderMarkdown(src string, width int) (string, error) {
+	style := "light"
+	if lipgloss.HasDarkBackground() {
+		style = "dark"
+	}
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStandardStyle(style),
+		glamour.WithColorProfile(lipgloss.ColorProfile()),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return "", err
+	}
+	return r.Render(src)
 }
 
 // appendConfigRows populates m.rows for config view: one read-only line
@@ -1323,6 +1369,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.view == helpView {
+			// Unlike every other view, help view's rows are pre-wrapped
+			// to a specific width by glamour (see appendHelpRows) rather
+			// than wrapped at render time — so a resize while it's open
+			// needs a full rebuild, not just a new pageSize().
+			m.rebuildRows()
+		}
 		return m, nil
 
 	case editFinishedMsg:
@@ -4883,8 +4936,17 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	switch {
 	case r.isTextLine:
 		// Flush left, unstyled beyond the cursor's own background — a
-		// :config row is plain informational text, not a headline.
-		return highlightMatches(r.text, query, lipgloss.NewStyle().Background(bg))
+		// :config row is plain informational text, not a headline. A
+		// :help row, though, is glamour-rendered markdown and already
+		// carries its own ANSI styling with inner reset codes, which
+		// would cut off an outer background partway through the line
+		// (the same problem bgSpan exists to solve elsewhere) — so
+		// strip it first whenever there's an actual highlight to apply.
+		text := r.text
+		if _, plain := bg.(lipgloss.NoColor); !plain {
+			text = ansi.Strip(text)
+		}
+		return highlightMatches(text, query, lipgloss.NewStyle().Background(bg))
 	case r.section != "":
 		// Flush left (no gutter/indent), unlike every item row below it,
 		// so a section header stands out at a glance in a long agenda.

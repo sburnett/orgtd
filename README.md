@@ -137,10 +137,13 @@ logging is on.
   external command. `:outline` returns to the outline. `:commit` (only
   available here — see below) commits and pushes what `:diff` is
   showing.
-- **Help** (`:help`) — this README, verbatim, embedded into the binary
-  at build time (see `go:embed`), so it's available even if README.md
-  isn't sitting next to wherever the binary was installed. `:outline`
-  returns to the outline.
+- **Help** (`:help`) — this README, rendered as terminal-styled markdown
+  (via [glamour](https://github.com/charmbracelet/glamour) — headings,
+  tables, code blocks and all), embedded into the binary at build time
+  (see `go:embed`) so it's available even if README.md isn't sitting
+  next to wherever the binary was installed. Re-wraps automatically if
+  the terminal is resized while it's open. `:outline` returns to the
+  outline.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
