@@ -137,6 +137,10 @@ logging is on.
   external command. `:outline` returns to the outline. `:commit` (only
   available here — see below) commits and pushes what `:diff` is
   showing.
+- **Help** (`:help`) — this README, verbatim, embedded into the binary
+  at build time (see `go:embed`), so it's available even if README.md
+  isn't sitting next to wherever the binary was installed. `:outline`
+  returns to the outline.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
@@ -228,7 +232,7 @@ ambiguous.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` | Switch views |
+| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` / `:help` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |

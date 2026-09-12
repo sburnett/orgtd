@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	orgtd "github.com/sburnett/orgtd"
 	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/ui"
 	"github.com/sburnett/orgtd/internal/workspace"
@@ -93,6 +94,7 @@ func main() {
 			ui.WithHideDoneAfterHours(s.hideDoneAfterHours),
 			ui.WithEditor(s.editor),
 			ui.WithDebug(s.debug),
+			ui.WithReadme(orgtd.Readme),
 		),
 		tea.WithAltScreen(),
 	)

@@ -245,7 +245,14 @@ type row struct {
 	agendaRepeater string    // e.g. "+1w", if agendaDate was computed from a recurring timestamp; empty otherwise
 	agendaMissed   int       // occurrences skipped since agendaDate, shown as "(Nx)"; only ever set on an Overdue row
 
-	text string // set for a plain read-only informational row (:config view); rendered flush left, never interactive
+	// isTextLine marks a plain read-only informational row (:config/:log/
+	// :diff/:help), rendered flush left and never interactive; text is
+	// that line's own text (which may itself be empty — a blank line, as
+	// :help's embedded README naturally has plenty of — so isTextLine,
+	// not text != "", is the reliable marker; same reasoning as
+	// isBodyLine/bodyText above).
+	isTextLine bool
+	text       string
 }
 
 // Model is the Bubble Tea model for the viewer.
@@ -361,6 +368,8 @@ type Model struct {
 
 	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
 	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
+
+	readme string // README.md's content, embedded into the binary by the caller (see WithReadme); :help shows it verbatim
 }
 
 // viewKind selects what rebuildRows populates m.rows with.
@@ -373,6 +382,7 @@ const (
 	configView
 	logView
 	diffView
+	helpView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -464,6 +474,15 @@ func WithDebug(enabled bool) Option {
 	return func(m *Model) { m.debug = enabled }
 }
 
+// WithReadme supplies README.md's content for :help to show — the UI
+// package has no file of its own to read it from at runtime (it's
+// embedded into the binary elsewhere, at the module root, since
+// go:embed can't reach outside that file's own directory; see
+// cmd/orgtd/main.go). Empty means :help has nothing to show.
+func WithReadme(text string) Option {
+	return func(m *Model) { m.readme = text }
+}
+
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
@@ -501,6 +520,8 @@ func (m *Model) rebuildRows() {
 		m.appendLogRows()
 	case diffView:
 		m.appendDiffRows()
+	case helpView:
+		m.appendHelpRows()
 	default:
 		for _, f := range m.ws.Files {
 			m.rows = append(m.rows, row{file: f})
@@ -763,6 +784,21 @@ func (m *Model) switchToView(v viewKind) {
 	m.rebuildRows()
 }
 
+// appendHelpRows populates m.rows for :help: README.md's embedded
+// content (see WithReadme), one row per line, verbatim — same
+// plain-text-row treatment as :log/:diff, no markdown rendering. A
+// binary built without it wired up (WithReadme never called, e.g. a
+// bare Model{} in a test) shows a placeholder instead of an empty view.
+func (m *Model) appendHelpRows() {
+	if m.readme == "" {
+		m.rows = append(m.rows, row{isTextLine: true, text: "No help available."})
+		return
+	}
+	for _, line := range strings.Split(strings.TrimRight(m.readme, "\n"), "\n") {
+		m.rows = append(m.rows, row{isTextLine: true, text: line})
+	}
+}
+
 // appendConfigRows populates m.rows for config view: one read-only line
 // per configurable setting, showing its effective current value (after
 // flags/config-file/built-in-default resolution has already happened in
@@ -770,7 +806,7 @@ func (m *Model) switchToView(v viewKind) {
 // only what it ended up as).
 func (m *Model) appendConfigRows() {
 	line := func(format string, args ...any) {
-		m.rows = append(m.rows, row{text: fmt.Sprintf(format, args...)})
+		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf(format, args...)})
 	}
 
 	line("Org directory: %s", m.ws.Dir)
@@ -819,11 +855,11 @@ func (m *Model) appendConfigRows() {
 func (m *Model) appendLogRows() {
 	entries := m.execLog.snapshot()
 	if len(entries) == 0 {
-		m.rows = append(m.rows, row{text: "No external commands have been run yet."})
+		m.rows = append(m.rows, row{isTextLine: true, text: "No external commands have been run yet."})
 		return
 	}
 	for _, e := range entries {
-		m.rows = append(m.rows, row{text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.time.Format("15:04:05.000"), e.kind.label(), pidLabel(e.pid), e.text)})
+		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.time.Format("15:04:05.000"), e.kind.label(), pidLabel(e.pid), e.text)})
 	}
 }
 
@@ -837,19 +873,19 @@ func (m *Model) appendLogRows() {
 // all, so there's no HEAD to diff against.
 func (m *Model) appendDiffRows() {
 	if m.diffErr != "" {
-		m.rows = append(m.rows, row{text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
+		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
 		return
 	}
 	if len(m.ws.Files) == 0 {
-		m.rows = append(m.rows, row{text: "No files open in the outline."})
+		m.rows = append(m.rows, row{isTextLine: true, text: "No files open in the outline."})
 		return
 	}
 	if strings.TrimSpace(m.diffOutput) == "" {
-		m.rows = append(m.rows, row{text: "No changes."})
+		m.rows = append(m.rows, row{isTextLine: true, text: "No changes."})
 		return
 	}
 	for _, line := range strings.Split(m.diffOutput, "\n") {
-		m.rows = append(m.rows, row{text: line})
+		m.rows = append(m.rows, row{isTextLine: true, text: line})
 	}
 }
 
@@ -2177,7 +2213,7 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "config", "capture",
-	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit",
+	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -2320,6 +2356,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "commit":
 		m.startCommit()
+
+	case "help":
+		m.switchToView(helpView)
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)
@@ -4710,6 +4749,8 @@ func (m *Model) normalStatusLines() []string {
 		place = "log"
 	case diffView:
 		place = "diff"
+	case helpView:
+		place = "help"
 	}
 	main := fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 	h := m.currentHeadline()
@@ -4840,7 +4881,7 @@ func (m Model) renderRow(r row) string {
 func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	query := m.activeSearchQuery()
 	switch {
-	case r.text != "":
+	case r.isTextLine:
 		// Flush left, unstyled beyond the cursor's own background — a
 		// :config row is plain informational text, not a headline.
 		return highlightMatches(r.text, query, lipgloss.NewStyle().Background(bg))
