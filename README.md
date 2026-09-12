@@ -226,7 +226,13 @@ text) and stay highlighted after you move on, until the next search or
 ### Command mode (`:`)
 
 `<Tab>` completes a partial command, listing every match if it's
-ambiguous.
+ambiguous. `↑`/`↓` recall previous commands, most recent first —
+matching vim's own cmdline history: every command actually run is
+recorded (whether or not it turned out valid, and without deduplicating
+repeats), and `↑` past the oldest entry stops there rather than
+wrapping. If you'd already started typing something before pressing
+`↑`, `↓` will walk back to it once you're past the most recent entry.
+History doesn't persist between sessions.
 
 | Command | Action |
 |---|---|

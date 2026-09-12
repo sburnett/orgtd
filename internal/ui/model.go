@@ -318,6 +318,20 @@ type Model struct {
 	commandCompletions string // space-joined tab-completion matches shown after commandInput, cleared on the next keystroke
 	message            string // transient status-line message (e.g. an error), cleared on the next key press
 
+	// commandHistory records every command line actually run via Enter
+	// (see runCommand), oldest first, for ↑/↓ recall in updateCommandMode
+	// — mirrors vim's own cmdline history, including that it's not
+	// deduplicated. commandHistoryPos indexes into it for the entry
+	// currently shown; len(commandHistory) means "not navigating" (either
+	// a fresh command line, or one being freely typed after some ↑/↓
+	// browsing) rather than any real history entry. commandHistoryDraft
+	// holds what was typed before the first ↑ started navigating, so ↓
+	// can restore it once back past the most recent entry — same as a
+	// shell's own history search.
+	commandHistory      []string
+	commandHistoryPos   int
+	commandHistoryDraft string
+
 	selectFilter string // typed so far, in selectMode
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
 
@@ -1480,6 +1494,8 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ":":
 		m.mode = commandMode
 		m.commandInput = ""
+		m.commandHistoryPos = len(m.commandHistory)
+		m.commandHistoryDraft = ""
 		return m, nil
 
 	case "/":
@@ -2252,9 +2268,49 @@ func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyTab:
 		m.completeCommand()
 		return m, nil
+
+	case tea.KeyUp:
+		m.recallCommandHistory(-1)
+		return m, nil
+
+	case tea.KeyDown:
+		m.recallCommandHistory(1)
+		return m, nil
 	}
 
 	return m, nil
+}
+
+// recallCommandHistory moves the command line to an older (dir < 0) or
+// newer (dir > 0) entry in commandHistory, matching a shell's own
+// history recall: the first ↑ saves whatever was already typed
+// (commandHistoryDraft) so a later ↓ back past the most recent entry
+// restores it instead of leaving the line blank. Clamped at both ends —
+// ↑ stops at the oldest entry, ↓ stops back at the draft — rather than
+// wrapping around.
+func (m *Model) recallCommandHistory(dir int) {
+	if len(m.commandHistory) == 0 {
+		return
+	}
+	if m.commandHistoryPos == len(m.commandHistory) {
+		if dir > 0 {
+			return
+		}
+		m.commandHistoryDraft = m.commandInput
+	}
+	pos := m.commandHistoryPos + dir
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(m.commandHistory) {
+		pos = len(m.commandHistory)
+	}
+	m.commandHistoryPos = pos
+	if pos == len(m.commandHistory) {
+		m.commandInput = m.commandHistoryDraft
+	} else {
+		m.commandInput = m.commandHistory[pos]
+	}
 }
 
 // runCommand executes the typed command line and always returns to
@@ -2319,6 +2375,17 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	cmd := strings.TrimSpace(m.commandInput)
 	m.mode = normalMode
 	m.commandInput = ""
+
+	if cmd != "" {
+		// Recorded regardless of whether cmd turns out valid below —
+		// same as vim's own cmdline history, which is exactly what
+		// makes it useful for recalling and fixing a typo. Not
+		// deduplicated, again matching vim, so repeating the same
+		// command several times in a row leaves several entries.
+		m.commandHistory = append(m.commandHistory, cmd)
+	}
+	m.commandHistoryPos = len(m.commandHistory)
+	m.commandHistoryDraft = ""
 
 	if cmd == "delmarks!" {
 		m.marks = nil
