@@ -165,7 +165,7 @@ func TestStatusBarShowsURLWhenCursorOnEntryWithLink(t *testing.T) {
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-1]
+	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 
 	if !strings.Contains(last, "https://example.com/vet") {
 		t.Errorf("status bar = %q, want it to show the raw, clickable URL", last)
@@ -183,7 +183,7 @@ func TestStatusBarOmitsURLWhenEntryHasNoLink(t *testing.T) {
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-1]
+	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 
 	if strings.Contains(last, "http") {
 		t.Errorf("status bar = %q, should not mention a URL for a plain entry", last)
@@ -201,7 +201,7 @@ func TestStatusBarShowsMultipleURLsWhenEntryHasMultipleLinks(t *testing.T) {
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-1]
+	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 
 	for _, url := range []string{"https://a.example.com", "https://b.example.com"} {
 		if !strings.Contains(last, url) {
@@ -228,8 +228,9 @@ func TestStatusBarSplitsLinkOntoItsOwnLineWhenTooWide(t *testing.T) {
 		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
 	}
 
-	statusLine := lines[len(lines)-2]
-	linkLine := lines[len(lines)-1]
+	statusLine := lines[len(lines)-3]
+	linkLine := lines[len(lines)-2]
+	commandLine := lines[len(lines)-1]
 
 	if strings.Contains(statusLine, "http") {
 		t.Errorf("status line = %q, should not also carry the URL", statusLine)
@@ -239,6 +240,9 @@ func TestStatusBarSplitsLinkOntoItsOwnLineWhenTooWide(t *testing.T) {
 	}
 	if !strings.Contains(linkLine, "https://example.com/a-rather-long-path/for-testing") {
 		t.Errorf("link line = %q, want the full URL on its own line", linkLine)
+	}
+	if commandLine != "" {
+		t.Errorf("command line = %q, want blank (idle)", commandLine)
 	}
 }
 
@@ -258,7 +262,7 @@ func TestStatusBarKeepsOneLineWhenLinkFits(t *testing.T) {
 		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
 	}
 
-	last := lines[len(lines)-1]
+	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 	if !strings.Contains(last, "item") || !strings.Contains(last, "https://example.com/vet") {
 		t.Errorf("last line = %q, want both the item count and the URL on one line", last)
 	}
@@ -281,7 +285,7 @@ func TestStatusBarSplitIgnoredWhenWidthUnknown(t *testing.T) {
 	if len(lines) != m.height {
 		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
 	}
-	last := lines[len(lines)-1]
+	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 	if !strings.Contains(last, "https://example.com/a-rather-long-path/for-testing") {
 		t.Errorf("last line = %q, want the URL still shown (unsplit) when width is unknown", last)
 	}
@@ -307,9 +311,10 @@ func TestStatusBarPutsMultipleLongURLsOnSeparateLinesWhenTheyStillDontFitTogethe
 		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
 	}
 
-	statusLine := lines[len(lines)-3]
-	lineA := lines[len(lines)-2]
-	lineB := lines[len(lines)-1]
+	statusLine := lines[len(lines)-4]
+	lineA := lines[len(lines)-3]
+	lineB := lines[len(lines)-2]
+	commandLine := lines[len(lines)-1]
 
 	if strings.Contains(statusLine, "http") {
 		t.Errorf("status line = %q, should not carry either URL", statusLine)
@@ -319,5 +324,8 @@ func TestStatusBarPutsMultipleLongURLsOnSeparateLinesWhenTheyStillDontFitTogethe
 	}
 	if !strings.Contains(lineB, urlB) || strings.Contains(lineB, urlA) {
 		t.Errorf("line = %q, want just %q on it", lineB, urlB)
+	}
+	if commandLine != "" {
+		t.Errorf("command line = %q, want blank (idle)", commandLine)
 	}
 }

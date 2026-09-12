@@ -147,6 +147,15 @@ logging is on.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
+The bottom of the screen is always split into two lines, like vim's own
+statusline-above-command-line layout: the top one is the status line
+(current view/directory, item position, and any link on the current
+entry — see the tables above for what each view's "place" shows there),
+always visible regardless of mode; the bottom one is the command line —
+where `:`/`/`/`?` input, prompts (deadline, commit message, the status
+picker), the visual-mode banner, and messages all appear, blank when
+there's nothing to show. Neither ever replaces the other.
+
 ## Keybindings
 
 Everything operates on whole outline entries, not characters — `dd`

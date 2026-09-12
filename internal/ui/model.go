@@ -4541,8 +4541,8 @@ func (m *Model) jumpToSubtreeBottom() {
 	}
 }
 
-// pageSize is the number of rows visible at once, reserving one line for
-// the status bar.
+// pageSize is the number of rows visible at once, reserving room for
+// the bottom status/command-line area (see statusHeight).
 func (m *Model) pageSize() int {
 	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.pinnedHeaderHeight()
 	if n < 1 {
@@ -4789,6 +4789,20 @@ func (m Model) View() string {
 		b.WriteString("\n")
 	}
 
+	// Status line(s) — vim's own statusline equivalent: always visible
+	// regardless of mode, showing where we are (dir/view — item N/M —
+	// url). The command line below it (see the switch that follows) is a
+	// separate row for whatever's active right now, mirroring vim's own
+	// split between the two rather than the command line ever replacing
+	// the status line.
+	for _, line := range m.normalStatusLines() {
+		b.WriteString(m.padLineToWidth(statusStyle.Background(overlayBg).Render(line), overlayBg))
+		b.WriteString("\n")
+	}
+
+	// Command line — vim's own command-line/message area equivalent:
+	// whatever's active right now (a typed command, a prompt, a mode
+	// banner, or the last message), blank if there's nothing to show.
 	switch {
 	case m.mode == commandMode:
 		b.WriteString(":" + m.commandInput)
@@ -4838,13 +4852,6 @@ func (m Model) View() string {
 		}
 	case m.message != "":
 		b.WriteString(errorStyle.Render(m.message))
-	default:
-		for i, line := range m.normalStatusLines() {
-			if i > 0 {
-				b.WriteString("\n")
-			}
-			b.WriteString(m.padLineToWidth(statusStyle.Background(overlayBg).Render(line), overlayBg))
-		}
 	}
 
 	return b.String()
@@ -4904,16 +4911,16 @@ func fitsWidth(s string, width int) bool {
 	return utf8.RuneCountInString(s) <= width
 }
 
-// statusHeight is how many lines the bottom status area occupies for the
-// current mode/cursor: every mode but the default one is always one
-// line; the default one is whatever normalStatusLines returns (usually
-// 1, but 2 when a link is being given its own line — see
-// normalStatusLines).
+// statusHeight is how many lines the bottom area occupies in total:
+// the status line(s) — normalStatusLines, usually 1 but 2 when a link
+// needs its own line — plus exactly one command-line row below them
+// for whatever's active right now (a typed command, a search/deadline/
+// commit-message prompt, a mode banner, a message, or nothing at all).
+// Mirrors vim's own split between its statusline (always visible,
+// showing where you are) and the command-line/message area below it
+// (always a separate row, regardless of mode) — see View.
 func (m *Model) statusHeight() int {
-	if m.mode != normalMode || m.message != "" {
-		return 1
-	}
-	return len(m.normalStatusLines())
+	return len(m.normalStatusLines()) + 1
 }
 
 // linksInTitle returns the URL of every org-mode link in title, in order.

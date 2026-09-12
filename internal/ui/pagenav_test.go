@@ -19,7 +19,7 @@ func manyPlainEntriesFixture(t *testing.T, n int) Model {
 	}
 	ws := agendaFixture(t, b.String())
 	m := New(ws)
-	m.width, m.height = 80, 10 // pageSize() = 9 (height minus the 1-line status bar)
+	m.width, m.height = 80, 10 // pageSize() = 8 (height minus the 2-line status/command-line area)
 	return m
 }
 

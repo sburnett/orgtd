@@ -1649,21 +1649,27 @@ func TestViewPadsStatusBarToBottomOfScreen(t *testing.T) {
 	out := m.View()
 	lines := strings.Split(out, "\n")
 
-	// pageSize() reserves one line for the status bar, so the output
-	// should have exactly m.height lines: (height-1) item/blank lines
-	// followed by the status line.
+	// pageSize() reserves two lines at the bottom — the status line and,
+	// below it, a command line (see statusHeight) — so the output should
+	// have exactly m.height lines: (height-2) item/blank lines, then the
+	// status line, then a blank (idle) command line.
 	if len(lines) != m.height {
 		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
 	}
 
-	last := lines[len(lines)-1]
+	statusLine := lines[len(lines)-2]
 	wantStatus := fmt.Sprintf("item 1/%d", total)
-	if !strings.Contains(last, wantStatus) {
-		t.Errorf("last line = %q, want it to contain %q", last, wantStatus)
+	if !strings.Contains(statusLine, wantStatus) {
+		t.Errorf("status line = %q, want it to contain %q", statusLine, wantStatus)
 	}
 
-	// Every line between the last row and the status bar should be blank.
-	for i := len(m.rows); i < m.height-1; i++ {
+	commandLine := lines[len(lines)-1]
+	if commandLine != "" {
+		t.Errorf("command line = %q, want blank (idle)", commandLine)
+	}
+
+	// Every line between the last row and the status line should be blank.
+	for i := len(m.rows); i < m.height-2; i++ {
 		if lines[i] != "" {
 			t.Errorf("line %d = %q, want blank padding", i, lines[i])
 		}
