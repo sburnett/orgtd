@@ -3577,6 +3577,8 @@ func (m *Model) filterImmutable(headlines []*org.Headline) (kept []*org.Headline
 // deleteHeadline removes the current headline and its whole subtree
 // ("dd"), storing a copy in the register so it can be pasted back with
 // p/P. A no-op on file rows, or on an entry locked by :format-links.
+// Matches vim's own dd: the cursor stays at the same screen position
+// (see pushUndoKeepingCursor) rather than jumping to a tree-sibling.
 func (m *Model) deleteHeadline() {
 	h := m.currentHeadline()
 	if h == nil || m.refuseIfImmutable(h) {
@@ -3587,7 +3589,7 @@ func (m *Model) deleteHeadline() {
 		return
 	}
 	m.register = h
-	m.pushUndo(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
+	m.pushUndoKeepingCursor(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
 
 	if m.view == clarifyView && h == m.clarifyTarget {
 		m.advanceClarifyTarget()

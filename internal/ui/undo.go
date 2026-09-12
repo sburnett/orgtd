@@ -501,11 +501,30 @@ func spliceHeadlines(list []*org.Headline, idx, removeCount int, replacements []
 // mutating command (status change, entry edit) goes through here so undo
 // history stays complete.
 func (m *Model) pushUndo(a undoAction) {
+	m.pushUndoAt(a, true)
+}
+
+// pushUndoKeepingCursor is pushUndo, but leaves the cursor's row index
+// exactly where it was rather than jumping to focus whatever apply()
+// returns. Used by plain dd (see deleteHeadline) to match vim's own
+// behavior: deleting a line keeps the cursor at the same screen
+// position, landing on whatever now occupies that row (or the new last
+// row, if it was the last one) — rebuildRows' own clamping already
+// handles both cases — rather than following the deleted entry to a
+// tree-sibling the way the general apply/revert cursor-tracking below
+// does for every other action (undo/redo included).
+func (m *Model) pushUndoKeepingCursor(a undoAction) {
+	m.pushUndoAt(a, false)
+}
+
+func (m *Model) pushUndoAt(a undoAction, refocus bool) {
 	m.undoStack = append(m.undoStack[:m.undoPos], a)
 	m.undoPos = len(m.undoStack)
 	target := a.apply(m)
 	m.rebuildRows()
-	m.focusTarget(target, a.file())
+	if refocus {
+		m.focusTarget(target, a.file())
+	}
 	m.recomputeDirty()
 }
 

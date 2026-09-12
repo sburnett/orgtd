@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestDeleteRemovesEntryAndSubtree(t *testing.T) {
 	ws := loadFixture(t)
@@ -80,22 +83,61 @@ func TestDeleteIsOneUndoStep(t *testing.T) {
 	}
 }
 
-func TestDeleteFocusesNextSiblingThenPrevious(t *testing.T) {
+// TestDeleteKeepsCursorAtTheSameScreenPosition matches vim's own dd:
+// the cursor stays at the same row, landing on whatever now occupies
+// that position — a sibling that slid up into it, or, once nothing in
+// this file's own list is left there, whatever the outline shows next
+// overall (here, the next file's own header row) — rather than jumping
+// to a "sensible" tree-sibling.
+func TestDeleteKeepsCursorAtTheSameScreenPosition(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	// Middle sibling: deleting it should focus the next one.
-	m.cursor = findRow(t, m, "Read the RFC linked in yesterday's design review")
+	// Middle sibling: deleting it slides the next one up into the same row.
+	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
+	m.cursor = idx
+
 	m = sendKey(m, "d")
 	m = sendKey(m, "d")
+
+	if m.cursor != idx {
+		t.Fatalf("cursor after dd = %d, want unchanged %d", m.cursor, idx)
+	}
 	if h := m.currentHeadline(); h == nil || h.Title != "Follow up with finance about the Q3 budget doc" {
-		t.Errorf("after deleting the middle item, focus = %v, want the next sibling", h)
+		t.Errorf("after deleting the middle item, focus = %v, want the sibling that slid up", h)
 	}
 
-	// Now the last remaining item: deleting it should focus the previous one.
+	// Now the last remaining item in inbox.org's own list: deleting it
+	// lands the cursor on whatever's now at that same row — the next
+	// file's header row — not a "previous sibling" pick.
 	m = sendKey(m, "d")
 	m = sendKey(m, "d")
-	if h := m.currentHeadline(); h == nil || h.Title != "Call the vet about Fido's checkup" {
-		t.Errorf("after deleting the last item, focus = %v, want the previous sibling", h)
+
+	if m.cursor != idx {
+		t.Fatalf("cursor after second dd = %d, want unchanged %d", m.cursor, idx)
+	}
+	row := m.rows[m.cursor]
+	if row.file == nil || filepath.Base(row.file.Path) != "longfile.org" {
+		t.Errorf("after deleting the last item, row = %+v, want longfile.org's header row now sitting here", row)
+	}
+}
+
+// TestDeleteOfTheLastRowClampsCursorToTheNewLastRow covers the other
+// end of TestDeleteKeepsCursorAtTheSameScreenPosition: deleting the
+// very last row in the whole outline (not just the last one in some
+// file's own list) leaves nothing to slide up into that row index, so
+// the cursor clamps down to the new last row instead — same as vim
+// dd-ing the last line of a buffer.
+func TestDeleteOfTheLastRowClampsCursorToTheNewLastRow(t *testing.T) {
+	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
+	m := New(ws)
+	m.cursor = findRow(t, m, "Second")
+
+	m = sendKey(m, "d")
+	m = sendKey(m, "d")
+
+	want := findRow(t, m, "First")
+	if m.cursor != want {
+		t.Errorf("cursor after dd on the last row = %d, want %d (the new last row)", m.cursor, want)
 	}
 }
 

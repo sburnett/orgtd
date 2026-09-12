@@ -185,7 +185,7 @@ stop), and so on.
 | `i` | Edit the current entry (and its subtree) in `$EDITOR`. For a vim-family `$EDITOR` (vi/vim/nvim/gvim/mvim), the cursor lands right after the bullet (`* `) already in insert mode, so typing starts immediately. On a file's own header row, edits the whole file directly instead (after a confirmation, since this discards undo history and marks for that file) |
 | `A` | Same as `i`, but the cursor lands at the end of the entry's first line instead (vim's own "append" position) |
 | `o` / `O` | Insert a new entry after / before the current one (or at the end/start of a file, from a file header row). The template opened in `$EDITOR` is prefilled with a `CREATED` property set to now — edit or delete it like anything else before saving. For a vim-family `$EDITOR`, the cursor starts right after the bullet in insert mode, same as `i` (see above), ready to type the new title immediately |
-| `dd` | Delete the current entry and its subtree (undoable; also fills the paste register) |
+| `dd` | Delete the current entry and its subtree (undoable; also fills the paste register). The cursor stays at the same screen row, landing on whatever now occupies it (or the new last row, if it was the last one) — matching vim's own `dd` |
 | `<N>dd` | Delete the current entry and the next N-1 entries and their subtrees, as one undo step (e.g. `3dd` deletes 3 entries). A count of 1 (or none) is exactly plain `dd`, register included; a higher count doesn't fill the register, since there'd be more than one entry to put there |
 | `yy` | Yank the current entry and its subtree into the paste register, without deleting it |
 | `p` / `P` | Paste the register's contents after / before the current entry, re-indented to fit |
