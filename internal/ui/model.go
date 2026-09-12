@@ -854,10 +854,14 @@ func (m *Model) appendDiffRows() {
 // showDiff (":diff") shows the result of `git diff` for every file
 // currently open in the outline — after first checking whether any of
 // them isn't tracked by git at all yet (see requestAddUntracked); if
-// so, this pauses on that question and only actually runs the diff (via
-// runDiffNow) once it's answered.
+// so, and the workspace is actually safe to run `git add` against (see
+// gitRepoRootRefusal), this pauses on that question and only actually
+// runs the diff (via runDiffNow) once it's answered. If the workspace
+// isn't safe to mutate, the question is simply never asked — there's
+// nothing to offer adding to — and the diff (itself read-only, so
+// always safe to run regardless) proceeds straight away.
 func (m *Model) showDiff() {
-	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
+	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 && m.gitRepoRootRefusal() == "" {
 		m.requestAddUntracked(untracked, func(m *Model) { m.runDiffNow() })
 		return
 	}
@@ -926,6 +930,60 @@ func (m *Model) untrackedFiles() ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
+// gitRepoRoot returns the git repository root that contains m.ws.Dir —
+// via `git rev-parse --show-toplevel` — or "" if ws.Dir isn't inside a
+// git repository at all (or git itself failed). Logged like any other
+// external command.
+func (m *Model) gitRepoRoot() string {
+	out, err := runLoggedCommand(m.execLog, "git", []string{"-C", m.ws.Dir, "rev-parse", "--show-toplevel"}, "")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// gitRepoRootRefusal reports why mutating git commands (add, commit,
+// push — see requireGitRepoRoot) must refuse to run against the current
+// workspace, or "" if they're fine to run. They're refused unless the
+// org directory is itself the *root* of its git repository, not merely
+// somewhere inside one: git add/commit are scoped to specific files, so
+// on their own a nested workspace wouldn't be too dangerous, but git
+// push is not scoped to files at all — it pushes the *whole* current
+// branch — and a workspace that's really just a subdirectory of some
+// larger, unrelated repository (e.g. orgtd's own testdata/orgdir,
+// nested inside this very repo) must never have that run against it.
+// Paths are compared after resolving symlinks (see filepath.EvalSymlinks)
+// since e.g. macOS routes /tmp and /var through symlinks into /private —
+// comparing raw paths would otherwise misreport plenty of genuinely
+// rooted workspaces (anything under the system's temp dir included) as
+// nested elsewhere.
+func (m *Model) gitRepoRootRefusal() string {
+	root := m.gitRepoRoot()
+	if root == "" {
+		return "the org directory isn't inside a git repository"
+	}
+	wsResolved, wsErr := filepath.EvalSymlinks(m.ws.Dir)
+	rootResolved, rootErr := filepath.EvalSymlinks(root)
+	if wsErr != nil || rootErr != nil || wsResolved != rootResolved {
+		return fmt.Sprintf("the org directory isn't the root of its git repository (root is %s)", root)
+	}
+	return ""
+}
+
+// requireGitRepoRoot is the guard every mutating git operation (gitAdd,
+// runGitCommit, runGitPush) checks before doing anything — see
+// gitRepoRootRefusal for why. Checked there directly (rather than only
+// at the higher-level call sites that ask about it first, for a better
+// error message — see showDiff/startCommit) so there's no way to reach
+// an actual mutation without passing this, regardless of how it's
+// eventually called.
+func (m *Model) requireGitRepoRoot() error {
+	if reason := m.gitRepoRootRefusal(); reason != "" {
+		return fmt.Errorf("%s", reason)
+	}
+	return nil
+}
+
 // requestAddUntracked interrupts :diff/:commit with a y/N confirmation
 // (reusing confirmMode, alongside its existing file-edit prompt — see
 // pendingUntrackedFiles/pendingUntrackedThen) when untrackedFiles found
@@ -943,9 +1001,13 @@ func (m *Model) requestAddUntracked(untracked []string, then func(m *Model)) {
 // gitAdd runs `git add` for exactly the given paths (as returned by
 // untrackedFiles — already suitable as pathspecs from within the
 // workspace directory), so accepting requestAddUntracked's prompt never
-// stages anything beyond what it named. Logged like any other external
-// command.
+// stages anything beyond what it named. Refuses outside the workspace's
+// own git repository root — see requireGitRepoRoot. Logged like any
+// other external command.
 func (m *Model) gitAdd(paths []string) (string, error) {
+	if err := m.requireGitRepoRoot(); err != nil {
+		return "", err
+	}
 	args := append([]string{"-C", m.ws.Dir, "add", "--"}, paths...)
 	return runLoggedCommand(m.execLog, "git", args, "")
 }
@@ -969,13 +1031,23 @@ func gitErrorText(err error) string {
 // what's about to be committed via :diff, and reusing that view's own
 // file scope — rather than letting :commit imply some other set of
 // files — keeps "what :diff shows" and "what :commit commits" the same
-// thing. As with :diff, first checks for files git doesn't track at all
-// yet (see requestAddUntracked) — `git commit -- <pathspec>` silently
-// skips a file that was never even `git add`ed once, so without this an
-// untracked org file would just never make it into a commit.
+// thing. Since :commit always ends in a mutating git add/commit/push,
+// it refuses altogether unless the workspace is safe to run those
+// against (see gitRepoRootRefusal) — checked up front, before even
+// asking about untracked files, so declining that question is never
+// even on the table when the real problem is the repository itself.
+// Otherwise, as with :diff, first checks for files git doesn't track at
+// all yet (see requestAddUntracked) — `git commit -- <pathspec>`
+// silently skips a file that was never even `git add`ed once, so
+// without this an untracked org file would just never make it into a
+// commit.
 func (m *Model) startCommit() {
 	if m.view != diffView {
 		m.message = ":commit only works in diff view — see :diff"
+		return
+	}
+	if reason := m.gitRepoRootRefusal(); reason != "" {
+		m.message = fmt.Sprintf("Refusing to commit: %s", reason)
 		return
 	}
 	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
@@ -1065,9 +1137,13 @@ func (m Model) applyCommitMessageInput() (tea.Model, tea.Cmd) {
 
 // runGitCommit commits every file currently open in the outline
 // (m.ws.Files — the same scope runGitDiff uses) with message, from
-// within the workspace directory. Logged like any other external
-// command — see runLoggedCommand.
+// within the workspace directory. Refuses outside the workspace's own
+// git repository root — see requireGitRepoRoot. Logged like any other
+// external command — see runLoggedCommand.
 func (m *Model) runGitCommit(message string) (string, error) {
+	if err := m.requireGitRepoRoot(); err != nil {
+		return "", err
+	}
 	args := []string{"-C", m.ws.Dir, "commit", "-m", message, "--"}
 	for _, f := range m.ws.Files {
 		args = append(args, f.Path)
@@ -1078,9 +1154,14 @@ func (m *Model) runGitCommit(message string) (string, error) {
 // runGitPush runs a plain `git push` from within the workspace
 // directory — unlike diff and commit, a push isn't scoped to particular
 // files (there's no such thing as pushing only some files' history), so
-// it just pushes the current branch to its configured upstream. Logged
-// like any other external command — see runLoggedCommand.
+// it just pushes the current branch to its configured upstream. This is
+// exactly why requireGitRepoRoot matters most here: a push affects the
+// whole repository's history, not just the org files orgtd knows about.
+// Logged like any other external command — see runLoggedCommand.
 func (m *Model) runGitPush() (string, error) {
+	if err := m.requireGitRepoRoot(); err != nil {
+		return "", err
+	}
 	return runLoggedCommand(m.execLog, "git", []string{"-C", m.ws.Dir, "push"}, "")
 }
 

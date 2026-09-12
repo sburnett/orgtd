@@ -126,15 +126,18 @@ logging is on.
 - **Diff** (`:diff`) — the raw `git diff HEAD` output for every file
   currently open in the outline, run fresh each time against whatever
   git repository contains the org directory (git itself resolves the
-  repo root, so it doesn't need to be the org directory's own top
-  level). If any of those files isn't tracked by git at all yet, asks
-  first (`[y/N]`) whether to `git add` it — declining just leaves it out
-  of the diff, same as it always was. Shows a placeholder if there are
-  no changes, no files open, or the org directory isn't inside a git
-  repository at all (the underlying error is shown instead). Also
-  recorded in `:log`, like any other external command. `:outline`
-  returns to the outline. `:commit` (only available here — see below)
-  commits and pushes what `:diff` is showing.
+  repo root, so `:diff` itself — being read-only — works even if the
+  org directory is only a subdirectory of a larger repository). If any
+  of those files isn't tracked by git at all yet *and* the org directory
+  is itself that repository's root (see `:commit`'s note below on why),
+  asks first (`[y/N]`) whether to `git add` it — declining, or the org
+  directory not being the repo root, just leaves it out of the diff,
+  same as it always was. Shows a placeholder if there are no changes, no
+  files open, or the org directory isn't inside a git repository at all
+  (the underlying error is shown instead). Also recorded in `:log`, like
+  any other external command. `:outline` returns to the outline.
+  `:commit` (only available here — see below) commits and pushes what
+  `:diff` is showing.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
@@ -230,7 +233,7 @@ ambiguous.
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
-| `:commit` | Diff view only (see Views, above) — asks about any untracked file first (same `[y/N]` prompt as `:diff`; note a file left untracked here won't actually be committed, since `git commit` never picks up a file that's never been `git add`ed at all), then prompts for a commit message, runs `git commit` scoped to the same files `:diff` shows, followed by `git push`. Refuses outside diff view. Runs synchronously (both commands can briefly block the UI, `git push` for as long as the remote takes to respond); a failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. Diff view refreshes afterward either way, so the result is immediately visible |
+| `:commit` | Diff view only (see Views, above) — refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; note a file left untracked here won't actually be committed, since `git commit` never picks up a file that's never been `git add`ed at all), then prompts for a commit message, runs `git commit` scoped to the same files `:diff` shows, followed by `git push`. Refuses outside diff view too. Runs synchronously (both commands can briefly block the UI, `git push` for as long as the remote takes to respond); a failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. Diff view refreshes afterward either way, so the result is immediately visible |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |
