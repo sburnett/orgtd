@@ -4735,60 +4735,73 @@ func (m *Model) scrollView(delta int) {
 }
 
 func (m Model) View() string {
-	if len(m.rows) == 0 {
-		if m.view == agendaView {
-			return fmt.Sprintf("Nothing due in the next %d days. :outline to go back.\n", m.agendaDays)
-		}
-		return "No org files found.\n"
-	}
-
-	page := m.pageSize()
-	start := m.offset
-	end := start + page
-	if end > len(m.rows) {
-		end = len(m.rows)
-	}
-
-	// An entry's body lines highlight along with it — the whole entry is
-	// one item, not a separately-steppable row per line — so extend the
-	// highlight from the cursor over any of its own body lines that
-	// immediately follow. In visual mode, the rest of the selection (from
-	// visualAnchor to the cursor) is also highlighted, but with
-	// visualSelectionBg rather than cursorBg — otherwise the whole block
-	// looks uniform and there'd be no way to tell which end is actually
-	// the cursor (e.g. before extending the selection further, or right
-	// after Esc leaves the cursor wherever it was).
-	cursorStart, cursorEnd := m.cursor, m.entryEnd(m.cursor)
-	selStart, selEnd := cursorStart, cursorEnd
-	if m.mode == visualMode {
-		selStart, selEnd = m.visualRange()
-	}
-
 	var b strings.Builder
 	for _, line := range m.pinnedHeaderLines() {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	for i := start; i < end; i++ {
-		if i > start && m.rows[i].section != "" {
+
+	page := m.pageSize()
+
+	if len(m.rows) == 0 {
+		// No items to list (an empty agenda, or a workspace with no org
+		// files at all) — still falls through to the status/command-line
+		// area below, same as every other case, rather than returning a
+		// bare message and skipping it entirely.
+		msg := "No org files found."
+		if m.view == agendaView {
+			msg = fmt.Sprintf("Nothing due in the next %d days. :outline to go back.", m.agendaDays)
+		}
+		b.WriteString(msg)
+		b.WriteString("\n")
+		for i := 1; i < page; i++ {
 			b.WriteString("\n")
 		}
-		var line string
-		switch {
-		case i >= cursorStart && i <= cursorEnd:
-			line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
-		case i >= selStart && i <= selEnd:
-			line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], visualSelectionBg), visualSelectionBg)
-		default:
-			line = m.renderRow(m.rows[i])
+	} else {
+		start := m.offset
+		end := start + page
+		if end > len(m.rows) {
+			end = len(m.rows)
 		}
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	// Pad with blank lines so the status bar always sits on the last row
-	// of the screen, even when there are fewer than a page of items.
-	for i := end - start; i < page; i++ {
-		b.WriteString("\n")
+
+		// An entry's body lines highlight along with it — the whole entry
+		// is one item, not a separately-steppable row per line — so
+		// extend the highlight from the cursor over any of its own body
+		// lines that immediately follow. In visual mode, the rest of the
+		// selection (from visualAnchor to the cursor) is also
+		// highlighted, but with visualSelectionBg rather than cursorBg —
+		// otherwise the whole block looks uniform and there'd be no way
+		// to tell which end is actually the cursor (e.g. before extending
+		// the selection further, or right after Esc leaves the cursor
+		// wherever it was).
+		cursorStart, cursorEnd := m.cursor, m.entryEnd(m.cursor)
+		selStart, selEnd := cursorStart, cursorEnd
+		if m.mode == visualMode {
+			selStart, selEnd = m.visualRange()
+		}
+
+		for i := start; i < end; i++ {
+			if i > start && m.rows[i].section != "" {
+				b.WriteString("\n")
+			}
+			var line string
+			switch {
+			case i >= cursorStart && i <= cursorEnd:
+				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
+			case i >= selStart && i <= selEnd:
+				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], visualSelectionBg), visualSelectionBg)
+			default:
+				line = m.renderRow(m.rows[i])
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		// Pad with blank lines so the status bar always sits on the last
+		// row of the screen, even when there are fewer than a page of
+		// items.
+		for i := end - start; i < page; i++ {
+			b.WriteString("\n")
+		}
 	}
 
 	// Status line(s) — vim's own statusline equivalent: always visible

@@ -738,6 +738,55 @@ func TestAgendaEmptyShowsFriendlyMessage(t *testing.T) {
 	}
 }
 
+// TestAgendaEmptyStillShowsStatusAndCommandLines guards a real bug: an
+// empty agenda used to return a bare one-line message and skip the
+// status/command-line area entirely (see View's len(m.rows) == 0
+// branch), so the bottom bar simply vanished whenever nothing was due.
+func TestAgendaEmptyStillShowsStatusAndCommandLines(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Nothing due\n")
+	m := New(ws)
+	m.width, m.height = 100, 20
+	m.switchToView(agendaView)
+
+	out := m.View()
+	lines := strings.Split(out, "\n")
+	if len(lines) != m.height {
+		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
+	}
+
+	status := lines[len(lines)-2]
+	if !strings.Contains(status, "agenda") {
+		t.Errorf("status line = %q, want it to show the agenda place", status)
+	}
+	command := lines[len(lines)-1]
+	if command != "" {
+		t.Errorf("command line = %q, want blank (idle)", command)
+	}
+}
+
+// TestNoOrgFilesStillShowsStatusAndCommandLines is the same bug's other
+// branch: a workspace with no org files at all.
+func TestNoOrgFilesStillShowsStatusAndCommandLines(t *testing.T) {
+	ws := &workspace.Workspace{Dir: "empty-fixture"}
+	m := New(ws)
+	m.width, m.height = 100, 20
+
+	out := m.View()
+	lines := strings.Split(out, "\n")
+	if len(lines) != m.height {
+		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
+	}
+
+	status := lines[len(lines)-2]
+	if !strings.Contains(status, "item") {
+		t.Errorf("status line = %q, want the usual item count", status)
+	}
+	command := lines[len(lines)-1]
+	if command != "" {
+		t.Errorf("command line = %q, want blank (idle)", command)
+	}
+}
+
 func TestWithAgendaDaysOption(t *testing.T) {
 	ws := agendaFixture(t, "* TODO x\n")
 	m := New(ws, WithAgendaDays(30))
