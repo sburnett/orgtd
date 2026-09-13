@@ -260,6 +260,12 @@ type row struct {
 	meetingStart    time.Time
 	meetingEnd      time.Time
 
+	// isCalendarItem marks a calendar-event row in calendarView (see
+	// appendCalendarHeadlines): rendered with its GCAL_START/GCAL_END
+	// time shown before the title (see renderCalendarItemRowWithBg),
+	// rather than the outline's usual keyword-first layout.
+	isCalendarItem bool
+
 	// isTextLine marks a plain read-only informational row (:config/:log/
 	// :diff/:help), rendered flush left and never interactive; text is
 	// that line's own text (which may itself be empty — a blank line, as
@@ -407,6 +413,12 @@ type Model struct {
 	inboxFile     string        // base name of the file :clarify treats as the inbox
 	clarifyTarget *org.Headline // the inbox item currently pinned for clarification, in clarifyView; nil if the inbox is empty
 
+	// calendarFile is the base name of the file gcalsync writes (e.g.
+	// "calendar.org", the default) — excluded from the outline view
+	// entirely (see rebuildRows' default case) and shown instead, grouped
+	// by day, in calendarView (see appendCalendarRows).
+	calendarFile string
+
 	hideDoneAfterHours int  // how many hours after CLOSED a DONE/CANCELLED item disappears from the outline; see WithHideDoneAfterHours
 	hideDoneEnabled    bool // whether hideDoneAfterHours filtering is active; off by default (see New), toggled by :toggledone, turned on at startup by WithHideDoneAfterHours
 
@@ -429,6 +441,7 @@ const (
 	logView
 	diffView
 	helpView
+	calendarView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -493,6 +506,18 @@ func WithInboxFile(name string) Option {
 	}
 }
 
+// WithCalendarFile sets the base file name excluded from the outline
+// view and shown instead (grouped by day) in calendarView — the file
+// gcalsync writes (e.g. "calendar.org", the default). name == "" is
+// treated as the default.
+func WithCalendarFile(name string) Option {
+	return func(m *Model) {
+		if name != "" {
+			m.calendarFile = name
+		}
+	}
+}
+
 // WithHideDoneAfterHours turns on hiding DONE/CANCELLED headlines (and
 // their whole subtrees — see appendHeadlines) whose CLOSED timestamp is
 // more than hours in the past from the outline view; hours <= 0 keeps
@@ -541,6 +566,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		execLog:            &execLog{},
 		agendaDays:         14,
 		inboxFile:          "inbox.org",
+		calendarFile:       "calendar.org",
 		hideDoneAfterHours: 24,
 	}
 	for _, opt := range opts {
@@ -568,8 +594,13 @@ func (m *Model) rebuildRows() {
 		m.appendDiffRows()
 	case helpView:
 		m.appendHelpRows()
+	case calendarView:
+		m.appendCalendarRows()
 	default:
 		for _, f := range m.ws.Files {
+			if filepath.Base(f.Path) == m.calendarFile {
+				continue
+			}
 			m.rows = append(m.rows, row{file: f})
 			m.appendHeadlines(f.Headlines)
 		}
@@ -602,6 +633,17 @@ func (m *Model) jumpToSource() {
 func (m *Model) findInboxFile() *org.File {
 	for _, f := range m.ws.Files {
 		if filepath.Base(f.Path) == m.inboxFile {
+			return f
+		}
+	}
+	return nil
+}
+
+// findCalendarFile returns the workspace file calendarView shows (see
+// WithCalendarFile), or nil if it isn't loaded.
+func (m *Model) findCalendarFile() *org.File {
+	for _, f := range m.ws.Files {
+		if filepath.Base(f.Path) == m.calendarFile {
 			return f
 		}
 	}
@@ -928,6 +970,7 @@ func (m *Model) appendConfigRows() {
 
 	line("Agenda window: %d days", m.agendaDays)
 	line("Inbox file: %s", m.inboxFile)
+	line("Calendar file: %s", m.calendarFile)
 	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.hideDoneAfterHours, onOff(m.hideDoneEnabled))
 	line("Debug logging: %s", onOff(m.debug))
 }
@@ -1356,6 +1399,34 @@ func (m *Model) appendHeadlines(headlines []*org.Headline) {
 	}
 }
 
+// appendCalendarHeadlines is appendHeadlines' calendarView counterpart:
+// same recursion (body lines, children), but each row is marked
+// isCalendarItem (see renderCalendarItemRowWithBg) instead of rendered
+// the outline's usual way, and every event starts folded the first time
+// it's ever shown — its Location/Description/link body is meeting
+// detail you don't need at a glance, and stays one Tab away rather than
+// cluttering every day's listing by default. "The first time" means
+// exactly that: once a headline has an entry in m.collapsed at all
+// (whether the user folded or unfolded it), that choice sticks across
+// rebuilds instead of being reset back to folded on every redraw.
+func (m *Model) appendCalendarHeadlines(headlines []*org.Headline) {
+	for _, h := range headlines {
+		if m.hiddenAsStaleDone(h) {
+			continue
+		}
+		if _, ok := m.collapsed[h]; !ok {
+			m.collapsed[h] = true
+		}
+		m.rows = append(m.rows, row{headline: h, level: h.Level, isCalendarItem: true})
+		if !m.collapsed[h] {
+			m.appendBodyLines(h)
+			if len(h.Children) > 0 {
+				m.appendCalendarHeadlines(h.Children)
+			}
+		}
+	}
+}
+
 // hiddenAsStaleDone reports whether h should be omitted from the outline
 // (along with its whole subtree, and any body text) because hide-done
 // filtering is enabled (see :toggledone) and h is a DONE/CANCELLED
@@ -1667,6 +1738,13 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "M":
 		if wasPendingG {
 			m.startMeetingPicker()
+		}
+
+	case "X":
+		if wasPendingG {
+			if cmd := m.startCaptureAndPickMeeting(); cmd != nil {
+				return m, cmd
+			}
 		}
 
 	case "a":
@@ -2358,7 +2436,7 @@ func (m *Model) recallCommandHistory(dir int) {
 // type and want completed.
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
-	"undo", "redo", "agenda", "clarify", "outline", "config", "capture",
+	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar",
 	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
 }
 
@@ -2478,6 +2556,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "config":
 		m.switchToView(configView)
+
+	case "calendar":
+		m.switchToView(calendarView)
 
 	case "capture":
 		return m, m.startCapture()
@@ -3672,7 +3753,7 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return m.insertHeadlineAt(f, parent, idx, level, origin, nil)
+	return m.insertHeadlineAt(f, parent, idx, level, origin, nil, false)
 }
 
 // startCapture (:capture, "gC") appends a blank top-level headline to
@@ -3682,6 +3763,23 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 // or scrolled to some other file entirely in outline). A no-op (with a
 // status message) if the inbox file isn't loaded.
 func (m *Model) startCapture() tea.Cmd {
+	return m.startCaptureImpl(false)
+}
+
+// startCaptureAndPickMeeting ("gX") is startCapture immediately followed
+// by "gM" (see startMeetingPicker) once the capture's editor session
+// finishes successfully (see insertContext.thenPickMeeting/finishEdit) —
+// a shortcut for the common case of capturing something during a
+// meeting and wanting to attach that meeting to it right away, without
+// two separate keystrokes bracketing the (possibly slow) editor
+// round-trip. Cancelling the capture (empty/blank result, or the editor
+// failing to run) never opens the picker — there's nothing to attach it
+// to.
+func (m *Model) startCaptureAndPickMeeting() tea.Cmd {
+	return m.startCaptureImpl(true)
+}
+
+func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 	f := m.findInboxFile()
 	if f == nil {
 		m.message = fmt.Sprintf("No %s file in this org directory", m.inboxFile)
@@ -3693,7 +3791,7 @@ func (m *Model) startCapture() tea.Cmd {
 	// originFile covers the file-row case (origin nil): without it,
 	// rollback would fall back to insertContext.f, which for capture is
 	// always the inbox, not necessarily wherever the cursor actually was.
-	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile())
+	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), thenPickMeeting)
 }
 
 func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
@@ -3711,13 +3809,21 @@ func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
 // calendarEventLinks resolves h's calendar-meeting properties into
 // "<meeting name>: <url>" entries, used by normalStatusLines to surface
 // the meeting(s) an entry references, the same way a link embedded
-// directly in its title already is: one-off meetings it was captured
-// during (GCAL_EVENT_LINKS/GCAL_EVENT_IDS) and recurring series it's
-// attached to, via "gC" or "gM" (GCAL_RECURRING_EVENT_LINKS/
-// GCAL_RECURRING_EVENT_IDS) — see resolveMeetingLinks for how each pair
-// is resolved.
+// directly in its title already is: h's own link, if h is itself a
+// synced calendar event (GCAL_HTML_LINK — see cmd/gcalsync/convert.go);
+// one-off meetings it was captured during (GCAL_EVENT_LINKS/
+// GCAL_EVENT_IDS); and recurring series it's attached to, via "gC" or
+// "gM" (GCAL_RECURRING_EVENT_LINKS/GCAL_RECURRING_EVENT_IDS) — see
+// resolveMeetingLinks for how each of the latter two pairs is resolved.
+// This is what lets calendarView show an event's meeting details (link,
+// description, location) only on demand (folded by default — see
+// appendCalendarHeadlines) rather than inline: the link is still always
+// one glance away, on the status line.
 func (m *Model) calendarEventLinks(h *org.Headline) []string {
 	var links []string
+	if url := h.Properties["GCAL_HTML_LINK"]; url != "" {
+		links = append(links, h.Title+": "+url)
+	}
 	links = append(links, m.resolveMeetingLinks(h, "GCAL_EVENT_LINKS", "GCAL_EVENT_ID", "GCAL_EVENT_IDS")...)
 	links = append(links, m.resolveMeetingLinks(h, "GCAL_RECURRING_EVENT_LINKS", "GCAL_RECURRING_EVENT_ID", "GCAL_RECURRING_EVENT_IDS")...)
 	return links
@@ -3846,8 +3952,11 @@ func (m *Model) currentRowFile() *org.File {
 // moment of capture, whether or not it's actually relevant) could only
 // be undone by hand-editing properties afterward. "gM" (see
 // startMeetingPicker) is the deliberate, interactive way to attach a
-// meeting instead — nothing here does it for you.
-func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File) tea.Cmd {
+// meeting instead — nothing here does it for you, though
+// thenPickMeeting (set only by startCaptureAndPickMeeting, "gX") queues
+// it up to run automatically right after the editor session commits —
+// see insertContext.thenPickMeeting and finishEdit.
+func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting bool) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
 	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
 	if parent != nil {
@@ -3858,7 +3967,7 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	m.rebuildRows()
 	m.focusHeadline(tentative)
 
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile}
+	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile, thenPickMeeting: thenPickMeeting}
 	cmd := m.launchEditor(tentative, &ctx, cursorAtEntryStart)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank
@@ -4576,6 +4685,12 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.commitInsert(*msg.insert, msg.target, file.Headlines)
+		if msg.insert.thenPickMeeting {
+			// commitInsert already focused file.Headlines[0], so the
+			// picker (see startMeetingPicker) targets the just-captured
+			// entry — see startCaptureAndPickMeeting ("gX").
+			m.startMeetingPicker()
+		}
 		return m, nil
 	}
 
@@ -4866,14 +4981,68 @@ func (m *Model) jumpToSubtreeBottom() {
 	}
 }
 
-// pageSize is the number of rows visible at once, reserving room for
-// the bottom status/command-line area (see statusHeight).
+// pageSize is a rough, static estimate of how many rows a page holds,
+// reserving a full-list worst-case amount of room for section-separator
+// blank lines (see sectionSeparatorBudget) alongside the bottom status/
+// command-line area (see statusHeight). Used only as a scroll-jump
+// size (ctrl-d/ctrl-u/PageUp/PageDown) — close enough for "move roughly
+// one screen's worth of rows". The actual visible window (used by
+// View(), ensureVisible, and scrollView) is computed precisely instead,
+// by contentBudget/visibleRowCount: pageSize's static reservation is
+// only ever a lower bound on what really fits (safe for a jump size,
+// since jumping a little short of a full screen is harmless), but it
+// can be far too conservative when a view has many more section
+// boundaries than fit on one page (e.g. :calendar with more days than
+// rows available) — most of them live on other pages, so reserving
+// room here for every boundary in the whole list would under-fill the
+// actual screen.
 func (m *Model) pageSize() int {
 	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.pinnedHeaderHeight()
 	if n < 1 {
 		n = 1
 	}
 	return n
+}
+
+// contentBudget is exactly how many terminal lines the scrollable
+// content area may occupy: the screen height minus the pinned header
+// and the bottom status/command-line area — with no separate
+// reservation for section-separator blank lines, unlike pageSize. Used
+// by visibleRowCount to work out precisely how many rows fit from a
+// given starting row, and directly as the padding target in View().
+func (m *Model) contentBudget() int {
+	n := m.height - m.statusHeight() - m.pinnedHeaderHeight()
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// visibleRowCount returns how many rows, starting at start, actually
+// fit within contentBudget — counting the blank separator line View()
+// prints before every section-header row after the first one shown (2
+// lines total for such a row, 1 for every other row) — so a page always
+// shows as many rows as truly fit, rather than reserving room for every
+// section boundary in the whole list up front (see pageSize). 0 if
+// start is out of range.
+func (m *Model) visibleRowCount(start int) int {
+	if start < 0 || start >= len(m.rows) {
+		return 0
+	}
+	budget := m.contentBudget()
+	used, count := 0, 0
+	for i := start; i < len(m.rows); i++ {
+		cost := 1
+		if i > start && m.rows[i].section != "" {
+			cost = 2 // its own line, plus the blank separator before it
+		}
+		if used+cost > budget {
+			break
+		}
+		used += cost
+		count++
+	}
+	return count
 }
 
 // pinnedHeaderHeight is how many lines the pinned header occupies at the
@@ -4998,16 +5167,21 @@ func (m *Model) ensureVisible() {
 	// for every command alike (not just j/k).
 	m.cursor = m.entryStart(m.cursor)
 
-	page := m.pageSize()
 	if m.cursor < m.offset {
 		m.offset = m.cursor
 	}
-	if end := m.entryEnd(m.cursor); end >= m.offset+page {
-		offset := end - page + 1
-		if offset > m.cursor {
-			offset = m.cursor
-		}
-		m.offset = offset
+	// Nudge offset forward one row at a time until the cursor's entry
+	// end is within the window visibleRowCount(offset) actually shows
+	// from there — precise, since (unlike a static pageSize-based jump)
+	// it accounts for however many section-separator blank lines really
+	// fall within that specific window. Capped at m.cursor: if the
+	// entry itself is taller than a page, showing all of it is
+	// impossible either way, so this stops advancing once the cursor's
+	// own row would be pushed out, rather than scrolling past it to
+	// chase an unreachable tail.
+	end := m.entryEnd(m.cursor)
+	for m.offset < m.cursor && m.offset+m.visibleRowCount(m.offset) <= end {
+		m.offset++
 	}
 	if m.offset < 0 {
 		m.offset = 0
@@ -5049,7 +5223,7 @@ func (m *Model) scrollView(delta int) {
 	}
 	m.offset = offset
 
-	bottom := m.offset + m.pageSize() - 1
+	bottom := m.offset + m.visibleRowCount(m.offset) - 1
 	if m.cursor < m.offset {
 		m.cursor = m.entryStart(m.offset)
 	} else if m.entryEnd(m.cursor) > bottom {
@@ -5064,8 +5238,6 @@ func (m Model) View() string {
 		b.WriteString("\n")
 	}
 
-	page := m.pageSize()
-
 	if len(m.rows) == 0 {
 		// No items to list (an empty agenda, or a workspace with no org
 		// files at all) — still falls through to the status/command-line
@@ -5074,18 +5246,17 @@ func (m Model) View() string {
 		msg := "No org files found."
 		if m.view == agendaView {
 			msg = fmt.Sprintf("Nothing due in the next %d days. :outline to go back.", m.agendaDays)
+		} else if m.view == calendarView {
+			msg = "No calendar events found. :outline to go back."
 		}
 		b.WriteString(msg)
 		b.WriteString("\n")
-		for i := 1; i < page; i++ {
+		for i := 1; i < m.contentBudget(); i++ {
 			b.WriteString("\n")
 		}
 	} else {
 		start := m.offset
-		end := start + page
-		if end > len(m.rows) {
-			end = len(m.rows)
-		}
+		end := start + m.visibleRowCount(start)
 
 		// An entry's body lines highlight along with it — the whole entry
 		// is one item, not a separately-steppable row per line — so
@@ -5103,9 +5274,11 @@ func (m Model) View() string {
 			selStart, selEnd = m.visualRange()
 		}
 
+		sepShown := 0
 		for i := start; i < end; i++ {
 			if i > start && m.rows[i].section != "" {
 				b.WriteString("\n")
+				sepShown++
 			}
 			var line string
 			switch {
@@ -5120,9 +5293,11 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 		// Pad with blank lines so the status bar always sits on the last
-		// row of the screen, even when there are fewer than a page of
-		// items.
-		for i := end - start; i < page; i++ {
+		// row of the screen — end (via visibleRowCount) already fills as
+		// much of contentBudget as the remaining rows allow, so this is
+		// only needed once the list itself runs out before the budget
+		// does (e.g. the last page of a paginated view).
+		for i := (end - start) + sepShown; i < m.contentBudget(); i++ {
 			b.WriteString("\n")
 		}
 	}
@@ -5224,6 +5399,8 @@ func (m *Model) normalStatusLines() []string {
 		place = "diff"
 	case helpView:
 		place = "help"
+	case calendarView:
+		place = "calendar"
 	}
 	main := fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 	h := m.currentHeadline()
@@ -5382,6 +5559,8 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		return bgSpan(bg, " ") + bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
 	case r.isAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
+	case r.isCalendarItem:
+		return m.renderCalendarItemRowWithBg(r, bg)
 	case r.isBodyLine:
 		return m.renderBodyLineWithBg(r, bg)
 	}
@@ -5506,6 +5685,58 @@ func formatMeetingWhen(start, end time.Time) string {
 
 func isMidnight(t time.Time) bool {
 	return t.Hour() == 0 && t.Minute() == 0
+}
+
+// renderCalendarItemRowWithBg renders one calendarView event row: mark/
+// lock/gutter/fold columns exactly as the outline's own default
+// headline-row case (see the bottom of renderRowWithBg), but with its
+// GCAL_START/GCAL_END time (see calendarItemTime) shown before the
+// title in place of a TODO keyword — the time is what's worth seeing at
+// a glance here, and a calendar event never has a keyword anyway.
+func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
+	h := r.headline
+	query := m.activeSearchQuery()
+	indent := bgSpan(bg, strings.Repeat("  ", h.Level))
+
+	fold := bgSpan(bg, " ")
+	if hasFoldableContent(h) {
+		glyph := "▼"
+		if m.collapsed[h] {
+			glyph = "▶"
+		}
+		fold = bgSpan(bg, glyph)
+	}
+
+	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
+	if when := calendarItemTime(h); when != "" {
+		line += m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(when) + bgSpan(bg, "  ")
+	}
+	line += joinBg(m.renderKeywordAndTitle(h, bg), bg)
+
+	if len(h.Tags) > 0 {
+		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
+	}
+	return line
+}
+
+// calendarItemTime renders h's GCAL_START/GCAL_END as just the time of
+// day, with no date — calendarView already groups h under its own
+// day's header row (see appendCalendarRows), so the date would be
+// redundant here. "All day" for an all-day event (both endpoints at
+// local midnight — see eventBounds in cmd/gcalsync/convert.go); empty
+// if GCAL_START/GCAL_END don't parse (e.g. h isn't actually a synced
+// calendar event).
+func calendarItemTime(h *org.Headline) string {
+	start, startOK := parseRFC3339Property(h, "GCAL_START")
+	end, endOK := parseRFC3339Property(h, "GCAL_END")
+	if !startOK || !endOK {
+		return ""
+	}
+	start, end = start.Local(), end.Local()
+	if isMidnight(start) && isMidnight(end) && !start.Equal(end) {
+		return "All day"
+	}
+	return start.Format("15:04") + "-" + end.Format("15:04")
 }
 
 func sameLocalDay(a, b time.Time) bool {

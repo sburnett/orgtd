@@ -9,6 +9,114 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
+// commitCaptureAndPickMeeting simulates a "gX" capture session's editor
+// finishing with body, preserving thenPickMeeting the way
+// startCaptureAndPickMeeting itself records it — mirrors commitTentative
+// (insert_test.go)/commitCaptureRollback (capture_test.go), neither of
+// which sets thenPickMeeting.
+func commitCaptureAndPickMeeting(t *testing.T, m Model, body string) Model {
+	t.Helper()
+	tentative := m.currentHeadline()
+	if tentative == nil {
+		t.Fatalf("cursor is not on a headline")
+	}
+	f, parent, idx := m.insertPosition(tentative)
+	ctx := insertContext{f: f, parent: parent, index: idx, thenPickMeeting: true}
+	path := writeTempOrgFile(t, body)
+	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
+	return updated.(Model)
+}
+
+func TestGXOpensMeetingPickerAfterCaptureCommits(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "X")
+	captured := m.currentHeadline()
+	if captured == nil {
+		t.Fatalf("gX didn't start a capture (no tentative headline)")
+	}
+
+	m = commitCaptureAndPickMeeting(t, m, "* Discuss rollout plan\n")
+
+	if m.mode != meetingPickerMode {
+		t.Fatalf("mode = %v, want meetingPickerMode after capture commits", m.mode)
+	}
+	target := m.currentHeadline()
+	if target == nil || target.Title != "Discuss rollout plan" {
+		t.Fatalf("meeting picker's target = %+v, want the just-captured entry", target)
+	}
+
+	m, _ = sendKeyCmd(m, "enter")
+	if got := target.Properties["GCAL_RECURRING_EVENT_IDS"]; got != "series-standup" {
+		t.Errorf("GCAL_RECURRING_EVENT_IDS = %q, want %q", got, "series-standup")
+	}
+}
+
+func TestGXWithNoRecurringMeetingsStillCapturesButSkipsPicker(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "X")
+	m = commitCaptureAndPickMeeting(t, m, "* Discuss rollout plan\n")
+
+	if m.mode == meetingPickerMode {
+		t.Fatalf("meeting picker opened with nothing to offer")
+	}
+	if m.currentHeadline() == nil || m.currentHeadline().Title != "Discuss rollout plan" {
+		t.Errorf("capture itself should still have committed; currentHeadline = %+v", m.currentHeadline())
+	}
+	if m.message == "" {
+		t.Errorf("expected a status message explaining there's nothing to attach")
+	}
+}
+
+func TestGXCancelledCaptureNeverOpensPicker(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "X")
+	m = commitCaptureAndPickMeeting(t, m, "") // empty body: rollback, not commit
+
+	if m.mode == meetingPickerMode {
+		t.Fatalf("meeting picker opened even though the capture itself was cancelled")
+	}
+}
+
+func TestGXIsTwoKeyChordNotSingleG(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	if m.mode == meetingPickerMode {
+		t.Fatalf("single g opened anything")
+	}
+	if !m.pendingG {
+		t.Errorf("expected pendingG after a single g")
+	}
+}
+
 func TestGMWithNoRecurringMeetingsShowsMessage(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)

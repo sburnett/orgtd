@@ -40,6 +40,7 @@ func TestResolveSettingsConfigFileOverridesDefaults(t *testing.T) {
 		FormatLinksURLFormatter: "batch-formatter",
 		AgendaWindowDays:        30,
 		InboxFile:               "capture.org",
+		CalendarFile:            "my-calendar.org",
 		HideDoneAfterHours:      48,
 		Editor:                  "emacsclient -t",
 		Debug:                   true,
@@ -48,7 +49,7 @@ func TestResolveSettingsConfigFileOverridesDefaults(t *testing.T) {
 	want := settings{
 		dir: "/from/config", urlFormatter: "url2org", urlFormatterPrefixes: []string{"bit.ly/", "go/"},
 		formatLinksURLFormatter: "batch-formatter",
-		agendaDays:              30, inboxFile: "capture.org", hideDoneAfterHours: 48, editor: "emacsclient -t", debug: true,
+		agendaDays:              30, inboxFile: "capture.org", calendarFile: "my-calendar.org", hideDoneAfterHours: 48, editor: "emacsclient -t", debug: true,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSettings = %+v, want %+v", got, want)
@@ -59,9 +60,9 @@ func TestResolveSettingsExplicitFlagBeatsConfigFile(t *testing.T) {
 	f := withExplicit(flagValues{
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: []string{"flag-prefix/"},
 		formatLinksURLFormatter: "flag-batch-fmt",
-		agendaDays:              7, inboxFile: "flag-inbox.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
+		agendaDays:              7, inboxFile: "flag-inbox.org", calendarFile: "flag-calendar.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
 		explicit: map[string]bool{},
-	}, "dir", "url-formatter", "url-formatter-prefixes", "format-links-url-formatter", "agenda-days", "inbox-file", "hide-done-after-hours", "editor", "debug")
+	}, "dir", "url-formatter", "url-formatter-prefixes", "format-links-url-formatter", "agenda-days", "inbox-file", "calendar-file", "hide-done-after-hours", "editor", "debug")
 	cfg := &config.Config{
 		OrgDir:                  "/from/config",
 		URLFormatter:            "cfg-fmt",
@@ -69,6 +70,7 @@ func TestResolveSettingsExplicitFlagBeatsConfigFile(t *testing.T) {
 		FormatLinksURLFormatter: "cfg-batch-fmt",
 		AgendaWindowDays:        30,
 		InboxFile:               "cfg-inbox.org",
+		CalendarFile:            "cfg-calendar.org",
 		HideDoneAfterHours:      48,
 		Editor:                  "emacs",
 		Debug:                   true,
@@ -77,7 +79,7 @@ func TestResolveSettingsExplicitFlagBeatsConfigFile(t *testing.T) {
 	want := settings{
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: []string{"flag-prefix/"},
 		formatLinksURLFormatter: "flag-batch-fmt",
-		agendaDays:              7, inboxFile: "flag-inbox.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
+		agendaDays:              7, inboxFile: "flag-inbox.org", calendarFile: "flag-calendar.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSettings = %+v, want %+v", got, want)
@@ -89,6 +91,14 @@ func TestResolveSettingsURLFormatterPrefixesFallsThroughToConfigWhenFlagUnset(t 
 	got := resolveSettings(flags(), "", cfg)
 	if !reflect.DeepEqual(got.urlFormatterPrefixes, []string{"bit.ly/", "go/"}) {
 		t.Errorf("urlFormatterPrefixes = %v, want the config file's list", got.urlFormatterPrefixes)
+	}
+}
+
+func TestResolveSettingsCalendarFileFallsThroughToConfigWhenFlagUnset(t *testing.T) {
+	cfg := &config.Config{CalendarFile: "my-calendar.org"}
+	got := resolveSettings(flags(), "", cfg)
+	if got.calendarFile != "my-calendar.org" {
+		t.Errorf("calendarFile = %q, want the config file's value", got.calendarFile)
 	}
 }
 

@@ -1,0 +1,451 @@
+package ui
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/sburnett/orgtd/internal/org"
+)
+
+func TestCalendarFileExcludedFromOutlineView(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("abc123", now, now.Add(time.Hour)),
+		},
+	})
+	m := New(ws)
+
+	for _, r := range m.rows {
+		if r.file != nil && filepath.Base(r.file.Path) == "calendar.org" {
+			t.Fatalf("calendar.org's file row appears in the outline view")
+		}
+		if r.headline != nil && r.headline.Title == "Meeting abc123" {
+			t.Fatalf("calendar.org's headline appears in the outline view")
+		}
+	}
+}
+
+func TestCalendarViewGroupsEventsByDayChronologically(t *testing.T) {
+	ws := loadFixture(t)
+	now := truncateToDate(time.Now()).Add(9 * time.Hour) // 09:00 today, safely mid-day
+	dayAfter := now.Add(48 * time.Hour)
+	tomorrow := now.Add(24 * time.Hour)
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			// Deliberately out of chronological file order.
+			calendarEventHeadline("day-after", dayAfter, dayAfter.Add(time.Hour)),
+			calendarEventHeadline("today", now, now.Add(time.Hour)),
+			calendarEventHeadline("tomorrow", tomorrow, tomorrow.Add(time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+
+	var sections []string
+	var order []string
+	for _, r := range m.rows {
+		if r.section != "" {
+			sections = append(sections, r.section)
+		}
+		if r.headline != nil && !r.isBodyLine {
+			order = append(order, r.headline.Title)
+		}
+	}
+
+	wantSections := []string{
+		truncateToDate(now).Format("2006-01-02 Mon"),
+		truncateToDate(tomorrow).Format("2006-01-02 Mon"),
+		truncateToDate(dayAfter).Format("2006-01-02 Mon"),
+	}
+	if len(sections) != len(wantSections) {
+		t.Fatalf("day sections = %v, want %v", sections, wantSections)
+	}
+	for i := range wantSections {
+		if sections[i] != wantSections[i] {
+			t.Errorf("sections[%d] = %q, want %q", i, sections[i], wantSections[i])
+		}
+	}
+
+	wantOrder := []string{"Meeting today", "Meeting tomorrow", "Meeting day-after"}
+	if len(order) != len(wantOrder) {
+		t.Fatalf("event order = %v, want %v", order, wantOrder)
+	}
+	for i := range wantOrder {
+		if order[i] != wantOrder[i] {
+			t.Errorf("order[%d] = %q, want %q", i, order[i], wantOrder[i])
+		}
+	}
+}
+
+func TestCalendarViewOrdersEventsWithinADayByStartTime(t *testing.T) {
+	ws := loadFixture(t)
+	base := truncateToDate(time.Now()).Add(9 * time.Hour)
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("later", base.Add(2*time.Hour), base.Add(3*time.Hour)),
+			calendarEventHeadline("earlier", base, base.Add(time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+
+	var order []string
+	for _, r := range m.rows {
+		if r.headline != nil && !r.isBodyLine {
+			order = append(order, r.headline.Title)
+		}
+	}
+	want := []string{"Meeting earlier", "Meeting later"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Errorf("order[%d] = %q, want %q", i, order[i], want[i])
+		}
+	}
+}
+
+func TestCalendarViewOmitsHeadlinesWithoutGCALStart(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	stray := &org.Headline{Level: 1, Title: "Not a synced event"}
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("abc123", now, now.Add(time.Hour)),
+			stray,
+		},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+
+	for _, r := range m.rows {
+		if r.headline == stray {
+			t.Fatalf("a headline with no GCAL_START appeared in calendar view")
+		}
+	}
+}
+
+func TestCalendarViewEmptyShowsFriendlyMessageAndStatusLines(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 100, 20
+	m.switchToView(calendarView)
+
+	out := m.View()
+	if !strings.Contains(out, "No calendar events found") {
+		t.Errorf("View() = %q, want a friendly empty-calendar message", out)
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) != m.height {
+		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
+	}
+	status := lines[len(lines)-2]
+	if !strings.Contains(status, "calendar") {
+		t.Errorf("status line = %q, want it to mention the calendar view", status)
+	}
+}
+
+func TestCalendarCommandSwitchesViewAndBack(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "calendar")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.view != calendarView {
+		t.Fatalf("view after :calendar = %v, want calendarView", m.view)
+	}
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "outline")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.view != outlineView {
+		t.Fatalf("view after :outline = %v, want outlineView", m.view)
+	}
+}
+
+func TestWithCalendarFileOptionUsesCustomName(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "my-calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("abc123", now, now.Add(time.Hour)),
+		},
+	})
+	m := New(ws, WithCalendarFile("my-calendar.org"))
+
+	for _, r := range m.rows {
+		if r.headline != nil && r.headline.Title == "Meeting abc123" {
+			t.Fatalf("custom calendar file's headline appears in the outline view")
+		}
+	}
+
+	m.switchToView(calendarView)
+	found := false
+	for _, r := range m.rows {
+		if r.headline != nil && r.headline.Title == "Meeting abc123" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("custom calendar file's event didn't appear in calendar view")
+	}
+}
+
+// manyDaysCalendarFile builds a calendar.org-shaped file with n days,
+// one event each, for exercising pagination in calendarView (10 days ->
+// 20 rows: 10 day-header sections + 10 events).
+func manyDaysCalendarFile(dir string, n int) *org.File {
+	base := truncateToDate(time.Now()).Add(9 * time.Hour)
+	var headlines []*org.Headline
+	for i := 0; i < n; i++ {
+		day := base.Add(time.Duration(i) * 24 * time.Hour)
+		headlines = append(headlines, calendarEventHeadline(
+			strings.Repeat("x", i+1), day, day.Add(time.Hour)))
+	}
+	return &org.File{Path: filepath.Join(dir, "calendar.org"), Headlines: headlines}
+}
+
+// TestCalendarViewStatusBarStaysAtBottomWhenPaginated is a regression
+// test: with more day-separators than fit on one screen, only some of
+// them actually render on any given page, which used to be fewer than
+// sectionSeparatorBudget() reserved room for — the padding loop filled
+// only up to `page` (computed using the full-list budget) rather than
+// the content area's true remaining space, so the rendered output fell
+// short of m.height and the status bar sat above the bottom of the
+// screen instead of on its last line. See the View() code around
+// sepShown/contentTarget.
+func TestCalendarViewStatusBarStaysAtBottomWhenPaginated(t *testing.T) {
+	ws := loadFixture(t)
+	// Deliberately many: far more rows than the small height below can
+	// show at once, forcing pagination so most day-separators fall
+	// outside whatever single page is rendered.
+	ws.Files = append(ws.Files, manyDaysCalendarFile(ws.Dir, 10))
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.width, m.height = 100, 10
+
+	out := m.View()
+	lines := strings.Split(out, "\n")
+	if len(lines) != m.height {
+		t.Fatalf("got %d lines, want %d (height) — status bar isn't pinned to the bottom\n---\n%s", len(lines), m.height, out)
+	}
+
+	status := stripANSI(lines[len(lines)-2])
+	if !strings.Contains(status, "calendar") {
+		t.Errorf("second-to-last line = %q, want the calendar status line there", status)
+	}
+	command := lines[len(lines)-1]
+	if command != "" {
+		t.Errorf("last line = %q, want the blank (idle) command line", command)
+	}
+}
+
+// TestCalendarViewFillsScreenWhenPaginated is a regression test: fixing
+// the status bar's position (see TestCalendarViewStatusBarStaysAtBottomWhenPaginated)
+// by padding to contentBudget alone left the underlying problem
+// unfixed — the render window itself (end, in View()) was still sized
+// off pageSize()/sectionSeparatorBudget(), a full-list worst-case
+// reservation that shrinks drastically once a view has many more
+// section boundaries than fit on one page, so far fewer real rows were
+// shown than the screen could actually hold (the rest of the space
+// became blank padding instead of more entries). visibleRowCount fixes
+// this by measuring what actually fits from a given starting row,
+// rather than reserving room for every boundary in the whole list.
+func TestCalendarViewFillsScreenWhenPaginated(t *testing.T) {
+	ws := loadFixture(t)
+	ws.Files = append(ws.Files, manyDaysCalendarFile(ws.Dir, 10))
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.width, m.height = 100, 10 // contentBudget = 10 - statusHeight(2) - pinnedHeader(0) = 8
+
+	if got := m.visibleRowCount(0); got != 6 {
+		t.Fatalf("visibleRowCount(0) = %d, want 6 (3 full days: 3 section rows + 3 event rows, using the 8-line budget exactly)", got)
+	}
+
+	out := stripANSI(m.View())
+	events := strings.Count(out, "Meeting ")
+	if events < 3 {
+		t.Errorf("events rendered = %d, want at least 3 (the screen should fill with entries, not mostly blank padding); output:\n%s", events, out)
+	}
+}
+
+func TestVisibleRowCountOutOfRangeStartIsZero(t *testing.T) {
+	ws := loadFixture(t)
+	ws.Files = append(ws.Files, manyDaysCalendarFile(ws.Dir, 3))
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.width, m.height = 100, 10
+
+	if got := m.visibleRowCount(-1); got != 0 {
+		t.Errorf("visibleRowCount(-1) = %d, want 0", got)
+	}
+	if got := m.visibleRowCount(len(m.rows)); got != 0 {
+		t.Errorf("visibleRowCount(len(rows)) = %d, want 0", got)
+	}
+}
+
+func TestVisibleRowCountCoversWholeListWhenItFits(t *testing.T) {
+	ws := loadFixture(t)
+	ws.Files = append(ws.Files, manyDaysCalendarFile(ws.Dir, 2))
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.width, m.height = 100, len(m.rows)+m.sectionSeparatorBudget()+3
+
+	if got := m.visibleRowCount(0); got != len(m.rows) {
+		t.Errorf("visibleRowCount(0) = %d, want %d (the whole list, since the screen is tall enough)", got, len(m.rows))
+	}
+}
+
+func TestCalendarViewSupportsOrdinaryHeadlineCommands(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("abc123", now, now.Add(time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Meeting abc123")
+
+	m = sendKey(m, "d")
+	m = sendKey(m, "d")
+
+	for _, r := range m.rows {
+		if r.headline != nil && r.headline.Title == "Meeting abc123" {
+			t.Fatalf("dd didn't delete the calendar event")
+		}
+	}
+}
+
+func TestCalendarViewShowsTimeBeforeTitle(t *testing.T) {
+	ws := loadFixture(t)
+	base := truncateToDate(time.Now()).Add(14 * time.Hour)
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("abc123", base, base.Add(30*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Meeting abc123")
+
+	rendered := stripANSI(m.renderRow(m.rows[m.cursor]))
+	timeIdx := strings.Index(rendered, "14:00-14:30")
+	titleIdx := strings.Index(rendered, "Meeting abc123")
+	if timeIdx < 0 {
+		t.Fatalf("rendered row = %q, want the event's time (14:00-14:30)", rendered)
+	}
+	if titleIdx < 0 {
+		t.Fatalf("rendered row = %q, want the event's title", rendered)
+	}
+	if timeIdx >= titleIdx {
+		t.Errorf("rendered row = %q, want the time before the title", rendered)
+	}
+}
+
+func TestCalendarViewAllDayEventShowsAllDayInsteadOfTime(t *testing.T) {
+	ws := loadFixture(t)
+	day := truncateToDate(time.Now())
+	h := &org.Headline{Level: 1, Title: "Offsite"}
+	h.SetProperty("GCAL_EVENT_ID", "allday1")
+	h.SetProperty("GCAL_START", day.Format(time.RFC3339))
+	h.SetProperty("GCAL_END", day.AddDate(0, 0, 1).Format(time.RFC3339))
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{h},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Offsite")
+
+	rendered := stripANSI(m.renderRow(m.rows[m.cursor]))
+	if !strings.Contains(rendered, "All day") {
+		t.Errorf("rendered row = %q, want \"All day\" instead of a time range", rendered)
+	}
+}
+
+func TestCalendarEventsAreFoldedByDefault(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	h := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	h.Body = []string{"  Location: Room 5"}
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{h},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+
+	for _, r := range m.rows {
+		if r.isBodyLine {
+			t.Fatalf("event body is visible by default; rows should start folded")
+		}
+	}
+	if !m.collapsed[h] {
+		t.Errorf("m.collapsed[event] = false, want true (folded by default)")
+	}
+
+	// Expanding it should stick across a rebuild, not reset back to
+	// folded every time.
+	m.cursor = findRow(t, m, "Meeting abc123")
+	m = sendKey(m, "tab")
+	if m.collapsed[h] {
+		t.Fatalf("Tab didn't unfold the event")
+	}
+	m.rebuildRows()
+	if m.collapsed[h] {
+		t.Errorf("event re-folded itself on rebuild after the user explicitly unfolded it")
+	}
+	found := false
+	for _, r := range m.rows {
+		if r.isBodyLine && r.headline == h {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("body line not shown after unfolding")
+	}
+}
+
+func TestCalendarViewStatusLineShowsEventOwnLink(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("abc123", now, now.Add(time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Meeting abc123")
+	m.width, m.height = 200, len(m.rows)+5
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	status := lines[len(lines)-2]
+
+	if !strings.Contains(status, "Meeting abc123") {
+		t.Errorf("status line = %q, want the event's own title", status)
+	}
+	if !strings.Contains(status, "https://calendar.google.com/event?eid=abc123") {
+		t.Errorf("status line = %q, want the event's own GCAL_HTML_LINK", status)
+	}
+}

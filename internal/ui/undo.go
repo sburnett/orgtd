@@ -269,6 +269,14 @@ type insertContext struct {
 	index      int
 	origin     *org.Headline // headline the cursor was on before o/O; refocused on rollback
 	originFile *org.File     // fallback for rollback focus if origin is nil (cursor was on a file row); usually f itself, except for :capture/gC, whose insertion target (the inbox) can differ from wherever the cursor actually was
+
+	// thenPickMeeting is set only by "gX" (see startCaptureAndPickMeeting):
+	// once the capture's editor session finishes and commitInsert lands
+	// the new headline, finishEdit also opens the "gM" picker on it —
+	// chaining the two so attaching a meeting to a freshly captured item
+	// doesn't need two separate keystrokes bracketing the editor
+	// round-trip. Never set for a plain o/O or gC/:capture.
+	thenPickMeeting bool
 }
 
 // spliceAction is the shared machinery behind insertAction and

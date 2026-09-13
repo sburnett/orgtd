@@ -24,6 +24,12 @@ type Config struct {
 	AgendaWindowDays int    `toml:"agenda_window_days"`
 	InboxFile        string `toml:"inbox_file"`
 
+	// CalendarFile is the base name of the file excluded from the
+	// outline view and shown instead, grouped by day, in the :calendar
+	// view — the file gcalsync writes. Empty falls back to the built-in
+	// default, calendar.org.
+	CalendarFile string `toml:"calendar_file"`
+
 	// HideDoneAfterHours is how many hours after a DONE/CANCELLED
 	// headline's CLOSED timestamp it's hidden from the outline view (the
 	// feature can still be toggled off at runtime with :toggledone,

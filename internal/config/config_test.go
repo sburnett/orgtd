@@ -24,6 +24,7 @@ editor = "emacsclient -t"
 url_formatter = "url2org"
 agenda_window_days = 30
 inbox_file = "capture.org"
+calendar_file = "my-calendar.org"
 url_formatter_prefixes = ["bit.ly/", "go/"]
 format_links_url_formatter = "batch-formatter"
 hide_done_after_hours = 48
@@ -47,6 +48,7 @@ output_file = "calendar.org"
 		URLFormatter:            "url2org",
 		AgendaWindowDays:        30,
 		InboxFile:               "capture.org",
+		CalendarFile:            "my-calendar.org",
 		URLFormatterPrefixes:    []string{"bit.ly/", "go/"},
 		FormatLinksURLFormatter: "batch-formatter",
 		HideDoneAfterHours:      48,

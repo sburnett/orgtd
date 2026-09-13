@@ -50,6 +50,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		WithFormatLinksURLFormatter("batch-formatter"),
 		WithAgendaDays(30),
 		WithInboxFile("capture.org"),
+		WithCalendarFile("my-calendar.org"),
 		WithHideDoneAfterHours(48),
 		WithDebug(true),
 	)
@@ -64,6 +65,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		"Format-links URL formatter: batch-formatter",
 		"Agenda window: 30 days",
 		"Inbox file: capture.org",
+		"Calendar file: my-calendar.org",
 		"Hide done after: 48 hours (currently on",
 		"Debug logging: on",
 	} {
@@ -112,6 +114,7 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"Format-links URL formatter: (disabled)",
 		"Agenda window: 14 days",
 		"Inbox file: inbox.org",
+		"Calendar file: calendar.org",
 		"currently off",
 		"Debug logging: off",
 	} {

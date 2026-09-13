@@ -40,6 +40,7 @@ orgtd --dir ~/org
 | `--format-links-url-formatter` | `format_links_url_formatter` | *(same as `url_formatter`)* | External program `:format-links` (see below) invokes in batch mode — called with no trailing URL argument, it should instead read URLs one per line from stdin and print the same number of formatted lines to stdout. Configured separately from `url_formatter` since a batch-capable command may differ from (or take different arguments than) whatever handles a single URL while editing |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
+| `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. one gcalsync writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
 | `--hide-done-after-hours` | `hide_done_after_hours` | `24` | How many hours after a `DONE`/`CANCELLED` item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggledone` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
 | `--debug` | `debug` | *(off)* | Log debug info (see Debug log, below) to `debug.log` next to the config file |
@@ -67,6 +68,7 @@ url_formatter_prefixes = ["bit.ly/", "go/"]
 format_links_url_formatter = ""  # falls back to url_formatter if unset
 agenda_window_days = 14
 inbox_file = "inbox.org"
+calendar_file = "calendar.org"
 hide_done_after_hours = 24
 debug = false
 ```
@@ -87,11 +89,28 @@ logging is on.
 
 ## Views
 
-- **Outline** (default) — every loaded file, its headlines, and any
-  free-text body underneath them, all foldable. A `DONE`/`CANCELLED`
-  headline (and its whole subtree) whose `CLOSED` timestamp is older
-  than `hide_done_after_hours` (default 24) is hidden — `:toggledone`
-  shows everything again, and toggles back.
+- **Outline** (default) — every loaded file except `calendar_file` (see
+  the `:calendar` view, below), its headlines, and any free-text body
+  underneath them, all foldable. A `DONE`/`CANCELLED` headline (and its
+  whole subtree) whose `CLOSED` timestamp is older than
+  `hide_done_after_hours` (default 24) is hidden — `:toggledone` shows
+  everything again, and toggles back.
+- **Calendar** (`:calendar`) — every event in `calendar_file` (default
+  `calendar.org`; see gcalsync, below), grouped under one flush-left
+  header per calendar day, both the days and the events within each day
+  in chronological order. This is the only place `calendar_file`'s
+  contents are shown, since it's excluded from the outline view (above)
+  entirely. Each event shows its time before its title (`14:00-14:30
+  Standup`, or `All day` for an all-day event) in place of a TODO
+  keyword, and starts folded — its Location/description/link body is
+  detail you don't need at a glance, so it stays one `Tab` away rather
+  than cluttering every day's listing by default (an event you've
+  explicitly unfolded stays that way across redraws). The link is still
+  always one glance away regardless — on the status line, same as any
+  other entry's link (see above). Otherwise an ordinary foldable list of
+  headlines — `i`, `dd`, `r`, `gd`, marks, and every other per-entry
+  command all work exactly as they do in the outline, though any edit
+  only lasts until gcalsync's next sync overwrites the file regardless.
 - **Agenda** (`:agenda`) — a flat, date-driven view across every file:
   **Overdue**, **Due Today**, and **Upcoming** sections built from
   `SCHEDULED`/`DEADLINE` timestamps, plus a **Next Actions** section
@@ -166,8 +185,10 @@ where `:`/`/`/`?` input, prompts (deadline, commit message, the status
 picker), the visual-mode banner, and messages all appear, blank when
 there's nothing to show. Neither ever replaces the other.
 
-"Any link" includes both an org-mode link literally in the entry's title
-and, if the entry has been attached to a recurring meeting via `gM` (see
+"Any link" includes an org-mode link literally in the entry's title; if
+the entry is itself a synced calendar event (i.e. you're browsing
+`:calendar`, above), its own `GCAL_HTML_LINK`; and, if the entry has
+been attached to a recurring meeting via `gM` (see
 below), one `<meeting name>: <url>` entry per attached series, read from
 its `GCAL_RECURRING_EVENT_LINKS` property. Since that property is a
 snapshot taken at attach time rather than a live lookup, it keeps
@@ -227,6 +248,7 @@ stop), and so on.
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
 | `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct recurring meeting series gcalsync currently has synced at least one instance of, and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` properties (the latter is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after the series drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a series already attached detaches it instead of adding a duplicate. A no-op (with a status message) if gcalsync hasn't synced anything with a recurring series — there's nothing to offer |
+| `gX` | `gC` immediately followed by `gM`: capture as usual, and once the editor session commits, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion, without a separate `gM` bracketing the (possibly slow) editor round-trip. Cancelling the capture (empty or blank result, or the editor failing to run) never opens the picker; if nothing's synced with a recurring series, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
 ### Visual selection
@@ -282,7 +304,7 @@ History doesn't persist between sessions.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` / `:help` | Switch views |
+| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` / `:help` / `:calendar` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
@@ -333,11 +355,12 @@ alone.
 
 `gcalsync` is a separate, standalone program (not part of the `orgtd`
 binary) that syncs Google Calendar events into an org file — by default
-`calendar.org` at the top of your org directory, so it's picked up by
-`orgtd`'s own outline and file scanning like any other file you dropped
-in there. It's a one-shot CLI: run it yourself on whatever schedule you
-like (cron, launchd, a systemd timer); it doesn't loop or poll on its
-own, and it never writes anywhere except that one output file.
+`calendar.org` at the top of your org directory, matching `orgtd`'s own
+`calendar_file` setting (see above) so it's automatically excluded from
+the outline view and shown instead, grouped by day, in the `:calendar`
+view. It's a one-shot CLI: run it yourself on whatever schedule you like
+(cron, launchd, a systemd timer); it doesn't loop or poll on its own,
+and it never writes anywhere except that one output file.
 
 Each synced event becomes a plain headline (no TODO keyword) with a
 timestamp, location, description, and a link back to the event, e.g.:
