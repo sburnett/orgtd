@@ -144,6 +144,60 @@ func (a *deadlineChangeAction) revert(m *Model) *org.Headline {
 func (a *deadlineChangeAction) file() *org.File           { return a.f }
 func (a *deadlineChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
+// meetingAttachAction records "gM" toggling one recurring meeting series
+// on or off an entry's GCAL_RECURRING_EVENT_IDS and
+// GCAL_RECURRING_EVENT_LINKS properties together (see
+// buildMeetingAttachAction/applySelectedMeeting in model.go).
+// hadIDsProperty/hadLinksProperty distinguish "restore the old value"
+// from "the property didn't exist before this action" on revert, same
+// as repeatAdvanceAction's hadLastRepeat for LAST_REPEAT.
+type meetingAttachAction struct {
+	h                  *org.Headline
+	f                  *org.File
+	hadIDsProperty     bool
+	oldIDs, newIDs     string
+	hadLinksProperty   bool
+	oldLinks, newLinks string
+}
+
+func (a *meetingAttachAction) apply(m *Model) *org.Headline {
+	setOrDeleteProperty(a.h, "GCAL_RECURRING_EVENT_IDS", a.newIDs)
+	setOrDeleteProperty(a.h, "GCAL_RECURRING_EVENT_LINKS", a.newLinks)
+	return a.h
+}
+
+func (a *meetingAttachAction) revert(m *Model) *org.Headline {
+	restoreProperty(a.h, "GCAL_RECURRING_EVENT_IDS", a.hadIDsProperty, a.oldIDs)
+	restoreProperty(a.h, "GCAL_RECURRING_EVENT_LINKS", a.hadLinksProperty, a.oldLinks)
+	return a.h
+}
+
+func (a *meetingAttachAction) file() *org.File           { return a.f }
+func (a *meetingAttachAction) affected() []*org.Headline { return []*org.Headline{a.h} }
+
+// setOrDeleteProperty sets h's key property to value, or removes it
+// entirely if value is empty (an empty property is meaningless clutter
+// — e.g. GCAL_RECURRING_EVENT_IDS/LINKS once every attached meeting has
+// been detached — so it's deleted rather than left as "").
+func setOrDeleteProperty(h *org.Headline, key, value string) {
+	if value == "" {
+		h.DeleteProperty(key)
+	} else {
+		h.SetProperty(key, value)
+	}
+}
+
+// restoreProperty reverts h's key property to value if had is true (the
+// property existed before the action being reverted), or removes it if
+// had is false (the action introduced the property from nothing).
+func restoreProperty(h *org.Headline, key string, had bool, value string) {
+	if had {
+		h.SetProperty(key, value)
+	} else {
+		h.DeleteProperty(key)
+	}
+}
+
 // linkFormatAction records :format-links rewriting one headline's Title
 // and/or Body to replace bare URLs with their formatted org-mode link
 // equivalents (see finishFormatLinks). The mutation is in place, so the

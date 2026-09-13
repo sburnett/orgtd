@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -65,6 +67,62 @@ func TestCapturePrefillsCreatedProperty(t *testing.T) {
 	tentative := m.currentHeadline()
 	if _, ok := tentative.Properties["CREATED"]; !ok {
 		t.Errorf("captured headline has no CREATED property: %#v", tentative.Properties)
+	}
+}
+
+// calendarEventHeadline builds a top-level headline shaped like one
+// gcalsync would write to calendar.org (see
+// cmd/gcalsync/convert.go): a GCAL_EVENT_ID plus GCAL_START/GCAL_END
+// bracketing the instant a meeting runs from start to end, plus a
+// synthetic GCAL_HTML_LINK, the same as a real gcalsync-synced event.
+func calendarEventHeadline(id string, start, end time.Time) *org.Headline {
+	h := &org.Headline{Level: 1, Title: "Meeting " + id}
+	h.SetProperty("GCAL_EVENT_ID", id)
+	h.SetProperty("GCAL_START", start.Format(time.RFC3339))
+	h.SetProperty("GCAL_END", end.Format(time.RFC3339))
+	h.SetProperty("GCAL_HTML_LINK", "https://calendar.google.com/event?eid="+id)
+	return h
+}
+
+// TestCaptureDoesNotAttachCalendarMeetingInfo is a regression test for
+// an earlier version of capture that auto-attached whatever meeting
+// happened to be in progress at the moment of capture (GCAL_EVENT_LINKS/
+// GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS, plus a body
+// comment). That was removed in favor of "gM" (see meeting_picker_test.go)
+// — an interactive, deliberate way to attach a meeting — since capture
+// itself isn't interactive: a wrong guess could only be fixed by hand,
+// which defeats the point of automating it. This covers both a one-off
+// and a recurring meeting in progress at capture time, and (since it's
+// the same underlying insertHeadlineAt) o/O alongside gC for good
+// measure.
+func TestCaptureDoesNotAttachCalendarMeetingInfo(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("one-off", now.Add(-30*time.Minute), now.Add(30*time.Minute)),
+			recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now.Add(-30*time.Minute), now.Add(30*time.Minute)),
+		},
+	})
+
+	for _, key := range []string{"C", "o"} {
+		m := New(ws)
+		m.cursor = findRow(t, m, "Learn Go generics")
+		if key == "C" {
+			m = sendKey(m, "g")
+		}
+		m = sendKey(m, key)
+
+		tentative := m.currentHeadline()
+		for _, prop := range []string{"GCAL_EVENT_IDS", "GCAL_EVENT_LINKS", "GCAL_RECURRING_EVENT_IDS", "GCAL_RECURRING_EVENT_LINKS"} {
+			if v, ok := tentative.Properties[prop]; ok {
+				t.Errorf("key %q: %s = %q, want no such property", key, prop, v)
+			}
+		}
+		if len(tentative.Body) != 0 {
+			t.Errorf("key %q: Body = %v, want empty", key, tentative.Body)
+		}
 	}
 }
 

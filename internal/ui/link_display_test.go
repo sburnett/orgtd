@@ -2,10 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 func TestRenderTitleForDisplayShowsDescriptionUnderlined(t *testing.T) {
@@ -187,6 +191,151 @@ func TestStatusBarOmitsURLWhenEntryHasNoLink(t *testing.T) {
 
 	if strings.Contains(last, "http") {
 		t.Errorf("status bar = %q, should not mention a URL for a plain entry", last)
+	}
+}
+
+func TestStatusBarShowsCalendarEventLinkWithMeetingNameAsTitle(t *testing.T) {
+	ws := loadFixture(t)
+	calHeadline := &org.Headline{Level: 1, Title: "Q3 planning sync"}
+	calHeadline.SetProperty("GCAL_EVENT_ID", "abc123")
+	calHeadline.SetProperty("GCAL_HTML_LINK", "https://calendar.google.com/event?eid=abc123")
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{calHeadline},
+	})
+	m := New(ws)
+	m.width, m.height = 200, len(m.rows)+5
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m.currentHeadline().SetProperty("GCAL_EVENT_IDS", "abc123")
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
+
+	if !strings.Contains(last, "Q3 planning sync") {
+		t.Errorf("status bar = %q, want the meeting name as the link's title", last)
+	}
+	if !strings.Contains(last, "https://calendar.google.com/event?eid=abc123") {
+		t.Errorf("status bar = %q, want the calendar event's URL", last)
+	}
+}
+
+func TestStatusBarOmitsCalendarEventLinkWhenNoLinkEverRecorded(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 200, len(m.rows)+5
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	// A GCAL_EVENT_IDS hand-attached to some entry (see DESIGN.md's
+	// project<->meeting association) with no GCAL_EVENT_LINKS and no
+	// matching calendar.org headline to fall back to: nothing to show.
+	m.currentHeadline().SetProperty("GCAL_EVENT_IDS", "stale-id")
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	last := lines[len(lines)-2]
+
+	if strings.Contains(last, "http") {
+		t.Errorf("status bar = %q, should not show a link that resolves nowhere", last)
+	}
+}
+
+// TestStatusBarCalendarEventLinkSurvivesCalendarOrgAgingOut exercises
+// resolveMeetingLinks' durable path directly: nothing in orgtd itself
+// writes GCAL_EVENT_LINKS anymore (that was gC's old auto-attach
+// behavior — removed in favor of the deliberate, interactive "gM"; see
+// TestCaptureDoesNotAttachCalendarMeetingInfo in capture_test.go), but a
+// hand-set property (or one from an older orgtd version) should still
+// resolve the same durable way.
+func TestStatusBarCalendarEventLinkSurvivesCalendarOrgAgingOut(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("abc123", now.Add(-15*time.Minute), now.Add(45*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Learn Go generics")
+	target := m.currentHeadline()
+	target.SetProperty("GCAL_EVENT_LINKS", "[[https://calendar.google.com/event?eid=abc123][Meeting abc123]]")
+
+	// Simulate gcalsync re-syncing calendar.org after the meeting has
+	// aged out of its window: the cached headline for "abc123" is gone.
+	for i, f := range m.ws.Files {
+		if strings.HasSuffix(f.Path, "calendar.org") {
+			m.ws.Files[i] = &org.File{Path: f.Path}
+		}
+	}
+	m.rebuildRows()
+	for i, r := range m.rows {
+		if r.headline == target {
+			m.cursor = i
+			break
+		}
+	}
+	m.width, m.height = 200, len(m.rows)+5
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	last := lines[len(lines)-2]
+
+	if !strings.Contains(last, "Meeting abc123") {
+		t.Errorf("status bar = %q, want the meeting name even though calendar.org no longer has it cached", last)
+	}
+	if !strings.Contains(last, "https://calendar.google.com/event?eid=abc123") {
+		t.Errorf("status bar = %q, want the meeting's URL even though calendar.org no longer has it cached", last)
+	}
+}
+
+func TestStatusBarRecurringMeetingLinkSurvivesSeriesDroppingOffCalendar(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Learn Go generics")
+	target := m.currentHeadline()
+
+	// Attach via gM, same as a real user would: this is what bakes
+	// GCAL_RECURRING_EVENT_LINKS onto the entry.
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+	m, _ = sendKeyCmd(m, "enter")
+	if target.Properties["GCAL_RECURRING_EVENT_LINKS"] == "" {
+		t.Fatalf("gM didn't record GCAL_RECURRING_EVENT_LINKS; can't test durability")
+	}
+
+	// Simulate the series dropping off the calendar entirely (deleted,
+	// or simply aged out of every future sync): calendar.org no longer
+	// has any headline for it.
+	for i, f := range m.ws.Files {
+		if strings.HasSuffix(f.Path, "calendar.org") {
+			m.ws.Files[i] = &org.File{Path: f.Path}
+		}
+	}
+	m.rebuildRows()
+	for i, r := range m.rows {
+		if r.headline == target {
+			m.cursor = i
+			break
+		}
+	}
+	m.width, m.height = 200, len(m.rows)+5
+
+	out := stripANSI(m.View())
+	lines := strings.Split(out, "\n")
+	last := lines[len(lines)-2]
+
+	if !strings.Contains(last, "Weekly Standup") {
+		t.Errorf("status bar = %q, want the meeting name even though it's gone from calendar.org", last)
+	}
+	if !strings.Contains(last, "https://calendar.google.com/event?eid=standup-1") {
+		t.Errorf("status bar = %q, want the meeting's URL even though it's gone from calendar.org", last)
 	}
 }
 

@@ -166,6 +166,7 @@ const (
 	confirmMode
 	visualMode
 	commitMessageMode
+	meetingPickerMode
 )
 
 // statusCandidate is one entry in the "set status" picker (R).
@@ -246,6 +247,18 @@ type row struct {
 	agendaDate     time.Time // the date this agenda item row is shown for, if agendaLabel is set
 	agendaRepeater string    // e.g. "+1w", if agendaDate was computed from a recurring timestamp; empty otherwise
 	agendaMissed   int       // occurrences skipped since agendaDate, shown as "(Nx)"; only ever set on an Overdue row
+
+	// isMeetingHeader marks a meeting-group header row in the agenda's
+	// "Meetings" section (see appendMeetingsSection): a label ("<title>
+	// — <when>") to group the items below it under, one level deeper
+	// than the section header and one level shallower than its items
+	// (see rowLevel) — not itself a headline (headline is left nil, like
+	// a plain section row), so none of the outline's per-headline
+	// commands apply to it.
+	isMeetingHeader bool
+	meetingTitle    string
+	meetingStart    time.Time
+	meetingEnd      time.Time
 
 	// isTextLine marks a plain read-only informational row (:config/:log/
 	// :diff/:help), rendered flush left and never interactive; text is
@@ -334,6 +347,23 @@ type Model struct {
 
 	selectFilter string // typed so far, in selectMode
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
+
+	// meetingPickerTarget is the entry "gM" was invoked on, whose
+	// GCAL_RECURRING_EVENT_IDS the highlighted candidate is
+	// attached/detached from on Enter (see applySelectedMeeting).
+	// meetingPickerCandidates is computed once, when the picker opens
+	// (startMeetingPicker) — every distinct recurring series gcalsync
+	// currently has synced at least one instance of — and only filtered
+	// (never recomputed) for the rest of the session, so the list
+	// doesn't shift under the user mid-selection. meetingPickerFilter is
+	// typed so far (a plain substring match against each candidate's
+	// title, unlike selectFilter's prefix/shortcut matching — titles are
+	// arbitrary text, not a small fixed set of keywords); meetingPickerIndex
+	// is the highlighted index within the filtered candidates.
+	meetingPickerTarget     *org.Headline
+	meetingPickerCandidates []meetingCandidate
+	meetingPickerFilter     string
+	meetingPickerIndex      int
 
 	deadlineInput string // typed so far, in deadlineMode
 
@@ -1411,6 +1441,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCommandMode(msg)
 		case selectMode:
 			return m.updateSelectMode(msg)
+		case meetingPickerMode:
+			return m.updateMeetingPickerMode(msg)
 		case deadlineMode:
 			return m.updateDeadlineMode(msg)
 		case searchMode:
@@ -1630,6 +1662,11 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if cmd := m.startCapture(); cmd != nil {
 				return m, cmd
 			}
+		}
+
+	case "M":
+		if wasPendingG {
+			m.startMeetingPicker()
 		}
 
 	case "a":
@@ -2680,6 +2717,175 @@ func (m *Model) currentStatusIndex() int {
 	return 0
 }
 
+// startMeetingPicker ("gM") opens a fuzzy-filterable picker (see
+// updateMeetingPickerMode) over every distinct recurring meeting series
+// gcalsync currently has synced at least one instance of (see
+// meetingCandidates, in agenda.go), letting the user toggle the chosen
+// series' ID on or off the current entry's GCAL_RECURRING_EVENT_IDS
+// property — so it shows up under that meeting in the agenda's Meetings
+// section (see appendMeetingsSection) next time it comes around. A
+// no-op (with a status message) if the cursor isn't on a headline, the
+// entry is locked by an in-flight :format-links batch, or gcalsync
+// hasn't synced anything with a recurring series at all — in which case
+// there's nothing to offer, and no point opening an empty picker.
+func (m *Model) startMeetingPicker() {
+	h := m.currentHeadline()
+	if h == nil || m.refuseIfImmutable(h) {
+		return
+	}
+	candidates := m.meetingCandidates(time.Now())
+	if len(candidates) == 0 {
+		m.message = "No recurring calendar meetings synced yet (see gcalsync)"
+		return
+	}
+	m.mode = meetingPickerMode
+	m.meetingPickerTarget = h
+	m.meetingPickerCandidates = candidates
+	m.meetingPickerFilter = ""
+	m.meetingPickerIndex = 0
+}
+
+// updateMeetingPickerMode handles key presses while the "gM" picker is
+// open: typing narrows meetingPickerCandidates to those whose title
+// contains what's been typed so far (see filteredMeetingCandidates), ↑/↓
+// browse the (possibly filtered) result, Enter toggles the highlighted
+// candidate on the target entry (see applySelectedMeeting), and Esc
+// cancels. Unlike the status picker's typeSelectChar, "j"/"k" are not
+// special-cased as navigation here — a meeting title is free text that
+// can legitimately contain either letter, so only the arrow keys move
+// the highlight while typing.
+func (m Model) updateMeetingPickerMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = normalMode
+		m.meetingPickerTarget = nil
+		m.meetingPickerCandidates = nil
+		m.meetingPickerFilter = ""
+		return m, nil
+
+	case tea.KeyEnter:
+		return m.applySelectedMeeting()
+
+	case tea.KeyBackspace:
+		if r := []rune(m.meetingPickerFilter); len(r) > 0 {
+			m.meetingPickerFilter = string(r[:len(r)-1])
+		}
+		m.meetingPickerIndex = 0
+		return m, nil
+
+	case tea.KeyUp:
+		m.moveMeetingHighlight(-1)
+		return m, nil
+
+	case tea.KeyDown:
+		m.moveMeetingHighlight(1)
+		return m, nil
+
+	case tea.KeyRunes:
+		m.meetingPickerFilter += string(msg.Runes)
+		m.meetingPickerIndex = 0
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) moveMeetingHighlight(delta int) {
+	n := len(filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter))
+	m.meetingPickerIndex += delta
+	if m.meetingPickerIndex < 0 {
+		m.meetingPickerIndex = 0
+	}
+	if n > 0 && m.meetingPickerIndex >= n {
+		m.meetingPickerIndex = n - 1
+	}
+}
+
+// applySelectedMeeting toggles the currently highlighted candidate (see
+// filteredMeetingCandidates/meetingPickerIndex) on meetingPickerTarget
+// and always returns to normal mode. A no-op, other than closing the
+// picker, if nothing matches the typed filter.
+func (m Model) applySelectedMeeting() (tea.Model, tea.Cmd) {
+	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	target := m.meetingPickerTarget
+	m.mode = normalMode
+	m.meetingPickerTarget = nil
+	m.meetingPickerCandidates = nil
+	m.meetingPickerFilter = ""
+	if len(matches) == 0 || target == nil {
+		return m, nil
+	}
+	idx := m.meetingPickerIndex
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(matches) {
+		idx = len(matches) - 1
+	}
+	m.pushUndo(m.buildMeetingAttachAction(target, matches[idx]))
+	return m, nil
+}
+
+// buildMeetingAttachAction builds the undoAction toggling c on or off
+// h's GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS properties
+// (adding both if c isn't yet attached, removing both if it is — see
+// meetingIsAttached), without applying or pushing it yet (see pushUndo).
+// The two properties are kept index-aligned: attaching appends c's ID
+// and (if c has a link) its "[[url][title]]" link to the end of each;
+// detaching removes whichever ID matched, and the link at that same
+// index, if one exists there (gracefully doing nothing to the links
+// list if the two have drifted out of alignment — e.g. a link-less
+// candidate was attached, or either property was hand-edited — rather
+// than risk removing the wrong entry).
+func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) undoAction {
+	oldIDsRaw, hadIDs := h.Properties["GCAL_RECURRING_EVENT_IDS"]
+	oldLinksRaw, hadLinks := h.Properties["GCAL_RECURRING_EVENT_LINKS"]
+
+	ids := strings.Fields(oldIDsRaw)
+	links := parseOrgLinks(oldLinksRaw)
+
+	if idx := indexOfString(ids, c.recurringEventID); idx >= 0 {
+		ids = append(ids[:idx], ids[idx+1:]...)
+		if idx < len(links) {
+			links = append(links[:idx], links[idx+1:]...)
+		}
+	} else {
+		ids = append(ids, c.recurringEventID)
+		if c.link != "" {
+			links = append(links, orgLink{url: c.link, description: c.title})
+		}
+	}
+
+	return &meetingAttachAction{
+		h:                h,
+		f:                m.fileForHeadline(h),
+		hadIDsProperty:   hadIDs,
+		oldIDs:           oldIDsRaw,
+		newIDs:           strings.Join(ids, " "),
+		hadLinksProperty: hadLinks,
+		oldLinks:         oldLinksRaw,
+		newLinks:         joinOrgLinks(links),
+	}
+}
+
+// joinOrgLinks is the inverse of parseOrgLinks: renders links back into
+// a GCAL_RECURRING_EVENT_LINKS-shaped property value.
+func joinOrgLinks(links []orgLink) string {
+	parts := make([]string, len(links))
+	for i, l := range links {
+		parts[i] = "[[" + l.url + "][" + l.description + "]]"
+	}
+	return strings.Join(parts, " ")
+}
+
+func indexOfString(list []string, s string) int {
+	for i, v := range list {
+		if v == s {
+			return i
+		}
+	}
+	return -1
+}
+
 // dateInputLayouts are the formats accepted when typing a date, tried in
 // order. A weekday name may or may not be present (it's not required,
 // and is regenerated from the actual date on output regardless of what
@@ -3490,6 +3696,116 @@ func (m *Model) startCapture() tea.Cmd {
 	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile())
 }
 
+func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
+	raw, ok := h.Properties[key]
+	if !ok {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// calendarEventLinks resolves h's calendar-meeting properties into
+// "<meeting name>: <url>" entries, used by normalStatusLines to surface
+// the meeting(s) an entry references, the same way a link embedded
+// directly in its title already is: one-off meetings it was captured
+// during (GCAL_EVENT_LINKS/GCAL_EVENT_IDS) and recurring series it's
+// attached to, via "gC" or "gM" (GCAL_RECURRING_EVENT_LINKS/
+// GCAL_RECURRING_EVENT_IDS) — see resolveMeetingLinks for how each pair
+// is resolved.
+func (m *Model) calendarEventLinks(h *org.Headline) []string {
+	var links []string
+	links = append(links, m.resolveMeetingLinks(h, "GCAL_EVENT_LINKS", "GCAL_EVENT_ID", "GCAL_EVENT_IDS")...)
+	links = append(links, m.resolveMeetingLinks(h, "GCAL_RECURRING_EVENT_LINKS", "GCAL_RECURRING_EVENT_ID", "GCAL_RECURRING_EVENT_IDS")...)
+	return links
+}
+
+// resolveMeetingLinks resolves one (linksProp, idsProp) pair on h into
+// "<meeting name>: <url>" entries.
+//
+// linksProp (set by startCapture and/or "gM" — one "[[url][title]]" per
+// matched/attached meeting) is tried first: it was captured once, at
+// the time h was linked to the meeting, so it keeps working
+// indefinitely, even long after gcalsync's sync window has moved past
+// the meeting (or the meeting stopped recurring entirely) and
+// calendar.org no longer has it cached. Only if linksProp is missing
+// entirely — e.g. an idsProp hand-attached to a task directly (per
+// DESIGN.md's project↔meeting association) rather than via "gC"/"gM" —
+// does this fall back to a live lookup by idProp (the per-headline
+// property identifying a single calendar.org event, GCAL_EVENT_ID or
+// GCAL_RECURRING_EVENT_ID) against whatever calendar.org currently has
+// cached, which (with no captured link to fall back on) can come up
+// empty once the event ages out; an ID that resolves neither way is
+// silently skipped rather than shown broken.
+func (m *Model) resolveMeetingLinks(h *org.Headline, linksProp, idProp, idsProp string) []string {
+	if raw := h.Properties[linksProp]; raw != "" {
+		var links []string
+		for _, l := range parseOrgLinks(raw) {
+			title := l.description
+			if title == "" {
+				title = l.url
+			}
+			links = append(links, title+": "+l.url)
+		}
+		return links
+	}
+
+	raw := h.Properties[idsProp]
+	if raw == "" {
+		return nil
+	}
+	var links []string
+	for _, id := range strings.Fields(raw) {
+		title, url, ok := m.findHeadlineByProperty(idProp, id)
+		if !ok || url == "" {
+			continue
+		}
+		links = append(links, title+": "+url)
+	}
+	return links
+}
+
+// orgLink is one org-mode "[[url][description]]" (or bare "[[url]]")
+// link, as parsed out of a property value like GCAL_EVENT_LINKS.
+type orgLink struct {
+	url, description string
+}
+
+// parseOrgLinks extracts every org-mode link in text, in order.
+func parseOrgLinks(text string) []orgLink {
+	matches := orgLinkRe.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	links := make([]orgLink, len(matches))
+	for i, mm := range matches {
+		links[i] = orgLink{url: mm[1], description: mm[2]}
+	}
+	return links
+}
+
+// findHeadlineByProperty searches every loaded org file for a headline
+// whose idProp property (GCAL_EVENT_ID or GCAL_RECURRING_EVENT_ID —
+// i.e. one gcalsync wrote to calendar.org) equals id, returning its
+// title and GCAL_HTML_LINK.
+func (m *Model) findHeadlineByProperty(idProp, id string) (title, url string, ok bool) {
+	for _, f := range m.ws.Files {
+		org.Walk(f.Headlines, func(candidate *org.Headline) {
+			if ok || candidate.Properties[idProp] != id {
+				return
+			}
+			title, url, ok = candidate.Title, candidate.Properties["GCAL_HTML_LINK"], true
+		})
+		if ok {
+			return title, url, true
+		}
+	}
+	return "", "", false
+}
+
 // currentRowFile returns the file the cursor's current row belongs to:
 // the row's own file if it's a file-header row, else the file that owns
 // its headline. Used by startCapture as rollbackInsert's fallback focus
@@ -3514,16 +3830,23 @@ func (m *Model) currentRowFile() *org.File {
 // it in $EDITOR — for a vim-family editor, cursor already right after
 // the bullet and in insert mode (see cursorAtEntryStart), so typing the
 // new title can start immediately — pre-filled with a CREATED property
-// set to now —
-// org-mode's standard (if not automatic) convention for recording an
-// entry's creation time, e.g. via org-capture's %U escape. It's part of
-// the editable template, not stamped after the fact, so it's just as
-// overridable or deletable as anything else the user types before
-// saving. origin (and originFile, its fallback when origin is nil) is
-// refocused if the session is rolled back — see rollbackInsert. The
-// insert isn't recorded in undo history until the editor session
+// set to now — org-mode's standard (if not automatic) convention for
+// recording an entry's creation time, e.g. via org-capture's %U escape.
+// It's part of the editable template, not stamped after the fact, so
+// it's just as overridable or deletable as anything else the user types
+// before saving. origin (and originFile, its fallback when origin is
+// nil) is refocused if the session is rolled back — see rollbackInsert.
+// The insert isn't recorded in undo history until the editor session
 // finishes successfully (see commitInsert), so the whole "open a
 // headline, type into it" session is one undo step.
+//
+// Deliberately does not attach any calendar-meeting info even from
+// startCapture, unlike an earlier version of this feature: capture isn't
+// interactive, so a wrong guess (any meeting merely in progress at the
+// moment of capture, whether or not it's actually relevant) could only
+// be undone by hand-editing properties afterward. "gM" (see
+// startMeetingPicker) is the deliberate, interactive way to attach a
+// meeting instead — nothing here does it for you.
 func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
 	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
@@ -4833,6 +5156,8 @@ func (m Model) View() string {
 		}
 	case m.mode == selectMode:
 		b.WriteString(m.renderStatusSelector())
+	case m.mode == meetingPickerMode:
+		b.WriteString(m.renderMeetingPicker())
 	case m.mode == deadlineMode:
 		b.WriteString(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
 		b.WriteString(cursorStyle.Render(" "))
@@ -4880,6 +5205,12 @@ func (m Model) View() string {
 // if even that doesn't — since a wrapped URL can't be resolved by the
 // terminal, this gives each the best chance of fitting unwrapped.
 // Unknown width (m.width <= 0) never triggers a split.
+//
+// Links come from two sources: any org-mode link literally in the
+// entry's title (linksInTitle), and — since a GCAL_EVENT_IDS property
+// (see startCapture) is just opaque IDs with no visible link of its own
+// — one "<meeting name>: <url>" entry per ID that still resolves to a
+// loaded calendar event (calendarEventLinks).
 func (m *Model) normalStatusLines() []string {
 	place := m.ws.Dir
 	switch m.view {
@@ -4900,6 +5231,7 @@ func (m *Model) normalStatusLines() []string {
 		return []string{main}
 	}
 	urls := linksInTitle(h.Title)
+	urls = append(urls, m.calendarEventLinks(h)...)
 	if len(urls) == 0 {
 		return []string{main}
 	}
@@ -5040,6 +5372,8 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		// Flush left (no gutter/indent), unlike every item row below it,
 		// so a section header stands out at a glance in a long agenda.
 		return highlightMatches(r.section, query, fileStyle.Background(bg))
+	case r.isMeetingHeader:
+		return m.renderMeetingHeaderRowWithBg(r, bg)
 	case r.file != nil:
 		// Blank mark and lock columns: files themselves are never marked
 		// or locked by :format-links, but this keeps every row's dirty
@@ -5143,6 +5477,43 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 	return line
 }
 
+// renderMeetingHeaderRowWithBg renders a meeting-group header row in the
+// agenda's "Meetings" section: the meeting's title, bold like a section
+// header (see fileStyle) so it still reads as a header despite being
+// indented one level under the section row, followed by its date/time.
+func (m Model) renderMeetingHeaderRowWithBg(r row, bg lipgloss.TerminalColor) string {
+	query := m.activeSearchQuery()
+	title := highlightMatches(r.meetingTitle, query, fileStyle.Background(bg))
+	when := highlightMatches(formatMeetingWhen(r.meetingStart, r.meetingEnd), query, timestampStyle.Background(bg))
+	return bgSpan(bg, "  ") + title + bgSpan(bg, "  ") + when
+}
+
+// formatMeetingWhen renders a meeting's start/end for
+// renderMeetingHeaderRowWithBg, in local time — omitting the time of day
+// entirely for an all-day event, recognized here by both endpoints
+// sitting at local midnight (see eventBounds in cmd/gcalsync/convert.go,
+// which anchors an all-day event's GCAL_START/GCAL_END there).
+func formatMeetingWhen(start, end time.Time) string {
+	start, end = start.Local(), end.Local()
+	if isMidnight(start) && isMidnight(end) && !start.Equal(end) {
+		return start.Format("2006-01-02 Mon")
+	}
+	if sameLocalDay(start, end) {
+		return fmt.Sprintf("%s %s-%s", start.Format("2006-01-02 Mon"), start.Format("15:04"), end.Format("15:04"))
+	}
+	return fmt.Sprintf("%s %s — %s %s", start.Format("2006-01-02 Mon"), start.Format("15:04"), end.Format("2006-01-02 Mon"), end.Format("15:04"))
+}
+
+func isMidnight(t time.Time) bool {
+	return t.Hour() == 0 && t.Minute() == 0
+}
+
+func sameLocalDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
+}
+
 // renderBodyLineWithBg renders one line of a headline's free-text body,
 // indented to line up where a child's own content would start (blank
 // mark/gutter/fold columns, since a body line isn't itself a separately
@@ -5190,6 +5561,39 @@ func (m Model) renderStatusSelector() string {
 	line := prefix + strings.Join(parts, "   ")
 	if m.selectFilter != "" {
 		line += "   (" + m.selectFilter + ")"
+	}
+	return line
+}
+
+// renderMeetingPicker renders the "gM" picker's single command-line row:
+// how many candidates match the typed filter, the highlighted one's
+// title/date (and whether it's already attached to the target entry —
+// see meetingIsAttached), and the filter text itself. Unlike
+// renderStatusSelector, which always shows every candidate (a small,
+// fixed set with a shortcut apiece), this shows only the one currently
+// highlighted — the candidate list here is arbitrary-length free-text
+// titles, which wouldn't fit on one row all at once.
+func (m Model) renderMeetingPicker() string {
+	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	line := " Attach meeting: no matches"
+	if len(matches) > 0 {
+		idx := m.meetingPickerIndex
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(matches) {
+			idx = len(matches) - 1
+		}
+		c := matches[idx]
+		action := "attaches"
+		if meetingIsAttached(m.meetingPickerTarget, c.recurringEventID) {
+			action = "detaches (already attached)"
+		}
+		line = fmt.Sprintf(" Attach meeting (%d/%d): %s — %s  [Enter %s]",
+			idx+1, len(matches), c.title, c.when.Local().Format("2006-01-02 Mon 15:04"), action)
+	}
+	if m.meetingPickerFilter != "" {
+		line += "   (" + m.meetingPickerFilter + ")"
 	}
 	return line
 }

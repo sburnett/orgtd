@@ -53,6 +53,38 @@ type Config struct {
 	// zero-value convention), which is fine here since false is also the
 	// built-in default.
 	Debug bool `toml:"debug"`
+
+	// Gcalsync holds settings used only by the separate gcalsync binary
+	// (cmd/gcalsync), which shares this same config file so both tools
+	// can be pointed at one org directory without duplicating org_dir.
+	// orgtd itself never reads this section.
+	Gcalsync GcalsyncConfig `toml:"gcalsync"`
+}
+
+// GcalsyncConfig is the gcalsync-specific "[gcalsync]" section of the
+// shared config file.
+type GcalsyncConfig struct {
+	// OAuthClientID and OAuthClientSecret are the installed-app OAuth2
+	// client credentials gcalsync uses to authenticate to the Google
+	// Calendar API. Every user is expected to create their own OAuth
+	// client (Google Cloud Console, "Desktop app" type) rather than
+	// share one baked into the binary, since a distributed client
+	// secret can't actually stay secret.
+	OAuthClientID     string `toml:"oauth_client_id"`
+	OAuthClientSecret string `toml:"oauth_client_secret"`
+
+	// CalendarIDs are the Google Calendar IDs to sync, e.g. "primary" or
+	// an email address for a secondary/shared calendar.
+	CalendarIDs []string `toml:"calendar_ids"`
+
+	// SyncPastDays and SyncFutureDays bound the sync window around now
+	// (e.g. 1/14 means from yesterday through two weeks from now).
+	SyncPastDays   int `toml:"sync_past_days"`
+	SyncFutureDays int `toml:"sync_future_days"`
+
+	// OutputFile is the org file gcalsync fully regenerates on every
+	// run, resolved relative to org_dir if not absolute.
+	OutputFile string `toml:"output_file"`
 }
 
 // DefaultPath returns the config file location orgtd reads unless

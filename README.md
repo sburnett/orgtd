@@ -97,7 +97,17 @@ logging is on.
   `SCHEDULED`/`DEADLINE` timestamps, plus a **Next Actions** section
   listing every `NEXT`-keyword headline regardless of whether it has a
   date. `SOMEDAY` items are excluded entirely. An item with both a
-  schedule and a deadline can appear in two sections.
+  schedule and a deadline can appear in two sections. A **Meetings**
+  section follows: for each recurring calendar meeting gcalsync has
+  synced that starts sometime today or within the next 24 hours (current
+  ones included), a header row grouping every item — anywhere in the org
+  directory, `DONE`/`CANCELLED` excluded — whose `GCAL_RECURRING_EVENT_IDS`
+  property (set by `gM`, see below) names that same recurring series,
+  i.e. something raised during a past occurrence that might need
+  renewed attention this time around. Meetings are in chronological
+  order; a meeting with nothing linked to it (including every one-off,
+  non-recurring meeting) is left out entirely, and an item linked to more
+  than one meeting legitimately shows up under each.
 - **Clarify** (`:clarify`) — pins the inbox's first non-`DONE`/`CANCELLED`
   top-level headline to the top of the screen, alongside its `CREATED`
   property (so you can see how long it's been sitting there) and any
@@ -156,6 +166,27 @@ where `:`/`/`/`?` input, prompts (deadline, commit message, the status
 picker), the visual-mode banner, and messages all appear, blank when
 there's nothing to show. Neither ever replaces the other.
 
+"Any link" includes both an org-mode link literally in the entry's title
+and, if the entry has been attached to a recurring meeting via `gM` (see
+below), one `<meeting name>: <url>` entry per attached series, read from
+its `GCAL_RECURRING_EVENT_LINKS` property. Since that property is a
+snapshot taken at attach time rather than a live lookup, it keeps
+working indefinitely — you can jump straight to the meeting no matter
+how long ago it was attached, even long after gcalsync has resynced
+`calendar.org` and the series no longer has anything cached. A
+`GCAL_RECURRING_EVENT_IDS` with no matching `GCAL_RECURRING_EVENT_LINKS`
+entry (e.g. one hand-attached to a task directly, per DESIGN.md's
+project↔meeting association, rather than via `gM`) falls back to
+resolving those IDs against whatever `calendar.org` currently has
+cached, which — unlike `GCAL_RECURRING_EVENT_LINKS` — can come up empty
+if every occurrence has aged out; an ID that resolves neither way is
+simply left off.
+
+The same applies to a `GCAL_EVENT_LINKS`/`GCAL_EVENT_IDS` pair, for a
+one-off (non-recurring) meeting — nothing in orgtd writes these itself
+(there's no one-off equivalent of `gM`), but they resolve the same
+durable-link-first, live-lookup-fallback way if set by hand.
+
 ## Keybindings
 
 Everything operates on whole outline entries, not characters — `dd`
@@ -194,7 +225,8 @@ stop), and so on.
 | `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
 | `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
-| `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`) |
+| `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
+| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct recurring meeting series gcalsync currently has synced at least one instance of, and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` properties (the latter is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after the series drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a series already attached detaches it instead of adding a duplicate. A no-op (with a status message) if gcalsync hasn't synced anything with a recurring series — there's nothing to offer |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
 ### Visual selection
@@ -296,6 +328,101 @@ property line orgtd re-serializes after any edit is regenerated from its
 parsed fields, so incidental formatting (exact alignment, spacing) on a
 *changed* line can shift slightly. Everything else in the file is left
 alone.
+
+## gcalsync
+
+`gcalsync` is a separate, standalone program (not part of the `orgtd`
+binary) that syncs Google Calendar events into an org file — by default
+`calendar.org` at the top of your org directory, so it's picked up by
+`orgtd`'s own outline and file scanning like any other file you dropped
+in there. It's a one-shot CLI: run it yourself on whatever schedule you
+like (cron, launchd, a systemd timer); it doesn't loop or poll on its
+own, and it never writes anywhere except that one output file.
+
+Each synced event becomes a plain headline (no TODO keyword) with a
+timestamp, location, description, and a link back to the event, e.g.:
+
+```org
+* Q3 planning sync                                                :recurring:
+  :PROPERTIES:
+  :GCAL_EVENT_ID:            abc123-20260910
+  :GCAL_CALENDAR_ID:         primary
+  :GCAL_RECURRING_EVENT_ID:  abc123
+  :GCAL_START:               2026-09-10T14:00:00-07:00
+  :GCAL_END:                 2026-09-10T15:00:00-07:00
+  :GCAL_HTML_LINK:           https://calendar.google.com/event?eid=abc123
+  :END:
+  <2026-09-10 Thu 14:00-15:00>
+  Location: Room 5
+
+  Agenda: review roadmap, staffing
+
+  [[https://calendar.google.com/event?eid=abc123][Open in Google Calendar]]
+```
+
+The timestamp is deliberately *not* `SCHEDULED`/`DEADLINE` — events
+aren't tasks, so they don't show up in orgtd's agenda view, only in the
+plain outline. `GCAL_START`/`GCAL_END` are a machine-readable copy of the
+same start/end, used by the agenda's Meetings section and `gM`'s picker
+(see above) to find and order current/upcoming meetings; `GCAL_HTML_LINK`
+is a machine-readable copy of the link at the bottom, which `gM` copies
+onto an attached entry's own `GCAL_RECURRING_EVENT_LINKS` property so
+the status line can keep showing this event's title and URL long after
+this cached headline is gone; the timestamp and link in the body are the
+human-readable ones, for browsing calendar.org itself.
+
+A recurring meeting is expanded into one headline per occurrence within
+the sync window (each with its own `GCAL_EVENT_ID`, unique per instance),
+tagged `:recurring:` and carrying a `GCAL_RECURRING_EVENT_ID` — stable
+across every occurrence of the series, unlike `GCAL_EVENT_ID` — so a task
+or project can eventually associate with "this recurring meeting" in
+general rather than one specific occurrence of it (per DESIGN.md's
+project↔meeting concept). A one-off event has neither the tag nor that
+property.
+
+The whole output file is wholesale-regenerated on
+every run (it's a cache, not something to hand-edit — a comment at the
+top says so); declined and cancelled events are left out.
+
+### Setup
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create
+   a project (or use an existing one), enable the **Google Calendar
+   API**, and create an OAuth client ID of type **Desktop app**. Every
+   user of gcalsync needs their own client — a shared one baked into the
+   binary couldn't keep its secret secret.
+2. Add the client ID/secret, and anything else you want to override, to
+   the same config file `orgtd` uses (`~/.config/orgtd/config.toml` by
+   default — see Config file, above) under a `[gcalsync]` section:
+
+   ```toml
+   org_dir = "~/org"   # shared with orgtd
+
+   [gcalsync]
+   oauth_client_id = "...apps.googleusercontent.com"
+   oauth_client_secret = "..."
+   calendar_ids = ["primary"]
+   sync_past_days = 1
+   sync_future_days = 14
+   output_file = "calendar.org"
+   ```
+
+3. Run `gcalsync`. The first run opens your system browser to Google's
+   consent screen (scope: read-only calendar access); the resulting
+   refresh token is cached in your OS keychain (macOS Keychain / Linux
+   Secret Service / Windows Credential Manager), so later runs (e.g. from
+   cron) don't need a browser at all. `-reauth` discards the cached token
+   and runs the consent flow again.
+
+| Flag | Config key | Default | Meaning |
+|---|---|---|---|
+| `-dir` | `org_dir` | same resolution as `orgtd`'s `--dir` | Org directory `-output-file` is resolved relative to |
+| `-output-file` | `gcalsync.output_file` | `calendar.org` | Org file to regenerate, relative to `-dir` unless absolute |
+| `-calendar-ids` | `gcalsync.calendar_ids` | `primary` | Comma-separated Google Calendar IDs to sync |
+| `-sync-past-days` / `-sync-future-days` | `gcalsync.sync_past_days` / `gcalsync.sync_future_days` | `1` / `14` | Sync window around now |
+| `-oauth-client-id` / `-oauth-client-secret` | `gcalsync.oauth_client_id` / `gcalsync.oauth_client_secret` | *(required)* | Your Google OAuth2 installed-app client |
+| `-reauth` | — | off | Discard the cached token and re-run the consent flow |
+| `-config` | — | same as `orgtd`'s `--config` | Path to the shared TOML config file |
 
 ## Development
 

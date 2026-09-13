@@ -9,10 +9,13 @@ Supports both invocation modes orgtd uses:
 """
 
 import sys
+import time
 
 if len(sys.argv) > 1:
     print(f"[[{sys.argv[1]}]]")
 else:
-    for line in sys.stdin:
-        url = line.rstrip("\r\n")
-        print(f"[[{url}]]")
+    time.sleep(2)
+    
+    #for line in sys.stdin:
+    #    url = line.rstrip("\r\n")
+    #    print(f"[[{url}]]")

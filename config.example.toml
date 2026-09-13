@@ -60,3 +60,32 @@
 # Log debug info (every URL formatter attempt/failure, etc.) to a
 # debug.log file next to this config file. Off by default.
 # debug = true
+
+# Settings below this point are read only by gcalsync (see the README's
+# "gcalsync" section), the separate program that syncs Google Calendar
+# into an org file — not by orgtd itself. Both tools share this same
+# config file (and org_dir, above) so they agree on where your org
+# directory is without repeating it.
+[gcalsync]
+
+# OAuth2 client credentials for an installed-app ("Desktop app") client
+# you create yourself in Google Cloud Console, with the Google Calendar
+# API enabled. Required — every gcalsync user needs their own client,
+# since a shared one baked into the binary couldn't keep its secret
+# secret. No default.
+# oauth_client_id = "...apps.googleusercontent.com"
+# oauth_client_secret = "..."
+
+# Google Calendar IDs to sync, e.g. "primary" for your own calendar, or
+# an email address for a secondary/shared calendar. Default: ["primary"].
+# calendar_ids = ["primary"]
+
+# How many days into the past/future the sync window extends around now.
+# Defaults: 1 / 14.
+# sync_past_days = 1
+# sync_future_days = 14
+
+# Org file gcalsync fully regenerates on every run, resolved relative to
+# org_dir unless absolute. It's a cache, not something to hand-edit — the
+# generated file says so at the top. Default: calendar.org.
+# output_file = "calendar.org"

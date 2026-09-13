@@ -28,6 +28,14 @@ url_formatter_prefixes = ["bit.ly/", "go/"]
 format_links_url_formatter = "batch-formatter"
 hide_done_after_hours = 48
 debug = true
+
+[gcalsync]
+oauth_client_id = "client-id"
+oauth_client_secret = "client-secret"
+calendar_ids = ["primary", "team@example.com"]
+sync_past_days = 2
+sync_future_days = 21
+output_file = "calendar.org"
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -43,6 +51,14 @@ debug = true
 		FormatLinksURLFormatter: "batch-formatter",
 		HideDoneAfterHours:      48,
 		Debug:                   true,
+		Gcalsync: GcalsyncConfig{
+			OAuthClientID:     "client-id",
+			OAuthClientSecret: "client-secret",
+			CalendarIDs:       []string{"primary", "team@example.com"},
+			SyncPastDays:      2,
+			SyncFutureDays:    21,
+			OutputFile:        "calendar.org",
+		},
 	}
 	if !reflect.DeepEqual(*c, want) {
 		t.Errorf("Load = %+v, want %+v", *c, want)

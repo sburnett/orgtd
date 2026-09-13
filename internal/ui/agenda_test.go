@@ -802,3 +802,285 @@ func TestWithAgendaDaysZeroOrNegativeKeepsDefault(t *testing.T) {
 		t.Errorf("agendaDays = %d, want the default 14", m.agendaDays)
 	}
 }
+
+// recurringCalendarEventHeadline builds a calendar.org-shaped headline
+// for one occurrence of a recurring meeting — same shape gcalsync writes
+// for a recurring series instance (cmd/gcalsync/convert.go) — linking it
+// to recurID via GCAL_RECURRING_EVENT_ID. See calendarEventHeadline (in
+// capture_test.go) for the one-off-event equivalent this builds on.
+func recurringCalendarEventHeadline(id, recurID, title string, start, end time.Time) *org.Headline {
+	h := calendarEventHeadline(id, start, end)
+	h.Title = title
+	h.Tags = []string{"recurring"}
+	h.SetProperty("GCAL_RECURRING_EVENT_ID", recurID)
+	return h
+}
+
+// linkedToRecurringMeetings builds a headline carrying a
+// GCAL_RECURRING_EVENT_IDS property (set by gC/:capture — see
+// insertHeadlineAt) naming every recurID given, as if it had been
+// captured during a past occurrence of each.
+func linkedToRecurringMeetings(title string, recurIDs ...string) *org.Headline {
+	h := &org.Headline{Level: 1, Title: title}
+	h.SetProperty("GCAL_RECURRING_EVENT_IDS", strings.Join(recurIDs, " "))
+	return h
+}
+
+// meetingsFixture builds a workspace directly from the given files —
+// unlike agendaFixture (single file, org text), the Meetings section's
+// inputs (calendar events with RFC3339 properties, entries with
+// GCAL_RECURRING_EVENT_IDS) are easiest to build as Go structs (see
+// recurringCalendarEventHeadline/linkedToRecurringMeetings above), and
+// realistically span at least two files (calendar.org plus wherever the
+// linked entries actually live).
+func meetingsFixture(files ...*org.File) *workspace.Workspace {
+	return &workspace.Workspace{Dir: "meetings-fixture", Files: files}
+}
+
+func TestMeetingsSectionGroupsLinkedItemUnderMeetingHeader(t *testing.T) {
+	now := time.Now()
+	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute))
+	item := linkedToRecurringMeetings("Follow up on last week's blocker", "series-abc")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{meeting}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{item}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	var sectionIdx, headerIdx, itemIdx = -1, -1, -1
+	for i, r := range m.rows {
+		switch {
+		case r.section == "Meetings":
+			sectionIdx = i
+		case r.isMeetingHeader && r.meetingTitle == "Weekly Standup":
+			headerIdx = i
+		case r.headline == item:
+			itemIdx = i
+		}
+	}
+	if sectionIdx == -1 {
+		t.Fatalf("no Meetings section row; rows: %+v", m.rows)
+	}
+	if headerIdx == -1 {
+		t.Fatalf("no meeting header row for Weekly Standup; rows: %+v", m.rows)
+	}
+	if itemIdx == -1 {
+		t.Fatalf("linked item not shown in agenda; rows: %+v", m.rows)
+	}
+	if !(sectionIdx < headerIdx && headerIdx < itemIdx) {
+		t.Errorf("row order = section=%d header=%d item=%d, want section < header < item", sectionIdx, headerIdx, itemIdx)
+	}
+	if got, want := m.rows[sectionIdx].level, 0; got != want {
+		t.Errorf("section level = %d, want %d", got, want)
+	}
+	if got, want := m.rows[headerIdx].level, 1; got != want {
+		t.Errorf("meeting header level = %d, want %d", got, want)
+	}
+	if got, want := m.rows[itemIdx].level, 2; got != want {
+		t.Errorf("item level = %d, want %d", got, want)
+	}
+	if !m.rows[itemIdx].isAgendaItem {
+		t.Errorf("linked item row isAgendaItem = false, want true")
+	}
+}
+
+func TestMeetingsSectionOmitsOneOffMeetingsWithNoRecurringID(t *testing.T) {
+	now := time.Now()
+	oneOff := calendarEventHeadline("one-off", now.Add(time.Hour), now.Add(90*time.Minute))
+	ws := meetingsFixture(&org.File{Path: "calendar.org", Headlines: []*org.Headline{oneOff}})
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	for _, r := range m.rows {
+		if r.section == "Meetings" {
+			t.Fatalf("Meetings section present for a one-off (non-recurring) meeting: %+v", m.rows)
+		}
+	}
+}
+
+func TestMeetingsSectionOmitsRecurringMeetingWithNoLinkedItems(t *testing.T) {
+	now := time.Now()
+	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute))
+	ws := meetingsFixture(&org.File{Path: "calendar.org", Headlines: []*org.Headline{meeting}})
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	for _, r := range m.rows {
+		if r.section == "Meetings" {
+			t.Fatalf("Meetings section present for a recurring meeting with nothing linked to it: %+v", m.rows)
+		}
+	}
+}
+
+func TestMeetingsSectionExcludesMeetingsOutsideWindow(t *testing.T) {
+	now := time.Now()
+	tooLate := recurringCalendarEventHeadline("far-future", "series-far", "Far future meeting", now.Add(25*time.Hour), now.Add(26*time.Hour))
+	tooEarly := recurringCalendarEventHeadline("yesterday", "series-early", "Yesterday's meeting", truncateToDate(now).Add(-time.Hour), truncateToDate(now).Add(-30*time.Minute))
+	linkedFar := linkedToRecurringMeetings("Item for far-future series", "series-far")
+	linkedEarly := linkedToRecurringMeetings("Item for early series", "series-early")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{tooLate, tooEarly}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{linkedFar, linkedEarly}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	for _, r := range m.rows {
+		if r.section == "Meetings" {
+			t.Fatalf("Meetings section present for meetings outside the window: %+v", m.rows)
+		}
+	}
+}
+
+func TestMeetingsSectionIncludesMeetingAlreadyInProgressToday(t *testing.T) {
+	now := time.Now()
+	startOfToday := truncateToDate(now)
+	earlierToday := startOfToday.Add(time.Since(startOfToday) / 2) // safely between midnight and now
+	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Morning Sync", earlierToday, earlierToday.Add(30*time.Minute))
+	item := linkedToRecurringMeetings("Old business", "series-abc")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{meeting}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{item}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	found := false
+	for _, r := range m.rows {
+		if r.isMeetingHeader && r.meetingTitle == "Morning Sync" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a meeting that already started today should still appear; rows: %+v", m.rows)
+	}
+}
+
+func TestMeetingsSectionChronologicalOrder(t *testing.T) {
+	now := time.Now()
+	later := recurringCalendarEventHeadline("later", "series-later", "Later Meeting", now.Add(10*time.Hour), now.Add(11*time.Hour))
+	sooner := recurringCalendarEventHeadline("sooner", "series-sooner", "Sooner Meeting", now.Add(time.Hour), now.Add(2*time.Hour))
+	itemLater := linkedToRecurringMeetings("Item for later meeting", "series-later")
+	itemSooner := linkedToRecurringMeetings("Item for sooner meeting", "series-sooner")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{later, sooner}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{itemLater, itemSooner}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	var headers []string
+	for _, r := range m.rows {
+		if r.isMeetingHeader {
+			headers = append(headers, r.meetingTitle)
+		}
+	}
+	want := []string{"Sooner Meeting", "Later Meeting"}
+	if len(headers) != len(want) {
+		t.Fatalf("meeting headers = %v, want %v", headers, want)
+	}
+	for i := range want {
+		if headers[i] != want[i] {
+			t.Errorf("headers[%d] = %q, want %q", i, headers[i], want[i])
+		}
+	}
+}
+
+func TestMeetingsSectionItemLinkedToMultipleMeetingsAppearsInEachGroup(t *testing.T) {
+	now := time.Now()
+	first := recurringCalendarEventHeadline("first", "series-first", "First Meeting", now.Add(time.Hour), now.Add(2*time.Hour))
+	second := recurringCalendarEventHeadline("second", "series-second", "Second Meeting", now.Add(3*time.Hour), now.Add(4*time.Hour))
+	shared := linkedToRecurringMeetings("Cross-cutting item", "series-first", "series-second")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{first, second}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{shared}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	count := 0
+	for _, r := range m.rows {
+		if r.headline == shared {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("shared item appears %d times, want 2 (once per linked meeting)", count)
+	}
+}
+
+func TestMeetingsSectionExcludesDoneAndCancelledLinkedItems(t *testing.T) {
+	now := time.Now()
+	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now.Add(time.Hour), now.Add(2*time.Hour))
+	done := linkedToRecurringMeetings("Already handled", "series-abc")
+	done.Keyword = "DONE"
+	cancelled := linkedToRecurringMeetings("Dropped", "series-abc")
+	cancelled.Keyword = "CANCELLED"
+	pending := linkedToRecurringMeetings("Still open", "series-abc")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{meeting}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{done, cancelled, pending}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	var shown []string
+	for _, r := range m.rows {
+		if r.isAgendaItem && r.headline != nil {
+			shown = append(shown, r.headline.Title)
+		}
+	}
+	if len(shown) != 1 || shown[0] != "Still open" {
+		t.Errorf("items shown under meeting = %v, want only [\"Still open\"]", shown)
+	}
+}
+
+func TestMeetingHeaderRenderShowsTitleAndTime(t *testing.T) {
+	now := time.Now()
+	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute))
+	item := linkedToRecurringMeetings("Follow up item", "series-abc")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{meeting}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{item}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	var rendered string
+	for _, r := range m.rows {
+		if r.isMeetingHeader {
+			rendered = stripANSI(m.renderRow(r))
+		}
+	}
+	if rendered == "" {
+		t.Fatalf("no meeting header row rendered")
+	}
+	if !strings.Contains(rendered, "Weekly Standup") {
+		t.Errorf("rendered header = %q, want it to contain the meeting title", rendered)
+	}
+	if !strings.Contains(rendered, now.Add(time.Hour).Local().Format("15:04")) {
+		t.Errorf("rendered header = %q, want it to contain the start time", rendered)
+	}
+}
+
+func TestFormatMeetingWhenOmitsTimeForAllDayMeeting(t *testing.T) {
+	start := time.Date(2026, 9, 20, 0, 0, 0, 0, time.Local)
+	end := time.Date(2026, 9, 21, 0, 0, 0, 0, time.Local)
+	got := formatMeetingWhen(start, end)
+	if strings.Contains(got, ":") {
+		t.Errorf("formatMeetingWhen(all-day) = %q, want no time-of-day", got)
+	}
+	if !strings.Contains(got, "2026-09-20") {
+		t.Errorf("formatMeetingWhen(all-day) = %q, want the date", got)
+	}
+}
+
+func TestFormatMeetingWhenShowsRangeForTimedMeeting(t *testing.T) {
+	start := time.Date(2026, 9, 20, 14, 0, 0, 0, time.Local)
+	end := time.Date(2026, 9, 20, 15, 0, 0, 0, time.Local)
+	got := formatMeetingWhen(start, end)
+	if !strings.Contains(got, "14:00") || !strings.Contains(got, "15:00") {
+		t.Errorf("formatMeetingWhen(timed) = %q, want both start and end times", got)
+	}
+}
