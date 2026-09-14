@@ -51,6 +51,16 @@ orgtd --dir ~/org
 Every `.org` file directly inside `--dir` is loaded, sorted alphabetically.
 Subdirectories are not scanned.
 
+orgtd takes an exclusive lock on `--dir` for as long as it's running (a
+`.orgtd.lock` file inside it), so a second orgtd instance accidentally
+started against the same directory refuses to run instead of racing the
+first one to overwrite the same files — it exits immediately with an
+error rather than opening. Released automatically when orgtd exits, for
+any reason (including a crash), so there's never a stale lock to clean
+up by hand. This is an OS-level advisory lock, so it's a best-effort
+safety net rather than a hard guarantee — some filesystems (older NFS
+in particular) don't enforce it reliably.
+
 ### Config file
 
 Any setting above can also go in a TOML config file, so you don't have to

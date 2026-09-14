@@ -80,6 +80,23 @@ func main() {
 		log.SetOutput(io.Discard)
 	}
 
+	// Acquired before Load so two instances pointed at the same
+	// directory can't both load it into memory and race each other to
+	// :w the same files — see workspace.AcquireLock. Released
+	// automatically by the OS on exit either way, crash included, so
+	// there's no cleanup to defer for correctness; the explicit Release
+	// just gives it up a little sooner than process exit would.
+	lock, ok, err := workspace.AcquireLock(s.dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
+		os.Exit(1)
+	}
+	if !ok {
+		fmt.Fprintf(os.Stderr, "orgtd: another orgtd instance already has %s open\n", s.dir)
+		os.Exit(1)
+	}
+	defer lock.Release()
+
 	ws, err := workspace.Load(s.dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
