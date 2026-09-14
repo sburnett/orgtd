@@ -1202,7 +1202,11 @@ func TestBareQNoLongerQuits(t *testing.T) {
 	}
 }
 
-func TestCtrlCAlwaysQuits(t *testing.T) {
+// TestCtrlCQuitsImmediatelyWhenNothingUnsaved covers ctrl+c with no
+// dirty files — still an unconditional, no-questions-asked quit. See
+// TestCtrlCRefusesWithUnsavedChanges and friends for the unsaved-changes
+// case.
+func TestCtrlCQuitsImmediatelyWhenNothingUnsaved(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -1215,6 +1219,63 @@ func TestCtrlCAlwaysQuits(t *testing.T) {
 	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if !isQuitCmd(cmd) {
 		t.Fatalf("ctrl+c should quit even while typing a command")
+	}
+}
+
+// TestCtrlCRefusesWithUnsavedChanges mirrors ":q" refusing to quit with
+// unsaved changes (see TestBareQNoLongerQuits's sibling coverage in
+// command_mode-adjacent tests) — but for ctrl+c, which used to bypass
+// that check entirely and just quit, silently discarding unsaved work.
+func TestCtrlCRefusesWithUnsavedChanges(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.dirty[m.ws.Files[0]] = true
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if isQuitCmd(cmd) {
+		t.Fatalf("ctrl+c should refuse to quit with unsaved changes")
+	}
+}
+
+func TestCtrlCTwiceForcesQuitWithUnsavedChanges(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.dirty[m.ws.Files[0]] = true
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	mm := updated.(Model)
+	if isQuitCmd(cmd) {
+		t.Fatalf("first ctrl+c should refuse to quit with unsaved changes")
+	}
+	if !mm.pendingForceQuit {
+		t.Fatalf("first ctrl+c should arm pendingForceQuit")
+	}
+
+	_, cmd = mm.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if !isQuitCmd(cmd) {
+		t.Fatalf("second consecutive ctrl+c should force the quit")
+	}
+}
+
+func TestCtrlCPendingForceQuitResetByAnotherKey(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.dirty[m.ws.Files[0]] = true
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	mm := updated.(Model)
+	if !mm.pendingForceQuit {
+		t.Fatalf("first ctrl+c should arm pendingForceQuit")
+	}
+
+	mm = sendKey(mm, "j") // any other key in between cancels the force-quit arming
+	if mm.pendingForceQuit {
+		t.Fatalf("pendingForceQuit should be cleared by an intervening key")
+	}
+
+	_, cmd := mm.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if isQuitCmd(cmd) {
+		t.Fatalf("ctrl+c after an intervening key should refuse again, not force-quit")
 	}
 }
 

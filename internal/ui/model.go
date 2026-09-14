@@ -304,6 +304,13 @@ type Model struct {
 	pendingQuote bool // pending '\'' of "'<letter>" (jump to a mark)
 	pendingCount int  // numeric prefix built up so far for "dd"/"R" (e.g. "3dd", "2R"); 0 means none typed
 
+	// pendingForceQuit is set by a ctrl+c that got refused because there
+	// were unsaved changes (see Update) — a second ctrl+c right after it
+	// forces the quit anyway, same as ":q!" after ":q" refuses. Cleared
+	// by any other key in between, so it's specifically "the very next
+	// key", not "ctrl+c was pressed at some earlier point in the session".
+	pendingForceQuit bool
+
 	register *org.Headline // last deleted (dd) or yanked (yy) entry, pasted (as a copy) by p/P
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
@@ -1504,8 +1511,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
+			if len(m.dirty) == 0 || m.pendingForceQuit {
+				return m, tea.Quit
+			}
+			// Mirrors ":q" refusing with unsaved changes (see
+			// updateCommandMode) — but ctrl+c has always been an
+			// unconditional, no-questions-asked quit, so rather than
+			// require switching to ":q!" it accepts a second ctrl+c
+			// right after this one as "yes, I meant it".
+			m.pendingForceQuit = true
+			m.message = "Unsaved changes — :w to save, or ctrl-c again to discard them"
+			return m, nil
 		}
+		m.pendingForceQuit = false
 
 		switch m.mode {
 		case commandMode:

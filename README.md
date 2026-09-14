@@ -313,8 +313,12 @@ History doesn't persist between sessions.
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |
 
-Plain `q` does **not** quit — only `:q`/`:quit` do (`ctrl-c` always quits
-immediately, without the unsaved-changes check).
+Plain `q` does **not** quit — only `:q`/`:quit` do. `ctrl-c` quits
+immediately if there's nothing unsaved; with unsaved changes it refuses
+the same way `:q` does (a status-line message, `:w` to save), except a
+second `ctrl-c` right after that first one forces the quit anyway,
+discarding them — any other key in between cancels that, so it takes
+two `ctrl-c`s in a row, not just two at some point in the session.
 
 ## File format
 
