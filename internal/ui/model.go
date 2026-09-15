@@ -154,6 +154,35 @@ func (m Model) padLineToWidth(line string, bg lipgloss.TerminalColor) string {
 	return line + bgSpan(bg, strings.Repeat(" ", pad))
 }
 
+// fitRowLine joins prefix (a headline's keyword/title, plus whatever
+// comes before it — mark/lock/gutter/indent/fold columns) to suffix
+// (trailing metadata: tags, a date, a filename, ...), truncating prefix
+// with a "…" — bg-styled like every other segment on the row, via
+// ansi.Truncate, which is ANSI/wide-rune aware so it never cuts an
+// escape code or a multi-byte glyph in half — if the combined line
+// would exceed width. Only prefix ever gives way: a long title alone
+// shouldn't make trailing metadata disappear off the right edge with no
+// indication anything was cut, so suffix is always shown in full (or,
+// in the degenerate case where even suffix alone exceeds width, prefix
+// simply vanishes rather than also being cut). width <= 0 (m.width
+// unset — e.g. before the first WindowSizeMsg, or in a test that never
+// sets it) skips truncation entirely, matching padLineToWidth's own
+// convention.
+func fitRowLine(prefix, suffix string, width int, bg lipgloss.TerminalColor) string {
+	if width <= 0 {
+		return prefix + suffix
+	}
+	full := prefix + suffix
+	if lipgloss.Width(full) <= width {
+		return full
+	}
+	avail := width - lipgloss.Width(suffix)
+	if avail < 0 {
+		avail = 0
+	}
+	return ansi.Truncate(prefix, avail, bgSpan(bg, "…")) + suffix
+}
+
 // mode selects how key presses are interpreted.
 type mode int
 
@@ -5378,18 +5407,19 @@ func (m Model) sortedMarkLetters() []rune {
 // already has a date is useful triage context; off for marks, which can
 // point at any headline in the outline and aren't about triage.
 func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) string {
-	line := pinMarkerStyle.Background(overlayBg).Render(marker) +
+	prefix := pinMarkerStyle.Background(overlayBg).Render(marker) +
 		bgSpan(overlayBg, "  ") +
 		joinBg(m.renderKeywordAndTitle(h, overlayBg), overlayBg)
+	var suffix string
 	if forClarify {
 		if created := h.Properties["CREATED"]; created != "" {
-			line += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render("Created: "+created)
+			suffix += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render("Created: "+created)
 		}
 		if planning := planningSummary(h); planning != "" {
-			line += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render(planning)
+			suffix += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render(planning)
 		}
 	}
-	return m.padLineToWidth(line, overlayBg)
+	return m.padLineToWidth(fitRowLine(prefix, suffix, m.width, overlayBg), overlayBg)
 }
 
 // sectionSeparatorBudget is how many blank separator lines a full render
@@ -5836,17 +5866,18 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		fold = bgSpan(bg, glyph)
 	}
 
-	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
+	var suffix string
 	if len(h.Tags) > 0 {
-		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
+		suffix += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
 
 	if ts := planningSummary(h); ts != "" {
-		line += bgSpan(bg, "  ") + m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(ts)
+		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(ts)
 	}
 
-	return line
+	return fitRowLine(prefix, suffix, m.width, bg)
 }
 
 // renderKeywordAndTitle renders h's keyword, priority, and title (with
@@ -5887,10 +5918,11 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 // Deadline) it's shown for.
 func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
-	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
+	var suffix string
 	if len(h.Tags) > 0 {
-		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(tagStyle, h).Background(bg))
+		suffix += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
 
 	place := m.agendaPlace(h)
@@ -5904,13 +5936,13 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 		if r.agendaRepeater != "" {
 			date += " " + r.agendaRepeater
 		}
-		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", place, label, date))
+		suffix += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", place, label, date))
 	} else {
 		// A Next Actions entry: no date to show, just where it's from.
-		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", place))
+		suffix += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", place))
 	}
 
-	return line
+	return fitRowLine(prefix, suffix, m.width, bg)
 }
 
 // agendaPlace returns the "[...]" tag content shown on an agenda row for
@@ -5940,7 +5972,7 @@ func (m Model) renderMeetingHeaderRowWithBg(r row, bg lipgloss.TerminalColor) st
 	query := m.activeSearchQuery()
 	title := highlightMatches(r.meetingTitle, query, fileStyle.Background(bg))
 	when := highlightMatches(formatMeetingWhen(r.meetingStart, r.meetingEnd), query, timestampStyle.Background(bg))
-	return bgSpan(bg, "  ") + title + bgSpan(bg, "  ") + when
+	return fitRowLine(bgSpan(bg, "  ")+title, bgSpan(bg, "  ")+when, m.width, bg)
 }
 
 // formatMeetingWhen renders a meeting's start/end for
@@ -5983,16 +6015,17 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 		fold = bgSpan(bg, glyph)
 	}
 
-	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
 	if when := calendarItemTime(h); when != "" {
-		line += m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(when) + bgSpan(bg, "  ")
+		prefix += m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(when) + bgSpan(bg, "  ")
 	}
-	line += joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	prefix += joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
+	var suffix string
 	if len(h.Tags) > 0 {
-		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
+		suffix = bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
-	return line
+	return fitRowLine(prefix, suffix, m.width, bg)
 }
 
 // calendarItemTime renders h's GCAL_START/GCAL_END as just the time of
