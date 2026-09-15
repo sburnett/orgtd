@@ -84,6 +84,40 @@ func TestDiffShowsChangesToOpenFiles(t *testing.T) {
 	}
 }
 
+func TestDiffExcludesCalendarFile(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test")
+
+	todoPath := filepath.Join(dir, "todo.org")
+	calPath := filepath.Join(dir, "calendar.org")
+	if err := os.WriteFile(todoPath, []byte("* TODO Something\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(calPath, []byte("* Old event\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	runGit(t, dir, "add", "todo.org", "calendar.org")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	if err := os.WriteFile(calPath, []byte("* New event\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ws, err := workspace.Load(dir)
+	if err != nil {
+		t.Fatalf("workspace.Load: %v", err)
+	}
+	m := New(ws)
+
+	m.showDiff()
+
+	if len(m.rows) != 1 || !strings.Contains(m.rows[0].text, "No changes") {
+		t.Errorf("rows = %#v, want a 'No changes' placeholder since only the calendar file changed", m.rows)
+	}
+}
+
 func TestDiffShowsNoChangesPlaceholderWhenClean(t *testing.T) {
 	ws := gitRepoFixture(t, "todo.org", "* TODO Something\n", "")
 	m := New(ws)

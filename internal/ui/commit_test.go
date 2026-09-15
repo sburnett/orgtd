@@ -183,6 +183,57 @@ func TestCommitScopesToFilesOpenInTheOutline(t *testing.T) {
 	}
 }
 
+func TestCommitExcludesCalendarFile(t *testing.T) {
+	remote := t.TempDir()
+	runGit(t, remote, "init", "--bare", "-q")
+
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test")
+	runGit(t, dir, "remote", "add", "origin", remote)
+
+	todoPath := filepath.Join(dir, "todo.org")
+	calPath := filepath.Join(dir, "calendar.org")
+	if err := os.WriteFile(todoPath, []byte("* TODO Old title\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(calPath, []byte("* Old event\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	runGit(t, dir, "add", "todo.org", "calendar.org")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+	runGit(t, dir, "push", "-q", "-u", "origin", "HEAD")
+
+	if err := os.WriteFile(todoPath, []byte("* TODO New title\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(calPath, []byte("* New event\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ws, err := workspace.Load(dir)
+	if err != nil {
+		t.Fatalf("workspace.Load: %v", err)
+	}
+	m := New(ws)
+	m.showDiff()
+	m.startCommit()
+
+	m = typeKeys(m, "Update title")
+	updated, _ := sendKeyCmd(m, "enter")
+	m = updated
+
+	if entries := m.execLog.snapshot(); gitLogMentions(entries, "commit", "calendar.org") {
+		t.Errorf("execLog = %#v, want the commit invocation to never name calendar.org", entries)
+	}
+
+	out, err := m.runGitCommit("noop")
+	if err == nil || !strings.Contains(out, "no changes added to commit") {
+		t.Fatalf("runGitCommit after :commit = (%q, %v), want its stdout to report nothing staged, since calendar.org's edit was never staged", out, err)
+	}
+}
+
 func gitLogMentions(entries []execLogEntry, substrs ...string) bool {
 	for _, e := range entries {
 		if e.kind != execLogStart {

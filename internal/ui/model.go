@@ -666,6 +666,24 @@ func (m *Model) findCalendarFile() *org.File {
 	return nil
 }
 
+// gitFiles returns m.ws.Files minus the calendar file (see
+// WithCalendarFile): every git operation (diff/add/commit) that scopes
+// itself to "the files currently open in the outline" uses this instead
+// of m.ws.Files directly, since the calendar file is gcalsync's own
+// output — regenerated locally from Google Calendar, not something
+// meant to be versioned or committed alongside the rest of the org
+// directory.
+func (m *Model) gitFiles() []*org.File {
+	files := make([]*org.File, 0, len(m.ws.Files))
+	for _, f := range m.ws.Files {
+		if filepath.Base(f.Path) == m.calendarFile {
+			continue
+		}
+		files = append(files, f)
+	}
+	return files
+}
+
 // advanceClarifyTarget sets m.clarifyTarget to the inbox's first
 // top-level headline that isn't DONE/CANCELLED — clarify mode is for
 // processing pending items, so one already resolved (marked done but
@@ -1170,8 +1188,8 @@ func (m *Model) appendLogRows() {
 }
 
 // appendDiffRows populates m.rows for :diff: the working-tree diff (see
-// showDiff/runGitDiff) for every file currently open in the outline, one
-// row per line, verbatim (like :log's output lines, no further parsing
+// showDiff/runGitDiff) for every file currently open in the outline
+// (excluding the calendar file — see gitFiles), one row per line, verbatim (like :log's output lines, no further parsing
 // or styling) — or a placeholder if there's nothing to show, no files
 // are open, or the diff itself failed despite the workspace being a
 // proper git repository root (showDiff already refuses before this is
@@ -1207,7 +1225,7 @@ func (m *Model) appendDiffRows() {
 // question and only actually runs the diff (via runDiffNow) once it's
 // answered.
 func (m *Model) showDiff() {
-	if len(m.ws.Files) > 0 {
+	if len(m.gitFiles()) > 0 {
 		if reason := m.gitRepoRootRefusal(); reason != "" {
 			m.message = fmt.Sprintf("Refusing to diff: %s", reason)
 			return
@@ -1228,7 +1246,7 @@ func (m *Model) showDiff() {
 // that keeps the app responsive during a longer-running command.
 func (m *Model) runDiffNow() {
 	m.diffOutput, m.diffErr = "", ""
-	if len(m.ws.Files) > 0 {
+	if len(m.gitFiles()) > 0 {
 		out, err := m.runGitDiff()
 		if err != nil {
 			m.diffErr = gitErrorText(err)
@@ -1240,7 +1258,7 @@ func (m *Model) runDiffNow() {
 }
 
 // runGitDiff runs `git diff HEAD` scoped to every file currently open in
-// the outline (m.ws.Files), with git itself pointed at the workspace
+// the outline except the calendar file (see gitFiles), with git itself pointed at the workspace
 // directory (via -C, rather than relying on orgtd's own working
 // directory) so a repository rooted there or above is found either way.
 // Diffed against HEAD rather than a plain `git diff` (which only shows
@@ -1250,13 +1268,13 @@ func (m *Model) runDiffNow() {
 // command — see runLoggedCommand.
 func (m *Model) runGitDiff() (string, error) {
 	args := []string{"-C", m.ws.Dir, "diff", "HEAD", "--"}
-	for _, f := range m.ws.Files {
+	for _, f := range m.gitFiles() {
 		args = append(args, f.Path)
 	}
 	return runLoggedCommand(m.execLog, "git", args, "")
 }
 
-// untrackedFiles returns the paths, among m.ws.Files, that git doesn't
+// untrackedFiles returns the paths, among m.gitFiles(), that git doesn't
 // track at all yet — via `git ls-files --others --exclude-standard`,
 // scoped to just those paths so files elsewhere in the repo (or
 // gitignored entirely) never show up. Returns (nil, nil) if there are
@@ -1265,11 +1283,12 @@ func (m *Model) runGitDiff() (string, error) {
 // ...) — callers treat that the same as "nothing untracked" and let the
 // diff/commit that follows surface the real problem instead.
 func (m *Model) untrackedFiles() ([]string, error) {
-	if len(m.ws.Files) == 0 {
+	gitFiles := m.gitFiles()
+	if len(gitFiles) == 0 {
 		return nil, nil
 	}
 	args := []string{"-C", m.ws.Dir, "ls-files", "--others", "--exclude-standard", "--"}
-	for _, f := range m.ws.Files {
+	for _, f := range gitFiles {
 		args = append(args, f.Path)
 	}
 	out, err := runLoggedCommand(m.execLog, "git", args, "")
@@ -1452,7 +1471,7 @@ func (m Model) updateCommitMessageMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // applyCommitMessageInput commits every file currently open in the
-// outline (the same scope :diff shows) with the typed message, then
+// outline except the calendar file (the same scope :diff shows) with the typed message, then
 // pushes — both run synchronously, same tradeoff as showDiff (simple,
 // but blocks the UI for as long as git takes to respond, including,
 // for the push, however long the remote takes). An empty message leaves
@@ -1487,8 +1506,8 @@ func (m Model) applyCommitMessageInput() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// runGitCommit commits every file currently open in the outline
-// (m.ws.Files — the same scope runGitDiff uses) with message, from
+// runGitCommit commits every file currently open in the outline except
+// the calendar file (m.gitFiles() — the same scope runGitDiff uses) with message, from
 // within the workspace directory. Refuses outside the workspace's own
 // git repository root — see requireGitRepoRoot. Logged like any other
 // external command — see runLoggedCommand.
@@ -1497,7 +1516,7 @@ func (m *Model) runGitCommit(message string) (string, error) {
 		return "", err
 	}
 	args := []string{"-C", m.ws.Dir, "commit", "-m", message, "--"}
-	for _, f := range m.ws.Files {
+	for _, f := range m.gitFiles() {
 		args = append(args, f.Path)
 	}
 	return runLoggedCommand(m.execLog, "git", args, "")

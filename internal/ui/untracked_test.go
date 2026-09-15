@@ -174,6 +174,38 @@ func TestCommitDecliningStillOpensMessagePromptWithoutAdding(t *testing.T) {
 	}
 }
 
+func TestDiffNeverOffersToAddAnUntrackedCalendarFile(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(dir, "todo.org"), []byte("* TODO Something\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	runGit(t, dir, "add", "todo.org")
+	runGit(t, dir, "commit", "-q", "-m", "initial")
+
+	if err := os.WriteFile(filepath.Join(dir, "calendar.org"), []byte("* Some event\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ws, err := workspace.Load(dir)
+	if err != nil {
+		t.Fatalf("workspace.Load: %v", err)
+	}
+	m := New(ws)
+
+	m.showDiff()
+
+	if m.mode == confirmMode {
+		t.Fatalf("mode after :diff with only an untracked calendar file = confirmMode, want it skipped since calendar.org is never meant to be added")
+	}
+	if m.view != diffView {
+		t.Fatalf("view = %v, want diffView", m.view)
+	}
+}
+
 func TestUntrackedFilesEmptyWhenEverythingIsTracked(t *testing.T) {
 	ws := gitRepoFixture(t, "todo.org", "* TODO Something\n", "* TODO Changed\n")
 	m := New(ws)
