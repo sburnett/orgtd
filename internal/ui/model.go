@@ -22,7 +22,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	naturaldate "github.com/tj/go-naturaldate"
+	"github.com/olebedev/when"
 
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
@@ -3240,10 +3240,10 @@ func truncateToDate(t time.Time) time.Time {
 // resolveDeadlineDate parses input as, in order: an exact date (with
 // optional time of day, per parseFlexibleDate); a compact or
 // spelled-out relative offset ("3d", "2 weeks", "-1y"); or a fuzzy
-// natural-language phrase ("next tuesday", "tomorrow", "friday"), via
-// go-naturaldate. Only the first form can produce a time of day — the
-// other two always resolve to a plain date, since "in 3 days" or "next
-// tuesday" don't imply a specific hour.
+// natural-language phrase ("next tuesday", "tomorrow", "sep 30", "thu"),
+// via fuzzyDate/when.EN. Only the first form can produce a time of day —
+// the other two always resolve to a plain date, since "in 3 days" or
+// "sep 30" don't imply a specific hour.
 func resolveDeadlineDate(input string) (t time.Time, hasTime bool, err error) {
 	input = strings.TrimSpace(input)
 
@@ -3257,11 +3257,52 @@ func resolveDeadlineDate(input string) (t time.Time, hasTime bool, err error) {
 		return t, false, nil
 	}
 
-	if t, ferr := naturaldate.Parse(input, today, naturaldate.WithDirection(naturaldate.Future)); ferr == nil {
-		return truncateToDate(t), false, nil
+	if t, ok := fuzzyDate(input, today); ok {
+		return t, false, nil
 	}
 
-	return time.Time{}, false, fmt.Errorf(`invalid date %q (try "2026-12-25", "3d", "2 weeks", or "next tuesday")`, input)
+	return time.Time{}, false, fmt.Errorf(`invalid date %q (try "2026-12-25", "3d", "2 weeks", "sep 30", or "next tuesday")`, input)
+}
+
+// explicitYearRe matches a bare 4-digit year (e.g. "2027") anywhere in a
+// date input — used by fuzzyDate to tell "sep 30" (no year stated, so
+// biased toward the nearest upcoming occurrence) apart from an input
+// shape that does carry one, like "31/3/2014" (the one when.EN date
+// rule that captures a year at all): that result is trusted as-is even
+// when it lands in the past, rather than rolled forward a year.
+var explicitYearRe = regexp.MustCompile(`\b(?:19|20)\d\d\b`)
+
+// fuzzyDate resolves input (already trimmed) via when.EN — the English
+// rule set from github.com/olebedev/when, covering weekday names (full
+// or abbreviated — "thursday"/"thu"), month/day names ("sep 30",
+// "december 20"), and relative phrases ("tomorrow", "next week"). ok is
+// false if nothing in the rule set matches at all, or if a match only
+// covers part of input (e.g. "last thursday in august, 202" matches
+// "last thursday in august" and leaves ", 202" dangling) — a partial
+// match is treated the same as no match at all, rather than silently
+// resolving to whatever fragment did parse.
+//
+// when.EN has no "assume the future" option (unlike the date library
+// this replaced, whose equivalent option was actually buggy for a
+// same-month date like "sep 30": it compared only the month number
+// against today's, so a day later in the current month was wrongly
+// pushed a full year out). Emulating that intent correctly instead:
+// once a bare month/day phrase resolves to a date before today, and
+// input never named an explicit year (see explicitYearRe), roll it
+// forward exactly one year — "sep 30" typed on Sep 14 means this year's
+// Sep 30, but typed on Oct 1 (after it's passed) means next year's.
+// This never fires for a weekday phrase ("thu"), since when.EN already
+// resolves those to the next upcoming occurrence on its own.
+func fuzzyDate(input string, today time.Time) (time.Time, bool) {
+	r, err := when.EN.Parse(input, today)
+	if err != nil || r == nil || strings.TrimSpace(r.Text) != input {
+		return time.Time{}, false
+	}
+	t := truncateToDate(r.Time)
+	if t.Before(today) && !explicitYearRe.MatchString(input) {
+		t = t.AddDate(1, 0, 0)
+	}
+	return t, true
 }
 
 // parseDeadlineInput parses a typed date into an active org timestamp

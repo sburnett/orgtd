@@ -346,6 +346,47 @@ func TestDeadlineErrorClearsAfterSubsequentSuccess(t *testing.T) {
 	}
 }
 
+func TestFuzzyDateRollsSameMonthDayForwardOnlyPastToday(t *testing.T) {
+	today := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC) // a Monday
+
+	cases := []struct {
+		input string
+		want  time.Time
+	}{
+		// "sep 30" hasn't happened yet this year: stays in 2026, not
+		// pushed a year out just because today is also in September
+		// (see fuzzyDate's doc comment — that was the actual bug in the
+		// date library this replaced).
+		{"sep 30", time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)},
+		// "sep 1" already passed this year: rolls forward to 2027.
+		{"sep 1", time.Date(2027, 9, 1, 0, 0, 0, 0, time.UTC)},
+		// An explicit year (here, D/M/Y — the one when.EN date shape
+		// that actually carries a year) is trusted as-is, even in the
+		// past — never rolled forward like the year-less cases above.
+		{"31/3/2014", time.Date(2014, 3, 31, 0, 0, 0, 0, time.UTC)},
+		{"thu", time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)},
+	}
+	for _, c := range cases {
+		got, ok := fuzzyDate(c.input, today)
+		if !ok {
+			t.Errorf("fuzzyDate(%q) did not match", c.input)
+			continue
+		}
+		if !got.Equal(c.want) {
+			t.Errorf("fuzzyDate(%q) = %v, want %v", c.input, got, c.want)
+		}
+	}
+}
+
+func TestFuzzyDateRejectsPartialMatchesAndGarbage(t *testing.T) {
+	today := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
+	for _, input := range []string{"not-a-date", "last thursday in august, 202", "", "3d"} {
+		if _, ok := fuzzyDate(input, today); ok {
+			t.Errorf("fuzzyDate(%q) unexpectedly matched", input)
+		}
+	}
+}
+
 func TestParseRelativeOffsetShorthandAndSpelledOut(t *testing.T) {
 	base := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC) // a Sunday
 
@@ -442,5 +483,64 @@ func TestDeadlineFuzzyPhraseHasNoTimeOfDay(t *testing.T) {
 	}
 	if strings.Contains(h.Deadline.Raw, ":") {
 		t.Errorf("deadline = %q, want no time-of-day component for a fuzzy phrase", h.Deadline.Raw)
+	}
+}
+
+// TestDeadlineAcceptsAbbreviatedMonthAndDayThroughTheUI covers the
+// specific phrase reported as not working: "sep 30" (an abbreviated
+// month name plus a bare day, no year) should resolve to this year's
+// September 30 if it hasn't passed yet, or next year's otherwise — never
+// a full year further out just because today also happens to fall in
+// September (see fuzzyDate's doc comment for why that's worth calling
+// out: the previous date library got exactly this case wrong).
+func TestDeadlineAcceptsAbbreviatedMonthAndDayThroughTheUI(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+	today := truncateToDate(time.Now())
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "sep 30")
+	m = sendKey(m, "enter")
+
+	if m.mode != normalMode {
+		t.Fatalf("mode after enter = %v, want normalMode (\"sep 30\" should have been accepted)", m.mode)
+	}
+	want := time.Date(today.Year(), time.September, 30, 0, 0, 0, 0, today.Location())
+	if want.Before(today) {
+		want = want.AddDate(1, 0, 0)
+	}
+	if h.Deadline == nil || h.Deadline.Raw != want.Format("2006-01-02 Mon") {
+		t.Errorf("deadline = %v, want %q", h.Deadline, want.Format("2006-01-02 Mon"))
+	}
+}
+
+// TestDeadlineAcceptsAbbreviatedWeekdayThroughTheUI covers "thu": an
+// abbreviated weekday name should mean the next upcoming occurrence of
+// that weekday, skipping today even if today is itself a Thursday.
+func TestDeadlineAcceptsAbbreviatedWeekdayThroughTheUI(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+	today := truncateToDate(time.Now())
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "thu")
+	m = sendKey(m, "enter")
+
+	if m.mode != normalMode {
+		t.Fatalf("mode after enter = %v, want normalMode (\"thu\" should have been accepted)", m.mode)
+	}
+	days := (int(time.Thursday) - int(today.Weekday()) + 7) % 7
+	if days == 0 {
+		days = 7
+	}
+	want := today.AddDate(0, 0, days)
+	if h.Deadline == nil || h.Deadline.Raw != want.Format("2006-01-02 Mon") {
+		t.Errorf("deadline = %v, want %q", h.Deadline, want.Format("2006-01-02 Mon"))
 	}
 }
