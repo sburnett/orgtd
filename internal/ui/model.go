@@ -5841,8 +5841,9 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 
 // renderAgendaItemRow renders one agenda item row: keyword/priority/
 // title (as in outline, but with no indent or fold arrow — agenda is
-// flat), tags, then which file it's from and the date/label (Scheduled
-// or Deadline) it's shown for.
+// flat), tags, then which file (and, for a sub-headline, its immediate
+// parent — see agendaPlace) it's from and the date/label (Scheduled or
+// Deadline) it's shown for.
 func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
 	line := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
@@ -5851,10 +5852,7 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 		line += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
 
-	fileName := ""
-	if f := m.fileForHeadline(h); f != nil {
-		fileName = filepath.Base(f.Path)
-	}
+	place := m.agendaPlace(h)
 	timestamp := m.fadeIfImmutable(timestampStyle, h).Background(bg)
 	if r.agendaLabel != "" {
 		label := r.agendaLabel
@@ -5865,13 +5863,32 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 		if r.agendaRepeater != "" {
 			date += " " + r.agendaRepeater
 		}
-		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", fileName, label, date))
+		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", place, label, date))
 	} else {
-		// A Next Actions entry: no date to show, just which file it's in.
-		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", fileName))
+		// A Next Actions entry: no date to show, just where it's from.
+		line += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", place))
 	}
 
 	return line
+}
+
+// agendaPlace returns the "[...]" tag content shown on an agenda row for
+// h: the file it's from, plus — since an agenda item shown out of its
+// outline context often isn't identifiable from its own title alone —
+// its immediate parent headline's title, if it has one (a top-level
+// headline has no parent to add). Only the direct parent is shown, not
+// the full ancestor chain up to the root: that's usually enough to place
+// the item, and stays short even for an item buried deep in the tree —
+// the full chain remains one Enter (jumpToSource) away.
+func (m Model) agendaPlace(h *org.Headline) string {
+	fileName := ""
+	if f := m.fileForHeadline(h); f != nil {
+		fileName = filepath.Base(f.Path)
+	}
+	if h.Parent == nil {
+		return fileName
+	}
+	return fmt.Sprintf("%s › %s", fileName, h.Parent.Title)
 }
 
 // renderMeetingHeaderRowWithBg renders a meeting-group header row in the

@@ -467,6 +467,32 @@ func TestAgendaItemRowRendering(t *testing.T) {
 	}
 }
 
+func TestAgendaItemRowShowsImmediateParentTitle(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* Q3 Planning\n** NEXT Draft the doc\n   DEADLINE: <%s>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	line := stripANSI(m.renderRow(m.rows[1]))
+	if !strings.Contains(line, "[agenda.org › Q3 Planning]") {
+		t.Errorf("agenda item row = %q, want the [file › parent] tag naming its immediate parent", line)
+	}
+}
+
+func TestAgendaItemRowOmitsParentTagForATopLevelHeadline(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	line := stripANSI(m.renderRow(m.rows[1]))
+	if !strings.Contains(line, "[agenda.org]") {
+		t.Errorf("agenda item row = %q, want a plain [agenda.org] tag for a top-level headline with no parent", line)
+	}
+}
+
 func TestAgendaItemRowShowsMarkLetterInGutter(t *testing.T) {
 	now := truncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
