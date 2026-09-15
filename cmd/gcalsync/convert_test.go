@@ -176,6 +176,59 @@ func TestOrgTimestampAllDayMultiDay(t *testing.T) {
 	}
 }
 
+func TestExcludeTooLongDropsTimedEventOverSixHours(t *testing.T) {
+	events := []gcal.Event{
+		{ID: "short", Summary: "Standup", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:15:00-07:00")},
+		{ID: "long", Summary: "Offsite", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T15:00:01-07:00")}, // 6h + 1s
+	}
+	got := ExcludeTooLong(events)
+	if len(got) != 1 || got[0].ID != "short" {
+		t.Errorf("ExcludeTooLong = %+v, want just the short event", got)
+	}
+}
+
+func TestExcludeTooLongKeepsExactlySixHours(t *testing.T) {
+	events := []gcal.Event{
+		{ID: "exactly-six", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T15:00:00-07:00")},
+	}
+	got := ExcludeTooLong(events)
+	if len(got) != 1 {
+		t.Errorf("ExcludeTooLong = %+v, want the exactly-6h event kept (only strictly longer is excluded)", got)
+	}
+}
+
+func TestExcludeTooLongLeavesAllDayEventsAloneRegardlessOfSpan(t *testing.T) {
+	events := []gcal.Event{
+		{
+			ID:     "week-long",
+			AllDay: true,
+			Start:  time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC),
+			End:    time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC), // a week, way over 6h
+		},
+	}
+	got := ExcludeTooLong(events)
+	if len(got) != 1 {
+		t.Errorf("ExcludeTooLong = %+v, want the all-day event kept regardless of its span", got)
+	}
+}
+
+func TestExcludeTooLongLeavesInputSliceUntouched(t *testing.T) {
+	events := []gcal.Event{
+		{ID: "short", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:15:00-07:00")},
+		{ID: "long", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T20:00:00-07:00")},
+	}
+	original := append([]gcal.Event(nil), events...)
+	ExcludeTooLong(events)
+	if len(events) != len(original) {
+		t.Fatalf("input slice length changed: %d, want %d", len(events), len(original))
+	}
+	for i := range events {
+		if events[i].ID != original[i].ID {
+			t.Errorf("input slice mutated at index %d: %q, want %q", i, events[i].ID, original[i].ID)
+		}
+	}
+}
+
 func TestBuildFileRoundTripsThroughRender(t *testing.T) {
 	events := []gcal.Event{
 		{ID: "abc123", CalendarID: "primary", Summary: "Standup", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:15:00-07:00")},

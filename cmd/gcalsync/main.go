@@ -96,6 +96,7 @@ func run() error {
 		}
 		events = append(events, evs...)
 	}
+	events = ExcludeTooLong(events)
 
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return fmt.Errorf("gcalsync: creating org directory %s: %w", s.dir, err)

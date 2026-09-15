@@ -180,6 +180,72 @@ func TestGMOpensPickerWithDedupedRecurringSeries(t *testing.T) {
 	}
 }
 
+// TestGMDefaultsToShortestInProgressMeeting covers the "gM" default
+// selection policy: when more than one candidate's representative
+// occurrence is currently in progress, the shortest one (soonest to
+// end) is highlighted first — not just whichever started or was synced
+// first — so a quick standup you're nominally "in" right now doesn't
+// get buried under an hours-long meeting that's also technically
+// ongoing.
+func TestGMDefaultsToShortestInProgressMeeting(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			// Long meeting: started 2h ago, ends in 1h (3h total) — in progress.
+			recurringCalendarEventHeadline("offsite-1", "series-offsite", "Team Offsite", now.Add(-2*time.Hour), now.Add(time.Hour)),
+			// Short meeting: started 10m ago, ends in 5m (15m total) — also in progress, and shorter.
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(-10*time.Minute), now.Add(5*time.Minute)),
+			// Not in progress yet: starts in 20 minutes.
+			recurringCalendarEventHeadline("planning-1", "series-planning", "Sprint Planning", now.Add(20*time.Minute), now.Add(50*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	if len(m.meetingPickerCandidates) != 3 {
+		t.Fatalf("candidates = %d, want 3", len(m.meetingPickerCandidates))
+	}
+	if got := m.meetingPickerCandidates[0].recurringEventID; got != "series-standup" {
+		t.Errorf("candidates[0] = %q, want series-standup (shortest in-progress meeting)", got)
+	}
+	if got := m.meetingPickerCandidates[1].recurringEventID; got != "series-offsite" {
+		t.Errorf("candidates[1] = %q, want series-offsite (longer, but still in progress)", got)
+	}
+	if got := m.meetingPickerCandidates[2].recurringEventID; got != "series-planning" {
+		t.Errorf("candidates[2] = %q, want series-planning last (not in progress)", got)
+	}
+}
+
+// TestGMDefaultsToNextStartTimeWhenNothingInProgress mirrors
+// TestGMOpensPickerWithDedupedRecurringSeries but names the policy
+// explicitly: with no candidate currently in progress, the default
+// falls back to whichever starts soonest.
+func TestGMDefaultsToNextStartTimeWhenNothingInProgress(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("planning-1", "series-planning", "Sprint Planning", now.Add(2*time.Hour), now.Add(3*time.Hour)),
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	if got := m.meetingPickerCandidates[0].recurringEventID; got != "series-standup" {
+		t.Errorf("candidates[0] = %q, want series-standup (starts sooner, nothing in progress)", got)
+	}
+}
+
 func TestGMFilterNarrowsBySubstring(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()

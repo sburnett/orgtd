@@ -10,6 +10,35 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
+// maxMeetingDuration is the longest a *timed* event may run and still be
+// synced — see ExcludeTooLong. All-day events are exempt: they're not
+// meetings in the usual sense (a holiday, an out-of-office block, a
+// full-day placeholder), and every single one of them would trivially
+// exceed this just by being all-day.
+const maxMeetingDuration = 6 * time.Hour
+
+// ExcludeTooLong drops any timed event running longer than
+// maxMeetingDuration, leaving every all-day event untouched regardless
+// of its span. A handful of misconfigured or overly-broad calendar
+// entries (an entire-day "meeting" block someone forgot to mark
+// all-day, a botched recurring series) otherwise clutter the synced
+// file and, worse, look "in progress" for hours on end in the "gM"
+// picker (see internal/ui/agenda.go's meetingCandidates). Returns a new
+// slice; events is left untouched.
+func ExcludeTooLong(events []gcal.Event) []gcal.Event {
+	kept := make([]gcal.Event, 0, len(events))
+	for _, ev := range events {
+		if !ev.AllDay {
+			start, end := eventBounds(ev)
+			if end.Sub(start) > maxMeetingDuration {
+				continue
+			}
+		}
+		kept = append(kept, ev)
+	}
+	return kept
+}
+
 // BuildFile renders events into a fresh org.File at path: one top-level,
 // keyword-less headline per event instance (they're calendar entries,
 // not actionable tasks), each carrying a plain (non-SCHEDULED) timestamp

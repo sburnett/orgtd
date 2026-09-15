@@ -367,19 +367,28 @@ type meetingCandidate struct {
 	recurringEventID string
 	title            string
 	link             string    // GCAL_HTML_LINK, "" if gcalsync didn't have one — see buildMeetingAttachAction
-	when             time.Time // the series' representative occurrence — see meetingCandidates
+	when             time.Time // the series' representative occurrence's start — see meetingCandidates
+	end              time.Time // that same occurrence's end, zero if GCAL_END was missing/unparseable
+}
+
+// inProgress reports whether c's representative occurrence has started
+// but not yet ended, as of now.
+func (c meetingCandidate) inProgress(now time.Time) bool {
+	return !c.when.After(now) && now.Before(c.end)
 }
 
 // meetingCandidates returns one meetingCandidate per distinct recurring
 // series found in any loaded calendar event (GCAL_RECURRING_EVENT_ID —
 // see cmd/gcalsync/convert.go), each using whichever synced occurrence
 // is currently most relevant (moreRelevantOccurrence) as its
-// title/display date, sorted the same way (most relevant first) — so
-// the series you're most likely attaching an item to for an imminent
-// meeting sorts near the top of the "gM" picker. Only meaningful while
-// gcalsync has at least one instance of a series synced; a series whose
-// every synced occurrence has aged out of the sync window (in either
-// direction) simply won't appear until gcalsync runs again.
+// title/display date, sorted for the "gM" picker (meetingPickerLess) so
+// index 0 — the picker's default highlight — is the one you're most
+// likely attaching an item to right now: a meeting currently in
+// progress, the shortest one if more than one is, else the next one to
+// start. Only meaningful while gcalsync has at least one instance of a
+// series synced; a series whose every synced occurrence has aged out of
+// the sync window (in either direction) simply won't appear until
+// gcalsync runs again.
 func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 	best := make(map[string]meetingCandidate)
 	for _, f := range m.ws.Files {
@@ -393,7 +402,8 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 				return
 			}
 			if cur, exists := best[recurID]; !exists || moreRelevantOccurrence(start, cur.when, now) {
-				best[recurID] = meetingCandidate{recurringEventID: recurID, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start}
+				end, _ := parseRFC3339Property(h, "GCAL_END")
+				best[recurID] = meetingCandidate{recurringEventID: recurID, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start, end: end}
 			}
 		})
 	}
@@ -403,16 +413,36 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 		candidates = append(candidates, c)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return moreRelevantOccurrence(candidates[i].when, candidates[j].when, now)
+		return meetingPickerLess(candidates[i], candidates[j], now)
 	})
 	return candidates
 }
 
+// meetingPickerLess reports whether a should rank ahead of b for the
+// "gM" picker's default highlight: a meeting currently in progress
+// always ranks ahead of one that isn't; between two in-progress
+// meetings, the one ending sooner (the shorter of the two) ranks
+// first — so a quick standup you're nominally "in" right now doesn't
+// get buried under an hours-long meeting that's also technically
+// ongoing. Neither in progress: falls back to moreRelevantOccurrence
+// (soonest upcoming first, else most recently ended).
+func meetingPickerLess(a, b meetingCandidate, now time.Time) bool {
+	aIn, bIn := a.inProgress(now), b.inProgress(now)
+	if aIn != bIn {
+		return aIn
+	}
+	if aIn {
+		return a.end.Sub(a.when) < b.end.Sub(b.when)
+	}
+	return moreRelevantOccurrence(a.when, b.when, now)
+}
+
 // moreRelevantOccurrence reports whether a should rank ahead of b (used
-// both to pick a series' representative occurrence and to order the
-// picker): an upcoming occurrence (>= now) always ranks ahead of a past
-// one; between two upcoming occurrences the soonest ranks first; between
-// two past ones the most recent ranks first.
+// both to pick a series' representative occurrence and, via
+// meetingPickerLess, as the picker's fallback order once "in progress"
+// is decided): an upcoming occurrence (>= now) always ranks ahead of a
+// past one; between two upcoming occurrences the soonest ranks first;
+// between two past ones the most recent ranks first.
 func moreRelevantOccurrence(a, b, now time.Time) bool {
 	aUpcoming := !a.Before(now)
 	bUpcoming := !b.Before(now)
