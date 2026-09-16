@@ -36,7 +36,6 @@ oauth_client_secret = "client-secret"
 calendar_ids = ["primary", "team@example.com"]
 sync_past_days = 2
 sync_future_days = 21
-output_file = "calendar.org"
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -59,7 +58,6 @@ output_file = "calendar.org"
 			CalendarIDs:       []string{"primary", "team@example.com"},
 			SyncPastDays:      2,
 			SyncFutureDays:    21,
-			OutputFile:        "calendar.org",
 		},
 	}
 	if !reflect.DeepEqual(*c, want) {

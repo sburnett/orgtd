@@ -52,9 +52,9 @@
 # Base name of the file :clarify treats as the inbox. Default: inbox.org.
 # inbox_file = "inbox.org"
 
-# Base name of the file (e.g. the one gcalsync writes) excluded from the
-# outline view and shown instead, grouped by day, in the :calendar view.
-# Default: calendar.org.
+# Base name of the file (e.g. the one :sync-calendar writes, below)
+# excluded from the outline view and shown instead, grouped by day, in
+# the :calendar view. Default: calendar.org.
 # calendar_file = "calendar.org"
 
 # How many hours after a DONE/CANCELLED item's CLOSED timestamp it's
@@ -66,18 +66,17 @@
 # debug.log file next to this config file. Off by default.
 # debug = true
 
-# Settings below this point are read only by gcalsync (see the README's
-# "gcalsync" section), the separate program that syncs Google Calendar
-# into an org file — not by orgtd itself. Both tools share this same
-# config file (and org_dir, above) so they agree on where your org
-# directory is without repeating it.
+# Settings below this point are read only by :sync-calendar (see the
+# README's "Calendar sync" section), the command that syncs Google
+# Calendar into calendar_file (above). Kept under their own section
+# since they're all optional and only relevant if you use that command.
 [gcalsync]
 
 # OAuth2 client credentials for an installed-app ("Desktop app") client
 # you create yourself in Google Cloud Console, with the Google Calendar
-# API enabled. Required — every gcalsync user needs their own client,
-# since a shared one baked into the binary couldn't keep its secret
-# secret. No default.
+# API enabled. Required — every user needs their own client, since a
+# shared one baked into the binary couldn't keep its secret secret. No
+# default; :sync-calendar refuses with a status message until both are set.
 # oauth_client_id = "...apps.googleusercontent.com"
 # oauth_client_secret = "..."
 
@@ -89,8 +88,3 @@
 # Defaults: 1 / 14.
 # sync_past_days = 1
 # sync_future_days = 14
-
-# Org file gcalsync fully regenerates on every run, resolved relative to
-# org_dir unless absolute. It's a cache, not something to hand-edit — the
-# generated file says so at the top. Default: calendar.org.
-# output_file = "calendar.org"

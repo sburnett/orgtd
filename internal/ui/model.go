@@ -403,7 +403,7 @@ type Model struct {
 	// attached/detached from on Enter (see applySelectedMeeting).
 	// meetingPickerCandidates is computed once, when the picker opens
 	// (startMeetingPicker) — every distinct recurring series or one-off
-	// event gcalsync currently has synced at least one instance of — and
+	// event :sync-calendar currently has synced at least one instance of — and
 	// only filtered (never recomputed) for the rest of the session, so
 	// the list doesn't shift under the user mid-selection. meetingPickerFilter is
 	// typed so far (a plain substring match against each candidate's
@@ -457,7 +457,7 @@ type Model struct {
 	inboxFile     string        // base name of the file :clarify treats as the inbox
 	clarifyTarget *org.Headline // the inbox item currently pinned for clarification, in clarifyView; nil if the inbox is empty
 
-	// calendarFile is the base name of the file gcalsync writes (e.g.
+	// calendarFile is the base name of the file :sync-calendar writes (e.g.
 	// "calendar.org", the default) — excluded from the outline view
 	// entirely (see rebuildRows' default case) and shown instead, grouped
 	// by day, in calendarView (see appendCalendarRows).
@@ -467,6 +467,20 @@ type Model struct {
 	hideDoneEnabled    bool // whether hideDoneAfterHours filtering is active; off by default (see New), toggled by :toggledone, turned on at startup by WithHideDoneAfterHours
 
 	debug bool // whether main.go turned on debug logging (see WithDebug); the Model itself never logs anything based on this — it's only carried here so :config can report it
+
+	// gcalOAuthClientID/Secret, gcalCalendarIDs, gcalSyncPastDays/FutureDays
+	// configure :sync-calendar (see startSyncCalendar) — the Google OAuth2
+	// installed-app client, which calendars to sync, and how wide a
+	// window around now to pull events from. An empty
+	// gcalOAuthClientID/Secret means :sync-calendar isn't configured at
+	// all (see WithGcalOAuthClient). syncingCalendar guards against
+	// starting a second sync while one is already in flight — unlike
+	// :format-links, a sync never touches any headline the user might be
+	// editing, so there's nothing to lock, just this one flag.
+	gcalOAuthClientID, gcalOAuthClientSecret string
+	gcalCalendarIDs                          []string
+	gcalSyncPastDays, gcalSyncFutureDays     int
+	syncingCalendar                          bool
 
 	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
 	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
@@ -552,7 +566,7 @@ func WithInboxFile(name string) Option {
 
 // WithCalendarFile sets the base file name excluded from the outline
 // view and shown instead (grouped by day) in calendarView — the file
-// gcalsync writes (e.g. "calendar.org", the default). name == "" is
+// :sync-calendar writes (e.g. "calendar.org", the default). name == "" is
 // treated as the default.
 func WithCalendarFile(name string) Option {
 	return func(m *Model) {
@@ -598,6 +612,28 @@ func WithReadme(text string) Option {
 	return func(m *Model) { m.readme = text }
 }
 
+// WithGcalOAuthClient sets the Google OAuth2 installed-app client
+// :sync-calendar authenticates with. Either being empty (the default)
+// means :sync-calendar isn't configured — see startSyncCalendar.
+func WithGcalOAuthClient(clientID, clientSecret string) Option {
+	return func(m *Model) { m.gcalOAuthClientID, m.gcalOAuthClientSecret = clientID, clientSecret }
+}
+
+// WithGcalCalendarIDs sets which Google Calendar IDs :sync-calendar
+// syncs, e.g. "primary" or an email address for a secondary/shared
+// calendar. Default (if this option is never applied): ["primary"] —
+// see New.
+func WithGcalCalendarIDs(ids []string) Option {
+	return func(m *Model) { m.gcalCalendarIDs = ids }
+}
+
+// WithGcalSyncWindow sets how many days into the past/future
+// :sync-calendar's sync window extends around now. Defaults (if this
+// option is never applied): 1/14 — see New.
+func WithGcalSyncWindow(pastDays, futureDays int) Option {
+	return func(m *Model) { m.gcalSyncPastDays, m.gcalSyncFutureDays = pastDays, futureDays }
+}
+
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
@@ -612,6 +648,9 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		inboxFile:          "inbox.org",
 		calendarFile:       "calendar.org",
 		hideDoneAfterHours: 24,
+		gcalCalendarIDs:    []string{"primary"},
+		gcalSyncPastDays:   1,
+		gcalSyncFutureDays: 14,
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -697,7 +736,7 @@ func (m *Model) findCalendarFile() *org.File {
 // gitFiles returns m.ws.Files minus the calendar file (see
 // WithCalendarFile): every git operation (diff/add/commit) that scopes
 // itself to "the files currently open in the outline" uses this instead
-// of m.ws.Files directly, since the calendar file is gcalsync's own
+// of m.ws.Files directly, since the calendar file is :sync-calendar's own
 // output — regenerated locally from Google Calendar, not something
 // meant to be versioned or committed alongside the rest of the org
 // directory.
@@ -1192,6 +1231,12 @@ func (m *Model) appendConfigRows() {
 	line("Calendar file: %s", m.calendarFile)
 	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.hideDoneAfterHours, onOff(m.hideDoneEnabled))
 	line("Debug logging: %s", onOff(m.debug))
+
+	if m.gcalOAuthClientID == "" || m.gcalOAuthClientSecret == "" {
+		line("Calendar sync: (not configured — see README's Calendar sync section)")
+	} else {
+		line("Calendar sync: %s, -%dd/+%dd window", strings.Join(m.gcalCalendarIDs, ", "), m.gcalSyncPastDays, m.gcalSyncFutureDays)
+	}
 }
 
 // appendLogRows populates m.rows for :log — every external command
@@ -1721,6 +1766,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case formatLinksMsg:
 		return m.finishFormatLinks(msg)
+
+	case syncCalendarMsg:
+		return m.finishSyncCalendar(msg)
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -2682,6 +2730,7 @@ var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar",
 	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
+	"sync-calendar", "sync-calendar!",
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -2829,6 +2878,12 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "format-links":
 		return m, m.startFormatLinks()
+
+	case "sync-calendar":
+		return m, m.startSyncCalendar(false)
+
+	case "sync-calendar!":
+		return m, m.startSyncCalendar(true)
 
 	case "log":
 		m.switchToView(logView)
@@ -3044,7 +3099,7 @@ func (m *Model) currentStatusIndex() int {
 
 // startMeetingPicker ("gM") opens a fuzzy-filterable picker (see
 // updateMeetingPickerMode) over every distinct recurring meeting series
-// or one-off event gcalsync currently has synced at least one instance
+// or one-off event :sync-calendar currently has synced at least one instance
 // of (see meetingCandidates, in agenda.go), letting the user toggle the
 // chosen meeting's ID on or off the current entry's
 // GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS property (matching
@@ -3053,7 +3108,7 @@ func (m *Model) currentStatusIndex() int {
 // appendMeetingsSection) next time it's due (a recurring series) or
 // until it happens (a one-off). A no-op (with a status message) if the
 // cursor isn't on a headline, the entry is locked by an in-flight
-// :format-links batch, or gcalsync hasn't synced anything at all — in
+// :format-links batch, or :sync-calendar hasn't synced anything at all — in
 // which case there's nothing to offer, and no point opening an empty
 // picker.
 func (m *Model) startMeetingPicker() {
@@ -3063,7 +3118,7 @@ func (m *Model) startMeetingPicker() {
 	}
 	candidates := m.meetingCandidates(time.Now())
 	if len(candidates) == 0 {
-		m.message = "No calendar meetings synced yet (see gcalsync)"
+		m.message = "No calendar meetings synced yet (see :sync-calendar)"
 		return
 	}
 	m.mode = meetingPickerMode
@@ -4160,7 +4215,7 @@ func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
 // "<meeting name>: <url>" entries, used by normalStatusLines to surface
 // the meeting(s) an entry references, the same way a link embedded
 // directly in its title already is: h's own link, if h is itself a
-// synced calendar event (GCAL_HTML_LINK — see cmd/gcalsync/convert.go);
+// synced calendar event (GCAL_HTML_LINK — see internal/calendarsync/convert.go);
 // one-off events it's attached to via "gM" (GCAL_EVENT_LINKS/
 // GCAL_EVENT_IDS); and recurring series it's attached to, likewise via
 // "gM" (GCAL_RECURRING_EVENT_LINKS/GCAL_RECURRING_EVENT_IDS) — see
@@ -4185,7 +4240,7 @@ func (m *Model) calendarEventLinks(h *org.Headline) []string {
 // linksProp (set by "gM" — one "[[url][title]]" per matched/attached
 // meeting) is tried first: it was captured once, at the time h was
 // linked to the meeting, so it keeps working indefinitely, even long
-// after gcalsync's sync window has moved past the meeting (or the
+// after :sync-calendar's sync window has moved past the meeting (or the
 // meeting stopped recurring entirely) and calendar.org no longer has it
 // cached. Only if linksProp is missing entirely — e.g. an idsProp
 // hand-attached to a task directly (per DESIGN.md's project↔meeting
@@ -4245,7 +4300,7 @@ func parseOrgLinks(text string) []orgLink {
 
 // findHeadlineByProperty searches every loaded org file for a headline
 // whose idProp property (GCAL_EVENT_ID or GCAL_RECURRING_EVENT_ID —
-// i.e. one gcalsync wrote to calendar.org) equals id, returning its
+// i.e. one :sync-calendar wrote to calendar.org) equals id, returning its
 // title and GCAL_HTML_LINK.
 func (m *Model) findHeadlineByProperty(idProp, id string) (title, url string, ok bool) {
 	for _, f := range m.ws.Files {
@@ -6188,7 +6243,7 @@ func (m Model) renderMeetingHeaderRowWithBg(r row, bg lipgloss.TerminalColor) st
 // formatMeetingWhen renders a meeting's start/end for
 // renderMeetingHeaderRowWithBg, in local time — omitting the time of day
 // entirely for an all-day event, recognized here by both endpoints
-// sitting at local midnight (see eventBounds in cmd/gcalsync/convert.go,
+// sitting at local midnight (see eventBounds in internal/calendarsync/convert.go,
 // which anchors an all-day event's GCAL_START/GCAL_END there).
 func formatMeetingWhen(start, end time.Time) string {
 	start, end = start.Local(), end.Local()
@@ -6242,7 +6297,7 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 // day, with no date — calendarView already groups h under its own
 // day's header row (see appendCalendarRows), so the date would be
 // redundant here. "All day" for an all-day event (both endpoints at
-// local midnight — see eventBounds in cmd/gcalsync/convert.go); empty
+// local midnight — see eventBounds in internal/calendarsync/convert.go); empty
 // if GCAL_START/GCAL_END don't parse (e.g. h isn't actually a synced
 // calendar event).
 func calendarItemTime(h *org.Headline) string {

@@ -19,6 +19,12 @@ const (
 	execLogStdout
 	execLogStderr
 	execLogExit
+
+	// execLogInfo is a free-standing note not tied to any child process
+	// (pid always 0) — e.g. :sync-calendar's OAuth consent-URL notice,
+	// logged here rather than printed to stderr since that would corrupt
+	// the TUI's own display.
+	execLogInfo
 )
 
 // label renders k for display in the :log view.
@@ -34,6 +40,8 @@ func (k execLogKind) label() string {
 		return "STDERR"
 	case execLogExit:
 		return "EXIT"
+	case execLogInfo:
+		return "INFO"
 	default:
 		return "?"
 	}

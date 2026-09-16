@@ -25,7 +25,7 @@ func main() {
 	formatLinksURLFormatter := flag.String("format-links-url-formatter", "", "external program :format-links invokes in batch mode (no url argument; reads urls one per line from stdin, prints the same number of formatted lines to stdout) (default: the config file's format_links_url_formatter, else the same as -url-formatter)")
 	agendaDays := flag.Int("agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
 	inboxFile := flag.String("inbox-file", "", "base name of the file :clarify treats as the inbox (default: the config file's inbox_file, else inbox.org)")
-	calendarFile := flag.String("calendar-file", "", "base name of the file (e.g. one gcalsync writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
+	calendarFile := flag.String("calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
 	hideDoneAfterHours := flag.Int("hide-done-after-hours", 0, "how many hours after a DONE/CANCELLED item's CLOSED timestamp it's hidden from the outline view; :toggledone shows everything again (default: the config file's hide_done_after_hours, else 24)")
 	editor := flag.String("editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
 	debug := flag.Bool("debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
@@ -115,6 +115,9 @@ func main() {
 			ui.WithEditor(s.editor),
 			ui.WithDebug(s.debug),
 			ui.WithReadme(orgtd.Readme),
+			ui.WithGcalOAuthClient(s.gcalOAuthClientID, s.gcalOAuthClientSecret),
+			ui.WithGcalCalendarIDs(s.gcalCalendarIDs),
+			ui.WithGcalSyncWindow(s.gcalSyncPastDays, s.gcalSyncFutureDays),
 		),
 		tea.WithAltScreen(),
 	)

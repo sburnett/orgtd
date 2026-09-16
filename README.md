@@ -40,7 +40,7 @@ orgtd --dir ~/org
 | `--format-links-url-formatter` | `format_links_url_formatter` | *(same as `url_formatter`)* | External program `:format-links` (see below) invokes in batch mode — called with no trailing URL argument, it should instead read URLs one per line from stdin and print the same number of formatted lines to stdout. Configured separately from `url_formatter` since a batch-capable command may differ from (or take different arguments than) whatever handles a single URL while editing |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
-| `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. one gcalsync writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
+| `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. the one `:sync-calendar` writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
 | `--hide-done-after-hours` | `hide_done_after_hours` | `24` | How many hours after a `DONE`/`CANCELLED` item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggledone` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
 | `--debug` | `debug` | *(off)* | Log debug info (see Debug log, below) to `debug.log` next to the config file |
@@ -106,7 +106,7 @@ logging is on.
   `hide_done_after_hours` (default 24) is hidden — `:toggledone` shows
   everything again, and toggles back.
 - **Calendar** (`:calendar`) — every event in `calendar_file` (default
-  `calendar.org`; see gcalsync, below), grouped under one flush-left
+  `calendar.org`; see Calendar sync, below), grouped under one flush-left
   header per calendar day, both the days and the events within each day
   in chronological order. This is the only place `calendar_file`'s
   contents are shown, since it's excluded from the outline view (above)
@@ -120,14 +120,14 @@ logging is on.
   other entry's link (see above). Otherwise an ordinary foldable list of
   headlines — `i`, `dd`, `r`, `gd`, marks, and every other per-entry
   command all work exactly as they do in the outline, though any edit
-  only lasts until gcalsync's next sync overwrites the file regardless.
+  only lasts until the next `:sync-calendar` overwrites the file regardless.
 - **Agenda** (`:agenda`) — a flat, date-driven view across every file:
   **Overdue**, **Due Today**, and **Upcoming** sections built from
   `SCHEDULED`/`DEADLINE` timestamps, plus a **Next Actions** section
   listing every `NEXT`-keyword headline regardless of whether it has a
   date. `SOMEDAY` items are excluded entirely. An item with both a
   schedule and a deadline can appear in two sections. A **Meetings**
-  section follows: for each calendar meeting gcalsync has synced —
+  section follows: for each calendar meeting `:sync-calendar` has synced —
   a recurring series or a one-off event alike — that starts sometime
   today or within the next 24 hours (current ones included), a header
   row grouping every item — anywhere in the org directory,
@@ -206,8 +206,8 @@ meeting, read from its `GCAL_RECURRING_EVENT_LINKS` (recurring) or
 `GCAL_EVENT_LINKS` (one-off) property. Since that property is a
 snapshot taken at attach time rather than a live lookup, it keeps
 working indefinitely — you can jump straight to the meeting no matter
-how long ago it was attached, even long after gcalsync has resynced
-`calendar.org` and the meeting no longer has anything cached. A
+how long ago it was attached, even long after `:sync-calendar` has
+resynced `calendar.org` and the meeting no longer has anything cached. A
 `GCAL_RECURRING_EVENT_IDS`/`GCAL_EVENT_IDS` with no matching
 `GCAL_RECURRING_EVENT_LINKS`/`GCAL_EVENT_LINKS` entry (e.g. one
 hand-attached to a task directly, per DESIGN.md's project↔meeting
@@ -255,7 +255,7 @@ stop), and so on.
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
-| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting gcalsync currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if gcalsync hasn't synced anything at all — there's nothing to offer. An attached entry shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it has a meeting attached is visible at a glance, in every view, without opening it |
+| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. An attached entry shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it has a meeting attached is visible at a glance, in every view, without opening it |
 | `gX` | `gC` immediately followed by `gM`: capture as usual, and once the editor session commits, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion, without a separate `gM` bracketing the (possibly slow) editor round-trip. Cancelling the capture (empty or blank result, or the editor failing to run) never opens the picker; if nothing's synced yet, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
@@ -324,6 +324,7 @@ History doesn't persist between sessions.
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
+| `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
 | `:commit` | Diff view only (see Views, above) — refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; note a file left untracked here won't actually be committed, since `git commit` never picks up a file that's never been `git add`ed at all), then prompts for a commit message, runs `git commit` scoped to the same files `:diff` shows, followed by `git push`. Refuses outside diff view too. Runs synchronously (both commands can briefly block the UI, `git push` for as long as the remote takes to respond); a failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. Diff view refreshes afterward either way, so the result is immediately visible |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:noh` / `:nohlsearch` | See Search, above |
@@ -361,16 +362,17 @@ parsed fields, so incidental formatting (exact alignment, spacing) on a
 *changed* line can shift slightly. Everything else in the file is left
 alone.
 
-## gcalsync
+## Calendar sync (`:sync-calendar`)
 
-`gcalsync` is a separate, standalone program (not part of the `orgtd`
-binary) that syncs Google Calendar events into an org file — by default
-`calendar.org` at the top of your org directory, matching `orgtd`'s own
-`calendar_file` setting (see above) so it's automatically excluded from
-the outline view and shown instead, grouped by day, in the `:calendar`
-view. It's a one-shot CLI: run it yourself on whatever schedule you like
-(cron, launchd, a systemd timer); it doesn't loop or poll on its own,
-and it never writes anywhere except that one output file.
+`:sync-calendar` syncs Google Calendar events into an org file —
+`calendar_file` (see above; `calendar.org` by default), so it's
+automatically excluded from the outline view and shown instead, grouped
+by day, in the `:calendar` view. It's triggered by hand, whenever you
+want fresh calendar data — there's nothing running in the background or
+on a schedule, and it never writes anywhere except that one file.
+`:sync-calendar!` (with a bang, same convention as `:q!`) discards any
+cached Google sign-in first, forcing the consent flow to run again —
+useful if the cached token stops working (e.g. access was revoked).
 
 Each synced event becomes a plain headline (no TODO keyword) with a
 timestamp, location, description, and a link back to the event, e.g.:
@@ -426,14 +428,14 @@ top says so); declined and cancelled events are left out.
 1. In [Google Cloud Console](https://console.cloud.google.com/), create
    a project (or use an existing one), enable the **Google Calendar
    API**, and create an OAuth client ID of type **Desktop app**. Every
-   user of gcalsync needs their own client — a shared one baked into the
-   binary couldn't keep its secret secret.
+   user needs their own client — a shared one baked into the binary
+   couldn't keep its secret secret.
 2. Add the client ID/secret, and anything else you want to override, to
-   the same config file `orgtd` uses (`~/.config/orgtd/config.toml` by
-   default — see Config file, above) under a `[gcalsync]` section:
+   the config file (`~/.config/orgtd/config.toml` by default — see
+   Config file, above) under a `[gcalsync]` section:
 
    ```toml
-   org_dir = "~/org"   # shared with orgtd
+   org_dir = "~/org"
 
    [gcalsync]
    oauth_client_id = "...apps.googleusercontent.com"
@@ -441,25 +443,25 @@ top says so); declined and cancelled events are left out.
    calendar_ids = ["primary"]
    sync_past_days = 1
    sync_future_days = 14
-   output_file = "calendar.org"
    ```
 
-3. Run `gcalsync`. The first run opens your system browser to Google's
-   consent screen (scope: read-only calendar access); the resulting
-   refresh token is cached in your OS keychain (macOS Keychain / Linux
-   Secret Service / Windows Credential Manager), so later runs (e.g. from
-   cron) don't need a browser at all. `-reauth` discards the cached token
-   and runs the consent flow again.
+3. Run `:sync-calendar`. The first run opens your system browser to
+   Google's consent screen (scope: read-only calendar access); the
+   resulting refresh token is cached in your OS keychain (macOS
+   Keychain / Linux Secret Service / Windows Credential Manager), so
+   later runs don't need a browser at all. If the browser can't be
+   opened automatically (e.g. orgtd is running over SSH), the consent
+   URL is logged instead — see it with `:log`. `:sync-calendar!`
+   discards the cached token and runs the consent flow again.
 
-| Flag | Config key | Default | Meaning |
-|---|---|---|---|
-| `-dir` | `org_dir` | same resolution as `orgtd`'s `--dir` | Org directory `-output-file` is resolved relative to |
-| `-output-file` | `gcalsync.output_file` | `calendar.org` | Org file to regenerate, relative to `-dir` unless absolute |
-| `-calendar-ids` | `gcalsync.calendar_ids` | `primary` | Comma-separated Google Calendar IDs to sync |
-| `-sync-past-days` / `-sync-future-days` | `gcalsync.sync_past_days` / `gcalsync.sync_future_days` | `1` / `14` | Sync window around now |
-| `-oauth-client-id` / `-oauth-client-secret` | `gcalsync.oauth_client_id` / `gcalsync.oauth_client_secret` | *(required)* | Your Google OAuth2 installed-app client |
-| `-reauth` | — | off | Discard the cached token and re-run the consent flow |
-| `-config` | — | same as `orgtd`'s `--config` | Path to the shared TOML config file |
+| Config key | Default | Meaning |
+|---|---|---|
+| `gcalsync.oauth_client_id` / `gcalsync.oauth_client_secret` | *(required)* | Your Google OAuth2 installed-app client |
+| `gcalsync.calendar_ids` | `["primary"]` | Google Calendar IDs to sync |
+| `gcalsync.sync_past_days` / `gcalsync.sync_future_days` | `1` / `14` | Sync window around now |
+
+There are no command-line flags for these — `:sync-calendar` only ever
+runs interactively from inside orgtd, so they're config-file only.
 
 ## Development
 

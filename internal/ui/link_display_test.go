@@ -262,7 +262,7 @@ func TestStatusBarCalendarEventLinkSurvivesCalendarOrgAgingOut(t *testing.T) {
 	target := m.currentHeadline()
 	target.SetProperty("GCAL_EVENT_LINKS", "[[https://calendar.google.com/event?eid=abc123][Meeting abc123]]")
 
-	// Simulate gcalsync re-syncing calendar.org after the meeting has
+	// Simulate :sync-calendar re-syncing calendar.org after the meeting has
 	// aged out of its window: the cached headline for "abc123" is gone.
 	for i, f := range m.ws.Files {
 		if strings.HasSuffix(f.Path, "calendar.org") {

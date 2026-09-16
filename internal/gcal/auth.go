@@ -18,6 +18,10 @@ import (
 )
 
 const (
+	// keyringService intentionally keeps its old name (gcalsync used to
+	// be a separate binary) rather than following it into
+	// internal/calendarsync — changing it would silently orphan
+	// everyone's already-cached token, forcing a needless re-consent.
 	keyringService = "orgtd-gcalsync"
 	keyringUser    = "refresh-token"
 	calendarScope  = "https://www.googleapis.com/auth/calendar.readonly"

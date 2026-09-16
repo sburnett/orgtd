@@ -26,9 +26,34 @@ func TestResolveSettingsAllDefaultsWhenNothingSet(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	got := resolveSettings(flags(), "", &config.Config{})
-	want := settings{dir: defaultOrgDir(), urlFormatter: "", agendaDays: 0, inboxFile: "", editor: ""}
+	want := settings{
+		dir: defaultOrgDir(), urlFormatter: "", agendaDays: 0, inboxFile: "", editor: "",
+		gcalCalendarIDs: []string{"primary"}, gcalSyncPastDays: 1, gcalSyncFutureDays: 14,
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSettings = %+v, want %+v", got, want)
+	}
+}
+
+func TestResolveSettingsGcalSettingsFollowConfigFileWithNoFlagOverride(t *testing.T) {
+	cfg := &config.Config{
+		Gcalsync: config.GcalsyncConfig{
+			OAuthClientID:     "client-id",
+			OAuthClientSecret: "client-secret",
+			CalendarIDs:       []string{"primary", "team@example.com"},
+			SyncPastDays:      2,
+			SyncFutureDays:    21,
+		},
+	}
+	got := resolveSettings(flags(), "", cfg)
+	if got.gcalOAuthClientID != "client-id" || got.gcalOAuthClientSecret != "client-secret" {
+		t.Errorf("gcalOAuthClientID/Secret = %q/%q, want client-id/client-secret", got.gcalOAuthClientID, got.gcalOAuthClientSecret)
+	}
+	if !reflect.DeepEqual(got.gcalCalendarIDs, []string{"primary", "team@example.com"}) {
+		t.Errorf("gcalCalendarIDs = %v, want the config file's list", got.gcalCalendarIDs)
+	}
+	if got.gcalSyncPastDays != 2 || got.gcalSyncFutureDays != 21 {
+		t.Errorf("gcalSyncPastDays/FutureDays = %d/%d, want 2/21", got.gcalSyncPastDays, got.gcalSyncFutureDays)
 	}
 }
 
@@ -50,6 +75,7 @@ func TestResolveSettingsConfigFileOverridesDefaults(t *testing.T) {
 		dir: "/from/config", urlFormatter: "url2org", urlFormatterPrefixes: []string{"bit.ly/", "go/"},
 		formatLinksURLFormatter: "batch-formatter",
 		agendaDays:              30, inboxFile: "capture.org", calendarFile: "my-calendar.org", hideDoneAfterHours: 48, editor: "emacsclient -t", debug: true,
+		gcalCalendarIDs: []string{"primary"}, gcalSyncPastDays: 1, gcalSyncFutureDays: 14,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSettings = %+v, want %+v", got, want)
@@ -80,6 +106,7 @@ func TestResolveSettingsExplicitFlagBeatsConfigFile(t *testing.T) {
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: []string{"flag-prefix/"},
 		formatLinksURLFormatter: "flag-batch-fmt",
 		agendaDays:              7, inboxFile: "flag-inbox.org", calendarFile: "flag-calendar.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
+		gcalCalendarIDs: []string{"primary"}, gcalSyncPastDays: 1, gcalSyncFutureDays: 14,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveSettings = %+v, want %+v", got, want)

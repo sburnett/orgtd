@@ -71,10 +71,10 @@ func TestCapturePrefillsCreatedProperty(t *testing.T) {
 }
 
 // calendarEventHeadline builds a top-level headline shaped like one
-// gcalsync would write to calendar.org (see
-// cmd/gcalsync/convert.go): a GCAL_EVENT_ID plus GCAL_START/GCAL_END
+// :sync-calendar would write to calendar.org (see
+// internal/calendarsync/convert.go): a GCAL_EVENT_ID plus GCAL_START/GCAL_END
 // bracketing the instant a meeting runs from start to end, plus a
-// synthetic GCAL_HTML_LINK, the same as a real gcalsync-synced event.
+// synthetic GCAL_HTML_LINK, the same as a real synced event.
 func calendarEventHeadline(id string, start, end time.Time) *org.Headline {
 	h := &org.Headline{Level: 1, Title: "Meeting " + id}
 	h.SetProperty("GCAL_EVENT_ID", id)

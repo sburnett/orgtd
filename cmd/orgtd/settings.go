@@ -22,6 +22,17 @@ type settings struct {
 	hideDoneAfterHours      int
 	editor                  string
 	debug                   bool
+
+	// gcal* back :sync-calendar (see internal/ui and
+	// internal/calendarsync) — config-file only, unlike everything else
+	// above: there's no command-line flag for any of them, since
+	// :sync-calendar is only ever triggered interactively from inside
+	// the TUI, never scripted. Resolved straight from the config file's
+	// [gcalsync] section, falling back to the same built-in defaults the
+	// old standalone gcalsync binary used.
+	gcalOAuthClientID, gcalOAuthClientSecret string
+	gcalCalendarIDs                          []string
+	gcalSyncPastDays, gcalSyncFutureDays     int
 }
 
 // flagValues is the raw output of flag parsing: each flag's value
@@ -52,6 +63,10 @@ type flagValues struct {
 //  3. The config file's value, if set.
 //  4. defaultOrgDir() for -dir; the flags' own zero-value defaults
 //     (disabled/14/"inbox.org"/"", meaning $EDITOR) for everything else.
+//
+// The gcal* fields (see settings, above) sit outside this precedence
+// entirely — there's no flag for them, so they're always just the config
+// file's [gcalsync] values, falling back to their own built-in defaults.
 func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) settings {
 	s := settings{
 		dir:                     f.dir,
@@ -102,6 +117,24 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 	}
 	if !f.explicit["debug"] && cfg.Debug {
 		s.debug = true
+	}
+
+	s.gcalOAuthClientID = cfg.Gcalsync.OAuthClientID
+	s.gcalOAuthClientSecret = cfg.Gcalsync.OAuthClientSecret
+	if len(cfg.Gcalsync.CalendarIDs) > 0 {
+		s.gcalCalendarIDs = cfg.Gcalsync.CalendarIDs
+	} else {
+		s.gcalCalendarIDs = []string{"primary"}
+	}
+	if cfg.Gcalsync.SyncPastDays != 0 {
+		s.gcalSyncPastDays = cfg.Gcalsync.SyncPastDays
+	} else {
+		s.gcalSyncPastDays = 1
+	}
+	if cfg.Gcalsync.SyncFutureDays != 0 {
+		s.gcalSyncFutureDays = cfg.Gcalsync.SyncFutureDays
+	} else {
+		s.gcalSyncFutureDays = 14
 	}
 
 	return s

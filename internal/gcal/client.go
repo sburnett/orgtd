@@ -1,6 +1,6 @@
 // Package gcal is a thin, read-only client for the Google Calendar API,
 // plus the OAuth2 installed-app auth flow needed to talk to it. It knows
-// nothing about org files — see cmd/gcalsync for that.
+// nothing about org files — see internal/calendarsync for that.
 package gcal
 
 import (

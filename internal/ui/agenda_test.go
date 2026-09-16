@@ -830,9 +830,9 @@ func TestWithAgendaDaysZeroOrNegativeKeepsDefault(t *testing.T) {
 }
 
 // recurringCalendarEventHeadline builds a calendar.org-shaped headline
-// for one occurrence of a recurring meeting — same shape gcalsync writes
-// for a recurring series instance (cmd/gcalsync/convert.go) — linking it
-// to recurID via GCAL_RECURRING_EVENT_ID. See calendarEventHeadline (in
+// for one occurrence of a recurring meeting — same shape :sync-calendar
+// writes for a recurring series instance (internal/calendarsync/convert.go)
+// — linking it to recurID via GCAL_RECURRING_EVENT_ID. See calendarEventHeadline (in
 // capture_test.go) for the one-off-event equivalent this builds on.
 func recurringCalendarEventHeadline(id, recurID, title string, start, end time.Time) *org.Headline {
 	h := calendarEventHeadline(id, start, end)

@@ -60,21 +60,21 @@ type Config struct {
 	// built-in default.
 	Debug bool `toml:"debug"`
 
-	// Gcalsync holds settings used only by the separate gcalsync binary
-	// (cmd/gcalsync), which shares this same config file so both tools
-	// can be pointed at one org directory without duplicating org_dir.
-	// orgtd itself never reads this section.
+	// Gcalsync holds settings for :sync-calendar (see internal/ui and
+	// internal/calendarsync), kept under its own section so they read as
+	// a distinct, optional block rather than cluttering the top level.
 	Gcalsync GcalsyncConfig `toml:"gcalsync"`
 }
 
-// GcalsyncConfig is the gcalsync-specific "[gcalsync]" section of the
-// shared config file.
+// GcalsyncConfig is the "[gcalsync]" section of the config file: settings
+// for :sync-calendar, which regenerates CalendarFile (see
+// Config.CalendarFile) from Google Calendar.
 type GcalsyncConfig struct {
 	// OAuthClientID and OAuthClientSecret are the installed-app OAuth2
-	// client credentials gcalsync uses to authenticate to the Google
-	// Calendar API. Every user is expected to create their own OAuth
-	// client (Google Cloud Console, "Desktop app" type) rather than
-	// share one baked into the binary, since a distributed client
+	// client credentials :sync-calendar uses to authenticate to the
+	// Google Calendar API. Every user is expected to create their own
+	// OAuth client (Google Cloud Console, "Desktop app" type) rather
+	// than share one baked into the binary, since a distributed client
 	// secret can't actually stay secret.
 	OAuthClientID     string `toml:"oauth_client_id"`
 	OAuthClientSecret string `toml:"oauth_client_secret"`
@@ -87,10 +87,6 @@ type GcalsyncConfig struct {
 	// (e.g. 1/14 means from yesterday through two weeks from now).
 	SyncPastDays   int `toml:"sync_past_days"`
 	SyncFutureDays int `toml:"sync_future_days"`
-
-	// OutputFile is the org file gcalsync fully regenerates on every
-	// run, resolved relative to org_dir if not absolute.
-	OutputFile string `toml:"output_file"`
 }
 
 // DefaultPath returns the config file location orgtd reads unless

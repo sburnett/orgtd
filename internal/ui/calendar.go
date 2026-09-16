@@ -12,7 +12,8 @@ import (
 // under one flush-left day-header row per calendar day (see row.section)
 // in chronological order — both the days themselves and, within each
 // day, the events on it, by start time. A headline with no parseable
-// GCAL_START (i.e. not one gcalsync wrote — see cmd/gcalsync/convert.go)
+// GCAL_START (i.e. not one :sync-calendar wrote — see
+// internal/calendarsync/convert.go)
 // is left out entirely, same as a missing calendar file: there's
 // nothing to date it by. Rendered via appendCalendarHeadlines — folding,
 // body lines, marks, and every per-headline command (i/dd/r/gd/...) all

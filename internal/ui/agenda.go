@@ -270,7 +270,7 @@ type meetingAgendaEntry struct {
 
 // upcomingMeetingEntries returns one meetingAgendaEntry per calendar
 // event (any loaded headline with a GCAL_START — see
-// cmd/gcalsync/convert.go) whose start falls within [start of today,
+// internal/calendarsync/convert.go) whose start falls within [start of today,
 // now+24h) — i.e. every meeting starting sometime today or within the
 // next 24 hours, current ones included — with at least one item
 // elsewhere in the workspace attached to it via "gM" (see
@@ -369,7 +369,7 @@ func (m *Model) appendMeetingsSection() {
 // GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS on whatever's
 // attached to it), or a single one-off event, unique to itself
 // (GCAL_EVENT_ID/GCAL_EVENT_IDS/GCAL_EVENT_LINKS) — see
-// cmd/gcalsync/convert.go, which sets GCAL_EVENT_ID on every synced
+// internal/calendarsync/convert.go, which sets GCAL_EVENT_ID on every synced
 // event and GCAL_RECURRING_EVENT_ID additionally on one that's part of
 // a series. Kept as a small enum (rather than, say, always comparing
 // against "") so every place that needs "which pair of properties"
@@ -407,7 +407,7 @@ type meetingCandidate struct {
 	id    string // GCAL_RECURRING_EVENT_ID if kind == recurringMeeting, else GCAL_EVENT_ID
 	kind  meetingIDKind
 	title string
-	link  string    // GCAL_HTML_LINK, "" if gcalsync didn't have one — see buildMeetingAttachAction
+	link  string    // GCAL_HTML_LINK, "" if :sync-calendar didn't have one — see buildMeetingAttachAction
 	when  time.Time // the series' representative occurrence's start (or the one-off event's own start) — see meetingCandidates
 	end   time.Time // that same occurrence's end, zero if GCAL_END was missing/unparseable
 }
@@ -430,7 +430,7 @@ type meetingKey struct {
 
 // meetingCandidates returns one meetingCandidate per distinct meeting
 // found in any loaded calendar event — a recurring series, deduped by
-// GCAL_RECURRING_EVENT_ID (see cmd/gcalsync/convert.go), or a one-off
+// GCAL_RECURRING_EVENT_ID (see internal/calendarsync/convert.go), or a one-off
 // event, one per GCAL_EVENT_ID (every synced event carries this;
 // GCAL_RECURRING_EVENT_ID only if it's part of a series) — each using
 // whichever synced occurrence is currently most relevant
@@ -445,11 +445,11 @@ type meetingKey struct {
 // upcoming wins" comparison would treat today's already-started
 // occurrence as simply "past" and lose it to tomorrow's, hiding the
 // fact that the series is in progress right now from the final sort
-// entirely. Only meaningful while gcalsync has at least one relevant
-// instance synced; a recurring series whose every synced occurrence has
-// aged out of the sync window (in either direction), or a one-off event
-// that's aged out entirely, simply won't appear until gcalsync runs
-// again.
+// entirely. Only meaningful while :sync-calendar has synced at least one
+// relevant instance; a recurring series whose every synced occurrence
+// has aged out of the sync window (in either direction), or a one-off
+// event that's aged out entirely, simply won't appear until
+// :sync-calendar runs again.
 func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 	best := make(map[meetingKey]meetingCandidate)
 	for _, f := range m.ws.Files {
