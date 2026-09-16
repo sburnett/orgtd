@@ -197,18 +197,34 @@ func TestExcludeTooLongKeepsExactlySixHours(t *testing.T) {
 	}
 }
 
-func TestExcludeTooLongLeavesAllDayEventsAloneRegardlessOfSpan(t *testing.T) {
+// TestExcludeTooLongDropsAllDayEvents covers a real gap in an earlier
+// version of this filter, which exempted all-day events on the
+// assumption they're holidays/OOO rather than "meetings". A reported
+// case showed that's wrong for at least some real calendars (a
+// full-day workshop/offsite marked all-day in Google Calendar is
+// exactly the kind of "meeting longer than 6 hours" the filter is
+// meant to catch) — and since an all-day event is always at least 24
+// hours (see eventBounds), there's no legitimate "all-day but under 6
+// hours" case an exemption would need to preserve anyway. The rule now
+// applies uniformly, single-day all-day events included.
+func TestExcludeTooLongDropsAllDayEvents(t *testing.T) {
 	events := []gcal.Event{
+		{
+			ID:     "single-day",
+			AllDay: true,
+			Start:  time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC),
+			End:    time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC), // exclusive end: exactly one day
+		},
 		{
 			ID:     "week-long",
 			AllDay: true,
 			Start:  time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC),
-			End:    time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC), // a week, way over 6h
+			End:    time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC),
 		},
 	}
 	got := ExcludeTooLong(events)
-	if len(got) != 1 {
-		t.Errorf("ExcludeTooLong = %+v, want the all-day event kept regardless of its span", got)
+	if len(got) != 0 {
+		t.Errorf("ExcludeTooLong = %+v, want every all-day event dropped (always >= 24h)", got)
 	}
 }
 
