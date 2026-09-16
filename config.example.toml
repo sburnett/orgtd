@@ -88,3 +88,33 @@
 # Defaults: 1 / 14.
 # sync_past_days = 1
 # sync_future_days = 14
+
+# Customizes the character and color of each marker the outline draws in
+# its gutter column, to the left of every entry (see the README's
+# Keybindings section for what each one means: "+" for unsaved changes,
+# a mark's own letter, "●" for the :clarify target, "◆" for a
+# :format-links lock, "▣" for a meeting attached via "gM"). Every key
+# here is optional and falls back to the built-in glyph/color shown
+# below when unset — delete whichever lines you don't want to override.
+#
+# A color is either an ANSI color code ("0"-"255" — see
+# https://www.ditig.com/256-colors-cheat-sheet for a chart of what each
+# number looks like) or a hex RGB string ("#ff8700"), per lipgloss's own
+# Color type: https://github.com/charmbracelet/lipgloss#colors
+#
+# An icon is any single character. Stick to single-width glyphs (found
+# by browsing a Unicode reference, e.g. https://symbl.cc/en/unicode-table/
+# — the Geometric Shapes block, U+25A0-25FF, is a good hunting ground for
+# more marks in the same style as the built-in ones) — a wide character
+# (most emoji, many CJK characters) will throw off the gutter's column
+# alignment with the rows around it.
+# [icons]
+# dirty_icon    = "+"    # unsaved changes
+# dirty_color   = "9"
+# mark_color    = "212"  # a vim-style mark's own letter ("m<letter>") — no matching icon, since the glyph is the letter itself
+# clarify_icon  = "●"    # the :clarify view's pinned inbox item
+# clarify_color = "212"
+# lock_icon     = "◆"    # locked by an in-flight :format-links batch
+# lock_color    = "208"
+# meeting_icon  = "▣"    # attached to a calendar meeting via "gM"
+# meeting_color = "39"
