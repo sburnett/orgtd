@@ -255,3 +255,26 @@ func TestRegisterPinnedSectionIsHeightBounded(t *testing.T) {
 		t.Errorf("rendered view is missing the overflow summary line")
 	}
 }
+
+func TestClearRegistersEmptiesRegister(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "y")
+	m = sendKey(m, "y")
+	if len(m.register) == 0 {
+		t.Fatalf("register empty after yy, want an entry to clear")
+	}
+
+	m = sendKey(m, ":")
+	m = typeKeys(m, "clear-registers")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if m.register != nil {
+		t.Errorf("register = %v, want nil after :clear-registers", m.register)
+	}
+	if m.message == "" {
+		t.Errorf("expected a status message after :clear-registers")
+	}
+}

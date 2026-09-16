@@ -2818,7 +2818,7 @@ func (m *Model) recallCommandHistory(dir int) {
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
 	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar",
-	"delmarks", "delmarks!", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
+	"delmarks", "delmarks!", "clear-registers", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
 	"sync-calendar", "sync-calendar!",
 }
 
@@ -2947,6 +2947,10 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "delmarks":
 		m.message = "Usage: :delmarks <letters> or :delmarks!"
+
+	case "clear-registers":
+		m.register = nil
+		m.message = "Register cleared"
 
 	case "toggledone":
 		m.toggleHideDone()

@@ -318,7 +318,8 @@ label, right alongside marks — so it's obvious what `p`/`P` will paste
 next even for `yy`, which otherwise leaves the screen looking unchanged.
 Capped at 5 entries shown at once (a big `<N>dd` or visual-mode delete
 collapses the rest into a trailing "...and N more" line) so a large
-register can't push the actual listing off-screen.
+register can't push the actual listing off-screen. `:clear-registers`
+empties it (and its pinned display) without needing another `dd`/`yy`.
 
 ### Search
 
@@ -357,6 +358,7 @@ History doesn't persist between sessions.
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
 | `:commit` | Diff view only (see Views, above) — refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; note a file left untracked here won't actually be committed, since `git commit` never picks up a file that's never been `git add`ed at all), then prompts for a commit message, runs `git commit` scoped to the same files `:diff` shows, followed by `git push`. Refuses outside diff view too. Runs synchronously (both commands can briefly block the UI, `git push` for as long as the remote takes to respond); a failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. Diff view refreshes afterward either way, so the result is immediately visible |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
+| `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`yy` |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |
 
