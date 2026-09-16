@@ -794,6 +794,76 @@ func TestRenderMeetingPickerNoMatches(t *testing.T) {
 	}
 }
 
+// TestMeetingColumnBlankWhenNoMeetingAttached covers the baseline for
+// meetingColumn: an entry with neither GCAL_RECURRING_EVENT_IDS nor
+// GCAL_EVENT_IDS set shows a blank gutter column, same as no mark, no
+// lock, and no dirty marker.
+func TestMeetingColumnBlankWhenNoMeetingAttached(t *testing.T) {
+	h := &org.Headline{Level: 1, Keyword: "TODO", Title: "Plain entry"}
+	m := Model{}
+	line := []rune(stripANSI(m.renderRow(row{headline: h})))
+	if len(line) < 3 || line[2] != ' ' {
+		t.Errorf("row = %q, want the meeting column (index 2) blank", string(line))
+	}
+}
+
+// TestMeetingColumnShowsForRecurringAttachment and
+// TestMeetingColumnShowsForOneOffAttachment cover meetingColumn's core
+// job — surfacing "this entry has a meeting attached" on the row
+// itself, without opening $EDITOR to check the property drawer — for
+// each of the two property pairs "gM" can write.
+func TestMeetingColumnShowsForRecurringAttachment(t *testing.T) {
+	h := &org.Headline{Level: 1, Keyword: "TODO", Title: "Prep for standup"}
+	h.SetProperty("GCAL_RECURRING_EVENT_IDS", "series-standup")
+	m := Model{}
+	line := []rune(stripANSI(m.renderRow(row{headline: h})))
+	if len(line) < 3 || line[2] != '▣' {
+		t.Errorf("row = %q, want the meeting column (index 2) to show ▣", string(line))
+	}
+}
+
+func TestMeetingColumnShowsForOneOffAttachment(t *testing.T) {
+	h := &org.Headline{Level: 1, Keyword: "TODO", Title: "Bring the deck"}
+	h.SetProperty("GCAL_EVENT_IDS", "kickoff-1")
+	m := Model{}
+	line := []rune(stripANSI(m.renderRow(row{headline: h})))
+	if len(line) < 3 || line[2] != '▣' {
+		t.Errorf("row = %q, want the meeting column (index 2) to show ▣", string(line))
+	}
+}
+
+// TestGMAttachShowsMeetingColumnImmediately is the end-to-end version:
+// after attaching a meeting via "gM", the entry's outline row shows the
+// meeting column right away — no need to reopen or edit the entry to
+// confirm the attachment took.
+func TestGMAttachShowsMeetingColumnImmediately(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+		},
+	})
+	m := New(ws)
+	idx := findRow(t, m, "Call the vet about Fido's checkup")
+	m.cursor = idx
+
+	before := []rune(stripANSI(m.renderRow(m.rows[idx])))
+	if len(before) < 3 || before[2] != ' ' {
+		t.Fatalf("setup: row = %q, want the meeting column blank before attaching", string(before))
+	}
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+	m, _ = sendKeyCmd(m, "enter")
+
+	after := []rune(stripANSI(m.renderRow(m.rows[idx])))
+	if len(after) < 3 || after[2] != '▣' {
+		t.Errorf("row after gM attach = %q, want the meeting column to show ▣", string(after))
+	}
+}
+
 func TestGMRefusesOnImmutableEntry(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()

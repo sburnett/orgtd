@@ -1667,21 +1667,23 @@ func TestDirtyGutterIsLeftmostAndConsistentAcrossRows(t *testing.T) {
 	nestedLine := stripANSI(m.renderRow(m.rows[nestedIdx]))
 
 	// Column 0 is the mark/clarify column, column 1 is the :format-links
-	// lock column, column 2 is the dirty marker — three separate columns
-	// (see markColumn/lockColumn/gutter) so a row that's both marked and
-	// dirty (or locked, or all three) can show every indicator at once.
-	// The dirty marker sits in column 2 for both the file row and the
-	// changed item, regardless of the item's indentation depth; columns
-	// 0 and 1 are blank here since nothing is marked or locked.
-	if r := []rune(fileLine); len(r) < 3 || r[0] != ' ' || r[1] != ' ' || r[2] != '+' {
+	// lock column, column 2 is the "attached to a meeting" column, column
+	// 3 is the dirty marker — four separate columns (see
+	// markColumn/lockColumn/meetingColumn/gutter) so a row that's marked,
+	// locked, attached to a meeting, and dirty all at once (or any subset)
+	// can show every indicator simultaneously. The dirty marker sits in
+	// column 3 for both the file row and the changed item, regardless of
+	// the item's indentation depth; columns 0-2 are blank here since none
+	// of those apply.
+	if r := []rune(fileLine); len(r) < 4 || r[0] != ' ' || r[1] != ' ' || r[2] != ' ' || r[3] != '+' {
 		t.Errorf("file row gutter columns wrong: %q", fileLine)
 	}
-	if r := []rune(itemLine); len(r) < 3 || r[0] != ' ' || r[1] != ' ' || r[2] != '+' {
+	if r := []rune(itemLine); len(r) < 4 || r[0] != ' ' || r[1] != ' ' || r[2] != ' ' || r[3] != '+' {
 		t.Errorf("changed item row gutter columns wrong: %q", itemLine)
 	}
 	// An unrelated, more deeply nested row is unaffected and keeps every
 	// gutter column blank.
-	if r := []rune(nestedLine); len(r) < 3 || r[0] != ' ' || r[1] != ' ' || r[2] != ' ' {
+	if r := []rune(nestedLine); len(r) < 4 || r[0] != ' ' || r[1] != ' ' || r[2] != ' ' || r[3] != ' ' {
 		t.Errorf("unrelated nested row should have blank gutter columns, got: %q", nestedLine)
 	}
 }

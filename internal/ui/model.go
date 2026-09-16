@@ -49,6 +49,7 @@ var (
 	shortcutStyle  = lipgloss.NewStyle().Bold(true)
 	pinMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 	lockedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
+	meetingStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("245"))
 
 	// overlayBg is the subtle background tint for the pinned header
@@ -5802,6 +5803,26 @@ func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	return bgSpan(bg, " ")
 }
 
+// meetingColumn is a headline row's "attached to a meeting" gutter
+// column — a column of its own (see gutter, markColumn, lockColumn),
+// so it shows up alongside any of those rather than hiding them. "▣"
+// (U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE — same Geometric
+// Shapes block as "●"/"◆" above, so it renders reliably anywhere those
+// do, and a different shape family from both so it's never mistaken for
+// a mark or a lock at a glance) while h has been attached to a
+// recurring series or a one-off event via "gM" (GCAL_RECURRING_EVENT_IDS
+// or GCAL_EVENT_IDS — see meetingCandidate.kind), blank otherwise. This
+// is what lets "does this entry have a meeting attached" be answered by
+// looking at the row, rather than opening it in $EDITOR to check its
+// property drawer. bg is the background it's rendered with (see
+// gutter).
+func (m Model) meetingColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
+	if h.Properties["GCAL_RECURRING_EVENT_IDS"] != "" || h.Properties["GCAL_EVENT_IDS"] != "" {
+		return meetingStyle.Background(bg).Render("▣")
+	}
+	return bgSpan(bg, " ")
+}
+
 // fadeIfImmutable applies a faint (dim) rendering attribute to style
 // when h is locked by :format-links, on top of whatever foreground
 // color style already carries — so a locked entry's keyword, title,
@@ -5851,11 +5872,12 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	case r.isMeetingHeader:
 		return m.renderMeetingHeaderRowWithBg(r, bg)
 	case r.file != nil:
-		// Blank mark and lock columns: files themselves are never marked
-		// or locked by :format-links, but this keeps every row's dirty
-		// marker lined up in the same column.
+		// Blank mark, lock, and meeting columns: files themselves are
+		// never marked, locked by :format-links, or attached to a
+		// meeting, but this keeps every row's dirty marker lined up in
+		// the same column.
 		name := highlightMatches(filepath.Base(r.file.Path), query, fileStyle.Background(bg))
-		return bgSpan(bg, " ") + bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
+		return bgSpan(bg, " ") + bgSpan(bg, " ") + bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
 	case r.isAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
 	case r.isCalendarItem:
@@ -5876,7 +5898,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		fold = bgSpan(bg, glyph)
 	}
 
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	var suffix string
 	if len(h.Tags) > 0 {
@@ -5928,7 +5950,7 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 // Deadline) it's shown for.
 func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	var suffix string
 	if len(h.Tags) > 0 {
@@ -6025,7 +6047,7 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 		fold = bgSpan(bg, glyph)
 	}
 
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
 	if when := calendarItemTime(h); when != "" {
 		prefix += m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(when) + bgSpan(bg, "  ")
 	}
@@ -6071,7 +6093,7 @@ func sameLocalDay(a, b time.Time) bool {
 // in a muted style so it doesn't compete visually with real entries.
 func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := strings.Repeat("  ", r.level)
-	blanks := bgSpan(bg, "    "+indent+"  ") // mark + lock + gutter + space, then indent, then fold + space
+	blanks := bgSpan(bg, "     "+indent+"  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
 	style := m.fadeIfImmutable(bodyStyle, r.headline).Background(bg)
 	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), style)
 }
