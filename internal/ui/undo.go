@@ -144,6 +144,28 @@ func (a *deadlineChangeAction) revert(m *Model) *org.Headline {
 func (a *deadlineChangeAction) file() *org.File           { return a.f }
 func (a *deadlineChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
+// tagChangeAction records "gt" toggling one tag on or off an entry's
+// Tags (see applyTagInput). Like deadlineChangeAction, the mutation is
+// in place, so the same headline pointer is "affected" either way.
+type tagChangeAction struct {
+	h                *org.Headline
+	f                *org.File
+	oldTags, newTags []string
+}
+
+func (a *tagChangeAction) apply(m *Model) *org.Headline {
+	a.h.Tags = a.newTags
+	return a.h
+}
+
+func (a *tagChangeAction) revert(m *Model) *org.Headline {
+	a.h.Tags = a.oldTags
+	return a.h
+}
+
+func (a *tagChangeAction) file() *org.File           { return a.f }
+func (a *tagChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
+
 // meetingAttachAction records "gM" toggling one meeting (a recurring
 // series or a one-off event — see meetingCandidate.kind) on or off an
 // entry's ids/links property pair together — idsProp/linksProp name
