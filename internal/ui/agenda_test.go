@@ -722,7 +722,7 @@ func TestEnterNoopOnAgendaSectionHeaderRow(t *testing.T) {
 	}
 }
 
-func TestAgendaStatusRotateMutatesSameHeadlineAsOutline(t *testing.T) {
+func TestAgendaStatusChangeMutatesSameHeadlineAsOutline(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	outlineIdx := findRow(t, m, "Follow up with finance about the Q3 budget doc")
@@ -741,10 +741,10 @@ func TestAgendaStatusRotateMutatesSameHeadlineAsOutline(t *testing.T) {
 		t.Fatalf("expected to find the item in the agenda")
 	}
 	m.cursor = agendaIdx
-	m = sendKey(m, "r")
+	m = setStatus(m, "n") // TODO -> NEXT
 
 	if h.Keyword == origKeyword {
-		t.Fatalf("status rotate in agenda view did not change the keyword")
+		t.Fatalf("status change in agenda view did not change the keyword")
 	}
 
 	m.switchToView(outlineView)

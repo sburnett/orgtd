@@ -251,9 +251,8 @@ stop), and so on.
 | `yy` | Yank the current entry and its subtree into the paste register, without deleting it |
 | `p` / `P` | Paste the register's contents after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`), all of them are pasted together, in the same order they were deleted in |
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
-| `r` | Rotate the current entry's TODO state |
-| `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
-| `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
+| `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
+| `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
 | `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting gcalsync currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if gcalsync hasn't synced anything at all — there's nothing to offer. An attached entry shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it has a meeting attached is visible at a glance, in every view, without opening it |
@@ -266,7 +265,7 @@ stop), and so on.
 |---|---|
 | `V` | Enter visual line selection at the current entry. Navigation keys (`j`/`k`, `gg`/`G`, `{`/`}`, `l`/`h`, `^`/`$`, `ctrl-d`/`ctrl-u`, `Page Down`/`Page Up`, `ctrl-e`/`ctrl-y`) extend the selection instead of just moving; `V` again or `Esc` cancels it |
 | `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one). Fills the paste register with everything deleted (top-to-bottom order preserved), so `p`/`P` pastes the whole selection back as a group |
-| `R` | (in visual mode) Open the same status picker as normal-mode `R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched |
+| `r` / `R` | (in visual mode) Open the same status picker as normal-mode `r`/`R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched |
 
 The cursor's own entry keeps the usual highlight color; the rest of the
 selection is shaded differently, so which end is the actual cursor is
@@ -346,16 +345,6 @@ interval from the old date (however overdue that leaves it); `++1w`
 advances however many intervals it takes to land on or after today;
 `.+1w` advances one interval from *today*, ignoring the old date
 entirely.
-
-Because the keyword never actually changes on a repeating item, `r`
-(which always computes "the next state after the current one") can get
-stuck: once it reaches a done-class state and the repeat fires, the next
-`r` press starts from that same pre-completion state and just re-triggers
-the repeat again, rather than advancing to `CANCELLED` or wrapping
-around. This matches real org-mode's own bare-cycling command, which has
-the identical quirk for the same reason. Use `R` (then the state's
-letter, e.g. `c` for `CANCELLED`) to jump straight to a specific state in
-one step instead.
 
 Round-tripping is format-*preserving* rather than byte-exact: body text
 and file preamble pass through untouched, but a headline, planning, or

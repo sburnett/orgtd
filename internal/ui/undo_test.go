@@ -16,7 +16,7 @@ func TestUndoRedoStatusChange(t *testing.T) {
 		t.Fatalf("fixture assumption broken: keyword = %q, want TODO", h.Keyword)
 	}
 
-	m = sendKey(m, "r") // TODO -> NEXT
+	m = setStatus(m, "n") // TODO -> NEXT
 	if h.Keyword != "NEXT" {
 		t.Fatalf("keyword after r = %q, want NEXT", h.Keyword)
 	}
@@ -45,8 +45,8 @@ func TestUndoRestoresClosedTimestamp(t *testing.T) {
 	h := m.currentHeadline()
 
 	// TODO -> NEXT -> WAITING -> SOMEDAY -> DONE (stamps CLOSED)
-	for i := 0; i < 4; i++ {
-		m = sendKey(m, "r")
+	for _, shortcut := range []string{"n", "w", "s", "d"} {
+		m = setStatus(m, shortcut)
 	}
 	if h.Keyword != "DONE" || h.Closed == nil {
 		t.Fatalf("fixture assumption broken: keyword=%q closed=%v", h.Keyword, h.Closed)
@@ -79,7 +79,7 @@ func TestRedoAtNewestChangeShowsMessage(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 	m = sendKey(m, "ctrl+r")
 	if m.message != "Already at newest change" {
 		t.Errorf("message = %q, want %q", m.message, "Already at newest change")
@@ -92,9 +92,9 @@ func TestNewEditAfterUndoDiscardsRedo(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
-	m = sendKey(m, "r") // TODO -> NEXT
-	m = sendKey(m, "u") // back to TODO, redo available
-	m = sendKey(m, "r") // a fresh edit: TODO -> NEXT again
+	m = setStatus(m, "n") // TODO -> NEXT
+	m = sendKey(m, "u")   // back to TODO, redo available
+	m = setStatus(m, "n") // a fresh edit: TODO -> NEXT again
 
 	if h.Keyword != "NEXT" {
 		t.Fatalf("keyword = %q, want NEXT", h.Keyword)
@@ -111,7 +111,7 @@ func TestUndoJumpsCursorToAffectedItem(t *testing.T) {
 	m := New(ws)
 	idx := findRow(t, m, "Call the vet about Fido's checkup")
 	m.cursor = idx
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 
 	// Move away, then undo — cursor should jump back.
 	m = sendKey(m, "G")
@@ -177,7 +177,7 @@ func TestUndoPastSavePointReDirties(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
-	m = sendKey(m, "r") // TODO -> NEXT
+	m = setStatus(m, "n") // TODO -> NEXT
 	m = sendKey(m, ":")
 	m = typeKeys(m, "w")
 	m = sendKey(m, "enter") // save: file and item both clean now
@@ -212,11 +212,11 @@ func TestUndoIsGlobalAcrossFiles(t *testing.T) {
 
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup") // inbox.org
 	inboxHeadline := m.currentHeadline()
-	m = sendKey(m, "r") // TODO -> NEXT
+	m = setStatus(m, "n") // TODO -> NEXT
 
 	m.cursor = findRow(t, m, "Draft the Q4 goals doc") // projects.org
 	projectsHeadline := m.currentHeadline()
-	m = sendKey(m, "r") // NEXT -> WAITING
+	m = setStatus(m, "w") // NEXT -> WAITING
 
 	// u is global: the single most recent action, regardless of file,
 	// is the projects.org edit.
@@ -240,7 +240,7 @@ func TestCommandUndoRedoAliases(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 	m = sendKey(m, ":")
 	m = typeKeys(m, "undo")
 	m = sendKey(m, "enter")

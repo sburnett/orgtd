@@ -309,10 +309,10 @@ func TestClarifyEditingWorksNormallyOnTheRealRow(t *testing.T) {
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "c")
-	m = sendKey(m, "r")
+	m = setStatus(m, "n") // TODO -> NEXT
 
 	if h.Keyword == origKeyword {
-		t.Errorf("status rotate in clarify view did not change the keyword")
+		t.Errorf("status change in clarify view did not change the keyword")
 	}
 }
 

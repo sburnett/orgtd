@@ -172,7 +172,7 @@ func TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline(t *testing.T) {
 	// An unrelated edit, so the file is actually dirty and :w has
 	// something to write.
 	m.cursor = findRow(t, m, "Still active")
-	m = sendKey(m, "r") // TODO -> NEXT
+	m = setStatus(m, "n") // TODO -> NEXT
 
 	m = sendKey(m, ":")
 	m = typeKeys(m, "w")

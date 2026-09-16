@@ -267,7 +267,7 @@ func TestMarkedAndDirtyRowShowsBothIndicators(t *testing.T) {
 	m.cursor = idx
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
-	m = sendKey(m, "r") // dirty it via a status rotate
+	m = setStatus(m, "n") // dirty it via a status change
 
 	line := []rune(stripANSI(m.renderRow(m.rows[idx])))
 	if len(line) < 4 || line[0] != 'a' {

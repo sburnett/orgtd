@@ -251,7 +251,7 @@ func TestImmutableEntryRefusesStatusChange(t *testing.T) {
 	m.cursor = findRow(t, m, "url https://example.com/a")
 	h := m.currentHeadline()
 
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 
 	if h.Keyword != "TODO" {
 		t.Errorf("keyword = %q, want unchanged TODO", h.Keyword)
@@ -370,7 +370,7 @@ func TestUndoRefusedWhenLastActionTouchesImmutableEntry(t *testing.T) {
 	ws := agendaFixture(t, "* TODO url https://example.com/a\n")
 	m := New(ws, WithURLFormatter("fake"))
 	m.cursor = findRow(t, m, "url https://example.com/a")
-	m = sendKey(m, "r") // TODO -> NEXT, pushes an undoable action
+	m = setStatus(m, "n") // TODO -> NEXT, pushes an undoable action
 	h := m.currentHeadline()
 	if h.Keyword != "NEXT" {
 		t.Fatalf("fixture assumption broken: keyword = %q", h.Keyword)

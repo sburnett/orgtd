@@ -154,8 +154,8 @@ func TestCompletingRecurringScheduledItemAdvancesInsteadOfClosing(t *testing.T) 
 	h := m.currentHeadline()
 
 	// TODO -> NEXT -> WAITING -> SOMEDAY -> DONE
-	for i := 0; i < 4; i++ {
-		m = sendKey(m, "r")
+	for _, shortcut := range []string{"n", "w", "s", "d"} {
+		m = setStatus(m, shortcut)
 	}
 
 	if h.Keyword != "SOMEDAY" {
@@ -184,14 +184,13 @@ func TestCompletingRecurringItemShowsUpcomingInAgenda(t *testing.T) {
 	m := New(ws)
 	m.cursor = findRow(t, m, "Weekly standup")
 
-	// Jump straight TODO -> DONE via the R picker, rather than r-cycling
-	// through SOMEDAY on the way: SOMEDAY is excluded from the agenda
-	// entirely (it means "not committed to a date"), and since a
+	// Jump straight TODO -> DONE via the status picker, rather than
+	// stepping through SOMEDAY on the way: SOMEDAY is excluded from the
+	// agenda entirely (it means "not committed to a date"), and since a
 	// repeating item's keyword reverts to whatever it was right before
-	// the done-class transition, cycling through SOMEDAY first would
-	// leave this item invisible in the agenda for an unrelated reason.
-	m = sendKey(m, "R")
-	m = sendKey(m, "d") // shortcut for DONE
+	// the done-class transition, going through SOMEDAY first would leave
+	// this item invisible in the agenda for an unrelated reason.
+	m = setStatus(m, "d") // shortcut for DONE
 
 	m.switchToView(agendaView)
 	var section, currentSection string
@@ -217,8 +216,8 @@ func TestCompletingItemWithOnlyDeadlineRepeatingAdvancesJustThat(t *testing.T) {
 	m.cursor = findRow(t, m, "Pay rent")
 	h := m.currentHeadline()
 
-	for i := 0; i < 4; i++ {
-		m = sendKey(m, "r")
+	for _, shortcut := range []string{"n", "w", "s", "d"} {
+		m = setStatus(m, shortcut)
 	}
 
 	if h.Keyword != "SOMEDAY" {
@@ -240,8 +239,8 @@ func TestCompletingNonRepeatingItemStillClosesNormally(t *testing.T) {
 	m.cursor = findRow(t, m, "One-off task")
 	h := m.currentHeadline()
 
-	for i := 0; i < 4; i++ {
-		m = sendKey(m, "r")
+	for _, shortcut := range []string{"n", "w", "s", "d"} {
+		m = setStatus(m, shortcut)
 	}
 
 	if h.Keyword != "DONE" {
@@ -265,8 +264,8 @@ func TestUndoRestoresPreCompletionScheduleAndKeyword(t *testing.T) {
 	h := m.currentHeadline()
 	origRaw := h.Scheduled.Raw
 
-	for i := 0; i < 4; i++ {
-		m = sendKey(m, "r")
+	for _, shortcut := range []string{"n", "w", "s", "d"} {
+		m = setStatus(m, shortcut)
 	}
 	advancedRaw := h.Scheduled.Raw
 	if advancedRaw == origRaw {
@@ -307,8 +306,8 @@ func TestUndoRestoresPreexistingLastRepeatValue(t *testing.T) {
 	m.cursor = findRow(t, m, "Weekly standup")
 	h := m.currentHeadline()
 
-	for i := 0; i < 4; i++ {
-		m = sendKey(m, "r")
+	for _, shortcut := range []string{"n", "w", "s", "d"} {
+		m = setStatus(m, shortcut)
 	}
 	if h.Properties["LAST_REPEAT"] == "[2020-01-01 Wed 08:00]" {
 		t.Fatal("fixture assumption broken: LAST_REPEAT did not change")
@@ -333,8 +332,7 @@ func TestCancellingRecurringItemAlsoAdvances(t *testing.T) {
 	m.cursor = findRow(t, m, "Weekly standup")
 	h := m.currentHeadline()
 
-	m = sendKey(m, "R")
-	m = sendKey(m, "c") // shortcut for CANCELLED
+	m = setStatus(m, "c") // shortcut for CANCELLED
 
 	if h.Keyword != "TODO" {
 		t.Errorf("keyword = %q, want unchanged (TODO) — CANCELLED should never actually stick on a repeating item", h.Keyword)
@@ -347,11 +345,12 @@ func TestCancellingRecurringItemAlsoAdvances(t *testing.T) {
 	}
 }
 
-func TestRepeatedCycleThroughDoneKeepsReAdvancingSchedule(t *testing.T) {
+func TestRepeatedCompletionKeepsReAdvancingSchedule(t *testing.T) {
 	// A quirk inherited faithfully from org-mode: since the keyword never
-	// actually advances past its pre-completion state, cycling further
-	// with r just re-triggers the repeat-advance again rather than
-	// reaching CANCELLED — matching org's own well-known behavior here.
+	// actually changes on a repeating item, picking a done-class state
+	// again later just re-triggers the repeat-advance again rather than
+	// having any further effect — matching org's own well-known behavior
+	// here.
 	now := truncateToDate(time.Now())
 	overdue := now.AddDate(0, 0, -7)
 	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(overdue))
@@ -360,13 +359,11 @@ func TestRepeatedCycleThroughDoneKeepsReAdvancingSchedule(t *testing.T) {
 	m.cursor = findRow(t, m, "Weekly standup")
 	h := m.currentHeadline()
 
-	// TODO -> NEXT -> WAITING -> SOMEDAY -> [advance] -> [advance again]
-	for i := 0; i < 5; i++ {
-		m = sendKey(m, "r")
-	}
+	m = setStatus(m, "d") // [advance]
+	m = setStatus(m, "d") // [advance again]
 
-	if h.Keyword != "SOMEDAY" {
-		t.Errorf("keyword = %q, want SOMEDAY (still stuck right before the done-class state)", h.Keyword)
+	if h.Keyword != "TODO" {
+		t.Errorf("keyword = %q, want TODO (never actually left it, being a repeating item)", h.Keyword)
 	}
 	if want, got := overdue.AddDate(0, 0, 14), rawOccurrenceDate(t, h.Scheduled); !got.Equal(want) {
 		t.Errorf("Scheduled = %v, want two weekly advances applied (%v)", got, want)

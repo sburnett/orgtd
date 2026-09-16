@@ -89,10 +89,10 @@ func TestBodyLineIsInertButActionsApplyToOwningHeadline(t *testing.T) {
 
 	m.cursor = bodyIdx
 	origKeyword := h.Keyword
-	m = sendKey(m, "r")
+	m = setStatus(m, "n") // TODO -> NEXT
 
 	if h.Keyword == origKeyword {
-		t.Errorf("rotating status while the cursor is on a body line did not affect the owning headline")
+		t.Errorf("changing status while the cursor is on a body line did not affect the owning headline")
 	}
 }
 

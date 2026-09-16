@@ -219,9 +219,6 @@ var statusCandidates = []statusCandidate{
 	{"", "(none)", '-'},
 }
 
-// statusCycle is the order r rotates through.
-var statusCycle = []string{"", "TODO", "NEXT", "WAITING", "SOMEDAY", "DONE", "CANCELLED"}
-
 // matchesFilter reports whether c is a candidate for the typed filter
 // (a lowercase prefix of its label, or its exact shortcut).
 func (c statusCandidate) matchesFilter(filter string) bool {
@@ -332,7 +329,7 @@ type Model struct {
 	pendingZ     bool // pending 'z' of a fold command (zo/zc/za/zO/zC/zA)
 	pendingM     bool // pending 'm' of "m<letter>" (set a mark)
 	pendingQuote bool // pending '\'' of "'<letter>" (jump to a mark)
-	pendingCount int  // numeric prefix built up so far for "dd"/"R" (e.g. "3dd", "2R"); 0 means none typed
+	pendingCount int  // numeric prefix built up so far for "dd"/"r"/"R" (e.g. "3dd", "2R"); 0 means none typed
 
 	// pendingForceQuit is set by a ctrl+c that got refused because there
 	// were unsaved changes (see Update) — a second ctrl+c right after it
@@ -1807,15 +1804,15 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// A digit builds up a numeric prefix for "dd"/"R" (e.g. "3dd", "2R")
-	// instead of being handled by the switch below — intercepted here for
-	// the same reason as m/' above. A leading zero (no digits typed yet)
-	// is not a valid count on its own — there's no "0" command to
-	// distinguish it from — so it falls through as a plain, currently
-	// unbound key instead of starting a count. Any other key that isn't
-	// "d" or "R" themselves clears a pending count rather than silently
-	// applying to some other command later — the prefix is scoped to
-	// exactly these two.
+	// A digit builds up a numeric prefix for "dd"/"r"/"R" (e.g. "3dd",
+	// "2r", "2R") instead of being handled by the switch below —
+	// intercepted here for the same reason as m/' above. A leading zero
+	// (no digits typed yet) is not a valid count on its own — there's no
+	// "0" command to distinguish it from — so it falls through as a
+	// plain, currently unbound key instead of starting a count. Any other
+	// key that isn't "d", "r", or "R" themselves clears a pending count
+	// rather than silently applying to some other command later — the
+	// prefix is scoped to exactly these three.
 	if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
 		if d := int(key[0] - '0'); d > 0 || m.pendingCount > 0 {
 			m.pendingCount = m.pendingCount*10 + d
@@ -1823,7 +1820,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ensureVisible()
 		return m, nil
 	}
-	if key != "d" && key != "R" {
+	if key != "d" && key != "r" && key != "R" {
 		m.pendingCount = 0
 	}
 
@@ -1906,10 +1903,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+o":
 		m.jumpBack()
 
-	case "r":
-		m.rotateStatus()
-
-	case "R":
+	case "r", "R":
 		count := m.pendingCount
 		m.pendingCount = 0
 		if m.currentHeadline() != nil {
@@ -2076,7 +2070,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // updateVisualMode handles "V" (visual line selection): plain navigation
 // keys extend the selection (from visualAnchor to the cursor, snapped to
 // whole entries — see visualRange) exactly as they move the cursor in
-// normal mode, while "d" and "R" act on every entry currently selected.
+// normal mode, while "d" and "r"/"R" act on every entry currently selected.
 // Only a subset of normal mode's keys apply here — anything that isn't
 // navigation or one of the two bulk operations (editing a single entry,
 // folding, marks, paste, ...) has no obvious bulk meaning and is left
@@ -2151,7 +2145,7 @@ func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		m.deleteVisualSelection()
 
-	case "R":
+	case "r", "R":
 		if headlines := m.visualSelectedHeadlines(); len(headlines) > 0 {
 			m.mode = selectMode
 			m.selectModeTargets = headlines
@@ -2186,7 +2180,7 @@ func (m *Model) visualRange() (start, end int) {
 
 // countRowRange returns the row range covering n consecutive entries
 // starting at the cursor's own entry, which counts as the first of the
-// n — giving "dd"/"R" a numeric prefix (e.g. "3dd", "2R") the same
+// n — giving "dd"/"r"/"R" a numeric prefix (e.g. "3dd", "2R") the same
 // row-range shape as a visual selection, so both can share
 // headlinesInRowRange and the bulk operations built on it. n < 1 is
 // treated as 1 (just the current entry, i.e. no prefix). Running out of
@@ -3463,23 +3457,6 @@ func (m Model) applyDeadlineInput() (tea.Model, tea.Cmd) {
 	m.deadlineInput = ""
 	m.pushUndo(&deadlineChangeAction{h: h, f: m.fileForHeadline(h), oldDeadline: h.Deadline, newDeadline: ts})
 	return m, nil
-}
-
-// rotateStatus advances the current headline to the next state in
-// statusCycle, wrapping around.
-func (m *Model) rotateStatus() {
-	h := m.currentHeadline()
-	if h == nil {
-		return
-	}
-	idx := 0
-	for i, k := range statusCycle {
-		if k == h.Keyword {
-			idx = i
-			break
-		}
-	}
-	m.applyStatus(statusCycle[(idx+1)%len(statusCycle)])
 }
 
 // applyStatus sets the current headline's keyword, stamping or clearing

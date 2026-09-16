@@ -146,6 +146,14 @@ func sendKeyCmd(m Model, key string) (Model, tea.Cmd) {
 	return updated.(Model), cmd
 }
 
+// setStatus opens the status picker (r) and picks shortcut, the same two
+// keystrokes a person would type — used throughout the test suite in
+// place of the old bare-cycling "r" command it replaced.
+func setStatus(m Model, shortcut string) Model {
+	m = sendKey(m, "r")
+	return sendKey(m, shortcut)
+}
+
 // typeKeys sends each rune of s as a separate key press, as a real
 // keyboard would.
 func typeKeys(m Model, s string) Model {
@@ -668,47 +676,49 @@ func TestFoldOnLeafIsNoop(t *testing.T) {
 	}
 }
 
-func TestRotateStatusCyclesThroughStates(t *testing.T) {
+func TestLowercaseRSameAsUppercaseR(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.height = 20
-	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m.cursor = findRow(t, m, "Get feedback on the keybinding scheme")
 	h := m.currentHeadline()
-	if h.Keyword != "TODO" {
-		t.Fatalf("fixture assumption broken: keyword = %q, want TODO", h.Keyword)
+	if h.Keyword != "WAITING" {
+		t.Fatalf("fixture assumption broken: keyword = %q, want WAITING", h.Keyword)
 	}
 
-	wantSequence := []string{"NEXT", "WAITING", "SOMEDAY", "DONE", "CANCELLED", "", "TODO"}
-	for _, want := range wantSequence {
-		m = sendKey(m, "r")
-		if h.Keyword != want {
-			t.Fatalf("after r, keyword = %q, want %q", h.Keyword, want)
-		}
-		switch want {
-		case "DONE":
-			if h.Closed == nil {
-				t.Errorf("keyword = DONE, want CLOSED to be stamped")
-			}
-		case "":
-			if h.Closed != nil {
-				t.Errorf("keyword = %q (not done), want CLOSED cleared, got %v", want, h.Closed)
-			}
-		}
+	m = sendKey(m, "r")
+	if m.mode != selectMode {
+		t.Fatalf("mode after r = %v, want selectMode", m.mode)
+	}
+	if got, want := statusCandidates[m.selectIndex].keyword, "WAITING"; got != want {
+		t.Errorf("preselected keyword = %q, want %q", got, want)
+	}
+
+	m = sendKey(m, "d") // shortcut for DONE
+	if m.mode != normalMode {
+		t.Fatalf("mode after shortcut = %v, want normalMode (auto-apply)", m.mode)
+	}
+	if h.Keyword != "DONE" {
+		t.Errorf("keyword = %q, want DONE", h.Keyword)
 	}
 }
 
-func TestRotateStatusNoopOnFileRow(t *testing.T) {
+func TestStatusPickerNoopOnFileRow(t *testing.T) {
 	ws := loadFixture(t)
-	m := New(ws)
-	m.height = 20
-	m.cursor = 0
-	if m.rows[0].file == nil {
-		t.Fatalf("fixture assumption broken: row 0 is not a file row")
-	}
-	// Should not panic, and should not change mode or cursor.
-	m = sendKey(m, "r")
-	if m.mode != normalMode || m.cursor != 0 {
-		t.Errorf("r on a file row changed state: mode=%v cursor=%d", m.mode, m.cursor)
+	for _, key := range []string{"r", "R"} {
+		t.Run(key, func(t *testing.T) {
+			m := New(ws)
+			m.height = 20
+			m.cursor = 0
+			if m.rows[0].file == nil {
+				t.Fatalf("fixture assumption broken: row 0 is not a file row")
+			}
+			// Should not panic, and should not change mode or cursor.
+			m = sendKey(m, key)
+			if m.mode != normalMode || m.cursor != 0 {
+				t.Errorf("%s on a file row changed state: mode=%v cursor=%d", key, m.mode, m.cursor)
+			}
+		})
 	}
 }
 
@@ -1365,7 +1375,7 @@ func TestCommandQuitBlockedByUnsavedChanges(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	m = sendKey(m, "r") // TODO -> NEXT, marks the file dirty
+	m = setStatus(m, "n") // TODO -> NEXT, marks the file dirty
 
 	for _, cmdText := range []string{"q", "quit"} {
 		t.Run(cmdText, func(t *testing.T) {
@@ -1387,7 +1397,7 @@ func TestCommandForceQuitDiscardsChanges(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	m = sendKey(m, "r") // marks the file dirty
+	m = setStatus(m, "n") // marks the file dirty
 
 	for _, cmdText := range []string{"q!", "quit!"} {
 		t.Run(cmdText, func(t *testing.T) {
@@ -1409,7 +1419,7 @@ func TestCommandWriteWritesDirtyFilesToDisk(t *testing.T) {
 	m.cursor = idx
 	filePath := ws.Files[0].Path // inbox.org, sorted first
 
-	m = sendKey(m, "r") // TODO -> NEXT
+	m = setStatus(m, "n") // TODO -> NEXT
 	if len(m.dirty) != 1 {
 		t.Fatalf("dirty files = %d, want 1", len(m.dirty))
 	}
@@ -1460,7 +1470,7 @@ func TestCommandWqWritesThenQuits(t *testing.T) {
 	ws := loadFixtureCopy(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 
 	m = sendKey(m, ":")
 	m = typeKeys(m, "wq")
@@ -1483,7 +1493,7 @@ func TestFileRowShowsDirtyIndicatorAfterEdit(t *testing.T) {
 		t.Fatalf("dirty indicator shown before any edit")
 	}
 
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 	if !strings.Contains(m.renderRow(m.rows[fileIdx]), "+") {
 		t.Errorf("expected a dirty indicator on the file row after an edit")
 	}
@@ -1500,7 +1510,7 @@ func TestHeadlineRowShowsDirtyMarkerAfterStatusChange(t *testing.T) {
 		t.Fatalf("dirty marker shown before any edit")
 	}
 
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 
 	h := m.currentHeadline()
 	if !m.dirtyHeadlines[h] {
@@ -1519,7 +1529,7 @@ func TestHeadlineDirtyMarkerClearedAfterWrite(t *testing.T) {
 	m := New(ws)
 	idx := findRow(t, m, "Call the vet about Fido's checkup")
 	m.cursor = idx
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 
 	h := m.currentHeadline()
 	if !m.dirtyHeadlines[h] {
@@ -1660,7 +1670,7 @@ func TestDirtyGutterIsLeftmostAndConsistentAcrossRows(t *testing.T) {
 	nestedIdx := findRow(t, m, "Write the design document") // a level-2 headline, indented further
 
 	m.cursor = itemIdx
-	m = sendKey(m, "r")
+	m = setStatus(m, "n")
 
 	fileLine := stripANSI(m.renderRow(m.rows[fileIdx]))
 	itemLine := stripANSI(m.renderRow(m.rows[itemIdx]))
