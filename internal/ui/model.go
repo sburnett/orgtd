@@ -290,6 +290,15 @@ type row struct {
 	// rather than the outline's usual keyword-first layout.
 	isCalendarItem bool
 
+	// isCalendarLinkedItem marks a row for an entry elsewhere in the
+	// workspace attached to a calendar event via "gM" (see
+	// linkedMeetingItems) — shown right after the event itself in
+	// calendarView regardless of whether the event is folded (see
+	// appendCalendarHeadlines), indented to level (one deeper than the
+	// event) rather than the headline's own real level in its own file
+	// (see renderCalendarLinkedItemRowWithBg).
+	isCalendarLinkedItem bool
+
 	// isTextLine marks a plain read-only informational row (:config/:log/
 	// :diff/:help), rendered flush left and never interactive; text is
 	// that line's own text (which may itself be empty — a blank line, as
@@ -778,11 +787,18 @@ func (m *Model) rebuildRows() {
 	}
 }
 
-// jumpToSource ("Enter" on an agenda row) switches to outline view with
-// the cursor on that row's real headline. A no-op outside agenda view,
-// or on an agenda section-header row.
+// jumpToSource ("Enter" on an agenda row, or on an item attached to a
+// calendar event via "gM" — see linkedMeetingItems) switches to outline
+// view with the cursor on that row's real headline. A no-op outside
+// those two cases: agenda view's own section-header rows, and — in
+// calendarView — a calendar event's own row, since calendar_file is
+// excluded from the outline entirely (see appendCalendarRows), so
+// there'd be nowhere to jump to.
 func (m *Model) jumpToSource() {
-	if m.view != agendaView {
+	switch {
+	case m.view == agendaView:
+	case m.view == calendarView && m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].isCalendarLinkedItem:
+	default:
 		return
 	}
 	h := m.currentHeadline()
@@ -1762,7 +1778,14 @@ func (m *Model) appendHeadlines(headlines []*org.Headline) {
 // cluttering every day's listing by default. "The first time" means
 // exactly that: once a headline has an entry in m.collapsed at all
 // (whether the user folded or unfolded it), that choice sticks across
-// rebuilds instead of being reset back to folded on every redraw.
+// rebuilds instead of being reset back to folded on every redraw. Any
+// item attached to the event via "gM" (see linkedMeetingItems) is shown
+// right after it regardless of fold state — unlike the body, it's not
+// detail about the meeting itself but something that needs attention,
+// so it isn't worth hiding behind an extra Tab. It's appended after the
+// body/children (rather than unconditionally right after the event
+// row), so unfolding an event reveals its own detail directly beneath
+// it, not pushed down past whatever's attached.
 func (m *Model) appendCalendarHeadlines(headlines []*org.Headline) {
 	for _, h := range headlines {
 		if m.hiddenAsStaleDone(h) {
@@ -1777,6 +1800,9 @@ func (m *Model) appendCalendarHeadlines(headlines []*org.Headline) {
 			if len(h.Children) > 0 {
 				m.appendCalendarHeadlines(h.Children)
 			}
+		}
+		for _, item := range m.linkedMeetingItems(h) {
+			m.rows = append(m.rows, row{headline: item, level: h.Level + 1, isCalendarLinkedItem: true})
 		}
 	}
 }
@@ -6251,6 +6277,8 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		return m.renderAgendaItemRowWithBg(r, bg)
 	case r.isCalendarItem:
 		return m.renderCalendarItemRowWithBg(r, bg)
+	case r.isCalendarLinkedItem:
+		return m.renderCalendarLinkedItemRowWithBg(r, bg)
 	case r.isBodyLine:
 		return m.renderBodyLineWithBg(r, bg)
 	}
@@ -6454,6 +6482,34 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 	if len(h.Tags) > 0 {
 		suffix = bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
+	return fitRowLine(prefix, suffix, m.width, bg)
+}
+
+// renderCalendarLinkedItemRowWithBg renders one item attached to a
+// calendar event via "gM" (see linkedMeetingItems/appendCalendarHeadlines):
+// mark/lock/meeting/dirty gutter and keyword/title exactly as an
+// ordinary headline row, but indented to r.level (one level deeper than
+// the event's own indent — see renderCalendarItemRowWithBg) rather than
+// the headline's own real level in whatever file it actually lives in,
+// so it visibly nests under the event regardless of how deep it sits in
+// its own outline. A blank fold column, like a body line's (see
+// renderBodyLineWithBg) — this row doesn't support folding its own
+// children/body. Tagged with "[file › parent]" (see agendaPlace), same
+// as an agenda item, since the entry lives elsewhere in the workspace
+// and wouldn't otherwise be placeable from its title alone.
+func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
+	h := r.headline
+	query := m.activeSearchQuery()
+	indent := bgSpan(bg, strings.Repeat("  ", r.level))
+
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + bgSpan(bg, " ") + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+
+	var suffix string
+	if len(h.Tags) > 0 {
+		suffix += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
+	}
+	suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, -1)))
+
 	return fitRowLine(prefix, suffix, m.width, bg)
 }
 

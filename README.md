@@ -151,6 +151,14 @@ logging is on.
   headlines — `i`, `dd`, `r`, `gd`, marks, and every other per-entry
   command all work exactly as they do in the outline, though any edit
   only lasts until the next `:sync-calendar` overwrites the file regardless.
+  Every entry, anywhere in the org directory, attached to an event via
+  `gM` (see below) is shown nested right under it, after its
+  Location/description/link body (if unfolded) — the same items the
+  agenda's Meetings section groups by meeting (below), but shown here
+  regardless of when the meeting falls, rather than only one starting
+  today or within the next 24 hours, and regardless of whether the event
+  itself is folded — unlike the body, an attached item needs attention,
+  not just detail, so it isn't worth hiding behind an extra `Tab`.
 - **Agenda** (`:agenda`) — a flat, date-driven view across every file:
   **Overdue**, **Due Today**, and **Upcoming** sections built from
   `SCHEDULED`/`DEADLINE` timestamps, plus a **Next Actions** section
@@ -266,7 +274,7 @@ stop), and so on.
 | `Page Down` / `Page Up` | Full-page down / up |
 | `ctrl-e` / `ctrl-y` | Scroll the view down/up by one line, like vim — the cursor stays put unless the scroll would push it off-screen, in which case it's dragged along just enough to stay visible |
 | `Tab`, `za`/`zo`/`zc`/`zA`/`zO`/`zC` | Toggle / open / close a fold, one level (lowercase) or recursively (uppercase) |
-| `Enter` | In agenda view, jump to that item's real place in the outline |
+| `Enter` | In agenda view, jump to that item's real place in the outline. In calendar view, on an item attached to a meeting via `gM` (see below), same thing — a no-op on the meeting's own row, since `calendar_file` isn't part of the outline at all |
 | `ctrl-o` / `gi` | Jump back / forward through the jump list — vim's own `ctrl-o`/`ctrl-i`, tracking where you were before a "large" move: `gg`/`G`, `{`/`}`, a confirmed search (`/`/`?`, not `n`/`N` repeats), jumping to a mark (`'<letter>`) or to the clarify target (`gc`), and switching views entirely (`:agenda`, `Enter` from it, `:calendar`, `:clarify`, `:outline`, ...) — never for `j`/`k` or fold/edit commands, or the list would be useless clutter. Bound to `gi` rather than `ctrl-i`: in a plain terminal `ctrl-i` and `Tab` are the same byte, so there's no way to bind it separately from the fold-toggle key above. A no-op at either end of the list |
 
 ### Editing

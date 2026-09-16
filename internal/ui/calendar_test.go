@@ -424,6 +424,177 @@ func TestCalendarEventsAreFoldedByDefault(t *testing.T) {
 	}
 }
 
+func TestCalendarViewShowsItemsAttachedToAMeetingByDefault(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	linked := linkedToOneOffMeetings("Follow up on budget", "abc123")
+	ws.Files = append(ws.Files,
+		&org.File{Path: filepath.Join(ws.Dir, "calendar.org"), Headlines: []*org.Headline{event}},
+		&org.File{Path: filepath.Join(ws.Dir, "projects.org"), Headlines: []*org.Headline{linked}},
+	)
+	m := New(ws)
+	m.switchToView(calendarView)
+
+	if !m.collapsed[event] {
+		t.Fatalf("event unexpectedly starts unfolded")
+	}
+
+	found := false
+	for _, r := range m.rows {
+		if r.headline == linked {
+			found = true
+			if !r.isCalendarLinkedItem {
+				t.Errorf("linked item row isn't marked isCalendarLinkedItem")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("linked item %q not shown under its meeting, even though the event is still folded", linked.Title)
+	}
+}
+
+// TestCalendarViewUnfoldedBodyShowsBeforeLinkedItems is a regression
+// test: appendCalendarHeadlines used to append an event's linked items
+// (see linkedMeetingItems) unconditionally right after the event row,
+// before its own body/children — so unfolding an event to see its
+// Location/description/link pushed that detail down below whatever was
+// attached, instead of showing it directly beneath the event as
+// expected.
+func TestCalendarViewUnfoldedBodyShowsBeforeLinkedItems(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	event.Body = []string{"  Location: Room 5"}
+	linked := linkedToOneOffMeetings("Follow up on budget", "abc123")
+	ws.Files = append(ws.Files,
+		&org.File{Path: filepath.Join(ws.Dir, "calendar.org"), Headlines: []*org.Headline{event}},
+		&org.File{Path: filepath.Join(ws.Dir, "projects.org"), Headlines: []*org.Headline{linked}},
+	)
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Meeting abc123")
+	m = sendKey(m, "tab")
+
+	var order []string
+	for _, r := range m.rows {
+		switch {
+		case r.headline == event && r.isCalendarItem:
+			order = append(order, "event")
+		case r.isBodyLine && r.headline == event:
+			order = append(order, "body")
+		case r.headline == linked:
+			order = append(order, "linked")
+		}
+	}
+	want := []string{"event", "body", "linked"}
+	if len(order) != len(want) {
+		t.Fatalf("row order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Errorf("row order = %v, want %v", order, want)
+			break
+		}
+	}
+}
+
+// leadingIndent returns the run of spaces starting at the given rune
+// offset (past the fixed 5-column mark/lock/meeting/dirty-gutter+
+// separator prefix every headline row shares — see markColumn/
+// lockColumn/meetingColumn/gutter, whose icons, like "▣", can be
+// multi-byte, hence counting in runes rather than bytes) up to the next
+// non-space rune (a fold glyph or the start of the title).
+func leadingIndent(rendered string, offset int) string {
+	rest := string([]rune(rendered)[offset:])
+	return rest[:len(rest)-len(strings.TrimLeft(rest, " "))]
+}
+
+func TestCalendarViewLinkedItemIndentedDeeperThanEvent(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	linked := linkedToOneOffMeetings("Follow up on budget", "abc123")
+	ws.Files = append(ws.Files,
+		&org.File{Path: filepath.Join(ws.Dir, "calendar.org"), Headlines: []*org.Headline{event}},
+		&org.File{Path: filepath.Join(ws.Dir, "projects.org"), Headlines: []*org.Headline{linked}},
+	)
+	m := New(ws)
+	m.switchToView(calendarView)
+
+	eventRendered := stripANSI(m.renderRow(m.rows[findRow(t, m, "Meeting abc123")]))
+	itemRendered := stripANSI(m.renderRow(m.rows[findRow(t, m, "Follow up on budget")]))
+
+	eventIndent := leadingIndent(eventRendered, 5)
+	itemIndent := leadingIndent(itemRendered, 5)
+	if len(itemIndent) != len(eventIndent)+2 {
+		t.Errorf("item indent = %d spaces, event indent = %d spaces; want the item indented exactly one level (2 spaces) deeper", len(itemIndent), len(eventIndent))
+	}
+}
+
+func TestCalendarViewNoFoldGlyphForMeetingWithNothingAttached(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour)) // no Body, nothing attached
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{event},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Meeting abc123")
+
+	rendered := stripANSI(m.renderRow(m.rows[m.cursor]))
+	if strings.Contains(rendered, "▶") || strings.Contains(rendered, "▼") {
+		t.Errorf("rendered row = %q, want no fold glyph (nothing to fold)", rendered)
+	}
+}
+
+func TestEnterJumpsToSourceFromCalendarLinkedItem(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	linked := linkedToOneOffMeetings("Follow up on budget", "abc123")
+	ws.Files = append(ws.Files,
+		&org.File{Path: filepath.Join(ws.Dir, "calendar.org"), Headlines: []*org.Headline{event}},
+		&org.File{Path: filepath.Join(ws.Dir, "projects.org"), Headlines: []*org.Headline{linked}},
+	)
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Follow up on budget")
+	if !m.rows[m.cursor].isCalendarLinkedItem {
+		t.Fatalf("fixture assumption broken: cursor isn't on the linked item row")
+	}
+
+	m = sendKey(m, "enter")
+
+	if m.view != outlineView {
+		t.Fatalf("view after enter = %v, want outlineView", m.view)
+	}
+	if m.currentHeadline() != linked {
+		t.Errorf("cursor after enter = %v, want the linked headline %v", m.currentHeadline(), linked)
+	}
+}
+
+func TestEnterNoopOnCalendarEventRow(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{event},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, "Meeting abc123")
+
+	m = sendKey(m, "enter")
+
+	if m.view != calendarView {
+		t.Fatalf("view after enter on a calendar event row = %v, want calendarView (a no-op — calendar.org isn't in the outline)", m.view)
+	}
+}
+
 func TestCalendarViewStatusLineShowsEventOwnLink(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()
