@@ -273,10 +273,11 @@ type meetingAgendaEntry struct {
 // internal/calendarsync/convert.go) whose start falls within [start of today,
 // now+24h) — i.e. every meeting starting sometime today or within the
 // next 24 hours, current ones included — with at least one item
-// elsewhere in the workspace attached to it via "gM" (see
-// entriesForMeeting): something raised during, or otherwise linked to,
-// this meeting (a past occurrence, for a recurring series; the meeting
-// itself, for a one-off) that might need renewed attention or
+// elsewhere in the workspace linked to it, whether attached via "gM" or
+// sharing a tag with it (see entriesForMeeting): something raised
+// during, or otherwise linked to, this meeting (a past occurrence, for a
+// recurring series; the meeting itself, for a one-off) that might need
+// renewed attention or
 // discussion this time around. A meeting with nothing linked to it is
 // left out entirely, rather than shown with nothing under it. Sorted
 // chronologically by start time; a daily (or more frequent) recurring
@@ -290,13 +291,9 @@ func (m *Model) upcomingMeetingEntries(now time.Time) []meetingAgendaEntry {
 	var meetings []meetingAgendaEntry
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			eventID := h.Properties["GCAL_EVENT_ID"]
-			if eventID == "" {
+			kind, id, ok := meetingIdentity(h)
+			if !ok {
 				return
-			}
-			id, kind := eventID, oneOffMeeting
-			if recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]; recurID != "" {
-				id, kind = recurID, recurringMeeting
 			}
 			start, startOK := parseRFC3339Property(h, "GCAL_START")
 			end, endOK := parseRFC3339Property(h, "GCAL_END")
@@ -314,31 +311,81 @@ func (m *Model) upcomingMeetingEntries(now time.Time) []meetingAgendaEntry {
 	return meetings
 }
 
-// entriesForMeeting returns every headline, across the workspace, whose
-// kind.idsProperty() (set by "gM" — see buildMeetingAttachAction) names
-// id — i.e. was attached to this meeting, a past occurrence of it for a
-// recurring series or the meeting itself for a one-off — excluding
-// DONE/CANCELLED items (already resolved, nothing left to revisit), in
-// file/tree order. An entry can be linked to more than one meeting (its
-// property can name more than one ID); it's returned once per meeting
-// it names, so it can legitimately show up in more than one meeting's
-// group.
+// entriesForMeeting returns every headline, across the workspace, linked
+// to the meeting kind/id names — a past occurrence of it for a recurring
+// series or the meeting itself for a one-off — two ways: explicitly, via
+// kind.idsProperty() (set by "gM" — see buildMeetingAttachAction), or
+// automatically, by sharing a tag with it (see meetingTags/hasSharedTag)
+// — e.g. an entry tagged "@alice" links to every meeting :sync-calendar
+// has alice down as a confirmed attendee of, with no "gM" attach needed.
+// Either way excludes DONE/CANCELLED items (already resolved, nothing
+// left to revisit) and, for the tag path only, any headline that's
+// itself a synced calendar event (a meeting can't be "linked to" its own
+// occurrence, or a sibling occurrence of the same series, just by
+// carrying the same attendee tags). Returned in file/tree order, each
+// headline at most once even if it matches both ways; an entry can still
+// be linked to more than one distinct meeting (an explicit property can
+// name several, and a tag can match several), so it can legitimately
+// show up in more than one meeting's group.
 func (m *Model) entriesForMeeting(kind meetingIDKind, id string) []*org.Headline {
+	tags := m.meetingTags(kind, id)
+	idsProp := kind.idsProperty()
 	var items []*org.Headline
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
 			if org.IsDoneKeyword(h.Keyword) {
 				return
 			}
-			for _, candidateID := range strings.Fields(h.Properties[kind.idsProperty()]) {
+			for _, candidateID := range strings.Fields(h.Properties[idsProp]) {
 				if candidateID == id {
 					items = append(items, h)
 					return
 				}
 			}
+			if _, _, ok := meetingIdentity(h); ok {
+				return
+			}
+			if hasSharedTag(h.Tags, tags) {
+				items = append(items, h)
+			}
 		})
 	}
 	return items
+}
+
+// meetingTags returns the union of every tag (the "recurring" system
+// tag excluded — see meetingSeriesTag) carried by any synced occurrence
+// of the meeting kind/id identifies, across every loaded file — the set
+// entriesForMeeting/tagLinkedMeetingCandidates match an entry's own tags
+// against for automatic (non-"gM") meeting linking.
+func (m *Model) meetingTags(kind meetingIDKind, id string) map[string]bool {
+	idProp := kind.idProperty()
+	tags := make(map[string]bool)
+	for _, f := range m.ws.Files {
+		org.Walk(f.Headlines, func(h *org.Headline) {
+			if h.Properties[idProp] != id {
+				return
+			}
+			for _, t := range h.Tags {
+				if t != meetingSeriesTag {
+					tags[t] = true
+				}
+			}
+		})
+	}
+	return tags
+}
+
+// hasSharedTag reports whether any of tags is a member of set — used to
+// check an entry's tags against a meeting's (see meetingTags), or vice
+// versa.
+func hasSharedTag(tags []string, set map[string]bool) bool {
+	for _, t := range tags {
+		if set[t] {
+			return true
+		}
+	}
+	return false
 }
 
 // appendMeetingsSection appends the "Meetings" section (see
@@ -381,6 +428,19 @@ const (
 	recurringMeeting
 )
 
+// idProperty names the property a synced calendar occurrence of this
+// kind carries its own meeting identity under (singular — one value per
+// headline, unlike idsProperty below) — GCAL_RECURRING_EVENT_ID or
+// GCAL_EVENT_ID, matching whichever meetingIdentity/meetingCandidates
+// read. See meetingTags for the one place besides those that needs it
+// directly rather than going through meetingIdentity.
+func (k meetingIDKind) idProperty() string {
+	if k == recurringMeeting {
+		return "GCAL_RECURRING_EVENT_ID"
+	}
+	return "GCAL_EVENT_ID"
+}
+
 // idsProperty and linksProperty name the pair of properties an entry
 // records its attachment to a meeting of this kind through — see
 // buildMeetingAttachAction/meetingIsAttached and entriesForMeeting.
@@ -396,6 +456,33 @@ func (k meetingIDKind) linksProperty() string {
 		return "GCAL_RECURRING_EVENT_LINKS"
 	}
 	return "GCAL_EVENT_LINKS"
+}
+
+// meetingSeriesTag is the tag :sync-calendar itself stamps onto every
+// occurrence of a recurring series (see internal/calendarsync's
+// buildHeadline) — excluded from tag-based meeting linking (see
+// meetingTags/hasSharedTag) since every recurring event carries it
+// regardless of content: matching on it would link any entry tagged
+// "recurring" to every recurring meeting synced, which is noise, not a
+// meaningful connection the way a shared attendee "@username" tag is.
+const meetingSeriesTag = "recurring"
+
+// meetingIdentity reports which meeting h represents, if h is itself a
+// synced calendar event (GCAL_EVENT_ID set — see
+// internal/calendarsync/convert.go): id/kind identify a recurring series
+// by its GCAL_RECURRING_EVENT_ID (stable across every occurrence) or a
+// one-off event by its own GCAL_EVENT_ID, same as meetingCandidate.id/
+// kind. ok is false for anything that isn't a synced calendar event at
+// all (no GCAL_EVENT_ID) — id/kind are meaningless then.
+func meetingIdentity(h *org.Headline) (kind meetingIDKind, id string, ok bool) {
+	eventID := h.Properties["GCAL_EVENT_ID"]
+	if eventID == "" {
+		return oneOffMeeting, "", false
+	}
+	if recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]; recurID != "" {
+		return recurringMeeting, recurID, true
+	}
+	return oneOffMeeting, eventID, true
 }
 
 // meetingCandidate is one distinct meeting offered by the "gM" picker
@@ -454,13 +541,9 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 	best := make(map[meetingKey]meetingCandidate)
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			eventID := h.Properties["GCAL_EVENT_ID"]
-			if eventID == "" {
+			kind, id, ok := meetingIdentity(h)
+			if !ok {
 				return // not a synced calendar event at all
-			}
-			id, kind := eventID, oneOffMeeting
-			if recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]; recurID != "" {
-				id, kind = recurID, recurringMeeting
 			}
 			start, ok := parseRFC3339Property(h, "GCAL_START")
 			if !ok {
@@ -557,4 +640,43 @@ func meetingIsAttached(h *org.Headline, c meetingCandidate) bool {
 		}
 	}
 	return false
+}
+
+// tagLinkedMeetingCandidates returns every distinct meeting (see
+// meetingCandidates) that shares a tag with h (see
+// meetingTags/hasSharedTag) — the entry-side counterpart of
+// entriesForMeeting's tag-matching, used by the gutter's meeting marker
+// and the status line's link list to treat a tag-matched meeting the
+// same as one attached via "gM", with no explicit attach needed. If h
+// is itself a synced calendar event, the meeting it itself represents
+// is excluded — sharing tags with its own occurrence (or a sibling
+// occurrence of the same series) isn't a link to some *other* meeting.
+// nil if h has no tags (other than meetingSeriesTag, which never
+// counts) to match with.
+func (m *Model) tagLinkedMeetingCandidates(h *org.Headline, now time.Time) []meetingCandidate {
+	if h == nil {
+		return nil
+	}
+	hasTag := false
+	for _, t := range h.Tags {
+		if t != meetingSeriesTag {
+			hasTag = true
+			break
+		}
+	}
+	if !hasTag {
+		return nil
+	}
+	selfKind, selfID, isEvent := meetingIdentity(h)
+
+	var out []meetingCandidate
+	for _, c := range m.meetingCandidates(now) {
+		if isEvent && c.kind == selfKind && c.id == selfID {
+			continue
+		}
+		if hasSharedTag(h.Tags, m.meetingTags(c.kind, c.id)) {
+			out = append(out, c)
+		}
+	}
+	return out
 }

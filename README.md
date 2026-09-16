@@ -86,7 +86,7 @@ debug = false
 # its gutter column, to the left of every entry (see Keybindings, below,
 # for what each one means: "+" for unsaved changes, a mark's own letter,
 # "●" for the :clarify target, "◆" for a :format-links lock, "▣" for a
-# meeting attached via "gM"). Every key here is optional and falls back
+# meeting link, via "gM" or a shared tag). Every key here is optional and falls back
 # to the built-in glyph/color shown below when unset — delete whichever
 # lines you don't want to override.
 #
@@ -109,7 +109,7 @@ clarify_icon  = "●"    # the :clarify view's pinned inbox item
 clarify_color = "212"
 lock_icon     = "◆"    # locked by an in-flight :format-links batch
 lock_color    = "208"
-meeting_icon  = "▣"    # attached to a calendar meeting via "gM"
+meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag
 meeting_color = "39"
 ```
 
@@ -151,13 +151,14 @@ logging is on.
   headlines — `i`, `dd`, `r`, `gd`, marks, and every other per-entry
   command all work exactly as they do in the outline, though any edit
   only lasts until the next `:sync-calendar` overwrites the file regardless.
-  Every entry, anywhere in the org directory, attached to an event via
-  `gM` (see below) is shown nested right under it, after its
+  Every entry, anywhere in the org directory, linked to an event —
+  attached via `gM` (see below), or sharing a tag with it (see Tag-based
+  meeting links, below) — is shown nested right under it, after its
   Location/description/link body (if unfolded) — the same items the
   agenda's Meetings section groups by meeting (below), but shown here
   regardless of when the meeting falls, rather than only one starting
   today or within the next 24 hours, and regardless of whether the event
-  itself is folded — unlike the body, an attached item needs attention,
+  itself is folded — unlike the body, a linked item needs attention,
   not just detail, so it isn't worth hiding behind an extra `Tab`.
 - **Agenda** (`:agenda`) — a flat, date-driven view across every file:
   **Overdue**, **Due Today**, and **Upcoming** sections built from
@@ -169,14 +170,16 @@ logging is on.
   a recurring series or a one-off event alike — that starts sometime
   today or within the next 24 hours (current ones included), a header
   row grouping every item — anywhere in the org directory,
-  `DONE`/`CANCELLED` excluded — whose `GCAL_RECURRING_EVENT_IDS` (for a
-  recurring series) or `GCAL_EVENT_IDS` (for a one-off event) property
-  (set by `gM`, see below) names that same meeting, i.e. something
-  raised during a past occurrence (or, for a one-off event, just
-  attached ahead of time) that might need attention this time around.
-  Meetings are in chronological order; a meeting with nothing linked to
-  it is left out entirely, and an item linked to more than one meeting
-  legitimately shows up under each.
+  `DONE`/`CANCELLED` excluded — linked to that same meeting: explicitly,
+  via a `GCAL_RECURRING_EVENT_IDS` (for a recurring series) or
+  `GCAL_EVENT_IDS` (for a one-off event) property (set by `gM`, see
+  below); or automatically, by sharing a tag with it (see Tag-based
+  meeting links, below) — i.e. something raised during a past occurrence
+  (or, for a one-off event, just attached ahead of time), or otherwise
+  connected to it, that might need attention this time around. Meetings
+  are in chronological order; a meeting with nothing linked to it is left
+  out entirely, and an item linked to more than one meeting legitimately
+  shows up under each.
 - **Clarify** (`:clarify`) — pins the inbox's first non-`DONE`/`CANCELLED`
   top-level headline to the top of the screen, alongside its `CREATED`
   property (so you can see how long it's been sitting there) and any
@@ -252,7 +255,36 @@ hand-attached to a task directly, per DESIGN.md's project↔meeting
 association, rather than via `gM`) falls back to resolving those IDs
 against whatever `calendar.org` currently has cached, which — unlike
 the `..._LINKS` properties — can come up empty if the meeting has aged
-out; an ID that resolves neither way is simply left off.
+out; an ID that resolves neither way is simply left off. Finally, one
+more `<meeting name>: <url>` entry per meeting the entry is linked to
+purely by a shared tag (see Tag-based meeting links, below), resolved
+live against whatever `calendar.org` currently has cached (there's no
+attach-time snapshot for a tag match, since there was never an explicit
+attach) — skipped if it names a meeting already covered by one of the
+property-based entries above, so a meeting that's both `gM`-attached and
+tag-matched isn't listed twice.
+
+## Tag-based meeting links
+
+Tagging an entry (`gt`, or by hand in `i`/edit mode — see Keybindings,
+below) with the same tag a synced calendar event carries links the two
+together automatically — no `gM` attach needed. This is mainly useful
+with `:sync-calendar`'s own attendee tags (see Calendar sync, below):
+tag a task `@alice`, and it's now linked to every meeting `:sync-calendar`
+has alice down as a confirmed attendee of, the same as if you'd `gM`-attached
+it to each one by hand. A tag-based link behaves exactly like a `gM`
+attachment everywhere orgtd shows one: the entry shows up in the
+agenda's Meetings section and nested under the event in `:calendar`
+(both above), the event's title/link show up on the entry's own status
+line, and the entry's row shows the gutter's `▣` meeting marker. The
+`recurring` tag `:sync-calendar` stamps onto every occurrence of a
+recurring series (see Calendar sync) never counts as a match on its
+own — every recurring meeting carries it, so matching on it would link
+any entry tagged `recurring` to all of them, which is noise rather than
+a meaningful connection. A synced calendar event is never treated as
+linked to its own meeting (or a sibling occurrence of the same series)
+just for sharing its own tags with itself — only entries elsewhere in
+the org directory can be linked this way.
 
 ## Keybindings
 
@@ -293,9 +325,9 @@ stop), and so on.
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
-| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. An attached entry shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it has a meeting attached is visible at a glance, in every view, without opening it |
+| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. A linked entry (attached via `gM`, or tag-matched — see Tag-based meeting links, above) shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it's linked to a meeting is visible at a glance, in every view, without opening it |
 | `gX` | `gC` immediately followed by `gM`: capture as usual, and once the editor session commits, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion, without a separate `gM` bracketing the (possibly slow) editor round-trip. Cancelling the capture (empty or blank result, or the editor failing to run) never opens the picker; if nothing's synced yet, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
-| `gt` | Prompt for a tag and toggle it on the current entry: typing one already on the entry removes it, anything else is added. `Tab` completes against every tag already used anywhere in the workspace (extending to the longest common prefix and listing the matches, same as command-mode `:<Tab>`); an empty prompt's `Tab` lists all of them. Enter with nothing typed, or `Esc`, cancels without changes. Tags can also be added/removed by hand in `i`/edit mode (a trailing `:tag1:tag2:` on the title line) — `gt` is just the faster path for one at a time |
+| `gt` | Prompt for a tag and toggle it on the current entry: typing one already on the entry removes it, anything else is added. `Tab` completes against every tag already used anywhere in the workspace (extending to the longest common prefix and listing the matches, same as command-mode `:<Tab>`); an empty prompt's `Tab` lists all of them. Enter with nothing typed, or `Esc`, cancels without changes. Tags can also be added/removed by hand in `i`/edit mode (a trailing `:tag1:tag2:` on the title line) — `gt` is just the faster path for one at a time. A tag matching one on a synced calendar event automatically links the two — see Tag-based meeting links, above |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
 ### Visual selection
@@ -477,7 +509,9 @@ all) above it, rather than showing a partial list. `gcalsync.attendee_tag_domain
 (below) additionally restricts this to attendees whose email is on one
 of a set of domains — useful for tagging only coworkers, not every
 external guest, vendor, or room/resource calendar an event happens to
-list as an attendee.
+list as an attendee. These are what Tag-based meeting links (see
+Keybindings, below) matches against — tag a task `@alice` and it's
+automatically linked to every meeting she's a confirmed attendee of.
 
 ### Setup
 

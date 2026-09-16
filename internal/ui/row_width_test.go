@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/workspace"
 )
 
 func TestFitRowLineNoOpWhenWidthUnknown(t *testing.T) {
@@ -81,7 +82,7 @@ func TestOutlineRowTruncatesLongTitleKeepingTagsAndTimestampVisible(t *testing.T
 		Title:   strings.Repeat("a very long title indeed ", 10),
 		Tags:    []string{"work"},
 	}
-	m := Model{width: 40}
+	m := Model{width: 40, ws: &workspace.Workspace{}}
 	line := m.renderRow(row{headline: h})
 	plain := stripANSI(line)
 

@@ -292,12 +292,12 @@ type row struct {
 	isCalendarItem bool
 
 	// isCalendarLinkedItem marks a row for an entry elsewhere in the
-	// workspace attached to a calendar event via "gM" (see
-	// linkedMeetingItems) — shown right after the event itself in
-	// calendarView regardless of whether the event is folded (see
-	// appendCalendarHeadlines), indented to level (one deeper than the
-	// event) rather than the headline's own real level in its own file
-	// (see renderCalendarLinkedItemRowWithBg).
+	// workspace linked to a calendar event — attached via "gM", or
+	// sharing a tag with it (see linkedMeetingItems) — shown right after
+	// the event itself in calendarView regardless of whether the event is
+	// folded (see appendCalendarHeadlines), indented to level (one deeper
+	// than the event) rather than the headline's own real level in its
+	// own file (see renderCalendarLinkedItemRowWithBg).
 	isCalendarLinkedItem bool
 
 	// isTextLine marks a plain read-only informational row (:config/:log/
@@ -816,8 +816,8 @@ func (m *Model) rebuildRows() {
 	}
 }
 
-// jumpToSource ("Enter" on an agenda row, or on an item attached to a
-// calendar event via "gM" — see linkedMeetingItems) switches to outline
+// jumpToSource ("Enter" on an agenda row, or on an item linked to a
+// calendar event — see linkedMeetingItems) switches to outline
 // view with the cursor on that row's real headline. A no-op outside
 // those two cases: agenda view's own section-header rows, and — in
 // calendarView — a calendar event's own row, since calendar_file is
@@ -1813,10 +1813,11 @@ func (m *Model) appendHeadlines(headlines []*org.Headline) {
 // exactly that: once a headline has an entry in m.collapsed at all
 // (whether the user folded or unfolded it), that choice sticks across
 // rebuilds instead of being reset back to folded on every redraw. Any
-// item attached to the event via "gM" (see linkedMeetingItems) is shown
-// right after it regardless of fold state — unlike the body, it's not
-// detail about the meeting itself but something that needs attention,
-// so it isn't worth hiding behind an extra Tab. It's appended after the
+// item linked to the event — attached via "gM", or sharing a tag with
+// it (see linkedMeetingItems) — is shown right after it regardless of
+// fold state — unlike the body, it's not detail about the meeting
+// itself but something that needs attention, so it isn't worth hiding
+// behind an extra Tab. It's appended after the
 // body/children (rather than unconditionally right after the event
 // row), so unfolding an event reveals its own detail directly beneath
 // it, not pushed down past whatever's attached.
@@ -4575,13 +4576,16 @@ func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
 // directly in its title already is: h's own link, if h is itself a
 // synced calendar event (GCAL_HTML_LINK — see internal/calendarsync/convert.go);
 // one-off events it's attached to via "gM" (GCAL_EVENT_LINKS/
-// GCAL_EVENT_IDS); and recurring series it's attached to, likewise via
-// "gM" (GCAL_RECURRING_EVENT_LINKS/GCAL_RECURRING_EVENT_IDS) — see
-// resolveMeetingLinks for how each of the latter two pairs is resolved.
-// This is what lets calendarView show an event's meeting details (link,
-// description, location) only on demand (folded by default — see
-// appendCalendarHeadlines) rather than inline: the link is still always
-// one glance away, on the status line.
+// GCAL_EVENT_IDS); recurring series it's attached to, likewise via "gM"
+// (GCAL_RECURRING_EVENT_LINKS/GCAL_RECURRING_EVENT_IDS) — see
+// resolveMeetingLinks for how each of the latter two pairs is resolved;
+// and any meeting h is linked to purely by sharing a tag with it (see
+// tagLinkedMeetingCandidates), skipping one already covered by an
+// explicit attachment above so a meeting that's both "gM"-attached and
+// tag-matched isn't listed twice. This is what lets calendarView show an
+// event's meeting details (link, description, location) only on demand
+// (folded by default — see appendCalendarHeadlines) rather than inline:
+// the link is still always one glance away, on the status line.
 func (m *Model) calendarEventLinks(h *org.Headline) []string {
 	var links []string
 	if url := h.Properties["GCAL_HTML_LINK"]; url != "" {
@@ -4589,6 +4593,20 @@ func (m *Model) calendarEventLinks(h *org.Headline) []string {
 	}
 	links = append(links, m.resolveMeetingLinks(h, "GCAL_EVENT_LINKS", "GCAL_EVENT_ID", "GCAL_EVENT_IDS")...)
 	links = append(links, m.resolveMeetingLinks(h, "GCAL_RECURRING_EVENT_LINKS", "GCAL_RECURRING_EVENT_ID", "GCAL_RECURRING_EVENT_IDS")...)
+
+	attached := make(map[meetingKey]bool)
+	for _, id := range strings.Fields(h.Properties["GCAL_EVENT_IDS"]) {
+		attached[meetingKey{oneOffMeeting, id}] = true
+	}
+	for _, id := range strings.Fields(h.Properties["GCAL_RECURRING_EVENT_IDS"]) {
+		attached[meetingKey{recurringMeeting, id}] = true
+	}
+	for _, c := range m.tagLinkedMeetingCandidates(h, time.Now()) {
+		if attached[meetingKey{c.kind, c.id}] || c.link == "" {
+			continue
+		}
+		links = append(links, c.title+": "+c.link)
+	}
 	return links
 }
 
@@ -6423,20 +6441,28 @@ func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	return bgSpan(bg, " ")
 }
 
-// meetingColumn is a headline row's "attached to a meeting" gutter
+// meetingColumn is a headline row's "linked to a meeting" gutter
 // column — a column of its own (see gutter, markColumn, lockColumn),
 // so it shows up alongside any of those rather than hiding them. Its
 // character and color come from m.meetingIcon/meetingColor (default
 // "▣", the U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE, "39"; see
-// WithMeetingIcon and the config file's [icons] section) while h has
-// been attached to a recurring series or a one-off event via "gM"
-// (GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS — see
-// meetingCandidate.kind), blank otherwise. This is what lets "does this
-// entry have a meeting attached" be answered by looking at the row,
-// rather than opening it in $EDITOR to check its property drawer. bg is
-// the background it's rendered with (see gutter).
+// WithMeetingIcon and the config file's [icons] section) while h is
+// linked to a recurring series or a one-off event, either explicitly —
+// attached via "gM" (GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS — see
+// meetingCandidate.kind) — or automatically, by sharing a tag with one
+// (see tagLinkedMeetingCandidates, e.g. a confirmed attendee's
+// "@username" tag) — blank otherwise. This is what lets "is this entry
+// linked to some meeting" be answered by looking at the row, rather
+// than opening it in $EDITOR to check its property drawer (and, for a
+// tag-based link, there's no property to check there anyway — it's
+// computed live from the tags, not stored). bg is the background it's
+// rendered with (see gutter).
 func (m Model) meetingColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
-	if h.Properties["GCAL_RECURRING_EVENT_IDS"] != "" || h.Properties["GCAL_EVENT_IDS"] != "" {
+	linked := h.Properties["GCAL_RECURRING_EVENT_IDS"] != "" || h.Properties["GCAL_EVENT_IDS"] != ""
+	if !linked {
+		linked = len(m.tagLinkedMeetingCandidates(h, time.Now())) > 0
+	}
+	if linked {
 		icon := orDefault(m.meetingIcon, defaultMeetingIcon)
 		color := orDefault(m.meetingColor, defaultMeetingColor)
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
@@ -6711,8 +6737,9 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 	return fitRowLine(prefix, suffix, m.width, bg)
 }
 
-// renderCalendarLinkedItemRowWithBg renders one item attached to a
-// calendar event via "gM" (see linkedMeetingItems/appendCalendarHeadlines):
+// renderCalendarLinkedItemRowWithBg renders one item linked to a
+// calendar event — attached via "gM", or sharing a tag with it (see
+// linkedMeetingItems/appendCalendarHeadlines):
 // mark/lock/meeting/dirty gutter and keyword/title exactly as an
 // ordinary headline row, but indented to r.level (one level deeper than
 // the event's own indent — see renderCalendarItemRowWithBg) rather than

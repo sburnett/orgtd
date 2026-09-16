@@ -65,21 +65,18 @@ func (m *Model) appendCalendarRows() {
 }
 
 // linkedMeetingItems returns every entry, elsewhere in the workspace,
-// attached to calendar event h via "gM" (see entriesForMeeting) — the
-// same items the agenda's Meetings section groups under a meeting
-// header (see appendMeetingsSection), but surfaced here alongside the
-// meeting itself in calendarView (see appendCalendarHeadlines), rather
-// than only for a meeting starting today or within the next 24 hours.
-// nil if h isn't itself a synced calendar event (no GCAL_EVENT_ID) or
-// has nothing attached.
+// linked to calendar event h — attached via "gM", or sharing a tag with
+// it (e.g. a confirmed attendee's "@username" — see entriesForMeeting
+// for both) — the same items the agenda's Meetings section groups under
+// a meeting header (see appendMeetingsSection), but surfaced here
+// alongside the meeting itself in calendarView (see
+// appendCalendarHeadlines), rather than only for a meeting starting
+// today or within the next 24 hours. nil if h isn't itself a synced
+// calendar event (no GCAL_EVENT_ID) or has nothing linked.
 func (m *Model) linkedMeetingItems(h *org.Headline) []*org.Headline {
-	eventID := h.Properties["GCAL_EVENT_ID"]
-	if eventID == "" {
+	kind, id, ok := meetingIdentity(h)
+	if !ok {
 		return nil
-	}
-	id, kind := eventID, oneOffMeeting
-	if recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]; recurID != "" {
-		id, kind = recurID, recurringMeeting
 	}
 	return m.entriesForMeeting(kind, id)
 }

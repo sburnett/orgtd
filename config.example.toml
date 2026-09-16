@@ -101,9 +101,10 @@
 # its gutter column, to the left of every entry (see the README's
 # Keybindings section for what each one means: "+" for unsaved changes,
 # a mark's own letter, "●" for the :clarify target, "◆" for a
-# :format-links lock, "▣" for a meeting attached via "gM"). Every key
-# here is optional and falls back to the built-in glyph/color shown
-# below when unset — delete whichever lines you don't want to override.
+# :format-links lock, "▣" for a meeting link, via "gM" or a shared tag).
+# Every key here is optional and falls back to the built-in glyph/color
+# shown below when unset — delete whichever lines you don't want to
+# override.
 #
 # A color is either an ANSI color code ("0"-"255" — see
 # https://www.ditig.com/256-colors-cheat-sheet for a chart of what each
@@ -124,5 +125,5 @@
 # clarify_color = "212"
 # lock_icon     = "◆"    # locked by an in-flight :format-links batch
 # lock_color    = "208"
-# meeting_icon  = "▣"    # attached to a calendar meeting via "gM"
+# meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag
 # meeting_color = "39"
