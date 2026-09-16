@@ -2207,9 +2207,9 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // updateVisualMode handles "V" (visual line selection): plain navigation
 // keys extend the selection (from visualAnchor to the cursor, snapped to
 // whole entries — see visualRange) exactly as they move the cursor in
-// normal mode, while "d" and "r"/"R" act on every entry currently selected.
-// Only a subset of normal mode's keys apply here — anything that isn't
-// navigation or one of the two bulk operations (editing a single entry,
+// normal mode, while "d", "y", and "r"/"R" act on every entry currently
+// selected. Only a subset of normal mode's keys apply here — anything that
+// isn't navigation or one of the bulk operations (editing a single entry,
 // folding, marks, paste, ...) has no obvious bulk meaning and is left
 // unbound rather than guessed at.
 func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -2281,6 +2281,9 @@ func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "d":
 		m.deleteVisualSelection()
+
+	case "y":
+		m.yankVisualSelection()
 
 	case "r", "R":
 		if headlines := m.visualSelectedHeadlines(); len(headlines) > 0 {
@@ -2401,6 +2404,25 @@ func (m *Model) deleteVisualSelection() {
 	headlines := visualTopmostHeadlines(m.visualSelectedHeadlines())
 	m.exitVisualMode()
 	m.deleteHeadlineSet(headlines)
+}
+
+// yankVisualSelection copies every top-level selected entry (and its
+// subtree) into the register — the visual-mode equivalent of yy — leaving
+// the originals untouched. Like deleteVisualSelection, a selected entry
+// whose ancestor is also selected contributes nothing separately, since
+// the ancestor's own clone already carries its whole subtree along.
+func (m *Model) yankVisualSelection() {
+	headlines := visualTopmostHeadlines(m.visualSelectedHeadlines())
+	m.exitVisualMode()
+	if len(headlines) == 0 {
+		return
+	}
+	clones := make([]*org.Headline, len(headlines))
+	for i, h := range headlines {
+		clones[i] = org.CloneHeadline(h)
+	}
+	m.register = clones
+	m.message = "Yanked"
 }
 
 // deleteHeadlineCount implements a numeric-prefixed "dd" (e.g. "3dd"):
@@ -5967,7 +5989,7 @@ func (m Model) View() string {
 	case m.mode == confirmMode:
 		b.WriteString(errorStyle.Render(m.confirmMessage))
 	case m.mode == visualMode:
-		b.WriteString(statusStyle.Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, R: set status, Esc: cancel)", len(m.visualSelectedHeadlines()))))
+		b.WriteString(statusStyle.Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, y: yank, R: set status, Esc: cancel)", len(m.visualSelectedHeadlines()))))
 		if m.message != "" {
 			b.WriteString("  " + errorStyle.Render(m.message))
 		}

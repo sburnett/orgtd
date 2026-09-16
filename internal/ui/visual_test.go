@@ -135,6 +135,52 @@ func TestVisualModeDeleteFillsRegisterForPaste(t *testing.T) {
 	}
 }
 
+func TestVisualModeYankLeavesEntriesInPlaceAndFillsRegister(t *testing.T) {
+	m := visualFixtureModel(t)
+	m.cursor = findRow(t, m, "First")
+	m = sendKey(m, "V")
+	m = sendKey(m, "j")
+	m = sendKey(m, "j") // selection now covers First, Second, Child of second
+
+	rowsBefore := len(m.rows)
+	m = sendKey(m, "y")
+
+	if m.mode != normalMode {
+		t.Errorf("mode after visual y = %v, want normalMode", m.mode)
+	}
+	if len(m.rows) != rowsBefore {
+		t.Errorf("rows after visual y = %d, want %d (nothing removed)", len(m.rows), rowsBefore)
+	}
+	for _, title := range []string{"First", "Second", "Child of second", "Third"} {
+		if rowIndex(m, title) < 0 {
+			t.Errorf("%q should still be present after visual y", title)
+		}
+	}
+
+	if len(m.register) != 2 {
+		t.Fatalf("register after visual y = %v, want 2 entries (First, Second)", m.register)
+	}
+	if m.register[0].Title != "First" || m.register[1].Title != "Second" {
+		t.Errorf("register titles = %q, %q, want First, Second (top-to-bottom order)", m.register[0].Title, m.register[1].Title)
+	}
+	// The register must hold independent clones, not the live headlines.
+	if m.register[0] == findHeadlineByTitle(t, m, "First") {
+		t.Errorf("register holds the live headline pointer, want an independent clone")
+	}
+
+	m.cursor = findRow(t, m, "Third")
+	m = sendKey(m, "p")
+
+	for _, title := range []string{"First", "Second", "Child of second"} {
+		if rowIndex(m, title) < 0 {
+			t.Errorf("after p, %q should have been pasted back", title)
+		}
+	}
+	if got, want := rowIndex(m, "First"), rowIndex(m, "Second"); got >= want {
+		t.Errorf("pasted order wrong: First at row %d, Second at row %d, want First before Second", got, want)
+	}
+}
+
 func TestVisualModeSetStatusAppliesToEveryRowIndependently(t *testing.T) {
 	m := visualFixtureModel(t)
 	m.cursor = findRow(t, m, "First")
