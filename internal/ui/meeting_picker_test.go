@@ -832,6 +832,21 @@ func TestMeetingColumnShowsForOneOffAttachment(t *testing.T) {
 	}
 }
 
+// TestMeetingColumnUsesCustomIcon covers WithMeetingIcon actually
+// changing what meetingColumn draws, not just the config file's own
+// parsing/merging — a custom character should show up in the gutter
+// verbatim.
+func TestMeetingColumnUsesCustomIcon(t *testing.T) {
+	h := &org.Headline{Level: 1, Keyword: "TODO", Title: "Prep for standup"}
+	h.SetProperty("GCAL_RECURRING_EVENT_IDS", "series-standup")
+	ws := agendaFixture(t, "")
+	m := New(ws, WithMeetingIcon("%", "5"))
+	line := []rune(stripANSI(m.renderRow(row{headline: h})))
+	if len(line) < 3 || line[2] != '%' {
+		t.Errorf("row = %q, want the meeting column (index 2) to show the custom icon %%", string(line))
+	}
+}
+
 // TestGMAttachShowsMeetingColumnImmediately is the end-to-end version:
 // after attaching a meeting via "gM", the entry's outline row shows the
 // meeting column right away — no need to reopen or edit the entry to

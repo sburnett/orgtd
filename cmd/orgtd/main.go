@@ -118,6 +118,11 @@ func main() {
 			ui.WithGcalOAuthClient(s.gcalOAuthClientID, s.gcalOAuthClientSecret),
 			ui.WithGcalCalendarIDs(s.gcalCalendarIDs),
 			ui.WithGcalSyncWindow(s.gcalSyncPastDays, s.gcalSyncFutureDays),
+			ui.WithDirtyIcon(s.iconDirtyIcon, s.iconDirtyColor),
+			ui.WithMarkColor(s.iconMarkColor),
+			ui.WithClarifyIcon(s.iconClarifyIcon, s.iconClarifyColor),
+			ui.WithLockIcon(s.iconLockIcon, s.iconLockColor),
+			ui.WithMeetingIcon(s.iconMeetingIcon, s.iconMeetingColor),
 		),
 		tea.WithAltScreen(),
 	)

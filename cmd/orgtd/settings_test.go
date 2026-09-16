@@ -57,6 +57,38 @@ func TestResolveSettingsGcalSettingsFollowConfigFileWithNoFlagOverride(t *testin
 	}
 }
 
+func TestResolveSettingsIconSettingsFollowConfigFile(t *testing.T) {
+	cfg := &config.Config{
+		Icons: config.IconsConfig{
+			DirtyIcon:    "*",
+			DirtyColor:   "1",
+			MarkColor:    "2",
+			ClarifyIcon:  "@",
+			ClarifyColor: "3",
+			LockIcon:     "#",
+			LockColor:    "4",
+			MeetingIcon:  "%",
+			MeetingColor: "5",
+		},
+	}
+	got := resolveSettings(flags(), "", cfg)
+	if got.iconDirtyIcon != "*" || got.iconDirtyColor != "1" {
+		t.Errorf("iconDirtyIcon/Color = %q/%q, want */1", got.iconDirtyIcon, got.iconDirtyColor)
+	}
+	if got.iconMarkColor != "2" {
+		t.Errorf("iconMarkColor = %q, want 2", got.iconMarkColor)
+	}
+	if got.iconClarifyIcon != "@" || got.iconClarifyColor != "3" {
+		t.Errorf("iconClarifyIcon/Color = %q/%q, want @/3", got.iconClarifyIcon, got.iconClarifyColor)
+	}
+	if got.iconLockIcon != "#" || got.iconLockColor != "4" {
+		t.Errorf("iconLockIcon/Color = %q/%q, want #/4", got.iconLockIcon, got.iconLockColor)
+	}
+	if got.iconMeetingIcon != "%" || got.iconMeetingColor != "5" {
+		t.Errorf("iconMeetingIcon/Color = %q/%q, want %%/5", got.iconMeetingIcon, got.iconMeetingColor)
+	}
+}
+
 func TestResolveSettingsConfigFileOverridesDefaults(t *testing.T) {
 	cfg := &config.Config{
 		OrgDir:                  "/from/config",

@@ -47,9 +47,6 @@ var (
 	timestampStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
 	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	shortcutStyle  = lipgloss.NewStyle().Bold(true)
-	pinMarkerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
-	lockedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
-	meetingStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("245"))
 
 	// overlayBg is the subtle background tint for the pinned header
@@ -482,6 +479,20 @@ type Model struct {
 	gcalSyncPastDays, gcalSyncFutureDays     int
 	syncingCalendar                          bool
 
+	// dirty/mark/clarify/lock/meeting Icon/Color customize the outline's
+	// gutter markers (see gutter, markColumn, lockColumn, meetingColumn,
+	// and renderPinnedRow for the same markers pinned to the top of the
+	// screen) — set from the config file's [icons] section (see
+	// WithDirtyIcon and its siblings, below), each defaulting to New's
+	// own built-in glyph/color when unset. markColor has no matching
+	// markIcon: a mark's glyph is always the letter it was set with
+	// ("m<letter>"), not a fixed character.
+	dirtyIcon, dirtyColor     string
+	markColor                 string
+	clarifyIcon, clarifyColor string
+	lockIcon, lockColor       string
+	meetingIcon, meetingColor string
+
 	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
 	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
 
@@ -632,6 +643,77 @@ func WithGcalCalendarIDs(ids []string) Option {
 // option is never applied): 1/14 — see New.
 func WithGcalSyncWindow(pastDays, futureDays int) Option {
 	return func(m *Model) { m.gcalSyncPastDays, m.gcalSyncFutureDays = pastDays, futureDays }
+}
+
+// WithDirtyIcon sets the character and color of the gutter marker shown
+// on any entry with unsaved changes (default: "+", color "9"). An empty
+// icon or color leaves that half at its default, so the config file's
+// [icons] section can set just one of the two.
+func WithDirtyIcon(icon, color string) Option {
+	return func(m *Model) {
+		if icon != "" {
+			m.dirtyIcon = icon
+		}
+		if color != "" {
+			m.dirtyColor = color
+		}
+	}
+}
+
+// WithMarkColor sets the color of a vim-style mark's letter ("m<letter>"),
+// both in the gutter and pinned to the top of the screen (default:
+// "212"). There's no matching icon option — a mark's glyph is always the
+// letter it was set with, not a fixed character.
+func WithMarkColor(color string) Option {
+	return func(m *Model) {
+		if color != "" {
+			m.markColor = color
+		}
+	}
+}
+
+// WithClarifyIcon sets the character and color of the marker on
+// :clarify's pinned inbox item, both in the gutter and pinned to the top
+// of the screen (default: "●", color "212"). An empty icon or color
+// leaves that half at its default.
+func WithClarifyIcon(icon, color string) Option {
+	return func(m *Model) {
+		if icon != "" {
+			m.clarifyIcon = icon
+		}
+		if color != "" {
+			m.clarifyColor = color
+		}
+	}
+}
+
+// WithLockIcon sets the character and color of the gutter marker on an
+// entry currently locked by an in-flight :format-links batch (default:
+// "◆", color "208"). An empty icon or color leaves that half at its
+// default.
+func WithLockIcon(icon, color string) Option {
+	return func(m *Model) {
+		if icon != "" {
+			m.lockIcon = icon
+		}
+		if color != "" {
+			m.lockColor = color
+		}
+	}
+}
+
+// WithMeetingIcon sets the character and color of the gutter marker on
+// an entry attached to a calendar meeting via "gM" (default: "▣", color
+// "39"). An empty icon or color leaves that half at its default.
+func WithMeetingIcon(icon, color string) Option {
+	return func(m *Model) {
+		if icon != "" {
+			m.meetingIcon = icon
+		}
+		if color != "" {
+			m.meetingColor = color
+		}
+	}
 }
 
 // New builds a viewer model over ws. Every headline starts expanded.
@@ -1237,6 +1319,13 @@ func (m *Model) appendConfigRows() {
 	} else {
 		line("Calendar sync: %s, -%dd/+%dd window", strings.Join(m.gcalCalendarIDs, ", "), m.gcalSyncPastDays, m.gcalSyncFutureDays)
 	}
+
+	line("Gutter icons: dirty %q (%s), mark (%s), clarify %q (%s), lock %q (%s), meeting %q (%s)",
+		orDefault(m.dirtyIcon, defaultDirtyIcon), orDefault(m.dirtyColor, defaultDirtyColor),
+		orDefault(m.markColor, defaultMarkColor),
+		orDefault(m.clarifyIcon, defaultClarifyIcon), orDefault(m.clarifyColor, defaultClarifyColor),
+		orDefault(m.lockIcon, defaultLockIcon), orDefault(m.lockColor, defaultLockColor),
+		orDefault(m.meetingIcon, defaultMeetingIcon), orDefault(m.meetingColor, defaultMeetingColor))
 }
 
 // appendLogRows populates m.rows for :log — every external command
@@ -5552,7 +5641,7 @@ func (m Model) pinnedHeaderLines() []string {
 		if m.clarifyTarget == nil {
 			lines = append(lines, m.padLineToWidth(statusStyle.Background(overlayBg).Render("  Inbox is empty."), overlayBg))
 		} else {
-			lines = append(lines, m.renderPinnedRow("●", m.clarifyTarget, true))
+			lines = append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
 		}
 	}
 	if letters := m.sortedMarkLetters(); len(letters) > 0 {
@@ -5611,19 +5700,27 @@ func (m Model) sortedMarkLetters() []rune {
 }
 
 // renderPinnedRow renders one line of the pinned header: marker (the
-// clarify target's "●", or a mark's letter) in place of the
+// clarify target's m.clarifyIcon, or a mark's letter — the register's
+// own callers pass a literal quote mark instead) in place of the
 // gutter/indent/fold a normal listing row would have, then h's keyword
 // and title — the same format regardless of which pinned section it's
-// in, and regardless of h's actual level in its file's tree. The whole
-// line carries the overlay background, padded to fill the terminal
-// width. forClarify appends h's CREATED property (if it has one) and any
-// SCHEDULED/DEADLINE/CLOSED planning line (via planningSummary, the same
-// rendering the outline view itself uses) — on for the clarify target,
-// where knowing how long an item has sat in the inbox and whether it
-// already has a date is useful triage context; off for marks, which can
-// point at any headline in the outline and aren't about triage.
+// in, and regardless of h's actual level in its file's tree. The marker
+// is colored with m.clarifyColor when forClarify, m.markColor otherwise
+// (see WithClarifyIcon/WithMarkColor), so it matches whichever gutter
+// column (markColumn) it echoes. The whole line carries the overlay
+// background, padded to fill the terminal width. forClarify appends h's
+// CREATED property (if it has one) and any SCHEDULED/DEADLINE/CLOSED
+// planning line (via planningSummary, the same rendering the outline
+// view itself uses) — on for the clarify target, where knowing how long
+// an item has sat in the inbox and whether it already has a date is
+// useful triage context; off for marks, which can point at any headline
+// in the outline and aren't about triage.
 func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) string {
-	prefix := pinMarkerStyle.Background(overlayBg).Render(marker) +
+	markerColor := orDefault(m.markColor, defaultMarkColor)
+	if forClarify {
+		markerColor = orDefault(m.clarifyColor, defaultClarifyColor)
+	}
+	prefix := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(markerColor)).Background(overlayBg).Render(marker) +
 		bgSpan(overlayBg, "  ") +
 		joinBg(m.renderKeywordAndTitle(h, overlayBg), overlayBg)
 	var suffix string
@@ -5965,14 +6062,46 @@ func linksInTitle(title string) []string {
 	return urls
 }
 
+// Default gutter icon characters/colors — used whenever the
+// corresponding Model field is unset, which includes both a Model built
+// by New() with no matching WithXxxIcon option applied, and a Model
+// built as a bare zero value (as plenty of tests do) without going
+// through New() at all. See dirtyIcon/dirtyColor and friends, above, and
+// orDefault, below.
+const (
+	defaultDirtyIcon    = "+"
+	defaultDirtyColor   = "9"
+	defaultMarkColor    = "212"
+	defaultClarifyIcon  = "●"
+	defaultClarifyColor = "212"
+	defaultLockIcon     = "◆"
+	defaultLockColor    = "208"
+	defaultMeetingIcon  = "▣"
+	defaultMeetingColor = "39"
+)
+
+// orDefault returns s, or def if s is empty — used to fall back to a
+// gutter icon's built-in character/color when the Model field backing it
+// was never set (see the defaultXxx constants, above).
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
 // gutter renders the leftmost column of a row: a single-character dirty
 // marker, always present (blank when clean) so every row lines up the
-// same way vim's line-number column does, regardless of indentation. bg
-// is the background it's rendered with — lipgloss.NoColor{} normally,
-// or the cursor row's highlight (see renderRowWithBg).
-func gutter(dirty bool, bg lipgloss.TerminalColor) string {
+// same way vim's line-number column does, regardless of indentation. Its
+// character and color come from m.dirtyIcon/dirtyColor (default "+",
+// "9"; see WithDirtyIcon and the config file's [icons] section). bg is
+// the background it's rendered with — lipgloss.NoColor{} normally, or
+// the cursor row's highlight (see renderRowWithBg).
+func (m Model) gutter(dirty bool, bg lipgloss.TerminalColor) string {
 	if dirty {
-		return errorStyle.Background(bg).Render("+")
+		icon := orDefault(m.dirtyIcon, defaultDirtyIcon)
+		color := orDefault(m.dirtyColor, defaultDirtyColor)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	return bgSpan(bg, " ")
 }
@@ -5981,49 +6110,58 @@ func gutter(dirty bool, bg lipgloss.TerminalColor) string {
 // or agenda view alike — a column of its own, separate from gutter's
 // dirty marker, so a row that's both marked (or the clarify target) and
 // dirty shows both indicators at once instead of one hiding the other:
-// the clarify target's "●" (clarify view only) takes priority over a
-// mark's letter, since a row can't be both; blank if neither applies.
-// bg is the background it's rendered with (see gutter).
+// the clarify target's marker (clarify view only, m.clarifyIcon/
+// clarifyColor — default "●", "212") takes priority over a mark's
+// letter (m.markColor — default "212"; there's no configurable icon for
+// a mark, since its glyph is always the letter it was set with), since a
+// row can't be both; blank if neither applies. bg is the background it's
+// rendered with (see gutter).
 func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	if m.view == clarifyView && h == m.clarifyTarget {
-		return pinMarkerStyle.Background(bg).Render("●")
+		icon := orDefault(m.clarifyIcon, defaultClarifyIcon)
+		color := orDefault(m.clarifyColor, defaultClarifyColor)
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	if letter, ok := m.markLetterFor(h); ok {
-		return pinMarkerStyle.Background(bg).Render(string(letter))
+		color := orDefault(m.markColor, defaultMarkColor)
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(string(letter))
 	}
 	return bgSpan(bg, " ")
 }
 
 // lockColumn is a headline row's :format-links gutter column — a column
 // of its own (see gutter, markColumn), so it shows up alongside the
-// dirty marker and any mark/clarify pin rather than hiding them. "◆"
-// (U+25C6 BLACK DIAMOND — plain single-width Unicode, same block as the
-// "●" mark/clarify glyph, so it renders reliably anywhere that already
-// does) while h is locked (see m.immutable), blank otherwise. bg is the
-// background it's rendered with (see gutter).
+// dirty marker and any mark/clarify pin rather than hiding them. Its
+// character and color come from m.lockIcon/lockColor (default "◆", the
+// U+25C6 BLACK DIAMOND, "208"; see WithLockIcon and the config file's
+// [icons] section) while h is locked (see m.immutable), blank otherwise.
+// bg is the background it's rendered with (see gutter).
 func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	if m.immutable[h] {
-		return lockedStyle.Background(bg).Render("◆")
+		icon := orDefault(m.lockIcon, defaultLockIcon)
+		color := orDefault(m.lockColor, defaultLockColor)
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	return bgSpan(bg, " ")
 }
 
 // meetingColumn is a headline row's "attached to a meeting" gutter
 // column — a column of its own (see gutter, markColumn, lockColumn),
-// so it shows up alongside any of those rather than hiding them. "▣"
-// (U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE — same Geometric
-// Shapes block as "●"/"◆" above, so it renders reliably anywhere those
-// do, and a different shape family from both so it's never mistaken for
-// a mark or a lock at a glance) while h has been attached to a
-// recurring series or a one-off event via "gM" (GCAL_RECURRING_EVENT_IDS
-// or GCAL_EVENT_IDS — see meetingCandidate.kind), blank otherwise. This
-// is what lets "does this entry have a meeting attached" be answered by
-// looking at the row, rather than opening it in $EDITOR to check its
-// property drawer. bg is the background it's rendered with (see
-// gutter).
+// so it shows up alongside any of those rather than hiding them. Its
+// character and color come from m.meetingIcon/meetingColor (default
+// "▣", the U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE, "39"; see
+// WithMeetingIcon and the config file's [icons] section) while h has
+// been attached to a recurring series or a one-off event via "gM"
+// (GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS — see
+// meetingCandidate.kind), blank otherwise. This is what lets "does this
+// entry have a meeting attached" be answered by looking at the row,
+// rather than opening it in $EDITOR to check its property drawer. bg is
+// the background it's rendered with (see gutter).
 func (m Model) meetingColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	if h.Properties["GCAL_RECURRING_EVENT_IDS"] != "" || h.Properties["GCAL_EVENT_IDS"] != "" {
-		return meetingStyle.Background(bg).Render("▣")
+		icon := orDefault(m.meetingIcon, defaultMeetingIcon)
+		color := orDefault(m.meetingColor, defaultMeetingColor)
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	return bgSpan(bg, " ")
 }
@@ -6082,7 +6220,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		// meeting, but this keeps every row's dirty marker lined up in
 		// the same column.
 		name := highlightMatches(filepath.Base(r.file.Path), query, fileStyle.Background(bg))
-		return bgSpan(bg, " ") + bgSpan(bg, " ") + bgSpan(bg, " ") + gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
+		return bgSpan(bg, " ") + bgSpan(bg, " ") + bgSpan(bg, " ") + m.gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
 	case r.isAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
 	case r.isCalendarItem:
@@ -6103,7 +6241,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		fold = bgSpan(bg, glyph)
 	}
 
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	var suffix string
 	if len(h.Tags) > 0 {
@@ -6164,7 +6302,7 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 // give way too (see fitRowLine), exactly like any other row.
 func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	var tags string
 	if len(h.Tags) > 0 {
@@ -6280,7 +6418,7 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 		fold = bgSpan(bg, glyph)
 	}
 
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
 	if when := calendarItemTime(h); when != "" {
 		prefix += m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(when) + bgSpan(bg, "  ")
 	}

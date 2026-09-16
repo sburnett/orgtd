@@ -117,9 +117,26 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"Calendar file: calendar.org",
 		"currently off",
 		"Debug logging: off",
+		`Gutter icons: dirty "+" (9), mark (212), clarify "●" (212), lock "◆" (208), meeting "▣" (39)`,
 	} {
 		if !containsSubstring(lines, want) {
 			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)
 		}
+	}
+}
+
+func TestConfigViewReportsCustomIcons(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Something\n")
+	m := New(ws,
+		WithDirtyIcon("*", "1"),
+		WithMarkColor("2"),
+		WithClarifyIcon("@", "3"),
+		WithLockIcon("#", "4"),
+		WithMeetingIcon("%", "5"),
+	)
+	m.switchToView(configView)
+
+	if !containsSubstring(configLines(m), `Gutter icons: dirty "*" (1), mark (2), clarify "@" (3), lock "#" (4), meeting "%" (5)`) {
+		t.Errorf("config view lines = %#v, want it to reflect the custom gutter icons", configLines(m))
 	}
 }

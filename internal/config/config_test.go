@@ -36,6 +36,17 @@ oauth_client_secret = "client-secret"
 calendar_ids = ["primary", "team@example.com"]
 sync_past_days = 2
 sync_future_days = 21
+
+[icons]
+dirty_icon = "*"
+dirty_color = "1"
+mark_color = "2"
+clarify_icon = "@"
+clarify_color = "3"
+lock_icon = "#"
+lock_color = "4"
+meeting_icon = "%"
+meeting_color = "5"
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -58,6 +69,17 @@ sync_future_days = 21
 			CalendarIDs:       []string{"primary", "team@example.com"},
 			SyncPastDays:      2,
 			SyncFutureDays:    21,
+		},
+		Icons: IconsConfig{
+			DirtyIcon:    "*",
+			DirtyColor:   "1",
+			MarkColor:    "2",
+			ClarifyIcon:  "@",
+			ClarifyColor: "3",
+			LockIcon:     "#",
+			LockColor:    "4",
+			MeetingIcon:  "%",
+			MeetingColor: "5",
 		},
 	}
 	if !reflect.DeepEqual(*c, want) {

@@ -64,6 +64,47 @@ type Config struct {
 	// internal/calendarsync), kept under its own section so they read as
 	// a distinct, optional block rather than cluttering the top level.
 	Gcalsync GcalsyncConfig `toml:"gcalsync"`
+
+	// Icons customizes the outline's gutter markers (see internal/ui's
+	// gutter/markColumn/lockColumn/meetingColumn) — kept under its own
+	// section, like Gcalsync, since it's an optional block of unrelated
+	// settings rather than something that belongs at the top level.
+	Icons IconsConfig `toml:"icons"`
+}
+
+// IconsConfig is the "[icons]" section of the config file: the
+// character and color of each marker the outline draws in its gutter
+// column, to the left of every entry. Every field is optional and falls
+// back to orgtd's own built-in glyph/color when unset, same as the rest
+// of Config. There's no command-line flag for any of these — like
+// Gcalsync, this is config-file only.
+type IconsConfig struct {
+	// DirtyIcon/DirtyColor style the marker shown on any entry with
+	// unsaved changes (default: "+", a warm red).
+	DirtyIcon  string `toml:"dirty_icon"`
+	DirtyColor string `toml:"dirty_color"`
+
+	// MarkColor styles a vim-style mark's letter ("m<letter>"), both in
+	// the gutter and pinned to the top of the screen (default: a pink).
+	// There's no MarkIcon since the glyph is always the mark's own
+	// letter, chosen by whoever set the mark, not a fixed character.
+	MarkColor string `toml:"mark_color"`
+
+	// ClarifyIcon/ClarifyColor style the marker on :clarify's pinned
+	// inbox item, both in the gutter and pinned to the top of the screen
+	// (default: "●", the same pink as MarkColor).
+	ClarifyIcon  string `toml:"clarify_icon"`
+	ClarifyColor string `toml:"clarify_color"`
+
+	// LockIcon/LockColor style the marker on an entry currently locked
+	// by an in-flight :format-links batch (default: "◆", an orange).
+	LockIcon  string `toml:"lock_icon"`
+	LockColor string `toml:"lock_color"`
+
+	// MeetingIcon/MeetingColor style the marker on an entry attached to
+	// a calendar meeting via "gM" (default: "▣", a blue).
+	MeetingIcon  string `toml:"meeting_icon"`
+	MeetingColor string `toml:"meeting_color"`
 }
 
 // GcalsyncConfig is the "[gcalsync]" section of the config file: settings

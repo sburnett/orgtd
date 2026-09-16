@@ -33,6 +33,18 @@ type settings struct {
 	gcalOAuthClientID, gcalOAuthClientSecret string
 	gcalCalendarIDs                          []string
 	gcalSyncPastDays, gcalSyncFutureDays     int
+
+	// icon* customize the outline's gutter markers (see internal/ui) —
+	// config-file only, like the gcal* fields above: there's no
+	// command-line flag for any of them. Resolved straight from the
+	// config file's [icons] section; an empty string leaves internal/ui's
+	// own built-in default in place (see ui.WithDirtyIcon and its
+	// siblings), so this struct doesn't need its own defaults.
+	iconDirtyIcon, iconDirtyColor     string
+	iconMarkColor                     string
+	iconClarifyIcon, iconClarifyColor string
+	iconLockIcon, iconLockColor       string
+	iconMeetingIcon, iconMeetingColor string
 }
 
 // flagValues is the raw output of flag parsing: each flag's value
@@ -136,6 +148,16 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 	} else {
 		s.gcalSyncFutureDays = 14
 	}
+
+	s.iconDirtyIcon = cfg.Icons.DirtyIcon
+	s.iconDirtyColor = cfg.Icons.DirtyColor
+	s.iconMarkColor = cfg.Icons.MarkColor
+	s.iconClarifyIcon = cfg.Icons.ClarifyIcon
+	s.iconClarifyColor = cfg.Icons.ClarifyColor
+	s.iconLockIcon = cfg.Icons.LockIcon
+	s.iconLockColor = cfg.Icons.LockColor
+	s.iconMeetingIcon = cfg.Icons.MeetingIcon
+	s.iconMeetingColor = cfg.Icons.MeetingColor
 
 	return s
 }
