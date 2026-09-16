@@ -40,6 +40,24 @@ type Event struct {
 	AllDay bool
 	Start  time.Time
 	End    time.Time
+
+	// Attendees lists everyone Google's API returned as invited to this
+	// event (the calendar owner included, via a Self entry — see
+	// declinedBySelf above for the other place that matters). Used by
+	// internal/calendarsync to tag the synced headline with each
+	// confirmed attendee's "@username" — see BuildFile.
+	Attendees []Attendee
+}
+
+// Attendee is one invitee on a calendar event — just enough of what
+// Google's API returns to derive the "@username" tags BuildFile builds
+// from confirmed attendees (see internal/calendarsync); orgtd has no
+// other use for the rest of the attendee record.
+type Attendee struct {
+	Email string
+	// ResponseStatus is Google's own RSVP value: "accepted", "declined",
+	// "tentative", or "needsAction".
+	ResponseStatus string
 }
 
 // Client is a thin, read-only wrapper around the Google Calendar API.
@@ -115,6 +133,10 @@ func toEvent(calendarID string, item *calendar.Event) (Event, bool) {
 	if !ok {
 		end = start
 	}
+	var attendees []Attendee
+	for _, a := range item.Attendees {
+		attendees = append(attendees, Attendee{Email: a.Email, ResponseStatus: a.ResponseStatus})
+	}
 	return Event{
 		ID:               item.Id,
 		CalendarID:       calendarID,
@@ -126,6 +148,7 @@ func toEvent(calendarID string, item *calendar.Event) (Event, bool) {
 		AllDay:           allDay,
 		Start:            start,
 		End:              end,
+		Attendees:        attendees,
 	}, true
 }
 

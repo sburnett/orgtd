@@ -159,3 +159,60 @@ func TestListEventsCarriesRecurringEventID(t *testing.T) {
 		t.Errorf("one-off RecurringEventID = %q, want empty", got)
 	}
 }
+
+func TestListEventsCarriesAttendees(t *testing.T) {
+	resp := fakeEventsResponse{
+		Items: []*calendar.Event{
+			{
+				Id:      "with-attendees",
+				Summary: "Planning sync",
+				Start:   &calendar.EventDateTime{DateTime: "2026-09-10T09:00:00-07:00"},
+				End:     &calendar.EventDateTime{DateTime: "2026-09-10T09:15:00-07:00"},
+				Attendees: []*calendar.EventAttendee{
+					{Self: true, Email: "me@example.com", ResponseStatus: "accepted"},
+					{Email: "jane@example.com", ResponseStatus: "tentative"},
+				},
+			},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("encoding fake response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	svc, err := calendar.NewService(context.Background(),
+		option.WithoutAuthentication(),
+		option.WithEndpoint(server.URL),
+		option.WithHTTPClient(server.Client()))
+	if err != nil {
+		t.Fatalf("calendar.NewService: %v", err)
+	}
+	c := &Client{svc: svc}
+
+	events, err := c.ListEvents(context.Background(), "primary",
+		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("len(events) = %d, want 1", len(events))
+	}
+	want := []Attendee{
+		{Email: "me@example.com", ResponseStatus: "accepted"},
+		{Email: "jane@example.com", ResponseStatus: "tentative"},
+	}
+	got := events[0].Attendees
+	if len(got) != len(want) {
+		t.Fatalf("Attendees = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("Attendees[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}

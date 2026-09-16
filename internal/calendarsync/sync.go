@@ -19,6 +19,12 @@ type Settings struct {
 	CalendarIDs                      []string
 	SyncPastDays, SyncFutureDays     int
 	OAuthClientID, OAuthClientSecret string
+
+	// AttendeeTagDomains restricts the "@username" attendee tags
+	// BuildFile derives (see attendeeTags) to attendees whose email ends
+	// in one of these domains. Empty means no restriction — every
+	// confirmed attendee is tagged, regardless of domain.
+	AttendeeTagDomains []string
 }
 
 // Result is one sync run's outcome: the regenerated org file (not yet
@@ -64,7 +70,7 @@ func Sync(ctx context.Context, s Settings, onConsentURL func(url string)) (Resul
 	events = ExcludeTooLong(events)
 
 	return Result{
-		File:          BuildFile(s.OutputPath, events),
+		File:          BuildFile(s.OutputPath, events, s.AttendeeTagDomains),
 		EventCount:    len(events),
 		CalendarCount: len(s.CalendarIDs),
 	}, nil

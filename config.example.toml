@@ -89,6 +89,14 @@
 # sync_past_days = 1
 # sync_future_days = 14
 
+# Restricts the "@username" tags a synced event gets for its confirmed
+# attendees (see the README's "Calendar sync" section) to attendees whose
+# email is on one of these domains — e.g. tag only coworkers, not every
+# external guest, vendor, or room/resource calendar. Matched
+# case-insensitively; a leading "@" is optional. Default: unset, meaning
+# no restriction — every confirmed attendee is tagged, regardless of domain.
+# attendee_tag_domains = ["example.com"]
+
 # Customizes the character and color of each marker the outline draws in
 # its gutter column, to the left of every entry (see the README's
 # Keybindings section for what each one means: "+" for unsaved changes,

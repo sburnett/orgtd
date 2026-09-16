@@ -500,6 +500,14 @@ type Model struct {
 	gcalSyncPastDays, gcalSyncFutureDays     int
 	syncingCalendar                          bool
 
+	// gcalAttendeeTagDomains restricts the "@username" attendee tags a
+	// sync gives a synced event (see internal/calendarsync's BuildFile)
+	// to attendees whose email ends in one of these domains — see
+	// WithGcalAttendeeTagDomains. Empty (the default) means no
+	// restriction: every confirmed attendee is tagged, regardless of
+	// domain.
+	gcalAttendeeTagDomains []string
+
 	// dirty/mark/clarify/lock/meeting Icon/Color customize the outline's
 	// gutter markers (see gutter, markColumn, lockColumn, meetingColumn,
 	// and renderPinnedRow for the same markers pinned to the top of the
@@ -664,6 +672,15 @@ func WithGcalCalendarIDs(ids []string) Option {
 // option is never applied): 1/14 — see New.
 func WithGcalSyncWindow(pastDays, futureDays int) Option {
 	return func(m *Model) { m.gcalSyncPastDays, m.gcalSyncFutureDays = pastDays, futureDays }
+}
+
+// WithGcalAttendeeTagDomains restricts the "@username" attendee tags
+// :sync-calendar gives a synced event to attendees whose email ends in
+// one of domains, e.g. ["example.com"] to tag only coworkers. Default
+// (if this option is never applied, or domains is empty): no
+// restriction — every confirmed attendee is tagged.
+func WithGcalAttendeeTagDomains(domains []string) Option {
+	return func(m *Model) { m.gcalAttendeeTagDomains = domains }
 }
 
 // WithDirtyIcon sets the character and color of the gutter marker shown
@@ -1346,6 +1363,11 @@ func (m *Model) appendConfigRows() {
 		line("Calendar sync: (not configured — see README's Calendar sync section)")
 	} else {
 		line("Calendar sync: %s, -%dd/+%dd window", strings.Join(m.gcalCalendarIDs, ", "), m.gcalSyncPastDays, m.gcalSyncFutureDays)
+		if len(m.gcalAttendeeTagDomains) > 0 {
+			line("Attendee tag domains: %s", strings.Join(m.gcalAttendeeTagDomains, ", "))
+		} else {
+			line("Attendee tag domains: (none — every confirmed attendee is tagged)")
+		}
 	}
 
 	line("Gutter icons: dirty %q (%s), mark (%s), clarify %q (%s), lock %q (%s), meeting %q (%s)",

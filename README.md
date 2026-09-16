@@ -421,7 +421,7 @@ Each synced event becomes a plain headline (no TODO keyword) with a
 timestamp, location, description, and a link back to the event, e.g.:
 
 ```org
-* Q3 planning sync                                                :recurring:
+* Q3 planning sync                                    :recurring:@alice:@bob:
   :PROPERTIES:
   :GCAL_EVENT_ID:            abc123-20260910
   :GCAL_CALENDAR_ID:         primary
@@ -466,6 +466,19 @@ The whole output file is wholesale-regenerated on
 every run (it's a cache, not something to hand-edit — a comment at the
 top says so); declined and cancelled events are left out.
 
+Each attendee who has confirmed (accepted the invitation) is also tagged
+onto the headline as `@username` — the portion of their email address
+before the `@`, e.g. `john@example.com` becomes `@john` (any character
+not otherwise valid in an org tag, like the `.` in `first.last@...`, is
+replaced with `_` so the tag still round-trips cleanly). Only for
+meetings with 7 or fewer attendees total — past that, the tags would be
+more clutter than signal — and skipped entirely (no attendee tags at
+all) above it, rather than showing a partial list. `gcalsync.attendee_tag_domains`
+(below) additionally restricts this to attendees whose email is on one
+of a set of domains — useful for tagging only coworkers, not every
+external guest, vendor, or room/resource calendar an event happens to
+list as an attendee.
+
 ### Setup
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create
@@ -486,6 +499,7 @@ top says so); declined and cancelled events are left out.
    calendar_ids = ["primary"]
    sync_past_days = 1
    sync_future_days = 14
+   attendee_tag_domains = ["example.com"]
    ```
 
 3. Run `:sync-calendar`. The first run opens your system browser to
@@ -502,6 +516,7 @@ top says so); declined and cancelled events are left out.
 | `gcalsync.oauth_client_id` / `gcalsync.oauth_client_secret` | *(required)* | Your Google OAuth2 installed-app client |
 | `gcalsync.calendar_ids` | `["primary"]` | Google Calendar IDs to sync |
 | `gcalsync.sync_past_days` / `gcalsync.sync_future_days` | `1` / `14` | Sync window around now |
+| `gcalsync.attendee_tag_domains` | *(none — every confirmed attendee tagged)* | Restricts `@username` attendee tags (see above) to attendees whose email domain matches one of these, e.g. `["example.com"]` to tag only coworkers and drop external guests/vendors/room calendars. Matched case-insensitively; a leading `@` is optional (`"example.com"` and `"@example.com"` behave the same) |
 
 There are no command-line flags for these — `:sync-calendar` only ever
 runs interactively from inside orgtd, so they're config-file only.

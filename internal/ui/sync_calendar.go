@@ -41,12 +41,13 @@ func (m *Model) startSyncCalendar(reauth bool) tea.Cmd {
 	m.message = "Syncing calendar in the background..."
 
 	settings := calendarsync.Settings{
-		OutputPath:        filepath.Join(m.ws.Dir, m.calendarFile),
-		CalendarIDs:       m.gcalCalendarIDs,
-		SyncPastDays:      m.gcalSyncPastDays,
-		SyncFutureDays:    m.gcalSyncFutureDays,
-		OAuthClientID:     m.gcalOAuthClientID,
-		OAuthClientSecret: m.gcalOAuthClientSecret,
+		OutputPath:         filepath.Join(m.ws.Dir, m.calendarFile),
+		CalendarIDs:        m.gcalCalendarIDs,
+		SyncPastDays:       m.gcalSyncPastDays,
+		SyncFutureDays:     m.gcalSyncFutureDays,
+		OAuthClientID:      m.gcalOAuthClientID,
+		OAuthClientSecret:  m.gcalOAuthClientSecret,
+		AttendeeTagDomains: m.gcalAttendeeTagDomains,
 	}
 	elog := m.execLog
 	return func() tea.Msg {

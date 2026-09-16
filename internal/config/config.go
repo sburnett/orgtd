@@ -128,6 +128,17 @@ type GcalsyncConfig struct {
 	// (e.g. 1/14 means from yesterday through two weeks from now).
 	SyncPastDays   int `toml:"sync_past_days"`
 	SyncFutureDays int `toml:"sync_future_days"`
+
+	// AttendeeTagDomains restricts the "@username" tags synced events
+	// get for their confirmed attendees (see internal/calendarsync's
+	// BuildFile) to attendees whose email address ends in one of these
+	// domains, e.g. ["example.com"] to tag only coworkers and drop
+	// external guests, vendors, room/resource calendars, etc. Empty (the
+	// default) means no restriction — every confirmed attendee is
+	// tagged, regardless of domain, same as before this setting existed.
+	// Matched case-insensitively; a leading "@" on a configured domain is
+	// ignored, so "example.com" and "@example.com" behave the same.
+	AttendeeTagDomains []string `toml:"attendee_tag_domains"`
 }
 
 // DefaultPath returns the config file location orgtd reads unless

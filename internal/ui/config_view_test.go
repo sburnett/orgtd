@@ -117,11 +117,35 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"Calendar file: calendar.org",
 		"currently off",
 		"Debug logging: off",
+		"Calendar sync: (not configured — see README's Calendar sync section)",
 		`Gutter icons: dirty "+" (9), mark (212), clarify "●" (212), lock "◆" (208), meeting "▣" (39)`,
 	} {
 		if !containsSubstring(lines, want) {
 			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)
 		}
+	}
+}
+
+func TestConfigViewReportsAttendeeTagDomains(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Something\n")
+	m := New(ws,
+		WithGcalOAuthClient("id", "secret"),
+		WithGcalAttendeeTagDomains([]string{"example.com", "example.org"}),
+	)
+	m.switchToView(configView)
+
+	if !containsSubstring(configLines(m), "Attendee tag domains: example.com, example.org") {
+		t.Errorf("config view lines = %#v, want the configured attendee tag domains", configLines(m))
+	}
+}
+
+func TestConfigViewReportsNoAttendeeTagDomainsRestriction(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Something\n")
+	m := New(ws, WithGcalOAuthClient("id", "secret"))
+	m.switchToView(configView)
+
+	if !containsSubstring(configLines(m), "Attendee tag domains: (none — every confirmed attendee is tagged)") {
+		t.Errorf("config view lines = %#v, want the no-restriction message", configLines(m))
 	}
 }
 

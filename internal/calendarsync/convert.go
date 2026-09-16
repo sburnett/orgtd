@@ -47,7 +47,10 @@ func ExcludeTooLong(events []gcal.Event) []gcal.Event {
 // contribute to orgtd's own agenda computation. The whole file is meant
 // to be wholesale-regenerated on every sync (it's a cache, not something
 // hand-edited), so nothing here reads or preserves a previous version.
-func BuildFile(path string, events []gcal.Event) *org.File {
+// attendeeTagDomains restricts each headline's attendee tags to
+// attendees whose email ends in one of those domains (see
+// attendeeTags) — empty means no restriction.
+func BuildFile(path string, events []gcal.Event, attendeeTagDomains []string) *org.File {
 	sorted := make([]gcal.Event, len(events))
 	copy(sorted, events)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -64,12 +67,12 @@ func BuildFile(path string, events []gcal.Event) *org.File {
 		},
 	}
 	for _, ev := range sorted {
-		f.Headlines = append(f.Headlines, buildHeadline(ev))
+		f.Headlines = append(f.Headlines, buildHeadline(ev, attendeeTagDomains))
 	}
 	return f
 }
 
-func buildHeadline(ev gcal.Event) *org.Headline {
+func buildHeadline(ev gcal.Event, attendeeTagDomains []string) *org.Headline {
 	title := ev.Summary
 	if title == "" {
 		title = "(no title)"
@@ -82,8 +85,9 @@ func buildHeadline(ev gcal.Event) *org.Headline {
 	if ev.RecurringEventID != "" {
 		// Visible at a glance in the outline, without having to open
 		// the property drawer, that this instance is part of a series.
-		h.Tags = []string{"recurring"}
+		h.Tags = append(h.Tags, "recurring")
 	}
+	h.Tags = append(h.Tags, attendeeTags(ev, attendeeTagDomains)...)
 	h.SetProperty("GCAL_EVENT_ID", ev.ID)
 	h.SetProperty("GCAL_CALENDAR_ID", ev.CalendarID)
 	if ev.RecurringEventID != "" {
@@ -123,6 +127,90 @@ func buildHeadline(ev gcal.Event) *org.Headline {
 	}
 
 	return h
+}
+
+// maxAttendeesForTags caps how large an event can be and still get
+// attendee tags (see attendeeTags) — a large all-hands or broadcast
+// invite would otherwise bury the handful of tags that are actually
+// useful (a small meeting's own participants) under dozens of others.
+const maxAttendeesForTags = 7
+
+// attendeeTags returns one "@username" tag per attendee who has
+// confirmed (Google's "accepted" response status) on ev, derived from
+// the portion of their email address before the "@" — e.g.
+// "john@example.com" becomes "@john". Returns nil (no tags at all,
+// rather than a partial list) for an event with more than
+// maxAttendeesForTags attendees, and skips any attendee with no email or
+// whose address has nothing before the "@". If domains is non-empty, an
+// attendee is tagged only when their address's domain (case-insensitive,
+// a leading "@" in a configured domain ignored) exactly matches one of
+// them — see domainAllowed; an empty domains list (the default) tags
+// every confirmed attendee regardless of domain.
+func attendeeTags(ev gcal.Event, domains []string) []string {
+	if len(ev.Attendees) > maxAttendeesForTags {
+		return nil
+	}
+	var tags []string
+	for _, a := range ev.Attendees {
+		if a.ResponseStatus != "accepted" {
+			continue
+		}
+		username, domain, ok := splitEmail(a.Email)
+		if !ok || !domainAllowed(domain, domains) {
+			continue
+		}
+		tags = append(tags, "@"+sanitizeTag(username))
+	}
+	sort.Strings(tags)
+	return tags
+}
+
+// splitEmail splits email into the portion before and after its "@", or
+// ok = false if email has nothing before it to extract (no "@", or
+// nothing before it — domain, after the "@", may legitimately be empty
+// and still ok).
+func splitEmail(email string) (username, domain string, ok bool) {
+	at := strings.IndexByte(email, '@')
+	if at <= 0 {
+		return "", "", false
+	}
+	return email[:at], email[at+1:], true
+}
+
+// domainAllowed reports whether domain passes the AttendeeTagDomains
+// restriction (see Settings.AttendeeTagDomains): true unconditionally
+// when domains is empty (no restriction configured), otherwise true only
+// if domain case-insensitively matches one of domains — each compared
+// with any leading "@" stripped first, so "example.com" and
+// "@example.com" behave the same in the config file.
+func domainAllowed(domain string, domains []string) bool {
+	if len(domains) == 0 {
+		return true
+	}
+	for _, d := range domains {
+		if strings.EqualFold(strings.TrimPrefix(d, "@"), domain) {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeTag replaces any character s that org's own tag syntax
+// doesn't allow (see tagsRe in internal/org — letters, digits, and
+// "_@%#+" only) with "_", so an email's local part — which routinely
+// has "."s, and sometimes "-"s, neither valid in an org tag — still
+// round-trips through calendar.org as a real tag rather than silently
+// failing to parse back out as one on the next load.
+func sanitizeTag(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '_' || r == '@' || r == '%' || r == '#' || r == '+':
+			return r
+		}
+		return '_'
+	}, s)
 }
 
 // orgTimestamp formats ev's start/end as a single org timestamp (a plain

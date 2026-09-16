@@ -38,11 +38,12 @@ func TestResolveSettingsAllDefaultsWhenNothingSet(t *testing.T) {
 func TestResolveSettingsGcalSettingsFollowConfigFileWithNoFlagOverride(t *testing.T) {
 	cfg := &config.Config{
 		Gcalsync: config.GcalsyncConfig{
-			OAuthClientID:     "client-id",
-			OAuthClientSecret: "client-secret",
-			CalendarIDs:       []string{"primary", "team@example.com"},
-			SyncPastDays:      2,
-			SyncFutureDays:    21,
+			OAuthClientID:      "client-id",
+			OAuthClientSecret:  "client-secret",
+			CalendarIDs:        []string{"primary", "team@example.com"},
+			SyncPastDays:       2,
+			SyncFutureDays:     21,
+			AttendeeTagDomains: []string{"example.com"},
 		},
 	}
 	got := resolveSettings(flags(), "", cfg)
@@ -54,6 +55,9 @@ func TestResolveSettingsGcalSettingsFollowConfigFileWithNoFlagOverride(t *testin
 	}
 	if got.gcalSyncPastDays != 2 || got.gcalSyncFutureDays != 21 {
 		t.Errorf("gcalSyncPastDays/FutureDays = %d/%d, want 2/21", got.gcalSyncPastDays, got.gcalSyncFutureDays)
+	}
+	if !reflect.DeepEqual(got.gcalAttendeeTagDomains, []string{"example.com"}) {
+		t.Errorf("gcalAttendeeTagDomains = %v, want [example.com]", got.gcalAttendeeTagDomains)
 	}
 }
 
