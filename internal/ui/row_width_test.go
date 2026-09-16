@@ -124,3 +124,62 @@ func TestAgendaItemRowTruncatesLongTitleKeepingPlaceAndDateVisible(t *testing.T)
 		t.Errorf("rendered agenda row width = %d, want <= %d", w, m.width)
 	}
 }
+
+// TestAgendaItemRowTruncatesLongParentTitleInPlaceTag covers the parent
+// headline's own title (not the agenda item's) being long: unlike the
+// item's title, the "[file › parent]" tag is part of fitRowLine's
+// suffix, which is otherwise always shown in full — so a long parent
+// title needs its own budget (see renderAgendaItemRowWithBg) or it
+// would push the item's own title, and even the date/label next to the
+// tag, off the edge.
+func TestAgendaItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* Project %s\n** NEXT Do the thing\n   DEADLINE: <%s>\n", strings.Repeat("a very long parent title ", 10), ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.width = 90
+	m.switchToView(agendaView)
+
+	line := m.renderRow(m.rows[1])
+	plain := stripANSI(line)
+
+	if !strings.Contains(plain, "Do the thing") {
+		t.Errorf("rendered agenda row = %q, want the item's own title still visible despite the long parent title", plain)
+	}
+	if !strings.Contains(plain, "Deadline:") {
+		t.Errorf("rendered agenda row = %q, want the Deadline label still visible", plain)
+	}
+	if !strings.Contains(plain, "…") {
+		t.Errorf("rendered agenda row = %q, want an ellipsis marking the truncated parent title", plain)
+	}
+	if w := lipgloss.Width(line); w > m.width {
+		t.Errorf("rendered agenda row width = %d, want <= %d", w, m.width)
+	}
+}
+
+// TestAgendaItemRowShowsFullParentTitleWhenRowFits ensures the parent
+// tag isn't clipped to some fixed length regardless of context: with a
+// short item title and a parent title long enough that a fixed cap
+// would have ellipsized it, but a terminal wide enough for the whole
+// row to fit anyway, the parent title should show in full — space is
+// only ever taken from it when the row actually needs it (see
+// TestAgendaItemRowTruncatesLongParentTitleInPlaceTag for the case
+// where it does).
+func TestAgendaItemRowShowsFullParentTitleWhenRowFits(t *testing.T) {
+	now := truncateToDate(time.Now())
+	orgText := fmt.Sprintf("* A moderately long project name for planning\n** NEXT Do the thing\n   DEADLINE: <%s>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	m.width = 200
+	m.switchToView(agendaView)
+
+	line := m.renderRow(m.rows[1])
+	plain := stripANSI(line)
+
+	if !strings.Contains(plain, "A moderately long project name for planning") {
+		t.Errorf("rendered agenda row = %q, want the full parent title visible since the row already fits", plain)
+	}
+	if strings.Contains(plain, "…") {
+		t.Errorf("rendered agenda row = %q, want no ellipsis when nothing needed truncating", plain)
+	}
+}

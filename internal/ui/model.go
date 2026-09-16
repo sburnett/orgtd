@@ -6045,18 +6045,30 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 // flat), tags, then which file (and, for a sub-headline, its immediate
 // parent — see agendaPlace) it's from and the date/label (Scheduled or
 // Deadline) it's shown for.
+//
+// The parent-title portion of that "[...]" tag is left full-width
+// unless the row doesn't already fit. When it doesn't, the row's own
+// title first gets its full natural width reserved (so a short title
+// is never truncated just because the parent tag is long), and
+// whatever's left over goes to the parent tag — maximizing how much of
+// each shows given the other. Only once the parent tag has been shrunk
+// to nothing and the row still doesn't fit does the row's own title
+// give way too (see fitRowLine), exactly like any other row.
 func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
-	var suffix string
+	var tags string
 	if len(h.Tags) > 0 {
-		suffix += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(tagStyle, h).Background(bg))
+		tags = bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(tagStyle, h).Background(bg))
 	}
 
-	place := m.agendaPlace(h)
 	timestamp := m.fadeIfImmutable(timestampStyle, h).Background(bg)
-	if r.agendaLabel != "" {
+	dateSuffix := func(place string) string {
+		if r.agendaLabel == "" {
+			// A Next Actions entry: no date to show, just where it's from.
+			return bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", place))
+		}
 		label := r.agendaLabel
 		if r.agendaMissed > 0 {
 			label = fmt.Sprintf("%s (%dx)", label, r.agendaMissed)
@@ -6065,10 +6077,17 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 		if r.agendaRepeater != "" {
 			date += " " + r.agendaRepeater
 		}
-		suffix += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", place, label, date))
-	} else {
-		// A Next Actions entry: no date to show, just where it's from.
-		suffix += bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", place))
+		return bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", place, label, date))
+	}
+
+	suffix := tags + dateSuffix(m.agendaPlace(h, -1))
+	if m.width > 0 && lipgloss.Width(prefix)+lipgloss.Width(suffix) > m.width {
+		overhead := lipgloss.Width(tags) + lipgloss.Width(dateSuffix(m.agendaPlace(h, 0)))
+		parentBudget := m.width - lipgloss.Width(prefix) - overhead
+		if parentBudget < 0 {
+			parentBudget = 0
+		}
+		suffix = tags + dateSuffix(m.agendaPlace(h, parentBudget))
 	}
 
 	return fitRowLine(prefix, suffix, m.width, bg)
@@ -6082,7 +6101,12 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 // the full ancestor chain up to the root: that's usually enough to place
 // the item, and stays short even for an item buried deep in the tree —
 // the full chain remains one Enter (jumpToSource) away.
-func (m Model) agendaPlace(h *org.Headline) string {
+//
+// parentMaxWidth caps how much of the parent title is included
+// (ellipsized with ansi.Truncate past that); a negative value leaves it
+// full-width. See renderAgendaItemRowWithBg, the only caller, for how
+// that cap is chosen.
+func (m Model) agendaPlace(h *org.Headline, parentMaxWidth int) string {
 	fileName := ""
 	if f := m.fileForHeadline(h); f != nil {
 		fileName = filepath.Base(f.Path)
@@ -6090,7 +6114,11 @@ func (m Model) agendaPlace(h *org.Headline) string {
 	if h.Parent == nil {
 		return fileName
 	}
-	return fmt.Sprintf("%s › %s", fileName, h.Parent.Title)
+	parentTitle := h.Parent.Title
+	if parentMaxWidth >= 0 {
+		parentTitle = ansi.Truncate(parentTitle, parentMaxWidth, "…")
+	}
+	return fmt.Sprintf("%s › %s", fileName, parentTitle)
 }
 
 // renderMeetingHeaderRowWithBg renders a meeting-group header row in the
