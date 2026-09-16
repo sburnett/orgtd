@@ -127,16 +127,18 @@ logging is on.
   listing every `NEXT`-keyword headline regardless of whether it has a
   date. `SOMEDAY` items are excluded entirely. An item with both a
   schedule and a deadline can appear in two sections. A **Meetings**
-  section follows: for each recurring calendar meeting gcalsync has
-  synced that starts sometime today or within the next 24 hours (current
-  ones included), a header row grouping every item — anywhere in the org
-  directory, `DONE`/`CANCELLED` excluded — whose `GCAL_RECURRING_EVENT_IDS`
-  property (set by `gM`, see below) names that same recurring series,
-  i.e. something raised during a past occurrence that might need
-  renewed attention this time around. Meetings are in chronological
-  order; a meeting with nothing linked to it (including every one-off,
-  non-recurring meeting) is left out entirely, and an item linked to more
-  than one meeting legitimately shows up under each.
+  section follows: for each calendar meeting gcalsync has synced —
+  a recurring series or a one-off event alike — that starts sometime
+  today or within the next 24 hours (current ones included), a header
+  row grouping every item — anywhere in the org directory,
+  `DONE`/`CANCELLED` excluded — whose `GCAL_RECURRING_EVENT_IDS` (for a
+  recurring series) or `GCAL_EVENT_IDS` (for a one-off event) property
+  (set by `gM`, see below) names that same meeting, i.e. something
+  raised during a past occurrence (or, for a one-off event, just
+  attached ahead of time) that might need attention this time around.
+  Meetings are in chronological order; a meeting with nothing linked to
+  it is left out entirely, and an item linked to more than one meeting
+  legitimately shows up under each.
 - **Clarify** (`:clarify`) — pins the inbox's first non-`DONE`/`CANCELLED`
   top-level headline to the top of the screen, alongside its `CREATED`
   property (so you can see how long it's been sitting there) and any
@@ -198,25 +200,21 @@ there's nothing to show. Neither ever replaces the other.
 "Any link" includes an org-mode link literally in the entry's title; if
 the entry is itself a synced calendar event (i.e. you're browsing
 `:calendar`, above), its own `GCAL_HTML_LINK`; and, if the entry has
-been attached to a recurring meeting via `gM` (see
-below), one `<meeting name>: <url>` entry per attached series, read from
-its `GCAL_RECURRING_EVENT_LINKS` property. Since that property is a
+been attached to a meeting via `gM` (see below) — a recurring series or
+a one-off event alike — one `<meeting name>: <url>` entry per attached
+meeting, read from its `GCAL_RECURRING_EVENT_LINKS` (recurring) or
+`GCAL_EVENT_LINKS` (one-off) property. Since that property is a
 snapshot taken at attach time rather than a live lookup, it keeps
 working indefinitely — you can jump straight to the meeting no matter
 how long ago it was attached, even long after gcalsync has resynced
-`calendar.org` and the series no longer has anything cached. A
-`GCAL_RECURRING_EVENT_IDS` with no matching `GCAL_RECURRING_EVENT_LINKS`
-entry (e.g. one hand-attached to a task directly, per DESIGN.md's
-project↔meeting association, rather than via `gM`) falls back to
-resolving those IDs against whatever `calendar.org` currently has
-cached, which — unlike `GCAL_RECURRING_EVENT_LINKS` — can come up empty
-if every occurrence has aged out; an ID that resolves neither way is
-simply left off.
-
-The same applies to a `GCAL_EVENT_LINKS`/`GCAL_EVENT_IDS` pair, for a
-one-off (non-recurring) meeting — nothing in orgtd writes these itself
-(there's no one-off equivalent of `gM`), but they resolve the same
-durable-link-first, live-lookup-fallback way if set by hand.
+`calendar.org` and the meeting no longer has anything cached. A
+`GCAL_RECURRING_EVENT_IDS`/`GCAL_EVENT_IDS` with no matching
+`GCAL_RECURRING_EVENT_LINKS`/`GCAL_EVENT_LINKS` entry (e.g. one
+hand-attached to a task directly, per DESIGN.md's project↔meeting
+association, rather than via `gM`) falls back to resolving those IDs
+against whatever `calendar.org` currently has cached, which — unlike
+the `..._LINKS` properties — can come up empty if the meeting has aged
+out; an ID that resolves neither way is simply left off.
 
 ## Keybindings
 
@@ -258,8 +256,8 @@ stop), and so on.
 | `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
-| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct recurring meeting series gcalsync currently has synced at least one instance of, and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` properties (the latter is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after the series drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a series already attached detaches it instead of adding a duplicate. A no-op (with a status message) if gcalsync hasn't synced anything with a recurring series — there's nothing to offer |
-| `gX` | `gC` immediately followed by `gM`: capture as usual, and once the editor session commits, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion, without a separate `gM` bracketing the (possibly slow) editor round-trip. Cancelling the capture (empty or blank result, or the editor failing to run) never opens the picker; if nothing's synced with a recurring series, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
+| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting gcalsync currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if gcalsync hasn't synced anything at all — there's nothing to offer |
+| `gX` | `gC` immediately followed by `gM`: capture as usual, and once the editor session commits, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion, without a separate `gM` bracketing the (possibly slow) editor round-trip. Cancelling the capture (empty or blank result, or the editor failing to run) never opens the picker; if nothing's synced yet, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
 ### Visual selection
@@ -404,19 +402,23 @@ plain outline. `GCAL_START`/`GCAL_END` are a machine-readable copy of the
 same start/end, used by the agenda's Meetings section and `gM`'s picker
 (see above) to find and order current/upcoming meetings; `GCAL_HTML_LINK`
 is a machine-readable copy of the link at the bottom, which `gM` copies
-onto an attached entry's own `GCAL_RECURRING_EVENT_LINKS` property so
-the status line can keep showing this event's title and URL long after
-this cached headline is gone; the timestamp and link in the body are the
-human-readable ones, for browsing calendar.org itself.
+onto an attached entry's own `GCAL_RECURRING_EVENT_LINKS` (recurring) or
+`GCAL_EVENT_LINKS` (one-off) property so the status line can keep
+showing this event's title and URL long after this cached headline is
+gone; the timestamp and link in the body are the human-readable ones,
+for browsing calendar.org itself.
 
 A recurring meeting is expanded into one headline per occurrence within
 the sync window (each with its own `GCAL_EVENT_ID`, unique per instance),
 tagged `:recurring:` and carrying a `GCAL_RECURRING_EVENT_ID` — stable
-across every occurrence of the series, unlike `GCAL_EVENT_ID` — so a task
-or project can eventually associate with "this recurring meeting" in
-general rather than one specific occurrence of it (per DESIGN.md's
-project↔meeting concept). A one-off event has neither the tag nor that
-property.
+across every occurrence of the series, unlike `GCAL_EVENT_ID` — so `gM`
+can attach a task or project to "this recurring meeting" in general
+(via `GCAL_RECURRING_EVENT_IDS`) rather than one specific occurrence of
+it (per DESIGN.md's project↔meeting concept). A one-off event has
+neither the tag nor that property — `gM` attaches to it instead by its
+own `GCAL_EVENT_ID` (via `GCAL_EVENT_IDS`), which works just as well
+since, unlike a recurring series, a one-off event only ever has the one
+occurrence to begin with.
 
 The whole output file is wholesale-regenerated on
 every run (it's a cache, not something to hand-edit — a comment at the

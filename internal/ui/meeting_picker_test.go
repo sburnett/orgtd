@@ -172,10 +172,10 @@ func TestGMOpensPickerWithDedupedRecurringSeries(t *testing.T) {
 	}
 	// Chronological: Standup's soonest instance (in 1h) sorts before
 	// Planning's (in 2h).
-	if m.meetingPickerCandidates[0].recurringEventID != "series-standup" {
+	if m.meetingPickerCandidates[0].id != "series-standup" {
 		t.Errorf("candidates[0] = %+v, want series-standup first (sooner)", m.meetingPickerCandidates[0])
 	}
-	if m.meetingPickerCandidates[1].recurringEventID != "series-planning" {
+	if m.meetingPickerCandidates[1].id != "series-planning" {
 		t.Errorf("candidates[1] = %+v, want series-planning second", m.meetingPickerCandidates[1])
 	}
 }
@@ -214,7 +214,7 @@ func TestGMDefaultPrefersInProgressInstanceOverAFutureInstanceOfSameSeries(t *te
 	if len(m.meetingPickerCandidates) != 2 {
 		t.Fatalf("candidates = %d, want 2 (deduped by series)", len(m.meetingPickerCandidates))
 	}
-	if got := m.meetingPickerCandidates[0].recurringEventID; got != "series-standup" {
+	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
 		t.Fatalf("candidates[0] = %q, want series-standup (its today instance is in progress)", got)
 	}
 	// GCAL_START round-trips through RFC3339 (second precision), so
@@ -254,13 +254,13 @@ func TestGMDefaultsToShortestInProgressMeeting(t *testing.T) {
 	if len(m.meetingPickerCandidates) != 3 {
 		t.Fatalf("candidates = %d, want 3", len(m.meetingPickerCandidates))
 	}
-	if got := m.meetingPickerCandidates[0].recurringEventID; got != "series-standup" {
+	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
 		t.Errorf("candidates[0] = %q, want series-standup (shortest in-progress meeting)", got)
 	}
-	if got := m.meetingPickerCandidates[1].recurringEventID; got != "series-offsite" {
+	if got := m.meetingPickerCandidates[1].id; got != "series-offsite" {
 		t.Errorf("candidates[1] = %q, want series-offsite (longer, but still in progress)", got)
 	}
-	if got := m.meetingPickerCandidates[2].recurringEventID; got != "series-planning" {
+	if got := m.meetingPickerCandidates[2].id; got != "series-planning" {
 		t.Errorf("candidates[2] = %q, want series-planning last (not in progress)", got)
 	}
 }
@@ -285,7 +285,7 @@ func TestGMDefaultsToNextStartTimeWhenNothingInProgress(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "M")
 
-	if got := m.meetingPickerCandidates[0].recurringEventID; got != "series-standup" {
+	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
 		t.Errorf("candidates[0] = %q, want series-standup (starts sooner, nothing in progress)", got)
 	}
 }
@@ -308,7 +308,7 @@ func TestGMFilterNarrowsBySubstring(t *testing.T) {
 	m = typeKeys(m, "plan")
 
 	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
-	if len(matches) != 1 || matches[0].recurringEventID != "series-planning" {
+	if len(matches) != 1 || matches[0].id != "series-planning" {
 		t.Fatalf("filtered matches = %+v, want just series-planning", matches)
 	}
 }
@@ -339,6 +339,184 @@ func TestGMEnterAttachesHighlightedMeeting(t *testing.T) {
 	wantLink := "[[https://calendar.google.com/event?eid=standup-1][Weekly Standup]]"
 	if got := target.Properties["GCAL_RECURRING_EVENT_LINKS"]; got != wantLink {
 		t.Errorf("GCAL_RECURRING_EVENT_LINKS = %q, want %q", got, wantLink)
+	}
+}
+
+// TestGMOffersOneOffEvent covers the reported gap: a one-time (no
+// GCAL_RECURRING_EVENT_ID) calendar event should still show up as a
+// "gM" candidate, keyed by its own GCAL_EVENT_ID rather than a series
+// ID.
+func TestGMOffersOneOffEvent(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now.Add(time.Hour), now.Add(2*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	if m.mode != meetingPickerMode {
+		t.Fatalf("mode = %v, want meetingPickerMode", m.mode)
+	}
+	if len(m.meetingPickerCandidates) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(m.meetingPickerCandidates))
+	}
+	c := m.meetingPickerCandidates[0]
+	if c.title != "Client Kickoff" {
+		t.Errorf("candidate title = %q, want %q", c.title, "Client Kickoff")
+	}
+	if c.id != "kickoff-1" {
+		t.Errorf("candidate id = %q, want the event's own GCAL_EVENT_ID %q", c.id, "kickoff-1")
+	}
+	if c.kind != oneOffMeeting {
+		t.Errorf("candidate kind = %v, want oneOffMeeting", c.kind)
+	}
+}
+
+// TestGMAttachOneOffEventUsesEventProperties is the write-side
+// counterpart to TestGMOffersOneOffEvent: attaching a one-off event
+// must land on GCAL_EVENT_IDS/GCAL_EVENT_LINKS, not the
+// GCAL_RECURRING_EVENT_IDS/LINKS pair a recurring series uses — the two
+// are independent, so an entry could in principle be attached to both a
+// recurring series and an unrelated one-off event at once.
+func TestGMAttachOneOffEventUsesEventProperties(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now.Add(time.Hour), now.Add(2*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	target := m.currentHeadline()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if got := target.Properties["GCAL_EVENT_IDS"]; got != "kickoff-1" {
+		t.Errorf("GCAL_EVENT_IDS = %q, want %q", got, "kickoff-1")
+	}
+	wantLink := "[[https://calendar.google.com/event?eid=kickoff-1][Client Kickoff]]"
+	if got := target.Properties["GCAL_EVENT_LINKS"]; got != wantLink {
+		t.Errorf("GCAL_EVENT_LINKS = %q, want %q", got, wantLink)
+	}
+	if _, ok := target.Properties["GCAL_RECURRING_EVENT_IDS"]; ok {
+		t.Errorf("GCAL_RECURRING_EVENT_IDS = %q, want untouched (this is a one-off event)", target.Properties["GCAL_RECURRING_EVENT_IDS"])
+	}
+}
+
+// TestGMEnterOnAttachedOneOffEventDetaches mirrors
+// TestGMEnterOnAttachedMeetingDetaches for a one-off event.
+func TestGMEnterOnAttachedOneOffEventDetaches(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now.Add(time.Hour), now.Add(2*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	target := m.currentHeadline()
+	target.SetProperty("GCAL_EVENT_IDS", "kickoff-1")
+	target.SetProperty("GCAL_EVENT_LINKS", "[[https://calendar.google.com/event?eid=kickoff-1][Client Kickoff]]")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+	m, _ = sendKeyCmd(m, "enter")
+
+	if _, ok := target.Properties["GCAL_EVENT_IDS"]; ok {
+		t.Errorf("GCAL_EVENT_IDS = %q, want removed after re-selecting an attached one-off event", target.Properties["GCAL_EVENT_IDS"])
+	}
+	if _, ok := target.Properties["GCAL_EVENT_LINKS"]; ok {
+		t.Errorf("GCAL_EVENT_LINKS = %q, want removed along with the ID", target.Properties["GCAL_EVENT_LINKS"])
+	}
+}
+
+// TestGMOneOffAndRecurringCandidatesCoexist confirms both kinds appear
+// together in the same picker, independently selectable by title.
+func TestGMOneOffAndRecurringCandidatesCoexist(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+			oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now.Add(2*time.Hour), now.Add(3*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	target := m.currentHeadline()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+	if len(m.meetingPickerCandidates) != 2 {
+		t.Fatalf("candidates = %d, want 2 (one recurring, one one-off)", len(m.meetingPickerCandidates))
+	}
+
+	m = typeKeys(m, "kickoff")
+	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) != 1 || matches[0].title != "Client Kickoff" {
+		t.Fatalf("filtered matches = %+v, want just Client Kickoff", matches)
+	}
+	m, _ = sendKeyCmd(m, "enter")
+
+	if got := target.Properties["GCAL_EVENT_IDS"]; got != "kickoff-1" {
+		t.Errorf("GCAL_EVENT_IDS = %q, want %q", got, "kickoff-1")
+	}
+	if _, ok := target.Properties["GCAL_RECURRING_EVENT_IDS"]; ok {
+		t.Errorf("GCAL_RECURRING_EVENT_IDS = %q, want untouched (only the one-off event was picked)", target.Properties["GCAL_RECURRING_EVENT_IDS"])
+	}
+}
+
+// TestGMAttachOneOffEventIsUndoable mirrors TestGMAttachIsUndoable for
+// a one-off event.
+func TestGMAttachOneOffEventIsUndoable(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now.Add(time.Hour), now.Add(2*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	target := m.currentHeadline()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+	m, _ = sendKeyCmd(m, "enter")
+	if got := target.Properties["GCAL_EVENT_IDS"]; got != "kickoff-1" {
+		t.Fatalf("setup: GCAL_EVENT_IDS = %q, want kickoff-1", got)
+	}
+
+	m = sendKey(m, "u")
+	if _, ok := target.Properties["GCAL_EVENT_IDS"]; ok {
+		t.Errorf("after undo, GCAL_EVENT_IDS = %q, want removed", target.Properties["GCAL_EVENT_IDS"])
+	}
+	if _, ok := target.Properties["GCAL_EVENT_LINKS"]; ok {
+		t.Errorf("after undo, GCAL_EVENT_LINKS = %q, want removed too", target.Properties["GCAL_EVENT_LINKS"])
+	}
+
+	m = sendKey(m, "ctrl+r")
+	if got := target.Properties["GCAL_EVENT_IDS"]; got != "kickoff-1" {
+		t.Errorf("after redo, GCAL_EVENT_IDS = %q, want kickoff-1", got)
+	}
+	wantLink := "[[https://calendar.google.com/event?eid=kickoff-1][Client Kickoff]]"
+	if got := target.Properties["GCAL_EVENT_LINKS"]; got != wantLink {
+		t.Errorf("after redo, GCAL_EVENT_LINKS = %q, want %q", got, wantLink)
 	}
 }
 
@@ -560,7 +738,7 @@ func TestGMTypedLettersFilterRatherThanNavigate(t *testing.T) {
 		t.Errorf("meetingPickerFilter = %q, want %q (j/k should filter here, not navigate)", m.meetingPickerFilter, "jam")
 	}
 	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
-	if len(matches) != 1 || matches[0].recurringEventID != "series-jam" {
+	if len(matches) != 1 || matches[0].id != "series-jam" {
 		t.Errorf("filtered matches = %+v, want just series-jam", matches)
 	}
 }

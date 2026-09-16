@@ -842,13 +842,32 @@ func recurringCalendarEventHeadline(id, recurID, title string, start, end time.T
 	return h
 }
 
+// oneOffCalendarEventHeadline is calendarEventHeadline with a custom
+// title, for readable one-off-event fixtures alongside
+// recurringCalendarEventHeadline above (calendarEventHeadline's own
+// default "Meeting <id>" title is fine when the title itself doesn't
+// matter to the test).
+func oneOffCalendarEventHeadline(id, title string, start, end time.Time) *org.Headline {
+	h := calendarEventHeadline(id, start, end)
+	h.Title = title
+	return h
+}
+
 // linkedToRecurringMeetings builds a headline carrying a
-// GCAL_RECURRING_EVENT_IDS property (set by gC/:capture — see
-// insertHeadlineAt) naming every recurID given, as if it had been
-// captured during a past occurrence of each.
+// GCAL_RECURRING_EVENT_IDS property (set by "gM" — see
+// buildMeetingAttachAction) naming every recurID given, as if it had
+// been attached to a past occurrence of each.
 func linkedToRecurringMeetings(title string, recurIDs ...string) *org.Headline {
 	h := &org.Headline{Level: 1, Title: title}
 	h.SetProperty("GCAL_RECURRING_EVENT_IDS", strings.Join(recurIDs, " "))
+	return h
+}
+
+// linkedToOneOffMeetings is linkedToRecurringMeetings' one-off-event
+// counterpart: a GCAL_EVENT_IDS property naming every eventID given.
+func linkedToOneOffMeetings(title string, eventIDs ...string) *org.Headline {
+	h := &org.Headline{Level: 1, Title: title}
+	h.SetProperty("GCAL_EVENT_IDS", strings.Join(eventIDs, " "))
 	return h
 }
 
@@ -911,7 +930,7 @@ func TestMeetingsSectionGroupsLinkedItemUnderMeetingHeader(t *testing.T) {
 	}
 }
 
-func TestMeetingsSectionOmitsOneOffMeetingsWithNoRecurringID(t *testing.T) {
+func TestMeetingsSectionOmitsOneOffMeetingWithNoLinkedItems(t *testing.T) {
 	now := time.Now()
 	oneOff := calendarEventHeadline("one-off", now.Add(time.Hour), now.Add(90*time.Minute))
 	ws := meetingsFixture(&org.File{Path: "calendar.org", Headlines: []*org.Headline{oneOff}})
@@ -920,8 +939,42 @@ func TestMeetingsSectionOmitsOneOffMeetingsWithNoRecurringID(t *testing.T) {
 
 	for _, r := range m.rows {
 		if r.section == "Meetings" {
-			t.Fatalf("Meetings section present for a one-off (non-recurring) meeting: %+v", m.rows)
+			t.Fatalf("Meetings section present for a one-off meeting with nothing linked to it: %+v", m.rows)
 		}
+	}
+}
+
+// TestMeetingsSectionIncludesOneOffMeetingWithLinkedItem covers
+// attaching an entry to a one-time (non-recurring) calendar event via
+// "gM" (see linkedToOneOffMeetings/buildMeetingAttachAction): unlike a
+// recurring series, a one-off event only ever has the one occurrence,
+// but it's otherwise treated exactly like a recurring meeting's
+// Meetings-section entry — a header row grouping its linked items.
+func TestMeetingsSectionIncludesOneOffMeetingWithLinkedItem(t *testing.T) {
+	now := time.Now()
+	meeting := oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now.Add(time.Hour), now.Add(2*time.Hour))
+	item := linkedToOneOffMeetings("Bring the proposal deck", "kickoff-1")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{meeting}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{item}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	var headerIdx, itemIdx = -1, -1
+	for i, r := range m.rows {
+		switch {
+		case r.isMeetingHeader && r.meetingTitle == "Client Kickoff":
+			headerIdx = i
+		case r.headline == item:
+			itemIdx = i
+		}
+	}
+	if headerIdx == -1 {
+		t.Fatalf("no meeting header row for Client Kickoff; rows: %+v", m.rows)
+	}
+	if itemIdx == -1 || itemIdx < headerIdx {
+		t.Fatalf("linked item not shown grouped under its one-off meeting; rows: %+v", m.rows)
 	}
 }
 

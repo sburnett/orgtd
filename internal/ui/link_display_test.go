@@ -240,12 +240,14 @@ func TestStatusBarOmitsCalendarEventLinkWhenNoLinkEverRecorded(t *testing.T) {
 }
 
 // TestStatusBarCalendarEventLinkSurvivesCalendarOrgAgingOut exercises
-// resolveMeetingLinks' durable path directly: nothing in orgtd itself
-// writes GCAL_EVENT_LINKS anymore (that was gC's old auto-attach
-// behavior — removed in favor of the deliberate, interactive "gM"; see
-// TestCaptureDoesNotAttachCalendarMeetingInfo in capture_test.go), but a
-// hand-set property (or one from an older orgtd version) should still
-// resolve the same durable way.
+// resolveMeetingLinks' durable path directly, by setting GCAL_EVENT_LINKS
+// by hand rather than through "gM" (which now writes it too, for a
+// one-off event — see TestGMAttachOneOffEventUsesEventProperties in
+// meeting_picker_test.go): a hand-set property (or one from an older
+// orgtd version, before gC's now-removed auto-attach behavior was
+// replaced by "gM" — see TestCaptureDoesNotAttachCalendarMeetingInfo in
+// capture_test.go) should resolve the same durable way regardless of
+// how it got there.
 func TestStatusBarCalendarEventLinkSurvivesCalendarOrgAgingOut(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()

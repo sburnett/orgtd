@@ -272,14 +272,13 @@ type meetingAgendaEntry struct {
 // event (any loaded headline with a GCAL_START — see
 // cmd/gcalsync/convert.go) whose start falls within [start of today,
 // now+24h) — i.e. every meeting starting sometime today or within the
-// next 24 hours, current ones included — and that's part of a recurring
-// series (GCAL_RECURRING_EVENT_ID) with at least one item elsewhere in
-// the workspace linked to that same series (see
-// entriesForRecurringMeeting) — something captured during, or otherwise
-// linked to, a past occurrence of this same meeting that might need
-// renewed attention or discussion this time around. A one-off meeting
-// (no recurring ID) or one with nothing linked to it is left out
-// entirely, rather than shown with nothing under it. Sorted
+// next 24 hours, current ones included — with at least one item
+// elsewhere in the workspace attached to it via "gM" (see
+// entriesForMeeting): something raised during, or otherwise linked to,
+// this meeting (a past occurrence, for a recurring series; the meeting
+// itself, for a one-off) that might need renewed attention or
+// discussion this time around. A meeting with nothing linked to it is
+// left out entirely, rather than shown with nothing under it. Sorted
 // chronologically by start time; a daily (or more frequent) recurring
 // meeting can legitimately produce more than one entry for the same
 // series within the window (today's occurrence and tomorrow's, say),
@@ -291,16 +290,20 @@ func (m *Model) upcomingMeetingEntries(now time.Time) []meetingAgendaEntry {
 	var meetings []meetingAgendaEntry
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]
-			if recurID == "" {
+			eventID := h.Properties["GCAL_EVENT_ID"]
+			if eventID == "" {
 				return
+			}
+			id, kind := eventID, oneOffMeeting
+			if recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]; recurID != "" {
+				id, kind = recurID, recurringMeeting
 			}
 			start, startOK := parseRFC3339Property(h, "GCAL_START")
 			end, endOK := parseRFC3339Property(h, "GCAL_END")
 			if !startOK || !endOK || start.Before(windowStart) || !start.Before(windowEnd) {
 				return
 			}
-			items := m.entriesForRecurringMeeting(recurID)
+			items := m.entriesForMeeting(kind, id)
 			if len(items) == 0 {
 				return
 			}
@@ -311,24 +314,24 @@ func (m *Model) upcomingMeetingEntries(now time.Time) []meetingAgendaEntry {
 	return meetings
 }
 
-// entriesForRecurringMeeting returns every headline, across the
-// workspace, whose GCAL_RECURRING_EVENT_IDS property (set by
-// gC/:capture — see insertHeadlineAt) names recurID — i.e. was captured
-// during, or otherwise linked to, a past occurrence of this same
-// recurring meeting — excluding DONE/CANCELLED items (already resolved,
-// nothing left to revisit), in file/tree order. An entry can be linked
-// to more than one meeting (its property can name more than one
-// recurring series); it's returned once per meeting it names, so it can
-// legitimately show up in more than one meeting's group.
-func (m *Model) entriesForRecurringMeeting(recurID string) []*org.Headline {
+// entriesForMeeting returns every headline, across the workspace, whose
+// kind.idsProperty() (set by "gM" — see buildMeetingAttachAction) names
+// id — i.e. was attached to this meeting, a past occurrence of it for a
+// recurring series or the meeting itself for a one-off — excluding
+// DONE/CANCELLED items (already resolved, nothing left to revisit), in
+// file/tree order. An entry can be linked to more than one meeting (its
+// property can name more than one ID); it's returned once per meeting
+// it names, so it can legitimately show up in more than one meeting's
+// group.
+func (m *Model) entriesForMeeting(kind meetingIDKind, id string) []*org.Headline {
 	var items []*org.Headline
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
 			if org.IsDoneKeyword(h.Keyword) {
 				return
 			}
-			for _, id := range strings.Fields(h.Properties["GCAL_RECURRING_EVENT_IDS"]) {
-				if id == recurID {
+			for _, candidateID := range strings.Fields(h.Properties[kind.idsProperty()]) {
+				if candidateID == id {
 					items = append(items, h)
 					return
 				}
@@ -339,8 +342,9 @@ func (m *Model) entriesForRecurringMeeting(recurID string) []*org.Headline {
 }
 
 // appendMeetingsSection appends the "Meetings" section (see
-// upcomingMeetingEntries): a header row per current/upcoming recurring
-// meeting with anything linked to it, each followed by its linked items,
+// upcomingMeetingEntries): a header row per current/upcoming meeting
+// (recurring series or one-off) with anything linked to it, each
+// followed by its linked items,
 // one level deeper (see row.level/rowLevel) than the meeting header,
 // which is itself one level deeper than the section header — so the
 // outline's generic level-aware navigation (moveDeeper, jumpToSubtreeTop/
@@ -359,16 +363,53 @@ func (m *Model) appendMeetingsSection() {
 	}
 }
 
-// meetingCandidate is one distinct recurring meeting series offered by
-// the "gM" picker (see startMeetingPicker in model.go) — one per unique
-// GCAL_RECURRING_EVENT_ID found anywhere in the workspace, not one per
-// individual synced occurrence (see meetingCandidates).
+// meetingIDKind distinguishes the two shapes a meetingCandidate (or a
+// Meetings-section entry) can attach through: a recurring series,
+// stable across every occurrence (GCAL_RECURRING_EVENT_ID on the event,
+// GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS on whatever's
+// attached to it), or a single one-off event, unique to itself
+// (GCAL_EVENT_ID/GCAL_EVENT_IDS/GCAL_EVENT_LINKS) — see
+// cmd/gcalsync/convert.go, which sets GCAL_EVENT_ID on every synced
+// event and GCAL_RECURRING_EVENT_ID additionally on one that's part of
+// a series. Kept as a small enum (rather than, say, always comparing
+// against "") so every place that needs "which pair of properties"
+// asks it the same way instead of re-deriving it from an ID string.
+type meetingIDKind int
+
+const (
+	oneOffMeeting meetingIDKind = iota
+	recurringMeeting
+)
+
+// idsProperty and linksProperty name the pair of properties an entry
+// records its attachment to a meeting of this kind through — see
+// buildMeetingAttachAction/meetingIsAttached and entriesForMeeting.
+func (k meetingIDKind) idsProperty() string {
+	if k == recurringMeeting {
+		return "GCAL_RECURRING_EVENT_IDS"
+	}
+	return "GCAL_EVENT_IDS"
+}
+
+func (k meetingIDKind) linksProperty() string {
+	if k == recurringMeeting {
+		return "GCAL_RECURRING_EVENT_LINKS"
+	}
+	return "GCAL_EVENT_LINKS"
+}
+
+// meetingCandidate is one distinct meeting offered by the "gM" picker
+// (see startMeetingPicker in model.go): one per unique
+// GCAL_RECURRING_EVENT_ID for a recurring series (not one per
+// individual synced occurrence), or one per unique GCAL_EVENT_ID for a
+// one-off event — see meetingCandidates.
 type meetingCandidate struct {
-	recurringEventID string
-	title            string
-	link             string    // GCAL_HTML_LINK, "" if gcalsync didn't have one — see buildMeetingAttachAction
-	when             time.Time // the series' representative occurrence's start — see meetingCandidates
-	end              time.Time // that same occurrence's end, zero if GCAL_END was missing/unparseable
+	id    string // GCAL_RECURRING_EVENT_ID if kind == recurringMeeting, else GCAL_EVENT_ID
+	kind  meetingIDKind
+	title string
+	link  string    // GCAL_HTML_LINK, "" if gcalsync didn't have one — see buildMeetingAttachAction
+	when  time.Time // the series' representative occurrence's start (or the one-off event's own start) — see meetingCandidates
+	end   time.Time // that same occurrence's end, zero if GCAL_END was missing/unparseable
 }
 
 // inProgress reports whether c's representative occurrence has started
@@ -377,40 +418,59 @@ func (c meetingCandidate) inProgress(now time.Time) bool {
 	return !c.when.After(now) && now.Before(c.end)
 }
 
-// meetingCandidates returns one meetingCandidate per distinct recurring
-// series found in any loaded calendar event (GCAL_RECURRING_EVENT_ID —
-// see cmd/gcalsync/convert.go), each using whichever synced occurrence
-// is currently most relevant (meetingPickerLess) as its title/display
-// date, sorted the same way so index 0 — the picker's default
-// highlight — is the one you're most likely attaching an item to right
-// now: a meeting currently in progress, the shortest one if more than
-// one is, else the next one to start. Picking the representative
-// occurrence with meetingPickerLess rather than a start-only comparison
-// matters for a series with more than one instance synced at once (a
-// daily standup: today's and tomorrow's both fall inside the sync
-// window): a start-only "soonest upcoming wins" comparison would treat
-// today's already-started occurrence as simply "past" and lose it to
-// tomorrow's, hiding the fact that the series is in progress right now
-// from the final sort entirely. Only meaningful while gcalsync has at
-// least one instance of a series synced; a series whose every synced
-// occurrence has aged out of the sync window (in either direction)
-// simply won't appear until gcalsync runs again.
+// meetingKey identifies one meetingCandidate within meetingCandidates'
+// dedup map: kind alongside id, rather than id alone, so a recurring
+// series' ID and some one-off event's own ID can never collide even in
+// principle (in practice Google's IDs are opaque enough that this can't
+// really happen, but nothing here depends on that).
+type meetingKey struct {
+	kind meetingIDKind
+	id   string
+}
+
+// meetingCandidates returns one meetingCandidate per distinct meeting
+// found in any loaded calendar event — a recurring series, deduped by
+// GCAL_RECURRING_EVENT_ID (see cmd/gcalsync/convert.go), or a one-off
+// event, one per GCAL_EVENT_ID (every synced event carries this;
+// GCAL_RECURRING_EVENT_ID only if it's part of a series) — each using
+// whichever synced occurrence is currently most relevant
+// (meetingPickerLess) as its title/display date, sorted the same way so
+// index 0 — the picker's default highlight — is the one you're most
+// likely attaching an item to right now: a meeting currently in
+// progress, the shortest one if more than one is, else the next one to
+// start. Picking the representative occurrence with meetingPickerLess
+// rather than a start-only comparison matters for a series with more
+// than one instance synced at once (a daily standup: today's and
+// tomorrow's both fall inside the sync window): a start-only "soonest
+// upcoming wins" comparison would treat today's already-started
+// occurrence as simply "past" and lose it to tomorrow's, hiding the
+// fact that the series is in progress right now from the final sort
+// entirely. Only meaningful while gcalsync has at least one relevant
+// instance synced; a recurring series whose every synced occurrence has
+// aged out of the sync window (in either direction), or a one-off event
+// that's aged out entirely, simply won't appear until gcalsync runs
+// again.
 func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
-	best := make(map[string]meetingCandidate)
+	best := make(map[meetingKey]meetingCandidate)
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]
-			if recurID == "" {
-				return
+			eventID := h.Properties["GCAL_EVENT_ID"]
+			if eventID == "" {
+				return // not a synced calendar event at all
+			}
+			id, kind := eventID, oneOffMeeting
+			if recurID := h.Properties["GCAL_RECURRING_EVENT_ID"]; recurID != "" {
+				id, kind = recurID, recurringMeeting
 			}
 			start, ok := parseRFC3339Property(h, "GCAL_START")
 			if !ok {
 				return
 			}
 			end, _ := parseRFC3339Property(h, "GCAL_END")
-			cand := meetingCandidate{recurringEventID: recurID, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start, end: end}
-			if cur, exists := best[recurID]; !exists || meetingPickerLess(cand, cur, now) {
-				best[recurID] = cand
+			cand := meetingCandidate{id: id, kind: kind, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start, end: end}
+			key := meetingKey{kind, id}
+			if cur, exists := best[key]; !exists || meetingPickerLess(cand, cur, now) {
+				best[key] = cand
 			}
 		})
 	}
@@ -484,14 +544,15 @@ func filteredMeetingCandidates(candidates []meetingCandidate, filter string) []m
 	return out
 }
 
-// meetingIsAttached reports whether h's GCAL_RECURRING_EVENT_IDS
-// property already names recurID.
-func meetingIsAttached(h *org.Headline, recurID string) bool {
+// meetingIsAttached reports whether h's c.kind.idsProperty() (either
+// GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS, matching whichever c is)
+// already names c.id.
+func meetingIsAttached(h *org.Headline, c meetingCandidate) bool {
 	if h == nil {
 		return false
 	}
-	for _, id := range strings.Fields(h.Properties["GCAL_RECURRING_EVENT_IDS"]) {
-		if id == recurID {
+	for _, id := range strings.Fields(h.Properties[c.kind.idsProperty()]) {
+		if id == c.id {
 			return true
 		}
 	}

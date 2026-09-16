@@ -400,13 +400,14 @@ type Model struct {
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
 
 	// meetingPickerTarget is the entry "gM" was invoked on, whose
-	// GCAL_RECURRING_EVENT_IDS the highlighted candidate is
+	// GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS (matching whichever the
+	// highlighted candidate is — see meetingCandidate.kind) is
 	// attached/detached from on Enter (see applySelectedMeeting).
 	// meetingPickerCandidates is computed once, when the picker opens
-	// (startMeetingPicker) — every distinct recurring series gcalsync
-	// currently has synced at least one instance of — and only filtered
-	// (never recomputed) for the rest of the session, so the list
-	// doesn't shift under the user mid-selection. meetingPickerFilter is
+	// (startMeetingPicker) — every distinct recurring series or one-off
+	// event gcalsync currently has synced at least one instance of — and
+	// only filtered (never recomputed) for the rest of the session, so
+	// the list doesn't shift under the user mid-selection. meetingPickerFilter is
 	// typed so far (a plain substring match against each candidate's
 	// title, unlike selectFilter's prefix/shortcut matching — titles are
 	// arbitrary text, not a small fixed set of keywords); meetingPickerIndex
@@ -3046,15 +3047,18 @@ func (m *Model) currentStatusIndex() int {
 
 // startMeetingPicker ("gM") opens a fuzzy-filterable picker (see
 // updateMeetingPickerMode) over every distinct recurring meeting series
-// gcalsync currently has synced at least one instance of (see
-// meetingCandidates, in agenda.go), letting the user toggle the chosen
-// series' ID on or off the current entry's GCAL_RECURRING_EVENT_IDS
-// property — so it shows up under that meeting in the agenda's Meetings
-// section (see appendMeetingsSection) next time it comes around. A
-// no-op (with a status message) if the cursor isn't on a headline, the
-// entry is locked by an in-flight :format-links batch, or gcalsync
-// hasn't synced anything with a recurring series at all — in which case
-// there's nothing to offer, and no point opening an empty picker.
+// or one-off event gcalsync currently has synced at least one instance
+// of (see meetingCandidates, in agenda.go), letting the user toggle the
+// chosen meeting's ID on or off the current entry's
+// GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS property (matching
+// whichever kind the meeting is — see meetingCandidate.kind) — so it
+// shows up under that meeting in the agenda's Meetings section (see
+// appendMeetingsSection) next time it's due (a recurring series) or
+// until it happens (a one-off). A no-op (with a status message) if the
+// cursor isn't on a headline, the entry is locked by an in-flight
+// :format-links batch, or gcalsync hasn't synced anything at all — in
+// which case there's nothing to offer, and no point opening an empty
+// picker.
 func (m *Model) startMeetingPicker() {
 	h := m.currentHeadline()
 	if h == nil || m.refuseIfImmutable(h) {
@@ -3062,7 +3066,7 @@ func (m *Model) startMeetingPicker() {
 	}
 	candidates := m.meetingCandidates(time.Now())
 	if len(candidates) == 0 {
-		m.message = "No recurring calendar meetings synced yet (see gcalsync)"
+		m.message = "No calendar meetings synced yet (see gcalsync)"
 		return
 	}
 	m.mode = meetingPickerMode
@@ -3153,30 +3157,33 @@ func (m Model) applySelectedMeeting() (tea.Model, tea.Cmd) {
 }
 
 // buildMeetingAttachAction builds the undoAction toggling c on or off
-// h's GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS properties
-// (adding both if c isn't yet attached, removing both if it is — see
-// meetingIsAttached), without applying or pushing it yet (see pushUndo).
-// The two properties are kept index-aligned: attaching appends c's ID
-// and (if c has a link) its "[[url][title]]" link to the end of each;
-// detaching removes whichever ID matched, and the link at that same
-// index, if one exists there (gracefully doing nothing to the links
-// list if the two have drifted out of alignment — e.g. a link-less
-// candidate was attached, or either property was hand-edited — rather
-// than risk removing the wrong entry).
+// h's ids/links property pair — GCAL_RECURRING_EVENT_IDS/
+// GCAL_RECURRING_EVENT_LINKS for a recurring series, GCAL_EVENT_IDS/
+// GCAL_EVENT_LINKS for a one-off event, per c.kind (adding both if c
+// isn't yet attached, removing both if it is — see meetingIsAttached),
+// without applying or pushing it yet (see pushUndo). The two properties
+// are kept index-aligned: attaching appends c's ID and (if c has a
+// link) its "[[url][title]]" link to the end of each; detaching removes
+// whichever ID matched, and the link at that same index, if one exists
+// there (gracefully doing nothing to the links list if the two have
+// drifted out of alignment — e.g. a link-less candidate was attached,
+// or either property was hand-edited — rather than risk removing the
+// wrong entry).
 func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) undoAction {
-	oldIDsRaw, hadIDs := h.Properties["GCAL_RECURRING_EVENT_IDS"]
-	oldLinksRaw, hadLinks := h.Properties["GCAL_RECURRING_EVENT_LINKS"]
+	idsProp, linksProp := c.kind.idsProperty(), c.kind.linksProperty()
+	oldIDsRaw, hadIDs := h.Properties[idsProp]
+	oldLinksRaw, hadLinks := h.Properties[linksProp]
 
 	ids := strings.Fields(oldIDsRaw)
 	links := parseOrgLinks(oldLinksRaw)
 
-	if idx := indexOfString(ids, c.recurringEventID); idx >= 0 {
+	if idx := indexOfString(ids, c.id); idx >= 0 {
 		ids = append(ids[:idx], ids[idx+1:]...)
 		if idx < len(links) {
 			links = append(links[:idx], links[idx+1:]...)
 		}
 	} else {
-		ids = append(ids, c.recurringEventID)
+		ids = append(ids, c.id)
 		if c.link != "" {
 			links = append(links, orgLink{url: c.link, description: c.title})
 		}
@@ -3185,6 +3192,8 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) un
 	return &meetingAttachAction{
 		h:                h,
 		f:                m.fileForHeadline(h),
+		idsProp:          idsProp,
+		linksProp:        linksProp,
 		hadIDsProperty:   hadIDs,
 		oldIDs:           oldIDsRaw,
 		newIDs:           strings.Join(ids, " "),
@@ -3195,7 +3204,8 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) un
 }
 
 // joinOrgLinks is the inverse of parseOrgLinks: renders links back into
-// a GCAL_RECURRING_EVENT_LINKS-shaped property value.
+// a GCAL_RECURRING_EVENT_LINKS- or GCAL_EVENT_LINKS-shaped property
+// value.
 func joinOrgLinks(links []orgLink) string {
 	parts := make([]string, len(links))
 	for i, l := range links {
@@ -4098,8 +4108,8 @@ func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
 // the meeting(s) an entry references, the same way a link embedded
 // directly in its title already is: h's own link, if h is itself a
 // synced calendar event (GCAL_HTML_LINK — see cmd/gcalsync/convert.go);
-// one-off meetings it was captured during (GCAL_EVENT_LINKS/
-// GCAL_EVENT_IDS); and recurring series it's attached to, via "gC" or
+// one-off events it's attached to via "gM" (GCAL_EVENT_LINKS/
+// GCAL_EVENT_IDS); and recurring series it's attached to, likewise via
 // "gM" (GCAL_RECURRING_EVENT_LINKS/GCAL_RECURRING_EVENT_IDS) — see
 // resolveMeetingLinks for how each of the latter two pairs is resolved.
 // This is what lets calendarView show an event's meeting details (link,
@@ -4119,16 +4129,16 @@ func (m *Model) calendarEventLinks(h *org.Headline) []string {
 // resolveMeetingLinks resolves one (linksProp, idsProp) pair on h into
 // "<meeting name>: <url>" entries.
 //
-// linksProp (set by startCapture and/or "gM" — one "[[url][title]]" per
-// matched/attached meeting) is tried first: it was captured once, at
-// the time h was linked to the meeting, so it keeps working
-// indefinitely, even long after gcalsync's sync window has moved past
-// the meeting (or the meeting stopped recurring entirely) and
-// calendar.org no longer has it cached. Only if linksProp is missing
-// entirely — e.g. an idsProp hand-attached to a task directly (per
-// DESIGN.md's project↔meeting association) rather than via "gC"/"gM" —
-// does this fall back to a live lookup by idProp (the per-headline
-// property identifying a single calendar.org event, GCAL_EVENT_ID or
+// linksProp (set by "gM" — one "[[url][title]]" per matched/attached
+// meeting) is tried first: it was captured once, at the time h was
+// linked to the meeting, so it keeps working indefinitely, even long
+// after gcalsync's sync window has moved past the meeting (or the
+// meeting stopped recurring entirely) and calendar.org no longer has it
+// cached. Only if linksProp is missing entirely — e.g. an idsProp
+// hand-attached to a task directly (per DESIGN.md's project↔meeting
+// association) rather than via "gM" — does this fall back to a live
+// lookup by idProp (the per-headline property identifying a single
+// calendar.org event, GCAL_EVENT_ID or
 // GCAL_RECURRING_EVENT_ID) against whatever calendar.org currently has
 // cached, which (with no captured link to fall back on) can come up
 // empty once the event ages out; an ID that resolves neither way is
@@ -6126,7 +6136,7 @@ func (m Model) renderMeetingPicker() string {
 		}
 		c := matches[idx]
 		action := "attaches"
-		if meetingIsAttached(m.meetingPickerTarget, c.recurringEventID) {
+		if meetingIsAttached(m.meetingPickerTarget, c) {
 			action = "detaches (already attached)"
 		}
 		line = fmt.Sprintf(" Attach meeting (%d/%d): %s — %s  [Enter %s]",

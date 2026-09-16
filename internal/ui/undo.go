@@ -144,16 +144,21 @@ func (a *deadlineChangeAction) revert(m *Model) *org.Headline {
 func (a *deadlineChangeAction) file() *org.File           { return a.f }
 func (a *deadlineChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
-// meetingAttachAction records "gM" toggling one recurring meeting series
-// on or off an entry's GCAL_RECURRING_EVENT_IDS and
-// GCAL_RECURRING_EVENT_LINKS properties together (see
-// buildMeetingAttachAction/applySelectedMeeting in model.go).
-// hadIDsProperty/hadLinksProperty distinguish "restore the old value"
-// from "the property didn't exist before this action" on revert, same
-// as repeatAdvanceAction's hadLastRepeat for LAST_REPEAT.
+// meetingAttachAction records "gM" toggling one meeting (a recurring
+// series or a one-off event — see meetingCandidate.kind) on or off an
+// entry's ids/links property pair together — idsProp/linksProp name
+// which pair (GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS or
+// GCAL_EVENT_IDS/GCAL_EVENT_LINKS), fixed at construction (see
+// buildMeetingAttachAction/applySelectedMeeting in model.go), since
+// apply/revert alone have no other way to know which kind of meeting
+// this action was for. hadIDsProperty/hadLinksProperty distinguish
+// "restore the old value" from "the property didn't exist before this
+// action" on revert, same as repeatAdvanceAction's hadLastRepeat for
+// LAST_REPEAT.
 type meetingAttachAction struct {
 	h                  *org.Headline
 	f                  *org.File
+	idsProp, linksProp string
 	hadIDsProperty     bool
 	oldIDs, newIDs     string
 	hadLinksProperty   bool
@@ -161,14 +166,14 @@ type meetingAttachAction struct {
 }
 
 func (a *meetingAttachAction) apply(m *Model) *org.Headline {
-	setOrDeleteProperty(a.h, "GCAL_RECURRING_EVENT_IDS", a.newIDs)
-	setOrDeleteProperty(a.h, "GCAL_RECURRING_EVENT_LINKS", a.newLinks)
+	setOrDeleteProperty(a.h, a.idsProp, a.newIDs)
+	setOrDeleteProperty(a.h, a.linksProp, a.newLinks)
 	return a.h
 }
 
 func (a *meetingAttachAction) revert(m *Model) *org.Headline {
-	restoreProperty(a.h, "GCAL_RECURRING_EVENT_IDS", a.hadIDsProperty, a.oldIDs)
-	restoreProperty(a.h, "GCAL_RECURRING_EVENT_LINKS", a.hadLinksProperty, a.oldLinks)
+	restoreProperty(a.h, a.idsProp, a.hadIDsProperty, a.oldIDs)
+	restoreProperty(a.h, a.linksProp, a.hadLinksProperty, a.oldLinks)
 	return a.h
 }
 
