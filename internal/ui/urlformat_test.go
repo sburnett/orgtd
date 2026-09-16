@@ -386,7 +386,7 @@ func TestWithURLFormatterPrefixesAppliedThroughNew(t *testing.T) {
 	m.cursor = idx
 	old := m.currentHeadline()
 
-	path := writeTempOrgFile(t, "* TODO Call the vet about Fido's checkup\n  See go/my-shortlink for details.\n")
+	path := writeTempOrgFile(t, "TODO Call the vet about Fido's checkup\n  See go/my-shortlink for details.\n")
 
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)
@@ -404,7 +404,7 @@ func TestFormatURLsAppliedDuringFinishEdit(t *testing.T) {
 	m.cursor = idx
 	old := m.currentHeadline()
 
-	path := writeTempOrgFile(t, "* TODO Call the vet about Fido's checkup\n  See https://example.com/vet for details.\n")
+	path := writeTempOrgFile(t, "TODO Call the vet about Fido's checkup\n  See https://example.com/vet for details.\n")
 
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)
@@ -426,7 +426,7 @@ func TestFormatURLsNotAppliedWhenNoFormatterConfigured(t *testing.T) {
 	m.cursor = idx
 	old := m.currentHeadline()
 
-	path := writeTempOrgFile(t, "* TODO Call the vet about Fido's checkup\n  See https://example.com/vet for details.\n")
+	path := writeTempOrgFile(t, "TODO Call the vet about Fido's checkup\n  See https://example.com/vet for details.\n")
 
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)

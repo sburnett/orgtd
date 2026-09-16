@@ -133,7 +133,7 @@ func TestMarkSurvivesEditingTheMarkedEntry(t *testing.T) {
 	m = sendKey(m, "a")
 	old := m.currentHeadline()
 
-	path := writeTempOrgFile(t, "* NEXT Call the vet about Fido's checkup ASAP\n")
+	path := writeTempOrgFile(t, "NEXT Call the vet about Fido's checkup ASAP\n")
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)
 
@@ -160,7 +160,7 @@ func TestMarkFollowsUndoOfAnEdit(t *testing.T) {
 	m = sendKey(m, "a")
 	old := m.currentHeadline()
 
-	path := writeTempOrgFile(t, "* NEXT Call the vet about Fido's checkup ASAP\n")
+	path := writeTempOrgFile(t, "NEXT Call the vet about Fido's checkup ASAP\n")
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)
 	edited := m.marks['a']

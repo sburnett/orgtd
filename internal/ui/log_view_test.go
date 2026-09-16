@@ -153,7 +153,7 @@ func TestLogViewIncludesEditorStartWithPidAndArgsAndExit(t *testing.T) {
 	// a real, populated *exec.Cmd.
 	editorCmd := startedCmdForTest(t)
 	updated, _ := m.Update(editFinishedMsg{
-		path:   writeTempOrgFile(t, "* TODO Call the vet about Fido's checkup\n"),
+		path:   writeTempOrgFile(t, "TODO Call the vet about Fido's checkup\n"),
 		target: m.currentHeadline(),
 		cmd:    editorCmd,
 	})

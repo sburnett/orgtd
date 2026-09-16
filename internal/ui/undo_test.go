@@ -133,7 +133,8 @@ func TestUndoRedoSubtreeEdit(t *testing.T) {
 	old := m.currentHeadline()
 	childCount := len(old.Children)
 
-	edited := strings.Replace(org.RenderHeadline(old), "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
+	entry := dedentEntry(org.RenderEntry(old), old.Level)
+	edited := strings.Replace(entry, "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
 	path := writeTempOrgFile(t, edited)
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)

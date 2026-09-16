@@ -9,6 +9,116 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
+// TestEditEntryContextOnDetachedHeadlineDoesNotPanic guards a real
+// crash: insertPosition (undo.go) used to dereference f.Headlines
+// unconditionally even when the caller was about to use parent.Children
+// instead, so any headline whose file couldn't be found (fileForHeadline
+// returns nil — e.g. a stale row left over from an external-edit
+// reload, per internal/workspace's file watcher) crashed the whole
+// program the moment editEntryContext tried to compute its siblings,
+// which every "i"/"A"/o/O/capture session does. A top-level headline
+// detached from every loaded file exercises the parent==nil branch;
+// TestEditEntryContextOnDetachedNestedHeadlineDoesNotPanic below covers
+// the parent!=nil branch, since insertPosition's old bug crashed
+// regardless of which one applied.
+func TestEditEntryContextOnDetachedHeadlineDoesNotPanic(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	orphan := &org.Headline{Level: 1, Title: "Not part of any loaded file"}
+
+	f, parent, idx := m.insertPosition(orphan)
+	if f != nil || parent != nil || idx != -1 {
+		t.Errorf("insertPosition(orphan) = (%v, %v, %d), want (nil, nil, -1)", f, parent, idx)
+	}
+
+	prev, next, earlierCount := m.siblingHeadlines(orphan)
+	if prev != nil || next != nil || earlierCount != 0 {
+		t.Errorf("siblingHeadlines(orphan) = (%v, %v, %d), want (nil, nil, 0)", prev, next, earlierCount)
+	}
+
+	// The real crash: building the comment trailer for an entry whose
+	// file can't be found.
+	trailer := m.editEntryContext(orphan, false)
+	if !strings.Contains(trailer, "[THIS ENTRY HERE]") {
+		t.Errorf("trailer missing the marker even without file/sibling context:\n%s", trailer)
+	}
+}
+
+// TestEditEntryContextOnDetachedNestedHeadlineDoesNotPanic is the
+// parent!=nil counterpart of the test above: insertPosition's old bug
+// dereferenced f.Headlines before ever checking parent, so a detached
+// *nested* headline crashed identically even though the lookup would
+// have used parent.Children, never f, once it got there.
+func TestEditEntryContextOnDetachedNestedHeadlineDoesNotPanic(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	orphanParent := &org.Headline{Level: 1, Title: "Detached parent"}
+	orphanChild := &org.Headline{Level: 2, Title: "Detached child", Parent: orphanParent}
+	orphanParent.Children = []*org.Headline{orphanChild}
+
+	f, parent, idx := m.insertPosition(orphanChild)
+	if f != nil || parent != orphanParent || idx != 0 {
+		t.Errorf("insertPosition(orphanChild) = (%v, %v, %d), want (nil, orphanParent, 0)", f, parent, idx)
+	}
+
+	trailer := m.editEntryContext(orphanChild, false)
+	if !strings.Contains(trailer, "[THIS ENTRY HERE]") {
+		t.Errorf("trailer missing the marker even without file context:\n%s", trailer)
+	}
+}
+
+func TestDedentEntryRemovesBulletAndMatchingIndentFromEveryLine(t *testing.T) {
+	h := &org.Headline{
+		Level:         2,
+		Keyword:       "NEXT",
+		Title:         "Implement the org file parser",
+		PropertyOrder: []string{"ID"},
+		Properties:    map[string]string{"ID": "abc123"},
+		Body:          []string{"   Headlines, planning lines, properties, body text."},
+	}
+	rendered := strings.TrimRight(org.RenderEntry(h), "\n")
+
+	got := dedentEntry(rendered, h.Level)
+
+	want := "NEXT Implement the org file parser\n" +
+		":PROPERTIES:\n" +
+		":ID: abc123\n" +
+		":END:\n" +
+		"Headlines, planning lines, properties, body text."
+	if got != want {
+		t.Errorf("dedentEntry() =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestIndentEntryReversesDedentEntry(t *testing.T) {
+	h := &org.Headline{
+		Level:         2,
+		Keyword:       "NEXT",
+		Title:         "Implement the org file parser",
+		PropertyOrder: []string{"ID"},
+		Properties:    map[string]string{"ID": "abc123"},
+		Body:          []string{"   Headlines, planning lines, properties, body text."},
+	}
+	rendered := strings.TrimRight(org.RenderEntry(h), "\n")
+
+	dedented := dedentEntry(rendered, h.Level)
+	got := indentEntry(dedented, h.Level)
+
+	if got != rendered {
+		t.Errorf("indentEntry(dedentEntry(s)) =\n%q\nwant original\n%q", got, rendered)
+	}
+}
+
+func TestIndentEntryLeavesBlankLinesAlone(t *testing.T) {
+	got := indentEntry("TODO Buy milk\n\nSecond body line.", 1)
+	want := "* TODO Buy milk\n\n  Second body line."
+	if got != want {
+		t.Errorf("indentEntry() = %q, want %q (blank line not indented)", got, want)
+	}
+}
+
 func TestEditorCommandPrefersOverrideOverEditorEnv(t *testing.T) {
 	t.Setenv("EDITOR", "nano")
 	m := New(agendaFixture(t, "* TODO x\n"), WithEditor("emacsclient -t"))
@@ -50,41 +160,41 @@ func TestStripCommentLinesPreservesDirectivesAndRealContent(t *testing.T) {
 	}
 }
 
-func TestEditorContextNotesURLFormattingWhenConfigured(t *testing.T) {
+func TestEditEntryContextNotesURLFormattingWhenConfigured(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws, WithURLFormatter(writeFakeFormatter(t, `echo "[[$1]]"`)))
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
-	_, after := m.editorContext(false, h)
+	trailer := m.editEntryContext(h, false)
 
-	if !strings.Contains(after, "formatted into org-mode links automatically") {
-		t.Errorf("after-block missing the URL-formatter note:\n%s", after)
+	if !strings.Contains(trailer, "formatted into org-mode links automatically") {
+		t.Errorf("trailer missing the URL-formatter note:\n%s", trailer)
 	}
-	if !strings.Contains(after, "[[http://...]]") {
-		t.Errorf("after-block missing guidance on doing it yourself:\n%s", after)
+	if !strings.Contains(trailer, "[[http://...]]") {
+		t.Errorf("trailer missing guidance on doing it yourself:\n%s", trailer)
 	}
-	for _, line := range strings.Split(strings.TrimRight(after, "\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(trailer, "\n"), "\n") {
 		if line != "" && !strings.HasPrefix(line, "#") {
 			t.Errorf("non-comment line in context block: %q", line)
 		}
 	}
 }
 
-func TestEditorContextOmitsURLFormattingNoteWhenNotConfigured(t *testing.T) {
+func TestEditEntryContextOmitsURLFormattingNoteWhenNotConfigured(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws) // no WithURLFormatter option
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
-	_, after := m.editorContext(false, h)
+	trailer := m.editEntryContext(h, false)
 
-	if strings.Contains(after, "formatted into org-mode links") {
-		t.Errorf("after-block should not mention URL formatting when it's disabled:\n%s", after)
+	if strings.Contains(trailer, "formatted into org-mode links") {
+		t.Errorf("trailer should not mention URL formatting when it's disabled:\n%s", trailer)
 	}
 }
 
-func TestEditorContextShowsSiblingsAndFile(t *testing.T) {
+func TestEditEntryContextShowsSiblingsFileAndMarker(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Read the RFC linked in yesterday's design review")
@@ -93,35 +203,56 @@ func TestEditorContextShowsSiblingsAndFile(t *testing.T) {
 		t.Fatalf("fixture assumption broken: expected a top-level headline")
 	}
 
-	before, after := m.editorContext(false, h)
+	trailer := m.editEntryContext(h, false)
 
-	if !strings.Contains(before, "# inbox.org\n") {
-		t.Errorf("before-block missing the file name header:\n%s", before)
+	if !strings.Contains(trailer, "# inbox.org\n") {
+		t.Errorf("trailer missing the file name header:\n%s", trailer)
 	}
-	if !strings.Contains(before, "# * TODO Call the vet about Fido's checkup\n") {
-		t.Errorf("before-block missing the previous sibling:\n%s", before)
+	if !strings.Contains(trailer, "# * TODO Call the vet about Fido's checkup\n") {
+		t.Errorf("trailer missing the previous sibling:\n%s", trailer)
 	}
-	if strings.Contains(before, "Ship orgtd") || strings.Count(before, "*") != 1 {
-		t.Errorf("before-block should have no parent line (top-level headline):\n%s", before)
+	if !strings.Contains(trailer, "# * [THIS ENTRY HERE]\n") {
+		t.Errorf("trailer missing the marker for the entry itself (level 1, one star):\n%s", trailer)
+	}
+	if !strings.Contains(trailer, "# * TODO Follow up with finance about the Q3 budget doc\n") {
+		t.Errorf("trailer missing the next sibling:\n%s", trailer)
+	}
+	if !strings.Contains(trailer, "Editing this entry.") {
+		t.Errorf("trailer missing the action/instructions:\n%s", trailer)
+	}
+	if strings.Contains(trailer, "Ship orgtd") {
+		t.Errorf("trailer should have no parent line (top-level headline):\n%s", trailer)
 	}
 
-	if !strings.Contains(after, "# * TODO Follow up with finance about the Q3 budget doc\n") {
-		t.Errorf("after-block missing the next sibling:\n%s", after)
-	}
-	if !strings.Contains(after, "Editing this entry.") {
-		t.Errorf("after-block missing the action/instructions:\n%s", after)
-	}
-
-	for _, block := range []string{before, after} {
-		for _, line := range strings.Split(strings.TrimRight(block, "\n"), "\n") {
-			if line != "" && !strings.HasPrefix(line, "#") {
-				t.Errorf("non-comment line in context block: %q", line)
-			}
+	for _, line := range strings.Split(strings.TrimRight(trailer, "\n"), "\n") {
+		if line != "" && !strings.HasPrefix(line, "#") {
+			t.Errorf("non-comment line in context block: %q", line)
 		}
 	}
 }
 
-func TestEditorContextShowsParentWhenNested(t *testing.T) {
+func TestEditEntryContextShowsOwnChildrenBelowMarker(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Ship orgtd v0.1")
+	h := m.currentHeadline()
+	if len(h.Children) == 0 {
+		t.Fatalf("fixture assumption broken: expected children")
+	}
+
+	trailer := m.editEntryContext(h, false)
+
+	marker := strings.Index(trailer, "[THIS ENTRY HERE]")
+	child := strings.Index(trailer, "# ** DONE Write the design document\n")
+	if marker < 0 || child < 0 || child < marker {
+		t.Errorf("expected the marker followed by this entry's own children as a sub-tree:\n%s", trailer)
+	}
+	if !strings.Contains(trailer, "# ** NEXT Implement the org file parser\n") {
+		t.Errorf("trailer missing a second child:\n%s", trailer)
+	}
+}
+
+func TestEditEntryContextShowsParentWhenNestedAndInsertWording(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Implement the org file parser") // a child of "Ship orgtd v0.1"
@@ -130,23 +261,26 @@ func TestEditorContextShowsParentWhenNested(t *testing.T) {
 		t.Fatalf("fixture assumption broken: expected a level-2 headline with a parent")
 	}
 
-	before, after := m.editorContext(true, h)
+	trailer := m.editEntryContext(h, true)
 
-	if !strings.Contains(before, "# * Ship orgtd v0.1\n") {
-		t.Errorf("before-block missing the parent (single star, level 1):\n%s", before)
+	if !strings.Contains(trailer, "# * Ship orgtd v0.1\n") {
+		t.Errorf("trailer missing the parent (single star, level 1):\n%s", trailer)
 	}
-	if !strings.Contains(before, "# ** DONE Write the design document\n") {
-		t.Errorf("before-block missing the previous sibling (two stars, level 2):\n%s", before)
+	if !strings.Contains(trailer, "# ** DONE Write the design document\n") {
+		t.Errorf("trailer missing the previous sibling (two stars, level 2):\n%s", trailer)
 	}
-	if !strings.Contains(after, "# ** TODO Implement the Bubble Tea viewer\n") {
-		t.Errorf("after-block missing the next sibling (two stars, level 2):\n%s", after)
+	if !strings.Contains(trailer, "# ** [THIS ENTRY HERE]\n") {
+		t.Errorf("trailer missing the marker (two stars, level 2):\n%s", trailer)
 	}
-	if !strings.Contains(after, "Inserting a new entry.") {
-		t.Errorf("after-block missing the insert-specific action text:\n%s", after)
+	if !strings.Contains(trailer, "# ** TODO Implement the Bubble Tea viewer\n") {
+		t.Errorf("trailer missing the next sibling (two stars, level 2):\n%s", trailer)
+	}
+	if !strings.Contains(trailer, "Inserting a new entry.") {
+		t.Errorf("trailer missing the insert-specific action text:\n%s", trailer)
 	}
 }
 
-func TestEditorContextShowsEarlierSiblingsSummaryWhenMultiple(t *testing.T) {
+func TestEditEntryContextShowsEarlierSiblingsSummaryWhenMultiple(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	// 4th child of "Ship orgtd v0.1": one immediate previous sibling
@@ -154,46 +288,49 @@ func TestEditorContextShowsEarlierSiblingsSummaryWhenMultiple(t *testing.T) {
 	m.cursor = findRow(t, m, "Get feedback on the keybinding scheme")
 	h := m.currentHeadline()
 
-	before, _ := m.editorContext(false, h)
+	trailer := m.editEntryContext(h, false)
 
-	if !strings.Contains(before, "... 2 earlier siblings ...\n") {
-		t.Errorf("before-block missing the earlier-siblings summary:\n%s", before)
+	if !strings.Contains(trailer, "... 2 earlier siblings ...\n") {
+		t.Errorf("trailer missing the earlier-siblings summary:\n%s", trailer)
 	}
-	if !strings.Contains(before, "# ** TODO Implement the Bubble Tea viewer\n") {
-		t.Errorf("before-block missing the immediate previous sibling:\n%s", before)
+	if !strings.Contains(trailer, "# ** TODO Implement the Bubble Tea viewer\n") {
+		t.Errorf("trailer missing the immediate previous sibling:\n%s", trailer)
 	}
-	if strings.Contains(before, "Write the design document") {
-		t.Errorf("before-block should not spell out siblings covered by the summary:\n%s", before)
+	if strings.Contains(trailer, "Write the design document") {
+		t.Errorf("trailer should not spell out siblings covered by the summary:\n%s", trailer)
 	}
 }
 
-func TestEditorContextOmitsSummaryWithOnlyOneEarlierSibling(t *testing.T) {
+func TestEditEntryContextOmitsSummaryWithOnlyOneEarlierSibling(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Implement the org file parser") // 2nd child: one previous, zero earlier
 	h := m.currentHeadline()
 
-	before, _ := m.editorContext(false, h)
+	trailer := m.editEntryContext(h, false)
 
-	if strings.Contains(before, "earlier sibling") {
-		t.Errorf("before-block should not show a summary when there's nothing more to summarize:\n%s", before)
+	if strings.Contains(trailer, "earlier sibling") {
+		t.Errorf("trailer should not show a summary when there's nothing more to summarize:\n%s", trailer)
 	}
 }
 
-func TestEditorContextAtBoundaries(t *testing.T) {
+func TestEditEntryContextAtBoundaries(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup") // first headline in inbox.org
 	h := m.currentHeadline()
 
-	before, after := m.editorContext(false, h)
+	trailer := m.editEntryContext(h, false)
 
-	// No parent, no previous sibling: the before-block is just the file header.
-	if strings.Contains(before, "*") {
-		t.Errorf("before-block should have no parent/sibling line at the very first entry:\n%s", before)
+	// No parent, no previous sibling: nothing before the marker itself.
+	if strings.Contains(trailer, "Ship orgtd") {
+		t.Errorf("trailer should have no parent/sibling line at the very first entry:\n%s", trailer)
 	}
-	if !strings.Contains(after, "# * TODO Read the RFC linked in yesterday's design review\n") {
-		t.Errorf("after-block missing the next sibling:\n%s", after)
+	if !strings.Contains(trailer, "# * [THIS ENTRY HERE]\n") {
+		t.Errorf("trailer missing the marker:\n%s", trailer)
+	}
+	if !strings.Contains(trailer, "# * TODO Read the RFC linked in yesterday's design review\n") {
+		t.Errorf("trailer missing the next sibling:\n%s", trailer)
 	}
 }
 
@@ -234,11 +371,17 @@ func TestLaunchEditorTempFileHasContextTrailerThatDoesNotLeak(t *testing.T) {
 	}
 	content := string(data)
 
-	if !strings.Contains(content, "* TODO Call the vet about Fido's checkup") {
-		t.Errorf("temp file missing the real content:\n%s", content)
+	if !strings.HasPrefix(content, "TODO Call the vet about Fido's checkup") {
+		t.Errorf("temp file should start with the entry's own text, bullet-free:\n%s", content)
+	}
+	if strings.Contains(strings.SplitN(content, "\n", 2)[0], "*") {
+		t.Errorf("temp file's first line should have no bullet:\n%s", content)
 	}
 	if !strings.Contains(content, "# inbox.org\n") {
 		t.Errorf("temp file missing the file name header:\n%s", content)
+	}
+	if !strings.Contains(content, "# * [THIS ENTRY HERE]\n") {
+		t.Errorf("temp file missing the entry marker:\n%s", content)
 	}
 	if !strings.Contains(content, "# * TODO Read the RFC linked in yesterday's design review\n") {
 		t.Errorf("temp file missing next-entry context:\n%s", content)
@@ -484,53 +627,46 @@ func TestBuildEditorCommandEntryStartPlacementFallsBackForEmacsAndNano(t *testin
 	}
 }
 
-func TestResolveCursorPlacementDowngradesToLineEndForBlankEntry(t *testing.T) {
-	// A fresh o/O template: no keyword, no priority, no title — nothing
-	// follows the bullet, so the desired column (right after "* ") is
-	// one past the line's last real character.
-	h := &org.Headline{Level: 1}
-	placement, col := resolveCursorPlacement(h, cursorAtEntryStart)
+func TestResolveEntryCursorPlacementDowngradesToLineEndForBlankEntry(t *testing.T) {
+	// A fresh o/O template: no keyword, no priority, no title — the
+	// stripped-bullet first line is completely empty.
+	placement, col := resolveEntryCursorPlacement("", cursorAtEntryStart)
 	if placement != cursorAtLineEnd {
-		t.Errorf("placement = %v, want cursorAtLineEnd (nothing follows the bullet)", placement)
+		t.Errorf("placement = %v, want cursorAtLineEnd (nothing on the first line)", placement)
 	}
-	if col != 3 {
-		t.Errorf("col = %d, want 3 (unused by cursorAtLineEnd, but still level+2)", col)
+	if col != 1 {
+		t.Errorf("col = %d, want 1 (unused by cursorAtLineEnd, but still column 1)", col)
 	}
 }
 
-func TestResolveCursorPlacementKeepsEntryStartWhenTitleExists(t *testing.T) {
-	h := &org.Headline{Level: 1, Keyword: "TODO", Title: "Buy milk"}
-	placement, col := resolveCursorPlacement(h, cursorAtEntryStart)
+func TestResolveEntryCursorPlacementKeepsEntryStartWhenTitleExists(t *testing.T) {
+	placement, col := resolveEntryCursorPlacement("TODO Buy milk\n", cursorAtEntryStart)
 	if placement != cursorAtEntryStart {
 		t.Errorf("placement = %v, want cursorAtEntryStart (there's real text on the line)", placement)
 	}
-	if col != 3 {
-		t.Errorf("col = %d, want 3 (right after \"* \")", col)
+	if col != 1 {
+		t.Errorf("col = %d, want 1 (there's no bullet to land after)", col)
 	}
 }
 
-func TestResolveCursorPlacementHandlesDeeperLevelsWithKeywordButNoTitle(t *testing.T) {
-	// Level 2 with a keyword but no title yet renders as "** TODO "
-	// (writeHeadline always writes a trailing space after the keyword).
-	// The desired column (level+2 = 4, right after "** ") lands on "T",
-	// a real character — well within the line — so this should stay
-	// cursorAtEntryStart even though the title itself is still blank.
-	h := &org.Headline{Level: 2, Keyword: "TODO"}
-	placement, col := resolveCursorPlacement(h, cursorAtEntryStart)
+func TestResolveEntryCursorPlacementKeepsEntryStartWithKeywordButNoTitle(t *testing.T) {
+	// writeHeadlineFields always writes a trailing space after the
+	// keyword, so "TODO " (note the trailing space) is a non-empty first
+	// line even with a blank title — this should stay cursorAtEntryStart.
+	placement, col := resolveEntryCursorPlacement("TODO \n", cursorAtEntryStart)
 	if placement != cursorAtEntryStart {
-		t.Errorf("placement = %v, want cursorAtEntryStart: column %d (\"T\" of TODO) is a real character on \"** TODO \"", placement, col)
+		t.Errorf("placement = %v, want cursorAtEntryStart: \"TODO \" is a non-empty first line", placement)
 	}
-	if col != 4 {
-		t.Errorf("col = %d, want 4 (level 2 -> \"** \" is 3 characters)", col)
+	if col != 1 {
+		t.Errorf("col = %d, want 1", col)
 	}
 }
 
-func TestResolveCursorPlacementNeverAppliesToOtherPlacements(t *testing.T) {
-	h := &org.Headline{Level: 1}
-	if placement, _ := resolveCursorPlacement(h, cursorAtLineEnd); placement != cursorAtLineEnd {
+func TestResolveEntryCursorPlacementNeverAppliesToOtherPlacements(t *testing.T) {
+	if placement, _ := resolveEntryCursorPlacement("", cursorAtLineEnd); placement != cursorAtLineEnd {
 		t.Errorf("cursorAtLineEnd should pass through unchanged, got %v", placement)
 	}
-	if placement, _ := resolveCursorPlacement(h, noCursorPlacement); placement != noCursorPlacement {
+	if placement, _ := resolveEntryCursorPlacement("", noCursorPlacement); placement != noCursorPlacement {
 		t.Errorf("noCursorPlacement should pass through unchanged, got %v", placement)
 	}
 }

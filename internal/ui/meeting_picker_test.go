@@ -46,7 +46,7 @@ func TestGXOpensMeetingPickerAfterCaptureCommits(t *testing.T) {
 		t.Fatalf("gX didn't start a capture (no tentative headline)")
 	}
 
-	m = commitCaptureAndPickMeeting(t, m, "* Discuss rollout plan\n")
+	m = commitCaptureAndPickMeeting(t, m, "Discuss rollout plan\n")
 
 	if m.mode != meetingPickerMode {
 		t.Fatalf("mode = %v, want meetingPickerMode after capture commits", m.mode)
@@ -69,7 +69,7 @@ func TestGXWithNoRecurringMeetingsStillCapturesButSkipsPicker(t *testing.T) {
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "X")
-	m = commitCaptureAndPickMeeting(t, m, "* Discuss rollout plan\n")
+	m = commitCaptureAndPickMeeting(t, m, "Discuss rollout plan\n")
 
 	if m.mode == meetingPickerMode {
 		t.Fatalf("meeting picker opened with nothing to offer")

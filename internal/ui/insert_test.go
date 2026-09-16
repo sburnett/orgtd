@@ -46,7 +46,7 @@ func TestInsertAfterCreatesSiblingAfter(t *testing.T) {
 		t.Fatalf("tentative placed at row %d, want %d (immediately after)", m.cursor, idx+1)
 	}
 
-	m = commitTentative(t, m, orig, "* TODO Buy dog treats\n")
+	m = commitTentative(t, m, orig, "TODO Buy dog treats\n")
 
 	if m.rows[idx].headline != orig {
 		t.Errorf("original headline moved unexpectedly")
@@ -63,7 +63,7 @@ func TestInsertBeforeCreatesSiblingBefore(t *testing.T) {
 	orig := m.currentHeadline()
 
 	m = sendKey(m, "O")
-	m = commitTentative(t, m, orig, "* TODO Buy dog treats\n")
+	m = commitTentative(t, m, orig, "TODO Buy dog treats\n")
 
 	newIdx := findRow(t, m, "Buy dog treats")
 	origIdx := findRow(t, m, "Call the vet about Fido's checkup")
@@ -166,7 +166,7 @@ func TestInsertCreatedPropertyCanBeOverriddenOrRemoved(t *testing.T) {
 	// The user edits the template down to something with no CREATED at
 	// all (or a different one) before saving — nothing should force it
 	// back in afterward.
-	m = commitTentative(t, m, orig, "* TODO Buy dog treats\n")
+	m = commitTentative(t, m, orig, "TODO Buy dog treats\n")
 
 	committed := m.rows[findRow(t, m, "Buy dog treats")].headline
 	if _, exists := committed.Properties["CREATED"]; exists {
@@ -197,7 +197,7 @@ func TestInsertCommittedAsSingleUndoStep(t *testing.T) {
 	before := len(m.rows)
 
 	m = sendKey(m, "o")
-	m = commitTentative(t, m, orig, "* TODO Buy dog treats\n")
+	m = commitTentative(t, m, orig, "TODO Buy dog treats\n")
 	if len(m.rows) != before+1 {
 		t.Fatalf("rows after insert = %d, want %d", len(m.rows), before+1)
 	}
@@ -277,11 +277,11 @@ func TestInsertRollbackOnBlankTitle(t *testing.T) {
 		name string
 		body string
 	}{
-		{"stars and keyword only", "* TODO\n"},
-		{"stars and whitespace only", "*    \n"},
-		{"lone dash bullet", "* -\n"},
-		{"lone asterisk", "* *\n"},
-		{"keyword plus bullet", "* TODO -\n"},
+		{"keyword only", "TODO\n"},
+		{"whitespace only", "    \n"},
+		{"lone dash bullet", "-\n"},
+		{"lone asterisk", "*\n"},
+		{"keyword plus bullet", "TODO -\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -318,7 +318,7 @@ func TestInsertNotRollbackWhenTitleStartsWithBulletButHasRealText(t *testing.T) 
 	orig := m.currentHeadline()
 
 	m = sendKey(m, "o")
-	m = commitTentative(t, m, orig, "* TODO - Buy dog treats\n")
+	m = commitTentative(t, m, orig, "TODO - Buy dog treats\n")
 
 	idx := findRow(t, m, "- Buy dog treats")
 	if m.rows[idx].headline.Title != "- Buy dog treats" {
@@ -371,7 +371,7 @@ func TestInsertAtEndOfFile(t *testing.T) {
 		t.Errorf("tentative row = %d, want %d (right after the last existing top-level headline)", m.cursor, lastIdx+1)
 	}
 
-	m = commitTentative(t, m, nil, "* TODO New inbox item\n")
+	m = commitTentative(t, m, nil, "TODO New inbox item\n")
 	if got := m.rows[lastIdx+1].headline; got == nil || got.Title != "New inbox item" {
 		t.Errorf("row after the last existing item = %#v, want the new committed headline", got)
 	}
@@ -392,7 +392,7 @@ func TestInsertAtBeginningOfFile(t *testing.T) {
 		t.Errorf("tentative row = %d, want %d (right after the file header)", m.cursor, fileIdx+1)
 	}
 
-	m = commitTentative(t, m, nil, "* TODO New inbox item\n")
+	m = commitTentative(t, m, nil, "TODO New inbox item\n")
 
 	newIdx := findRow(t, m, "New inbox item")
 	if newIdx != fileIdx+1 {
@@ -431,7 +431,7 @@ func TestUndoTopLevelInsertFocusesPreviousSibling(t *testing.T) {
 	}
 
 	m = sendKey(m, "o")
-	m = commitTentative(t, m, orig, "* New project\n")
+	m = commitTentative(t, m, orig, "New project\n")
 
 	m = sendKey(m, "u")
 	// Matches vim: undoing an insert lands on whatever's now adjacent,
@@ -461,7 +461,7 @@ func TestUndoInsertOnEmptiedFileFocusesFileRow(t *testing.T) {
 
 	m.cursor = fileIdx
 	m = sendKey(m, "o")
-	m = commitTentative(t, m, nil, "* Only item\n")
+	m = commitTentative(t, m, nil, "Only item\n")
 
 	m = sendKey(m, "u")
 	if m.rows[m.cursor].file == nil {

@@ -3686,12 +3686,13 @@ const (
 	// always — used only for a whole-file edit (startEditFile), where
 	// there's no single entry to position a cursor within.
 	noCursorPlacement editorCursorPlacement = iota
-	// cursorAtEntryStart ("i", "o"/"O") puts the cursor right after the
-	// bullet — e.g. column 3 for a level-1 headline ("* " is 2
-	// characters) — in insert mode, so typing immediately inserts text
-	// there exactly as pressing vim's own "i" at that spot would. For
-	// o/O the entry is a blank template, so this is also where its
-	// title will end up starting.
+	// cursorAtEntryStart ("i", "o"/"O") puts the cursor at the very start
+	// of the entry's own text — column 1, since the buffer never shows a
+	// bullet to land after (see dedentEntry, launchEditor, and
+	// resolveEntryCursorPlacement) — in insert mode, so typing
+	// immediately inserts text there exactly as pressing vim's own "i" at
+	// that spot would. For o/O the entry is a blank template, so this is
+	// also where its title will end up starting.
 	cursorAtEntryStart
 	// cursorAtLineEnd ("A") puts the cursor at the end of the entry's
 	// first line, in insert mode — vim's own "A" (append at end of
@@ -3720,27 +3721,27 @@ func cursorPlacementArg(editorBase string, startLine, col int, placement editorC
 	return fmt.Sprintf("+%d", startLine)
 }
 
-// resolveCursorPlacement returns the placement and (1-based) column
-// launchEditor should actually request for h, downgrading
-// cursorAtEntryStart to cursorAtLineEnd when nothing follows the bullet
-// yet (a blank o/O template): vim's cursor()+startinsert needs the
-// target column to be an existing character — cursor() clamps to the
-// line's last real character rather than allowing a column one past the
-// end — so requesting the bullet's very next column on a line that ends
-// exactly there would land one character too early, ahead of the
-// bullet's own trailing space instead of after it. cursorAtLineEnd's
-// startinsert! (append) sidesteps this entirely: with nothing after the
-// bullet, "end of line" and "right after the bullet" are the exact same
-// position anyway. col is meaningless for any other placement.
-func resolveCursorPlacement(h *org.Headline, placement editorCursorPlacement) (editorCursorPlacement, int) {
-	col := h.Level + 2
+// resolveEntryCursorPlacement returns the placement and (1-based) column
+// launchEditor should actually request for a dedented entry buffer (see
+// dedentEntry): cursorAtEntryStart always targets column 1, since
+// there's no bullet to land after — for either an existing
+// entry ("i"/"A") or a blank o/O template alike. It downgrades to
+// cursorAtLineEnd when the first line is completely empty (a
+// just-started o/O insert, or an existing entry with a blank title):
+// vim's cursor()+startinsert needs the target column to be an existing
+// character — cursor() clamps to the line's last real character rather
+// than allowing a column one past the end — so requesting column 1 on a
+// zero-length line would fail. cursorAtLineEnd's startinsert! (append)
+// sidesteps this entirely: on an empty line, "end of line" and "column
+// 1" are the exact same position anyway.
+func resolveEntryCursorPlacement(entry string, placement editorCursorPlacement) (editorCursorPlacement, int) {
 	if placement == cursorAtEntryStart {
-		firstLine, _, _ := strings.Cut(org.RenderHeadline(h), "\n")
-		if col > len(firstLine) {
+		firstLine, _, _ := strings.Cut(entry, "\n")
+		if len(firstLine) == 0 {
 			placement = cursorAtLineEnd
 		}
 	}
-	return placement, col
+	return placement, 1
 }
 
 // editorCommand returns the external editor to launch: m.editorOverride
@@ -3860,11 +3861,22 @@ func buildEditorCommand(editorEnv, path, before string, placement editorCursorPl
 // launchEditor writes h to a temp file and opens it in $EDITOR (vim by
 // default), suspending the TUI for the duration. ctx tags the resulting
 // editFinishedMsg so finishEdit knows whether this is an o/O insert
-// session or a plain `i`/`A` edit. placement (see editorCursorPlacement)
-// controls where a vim-family editor lands the cursor and whether it
-// starts in insert mode already. Returns nil if the temp file couldn't
-// be created or the editor couldn't be started, in which case the error
-// is left in m.message.
+// session or a plain `i`/`A` edit, and also which buffer format to
+// expect back: both an o/O (or "gC"/"gX" capture) insert session and a
+// plain `i`/`A` edit of an existing entry now share the same shape — the
+// entry's own text (title, minus its bullet, plus its planning line,
+// properties, and body, the whole thing dedented by one level — see
+// dedentEntry and org.RenderEntry) comes first in the buffer, cursor
+// already there, followed by a blank line and a git-commit-style comment
+// trailer sketching the entry's place in the outline below it (see
+// editEntryContext). ctx tags the resulting editFinishedMsg so finishEdit
+// knows whether this is an insert session or a plain edit, and is also
+// what selects the trailer's wording ("Inserting a new entry." vs
+// "Editing this entry.").
+// placement (see editorCursorPlacement) controls where a vim-family
+// editor lands the cursor and whether it starts in insert mode already.
+// Returns nil if the temp file couldn't be created or the editor
+// couldn't be started, in which case the error is left in m.message.
 func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement editorCursorPlacement) tea.Cmd {
 	tmp, err := os.CreateTemp("", "orgtd-edit-*.org")
 	if err != nil {
@@ -3873,8 +3885,11 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement edit
 	}
 	path := tmp.Name()
 
-	before, after := m.editorContext(ctx != nil, h)
-	content := before + org.RenderHeadline(h) + after
+	entry := dedentEntry(org.RenderEntry(h), h.Level)
+	if !strings.HasSuffix(entry, "\n") {
+		entry += "\n"
+	}
+	content := entry + "\n" + m.editEntryContext(h, ctx != nil)
 	_, err = tmp.WriteString(content)
 	tmp.Close()
 	if err != nil {
@@ -3883,30 +3898,86 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement edit
 		return nil
 	}
 
-	placement, col := resolveCursorPlacement(h, placement)
-	editorCmd := buildEditorCommand(m.editorCommand(), path, before, placement, col)
+	placement, col := resolveEntryCursorPlacement(entry, placement)
+	editorCmd := buildEditorCommand(m.editorCommand(), path, "", placement, col)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, cmd: editorCmd, err: err}
 	})
 }
 
-// editorContextComment builds a git-commit-style trailer appended after
-// the real content in the editor buffer: instructions, plus the entries
-// immediately before and after the one being edited, for orientation.
-// Every line is an org comment ("# ..."), so it's inert either way —
-// finishEdit strips comment lines before parsing the result, so this
-// trailer never ends up as part of the saved content whether the user
-// deletes it or leaves it in place.
-// editorContext builds the git-commit-style trailer split around the
-// real content: before is prepended, after is appended, so the buffer
-// reads like a small outline with the real entry sitting in place among
-// its actual structural neighbors — its parent (if nested) and its
-// previous/next sibling — each rendered with real org stars matching its
-// own level, commented out. finishEdit strips comment lines before
-// parsing the result, so this context is inert whether the user deletes
-// it or leaves it in place.
-func (m *Model) editorContext(isInsert bool, h *org.Headline) (before, after string) {
+// dedentEntry removes one level's worth of indentation — level+1
+// characters, the fixed width writeHeadlineFields always uses, both for
+// the bullet ("<stars> ") on the first line and for the span of spaces
+// indenting every other line (planning, properties, body) so they align
+// under it — from every line of s (see org.RenderEntry). Used to build
+// the buffer an entry is edited or inserted in ("i"/"A", o/O, capture):
+// with the bullet gone, leaving the rest of the entry indented under
+// where it used to be would look disjointed, so the whole entry is
+// dedented together. Blank lines are left alone. indentEntry reverses
+// this once the edit comes back.
+func dedentEntry(s string, level int) string {
+	width := level + 1
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			// The bullet is "<stars> ", not spaces, but is always exactly
+			// width bytes wide regardless of what follows.
+			if len(line) < width {
+				continue
+			}
+			lines[i] = line[width:]
+			continue
+		}
+		n := 0
+		for n < width && n < len(line) && line[n] == ' ' {
+			n++
+		}
+		lines[i] = line[n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// indentEntry reverses dedentEntry once the edit comes back: restores
+// the bullet onto s's first line, and the matching span of indentation
+// onto every other non-blank line, so the whole entry re-parses as a
+// real headline at its original level with its planning/properties/body
+// lines indented the way writeHeadlineFields expects. Blank lines are
+// left alone, matching how dedentEntry treats them.
+func indentEntry(s string, level int) string {
+	indent := strings.Repeat(" ", level+1)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			lines[i] = strings.Repeat("*", level) + " " + line
+			continue
+		}
+		if line == "" {
+			continue
+		}
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// editEntryContext builds the git-commit-style comment trailer for both
+// editing an existing entry ("i"/"A") and inserting a new one (o/O,
+// "gC"/"gX" capture): the entry's own editable text (see launchEditor
+// and org.RenderEntry) comes first in the buffer, followed by a blank
+// line and this whole trailer below it, sketching the whole outline the
+// entry sits in — its file, parent, siblings, and (for an existing
+// entry) its own children, each rendered with real org stars matching
+// its own level, as a little sub-tree — with a "[THIS ENTRY HERE]"
+// marker standing in for the entry itself, since its actual text is
+// already sitting above, editable. A brand-new o/O/capture entry never
+// has children yet, so that part of the sub-tree is simply empty; a
+// dedicated org.Walk special case for it isn't needed. The children
+// (when there are any) are shown for orientation only — they aren't
+// part of what this buffer edits; see finishEdit. isInsert selects the
+// trailer's instructional wording. Every line is an org comment
+// ("# ..."), so it's inert whether the user deletes it or leaves it in
+// place.
+func (m *Model) editEntryContext(h *org.Headline, isInsert bool) string {
 	fileName := ""
 	if f := m.fileForHeadline(h); f != nil {
 		fileName = filepath.Base(f.Path)
@@ -3928,9 +3999,10 @@ func (m *Model) editorContext(isInsert bool, h *org.Headline) (before, after str
 	if prev != nil {
 		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(prev))
 	}
-	before = b.String()
-
-	b.Reset()
+	fmt.Fprintf(&b, "# %s [THIS ENTRY HERE]\n", strings.Repeat("*", h.Level))
+	org.Walk(h.Children, func(c *org.Headline) {
+		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(c))
+	})
 	if next != nil {
 		fmt.Fprintf(&b, "# %s\n", commentedHeadlineLine(next))
 	}
@@ -3946,8 +4018,7 @@ func (m *Model) editorContext(isInsert bool, h *org.Headline) (before, after str
 		fmt.Fprintln(&b, "# Bare URLs will be formatted into org-mode links automatically. To")
 		fmt.Fprintln(&b, "# format one yourself instead, write it as [[http://...]] directly.")
 	}
-	after = b.String()
-	return before, after
+	return b.String()
 }
 
 // commentedHeadlineLine renders h as a single line of real org syntax —
@@ -3970,9 +4041,11 @@ func (m *Model) siblingHeadlines(h *org.Headline) (prev, next *org.Headline, ear
 	if idx < 0 {
 		return nil, nil, 0
 	}
-	list := f.Headlines
+	var list []*org.Headline
 	if parent != nil {
 		list = parent.Children
+	} else if f != nil {
+		list = f.Headlines
 	}
 	if idx > 0 {
 		prev = list[idx-1]
@@ -4366,9 +4439,11 @@ func (m *Model) demoteHeadline() {
 		m.message = "Cannot demote: no previous sibling to nest under"
 		return
 	}
-	list := f.Headlines
+	var list []*org.Headline
 	if parent != nil {
 		list = parent.Children
+	} else if f != nil {
+		list = f.Headlines
 	}
 	prevSibling := list[idx-1]
 
@@ -4910,8 +4985,10 @@ func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
 }
 
 // finishEdit reads back the edited entry and reparses it. For a plain
-// `i` edit, the result replaces the original headline in place (or, if
-// the edit left nothing parseable, the original is left untouched). For
+// `i`/`A` edit, the result replaces the original headline's own text in
+// place, its children carried over unchanged since the edit buffer never
+// showed them (see indentEntry below and launchEditor) — or, if
+// the edit left nothing parseable, the original is left untouched. For
 // an o/O insert session, a successful result is committed as a single
 // undo step; any failure (editor error, unreadable file, unparseable or
 // emptied-out result) rolls back the tentative placeholder entirely,
@@ -4937,7 +5014,29 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	text := m.formatURLs(stripCommentLines(string(data)))
+	// stripCommentLines can leave a trailing blank line behind — the one
+	// separating the real content from editEntryContext's trailer (see
+	// launchEditor) — so trim it the same way git's own cleanup mode
+	// does, rather than let it accumulate as a stray blank body line on
+	// every repeated edit.
+	stripped := strings.TrimRight(stripCommentLines(string(data)), "\n")
+
+	// The buffer never showed a bullet (see dedentEntry), so an
+	// all-blank result unambiguously means "cancel" — indentEntry
+	// below would otherwise turn it into a real, blank-titled headline
+	// instead of nothing at all.
+	if strings.TrimSpace(stripped) == "" {
+		if msg.insert != nil {
+			m.rollbackInsert(*msg.insert, msg.target)
+			m.message = "Insert cancelled (empty)"
+		} else {
+			m.message = "Edited entry had no headline; leaving it unchanged"
+		}
+		return m, nil
+	}
+	stripped = indentEntry(stripped, msg.target.Level)
+
+	text := m.formatURLs(stripped)
 
 	file, err := org.Parse(strings.NewReader(text), "")
 	if err != nil {
@@ -4949,6 +5048,9 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if len(file.Headlines) == 0 {
+		// Unreachable in practice — indentEntry above guarantees
+		// the text starts with a real headline line — but kept as a
+		// defensive fallback rather than assuming it.
 		if msg.insert != nil {
 			m.rollbackInsert(*msg.insert, msg.target)
 			m.message = "Insert cancelled (empty)"
@@ -4975,6 +5077,16 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 			m.startMeetingPicker()
 		}
 		return m, nil
+	}
+
+	// The edit buffer never showed msg.target's children (see
+	// launchEditor), so they never went through the editor at all —
+	// carry them over as-is rather than leaving the edited entry
+	// childless, or discarding them in favor of whatever (if anything)
+	// the user happened to type at a deeper level in the buffer.
+	file.Headlines[0].Children = msg.target.Children
+	for _, c := range file.Headlines[0].Children {
+		c.Parent = file.Headlines[0]
 	}
 
 	m.pushUndo(&subtreeReplaceAction{

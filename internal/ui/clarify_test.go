@@ -324,7 +324,7 @@ func TestClarifyTargetSurvivesEditingIt(t *testing.T) {
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "c")
-	path := writeTempOrgFile(t, "* NEXT Call the vet about Fido's checkup ASAP\n")
+	path := writeTempOrgFile(t, "NEXT Call the vet about Fido's checkup ASAP\n")
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)
 

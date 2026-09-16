@@ -442,13 +442,19 @@ func (m *Model) moveHeadlineTo(h *org.Headline, f *org.File, newParent *org.Head
 }
 
 // insertPosition returns the file, parent (nil if top-level), and index
-// of h within its parent's children (or its file's top-level list).
+// of h within its parent's children (or its file's top-level list). f
+// can come back nil if h's root isn't found in any loaded file (e.g. an
+// external edit replaced it out from under a stale row) — index is -1
+// in that case too, since there's nowhere to look h up in.
 func (m *Model) insertPosition(h *org.Headline) (f *org.File, parent *org.Headline, index int) {
 	f = m.fileForHeadline(h)
 	parent = h.Parent
-	list := f.Headlines
-	if parent != nil {
+	var list []*org.Headline
+	switch {
+	case parent != nil:
 		list = parent.Children
+	case f != nil:
+		list = f.Headlines
 	}
 	for i, c := range list {
 		if c == h {

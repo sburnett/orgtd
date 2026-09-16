@@ -32,7 +32,27 @@ func RenderFile(f *File) string {
 	return b.String()
 }
 
+// RenderEntry serializes h's own headline line, planning line, property
+// drawer, and body text — but not its children — back into org-mode
+// text. Used to build the buffer an existing entry is edited in: unlike
+// RenderHeadline/RenderFile, the result on its own is not meant to be
+// re-parsed as-is (a real headline needs a parent scope, i.e. nothing
+// deeper than it, to close its subtree), only after the caller re-adds
+// whatever context it stripped away.
+func RenderEntry(h *Headline) string {
+	var b strings.Builder
+	writeHeadlineFields(&b, h)
+	return b.String()
+}
+
 func writeHeadline(b *strings.Builder, h *Headline) {
+	writeHeadlineFields(b, h)
+	for _, c := range h.Children {
+		writeHeadline(b, c)
+	}
+}
+
+func writeHeadlineFields(b *strings.Builder, h *Headline) {
 	b.WriteString(strings.Repeat("*", h.Level))
 	b.WriteByte(' ')
 	if h.Keyword != "" {
@@ -64,10 +84,6 @@ func writeHeadline(b *strings.Builder, h *Headline) {
 
 	for _, line := range h.Body {
 		b.WriteString(line + "\n")
-	}
-
-	for _, c := range h.Children {
-		writeHeadline(b, c)
 	}
 }
 

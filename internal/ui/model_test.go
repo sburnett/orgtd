@@ -508,7 +508,7 @@ func TestDollarRepeatedPressesDrillDeeperOneLevelAtATime(t *testing.T) {
 	m.cursor = findRow(t, m, "Get feedback on the keybinding scheme")
 	orig := m.currentHeadline()
 	m = sendKey(m, "o")
-	m = commitTentative(t, m, orig, "** TODO Sub-task of the feedback item\n")
+	m = commitTentative(t, m, orig, "TODO Sub-task of the feedback item\n")
 	grandchild := m.currentHeadline()
 	m = sendKey(m, ">")
 	m = sendKey(m, ">")
@@ -1091,7 +1091,7 @@ func TestEditReplacesHeadlineContent(t *testing.T) {
 	m.cursor = idx
 	old := m.currentHeadline()
 
-	path := writeTempOrgFile(t, "* NEXT Call the vet about Fido's checkup ASAP\n  :PROPERTIES:\n  :ID: new-id\n  :END:\n")
+	path := writeTempOrgFile(t, "NEXT Call the vet about Fido's checkup ASAP\n  :PROPERTIES:\n  :ID: new-id\n  :END:\n")
 
 	updated, cmd := m.Update(editFinishedMsg{path: path, target: old})
 	m = updated.(Model)
@@ -1114,7 +1114,12 @@ func TestEditReplacesHeadlineContent(t *testing.T) {
 	}
 }
 
-func TestEditSubtreeReplacesWholeTree(t *testing.T) {
+// TestEditPreservesChildrenUnchanged guards the "significant change"
+// (see launchEditor) from editing a whole subtree to editing just the
+// entry's own text: the edit buffer never shows an entry's children, so
+// finishEdit must carry them over — unchanged, same pointers — onto the
+// edited headline rather than dropping them.
+func TestEditPreservesChildrenUnchanged(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.height = 30
@@ -1124,8 +1129,10 @@ func TestEditSubtreeReplacesWholeTree(t *testing.T) {
 	if len(old.Children) == 0 {
 		t.Fatalf("fixture assumption broken: expected 'Ship orgtd v0.1' to have children")
 	}
+	oldChildren := append([]*org.Headline(nil), old.Children...)
 
-	edited := strings.Replace(org.RenderHeadline(old), "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
+	entry := dedentEntry(org.RenderEntry(old), old.Level)
+	edited := strings.Replace(entry, "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
 	path := writeTempOrgFile(t, edited)
 
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
@@ -1135,19 +1142,22 @@ func TestEditSubtreeReplacesWholeTree(t *testing.T) {
 	if got.Title != "Ship orgtd v0.2" {
 		t.Errorf("title = %q, want Ship orgtd v0.2", got.Title)
 	}
-	if len(got.Children) != len(old.Children) {
-		t.Fatalf("children = %d, want %d", len(got.Children), len(old.Children))
+	if len(got.Children) != len(oldChildren) {
+		t.Fatalf("children = %d, want %d", len(got.Children), len(oldChildren))
 	}
-	for i := range old.Children {
-		if got.Children[i].Title != old.Children[i].Title {
-			t.Errorf("child %d title = %q, want %q", i, got.Children[i].Title, old.Children[i].Title)
+	for i := range oldChildren {
+		if got.Children[i] != oldChildren[i] {
+			t.Errorf("child %d pointer changed; children should be carried over unchanged, not reparsed", i)
 		}
 	}
-	// The rebuilt row list should walk into the new subtree's children
-	// too — right after any body line(s) the re-rendered entry kept.
+	if got.Children[0].Parent != got {
+		t.Errorf("child's Parent should be reparented onto the edited headline")
+	}
+	// The rebuilt row list should still walk into the (unchanged)
+	// children — right after any body line(s) the edited entry kept.
 	childRow := idx + 1 + len(visibleBodyLines(got))
-	if m.rows[childRow].headline == nil || m.rows[childRow].headline.Title != old.Children[0].Title {
-		t.Errorf("row after edited entry (and any body) = %#v, want first child %q", m.rows[childRow], old.Children[0].Title)
+	if m.rows[childRow].headline != oldChildren[0] {
+		t.Errorf("row after edited entry (and any body) = %#v, want first child %q", m.rows[childRow], oldChildren[0].Title)
 	}
 }
 
@@ -1558,7 +1568,8 @@ func TestEditMarksWholeSubtreeDirty(t *testing.T) {
 		t.Fatalf("fixture assumption broken: expected children")
 	}
 
-	edited := strings.Replace(org.RenderHeadline(old), "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
+	entry := dedentEntry(org.RenderEntry(old), old.Level)
+	edited := strings.Replace(entry, "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
 	path := writeTempOrgFile(t, edited)
 
 	updated, _ := m.Update(editFinishedMsg{path: path, target: old})
