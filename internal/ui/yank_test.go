@@ -33,11 +33,11 @@ func TestYankPopulatesRegisterForPaste(t *testing.T) {
 	m = sendKey(m, "y")
 	m = sendKey(m, "y")
 
-	if m.register == nil {
-		t.Fatalf("register is nil after yy")
+	if len(m.register) != 1 {
+		t.Fatalf("register after yy = %v, want exactly 1 entry", m.register)
 	}
-	if m.register.Title != "Call the vet about Fido's checkup" {
-		t.Errorf("register title = %q, want the yanked headline's title", m.register.Title)
+	if m.register[0].Title != "Call the vet about Fido's checkup" {
+		t.Errorf("register title = %q, want the yanked headline's title", m.register[0].Title)
 	}
 
 	m.cursor = findRow(t, m, "Read the RFC linked in yesterday's design review")
@@ -65,15 +65,15 @@ func TestYankRegisterIsIndependentSnapshot(t *testing.T) {
 	m = sendKey(m, "y")
 	m = sendKey(m, "y")
 
-	if m.register == orig {
+	if len(m.register) != 1 || m.register[0] == orig {
 		t.Fatalf("register is the same pointer as the original; want an independent clone")
 	}
 
 	// Editing the original after yanking must not retroactively change
 	// what's in the register.
 	orig.Title = "Changed after yank"
-	if m.register.Title == "Changed after yank" {
-		t.Errorf("register reflects a post-yank edit to the original: %q", m.register.Title)
+	if m.register[0].Title == "Changed after yank" {
+		t.Errorf("register reflects a post-yank edit to the original: %q", m.register[0].Title)
 	}
 }
 
@@ -157,7 +157,7 @@ func TestYankWorksOnAgendaItem(t *testing.T) {
 	m = sendKey(m, "y")
 	m = sendKey(m, "y")
 
-	if m.register == nil || m.register.Title != "Agenda item" {
+	if len(m.register) != 1 || m.register[0].Title != "Agenda item" {
 		t.Fatalf("register after yy in agenda view = %v, want the agenda item", m.register)
 	}
 	// The agenda row itself must still be there (not removed).
@@ -176,7 +176,7 @@ func TestYankWorksInClarifyView(t *testing.T) {
 	m = sendKey(m, "y")
 	m = sendKey(m, "y")
 
-	if m.register == nil || m.register.Title != m.clarifyTarget.Title {
+	if len(m.register) != 1 || m.register[0].Title != m.clarifyTarget.Title {
 		t.Errorf("register after yy in clarify view = %v, want a copy of the clarify target %v", m.register, m.clarifyTarget)
 	}
 }

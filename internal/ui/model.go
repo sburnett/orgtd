@@ -341,7 +341,7 @@ type Model struct {
 	// key", not "ctrl+c was pressed at some earlier point in the session".
 	pendingForceQuit bool
 
-	register *org.Headline // last deleted (dd) or yanked (yy) entry, pasted (as a copy) by p/P
+	register []*org.Headline // last deleted (dd/<N>dd/visual d) or yanked (yy) top-level entry/entries, pasted (as copies, in the same order) by p/P
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
 
@@ -2293,11 +2293,12 @@ func (m *Model) deleteHeadlineCount(n int) {
 // touched (a batchAction — see undo.go), so a selection confined to a
 // single file, overwhelmingly the common case, undoes in one step; a
 // selection spanning files takes one step per file, since undo/dirty
-// tracking is inherently per-file. Unlike dd, this doesn't populate the
-// paste register — there's no single entry to put there, and p/P only
-// ever pastes one. Any headline locked by :format-links is silently
-// excluded first (see filterImmutable) rather than aborting the whole
-// operation; the summary message notes how many, if any.
+// tracking is inherently per-file. Like plain dd, the whole set fills the
+// paste register (top-to-bottom order preserved), so p/P pastes every
+// deleted entry back as a group, in one call, at the destination. Any
+// headline locked by :format-links is silently excluded first (see
+// filterImmutable) rather than aborting the whole operation; the summary
+// message notes how many, if any.
 func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 	headlines, skipped := m.filterImmutable(headlines)
 	if len(headlines) == 0 {
@@ -2349,6 +2350,7 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 			org.Walk([]*org.Headline{t.h}, m.clearMarksFor)
 		}
 	}
+	m.register = headlines
 	m.message = fmt.Sprintf("Deleted %d entries", len(headlines))
 	if skipped > 0 {
 		m.message += fmt.Sprintf(" (%d skipped: locked by :format-links)", skipped)
@@ -4318,7 +4320,7 @@ func (m *Model) deleteHeadline() {
 	if idx < 0 {
 		return
 	}
-	m.register = h
+	m.register = []*org.Headline{h}
 	m.pushUndoKeepingCursor(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
 
 	if m.view == clarifyView && h == m.clarifyTarget {
@@ -4340,17 +4342,19 @@ func (m *Model) yankHeadline() {
 	if h == nil {
 		return
 	}
-	m.register = org.CloneHeadline(h)
+	m.register = []*org.Headline{org.CloneHeadline(h)}
 	m.message = "Yanked"
 }
 
-// pasteHeadline inserts a copy of the register's contents after
-// (before=false, "p") or before (before=true, "P") the current row (see
-// resolveInsertPosition), adjusting its level (and its descendants', by
-// the same amount) to fit the destination depth. The register itself is
-// left untouched, so it can be pasted again.
+// pasteHeadline inserts a copy of the register's contents — one entry
+// (dd/yy) or several, in the same order they were deleted/yanked in
+// (visual-mode d, <N>dd) — after (before=false, "p") or before
+// (before=true, "P") the current row (see resolveInsertPosition),
+// adjusting each one's level (and its descendants', by the same amount)
+// to fit the destination depth. The register itself is left untouched,
+// so it can be pasted again.
 func (m *Model) pasteHeadline(before bool) {
-	if m.register == nil {
+	if len(m.register) == 0 {
 		m.message = "Nothing to paste"
 		return
 	}
@@ -4359,9 +4363,13 @@ func (m *Model) pasteHeadline(before bool) {
 		return
 	}
 
-	clone := org.CloneHeadline(m.register)
-	shiftHeadlineLevel(clone, level-clone.Level)
-	m.pushUndo(&insertAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{clone}}})
+	clones := make([]*org.Headline, len(m.register))
+	for i, h := range m.register {
+		clone := org.CloneHeadline(h)
+		shiftHeadlineLevel(clone, level-clone.Level)
+		clones[i] = clone
+	}
+	m.pushUndo(&insertAction{spliceAction{f: f, parent: parent, index: idx, headlines: clones}})
 }
 
 // demoteHeadline (">>") nests the current headline (and its whole

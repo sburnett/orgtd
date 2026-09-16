@@ -247,9 +247,9 @@ stop), and so on.
 | `A` | Same as `i`, but the cursor lands at the end of the entry's first line instead (vim's own "append" position) |
 | `o` / `O` | Insert a new entry after / before the current one (or at the end/start of a file, from a file header row). The template opened in `$EDITOR` is prefilled with a `CREATED` property set to now — edit or delete it like anything else before saving. For a vim-family `$EDITOR`, the cursor starts right after the bullet in insert mode, same as `i` (see above), ready to type the new title immediately |
 | `dd` | Delete the current entry and its subtree (undoable; also fills the paste register). The cursor stays at the same screen row, landing on whatever now occupies it (or the new last row, if it was the last one) — matching vim's own `dd` |
-| `<N>dd` | Delete the current entry and the next N-1 entries and their subtrees, as one undo step (e.g. `3dd` deletes 3 entries). A count of 1 (or none) is exactly plain `dd`, register included; a higher count doesn't fill the register, since there'd be more than one entry to put there |
+| `<N>dd` | Delete the current entry and the next N-1 entries and their subtrees, as one undo step (e.g. `3dd` deletes 3 entries). A count of 1 (or none) is exactly plain `dd`. A higher count fills the register with all of the deleted entries (top-to-bottom order preserved), pasted back together as a group by a single `p`/`P` |
 | `yy` | Yank the current entry and its subtree into the paste register, without deleting it |
-| `p` / `P` | Paste the register's contents after / before the current entry, re-indented to fit |
+| `p` / `P` | Paste the register's contents after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`), all of them are pasted together, in the same order they were deleted in |
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
 | `r` | Rotate the current entry's TODO state |
 | `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
@@ -265,7 +265,7 @@ stop), and so on.
 | Key | Action |
 |---|---|
 | `V` | Enter visual line selection at the current entry. Navigation keys (`j`/`k`, `gg`/`G`, `{`/`}`, `l`/`h`, `^`/`$`, `ctrl-d`/`ctrl-u`, `Page Down`/`Page Up`, `ctrl-e`/`ctrl-y`) extend the selection instead of just moving; `V` again or `Esc` cancels it |
-| `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one) |
+| `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one). Fills the paste register with everything deleted (top-to-bottom order preserved), so `p`/`P` pastes the whole selection back as a group |
 | `R` | (in visual mode) Open the same status picker as normal-mode `R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched |
 
 The cursor's own entry keeps the usual highlight color; the rest of the

@@ -77,8 +77,8 @@ func TestCountPrefixDeleteOfOneOrZeroUsesPlainDeleteAndFillsRegister(t *testing.
 	if rowIndex(m, "A") >= 0 {
 		t.Error("A should have been deleted")
 	}
-	if m.register == nil || m.register.Title != "A" {
-		t.Errorf("register = %v, want A (a count of 1 should behave exactly like plain dd)", m.register)
+	if len(m.register) != 1 || m.register[0].Title != "A" {
+		t.Errorf("register = %v, want [A] (a count of 1 should behave exactly like plain dd)", m.register)
 	}
 }
 
@@ -93,12 +93,12 @@ func TestPlainDeleteWithoutCountStillFillsRegister(t *testing.T) {
 	m = sendKey(m, "d")
 	m = sendKey(m, "d")
 
-	if m.register == nil || m.register.Title != "A" {
-		t.Errorf("register = %v, want A", m.register)
+	if len(m.register) != 1 || m.register[0].Title != "A" {
+		t.Errorf("register = %v, want [A]", m.register)
 	}
 }
 
-func TestCountPrefixDeleteAboveTwoDoesNotFillRegister(t *testing.T) {
+func TestCountPrefixDeleteAboveTwoFillsRegisterWithAllDeletedEntries(t *testing.T) {
 	m := countPrefixFixtureModel(t)
 	m.cursor = findRow(t, m, "A")
 	m.register = nil
@@ -107,8 +107,13 @@ func TestCountPrefixDeleteAboveTwoDoesNotFillRegister(t *testing.T) {
 	m = sendKey(m, "d")
 	m = sendKey(m, "d")
 
-	if m.register != nil {
-		t.Errorf("register = %v, want nil (bulk delete doesn't populate a single-entry register)", m.register)
+	if len(m.register) != 3 {
+		t.Fatalf("register = %v, want 3 entries (A, B, C)", m.register)
+	}
+	for i, want := range []string{"A", "B", "C"} {
+		if m.register[i].Title != want {
+			t.Errorf("register[%d].Title = %q, want %q", i, m.register[i].Title, want)
+		}
 	}
 }
 
