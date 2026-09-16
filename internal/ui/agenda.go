@@ -380,15 +380,21 @@ func (c meetingCandidate) inProgress(now time.Time) bool {
 // meetingCandidates returns one meetingCandidate per distinct recurring
 // series found in any loaded calendar event (GCAL_RECURRING_EVENT_ID —
 // see cmd/gcalsync/convert.go), each using whichever synced occurrence
-// is currently most relevant (moreRelevantOccurrence) as its
-// title/display date, sorted for the "gM" picker (meetingPickerLess) so
-// index 0 — the picker's default highlight — is the one you're most
-// likely attaching an item to right now: a meeting currently in
-// progress, the shortest one if more than one is, else the next one to
-// start. Only meaningful while gcalsync has at least one instance of a
-// series synced; a series whose every synced occurrence has aged out of
-// the sync window (in either direction) simply won't appear until
-// gcalsync runs again.
+// is currently most relevant (meetingPickerLess) as its title/display
+// date, sorted the same way so index 0 — the picker's default
+// highlight — is the one you're most likely attaching an item to right
+// now: a meeting currently in progress, the shortest one if more than
+// one is, else the next one to start. Picking the representative
+// occurrence with meetingPickerLess rather than a start-only comparison
+// matters for a series with more than one instance synced at once (a
+// daily standup: today's and tomorrow's both fall inside the sync
+// window): a start-only "soonest upcoming wins" comparison would treat
+// today's already-started occurrence as simply "past" and lose it to
+// tomorrow's, hiding the fact that the series is in progress right now
+// from the final sort entirely. Only meaningful while gcalsync has at
+// least one instance of a series synced; a series whose every synced
+// occurrence has aged out of the sync window (in either direction)
+// simply won't appear until gcalsync runs again.
 func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 	best := make(map[string]meetingCandidate)
 	for _, f := range m.ws.Files {
@@ -401,9 +407,10 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 			if !ok {
 				return
 			}
-			if cur, exists := best[recurID]; !exists || moreRelevantOccurrence(start, cur.when, now) {
-				end, _ := parseRFC3339Property(h, "GCAL_END")
-				best[recurID] = meetingCandidate{recurringEventID: recurID, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start, end: end}
+			end, _ := parseRFC3339Property(h, "GCAL_END")
+			cand := meetingCandidate{recurringEventID: recurID, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start, end: end}
+			if cur, exists := best[recurID]; !exists || meetingPickerLess(cand, cur, now) {
+				best[recurID] = cand
 			}
 		})
 	}
@@ -437,10 +444,13 @@ func meetingPickerLess(a, b meetingCandidate, now time.Time) bool {
 	return moreRelevantOccurrence(a.when, b.when, now)
 }
 
-// moreRelevantOccurrence reports whether a should rank ahead of b (used
-// both to pick a series' representative occurrence and, via
-// meetingPickerLess, as the picker's fallback order once "in progress"
-// is decided): an upcoming occurrence (>= now) always ranks ahead of a
+// moreRelevantOccurrence reports whether a should rank ahead of b — used
+// by meetingPickerLess as its fallback order once "in progress" is
+// already decided (neither a nor b is a substitute for that check on
+// its own: it has no notion of "in progress" at all, only "upcoming vs.
+// past" by start time, which is why meetingCandidates picks a series'
+// representative occurrence via meetingPickerLess rather than this
+// directly): an upcoming occurrence (>= now) always ranks ahead of a
 // past one; between two upcoming occurrences the soonest ranks first;
 // between two past ones the most recent ranks first.
 func moreRelevantOccurrence(a, b, now time.Time) bool {

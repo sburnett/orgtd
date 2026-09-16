@@ -180,6 +180,50 @@ func TestGMOpensPickerWithDedupedRecurringSeries(t *testing.T) {
 	}
 }
 
+// TestGMDefaultPrefersInProgressInstanceOverAFutureInstanceOfSameSeries
+// is a regression test for a real bug: a daily recurring series
+// typically has more than one instance synced at once (today's plus
+// tomorrow's, say), and picking the series' single "representative"
+// occurrence by start time alone ("soonest upcoming wins") treated
+// today's already-started occurrence as simply "past", losing it to
+// tomorrow's not-yet-started one — so the series never registered as
+// in progress at all, and "gM" defaulted to the next meeting instead of
+// the one actually happening right now.
+func TestGMDefaultPrefersInProgressInstanceOverAFutureInstanceOfSameSeries(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			// series-standup has two instances synced at once: today's,
+			// already in progress (started 5m ago, ends in 25m), and
+			// tomorrow's, not yet started.
+			recurringCalendarEventHeadline("standup-today", "series-standup", "Weekly Standup", now.Add(-5*time.Minute), now.Add(25*time.Minute)),
+			recurringCalendarEventHeadline("standup-tomorrow", "series-standup", "Weekly Standup", now.Add(24*time.Hour), now.Add(24*time.Hour+30*time.Minute)),
+			// A second series, further out and not in progress, to
+			// confirm the in-progress one still sorts ahead of it.
+			recurringCalendarEventHeadline("planning-1", "series-planning", "Sprint Planning", now.Add(2*time.Hour), now.Add(3*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	if len(m.meetingPickerCandidates) != 2 {
+		t.Fatalf("candidates = %d, want 2 (deduped by series)", len(m.meetingPickerCandidates))
+	}
+	if got := m.meetingPickerCandidates[0].recurringEventID; got != "series-standup" {
+		t.Fatalf("candidates[0] = %q, want series-standup (its today instance is in progress)", got)
+	}
+	// GCAL_START round-trips through RFC3339 (second precision), so
+	// compare at that resolution rather than requiring an exact Equal.
+	if when := m.meetingPickerCandidates[0].when; when.Unix() != now.Add(-5*time.Minute).Unix() {
+		t.Errorf("candidates[0].when = %v, want today's already-started instance (%v), not tomorrow's", when, now.Add(-5*time.Minute))
+	}
+}
+
 // TestGMDefaultsToShortestInProgressMeeting covers the "gM" default
 // selection policy: when more than one candidate's representative
 // occurrence is currently in progress, the shortest one (soonest to
