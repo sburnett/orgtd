@@ -2,8 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 func TestYankLeavesOriginalInPlace(t *testing.T) {
@@ -178,5 +181,77 @@ func TestYankWorksInClarifyView(t *testing.T) {
 
 	if len(m.register) != 1 || m.register[0].Title != m.clarifyTarget.Title {
 		t.Errorf("register after yy in clarify view = %v, want a copy of the clarify target %v", m.register, m.clarifyTarget)
+	}
+}
+
+func TestYankShowsInPinnedHeader(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "y")
+	m = sendKey(m, "y")
+
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "Register:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
+		t.Fatalf("view after yy = %q, want a pinned \"Register:\" section showing the yanked entry", out)
+	}
+}
+
+func TestDeleteAlsoShowsInPinnedRegister(t *testing.T) {
+	// The register is shared between dd and yy (see the register field's
+	// own comment), so a plain dd should pin the deleted entry too, not
+	// just yy.
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "d")
+	m = sendKey(m, "d")
+
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "Register:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
+		t.Fatalf("view after dd = %q, want a pinned \"Register:\" section showing the deleted entry", out)
+	}
+}
+
+func TestRegisterPinnedSectionIsHeightBounded(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+
+	// Simulate a register overflowing with more entries than a visual-mode
+	// delete or a big <N>dd could plausibly display in full — the pinned
+	// header must cap how many it shows rather than growing without bound.
+	const total = maxRegisterPinnedLines + 3
+	register := make([]*org.Headline, total)
+	for i := range register {
+		register[i] = &org.Headline{Level: 1, Title: fmt.Sprintf("Queued entry %d", i)}
+	}
+	m.register = register
+
+	if got := m.registerPinnedLineCount(); got != maxRegisterPinnedLines+1 {
+		t.Fatalf("registerPinnedLineCount() = %d, want %d (capped entries + 1 summary line)", got, maxRegisterPinnedLines+1)
+	}
+
+	lines := m.registerPinnedLines()
+	if len(lines) != 1+maxRegisterPinnedLines+1 {
+		t.Fatalf("registerPinnedLines() has %d lines, want %d (label + capped entries + summary)", len(lines), 1+maxRegisterPinnedLines+1)
+	}
+	for i := 0; i < maxRegisterPinnedLines; i++ {
+		if !strings.Contains(lines[1+i], fmt.Sprintf("Queued entry %d", i)) {
+			t.Errorf("line %d = %q, want entry %d", 1+i, lines[1+i], i)
+		}
+	}
+	summary := stripANSI(lines[len(lines)-1])
+	wantOverflow := total - maxRegisterPinnedLines
+	if !strings.Contains(summary, fmt.Sprintf("...and %d more", wantOverflow)) {
+		t.Errorf("summary line = %q, want it to mention %d more entries", summary, wantOverflow)
+	}
+
+	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	if !strings.Contains(stripANSI(m.View()), fmt.Sprintf("...and %d more", wantOverflow)) {
+		t.Errorf("rendered view is missing the overflow summary line")
 	}
 }

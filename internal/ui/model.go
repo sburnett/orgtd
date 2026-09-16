@@ -338,7 +338,7 @@ type Model struct {
 	// key", not "ctrl+c was pressed at some earlier point in the session".
 	pendingForceQuit bool
 
-	register []*org.Headline // last deleted (dd/<N>dd/visual d) or yanked (yy) top-level entry/entries, pasted (as copies, in the same order) by p/P
+	register []*org.Headline // last deleted (dd/<N>dd/visual d) or yanked (yy) top-level entry/entries, pasted (as copies, in the same order) by p/P; stays pinned to the top of the screen (see pinnedHeaderLines) until overwritten by a later delete/yank
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
 
@@ -5441,12 +5441,32 @@ func (m *Model) visibleRowCount(start int) int {
 	return count
 }
 
+// maxRegisterPinnedLines caps how many of the register's entries the
+// pinned header (see pinnedHeaderLines) shows at once. A single yank
+// only ever queues one entry, but <N>dd and a visual-mode "d" can queue
+// dozens of top-level entries at a stroke — showing all of them would
+// push the actual outline listing off-screen entirely, so anything past
+// this count collapses into one "...and N more" summary line instead.
+const maxRegisterPinnedLines = 5
+
+// registerPinnedLineCount is how many lines the register section of the
+// pinned header occupies below its own label: one per entry, or
+// maxRegisterPinnedLines plus one summary line once there are more than
+// that.
+func (m *Model) registerPinnedLineCount() int {
+	if len(m.register) > maxRegisterPinnedLines {
+		return maxRegisterPinnedLines + 1
+	}
+	return len(m.register)
+}
+
 // pinnedHeaderHeight is how many lines the pinned header occupies at the
 // top of the screen: the clarify block (label + item-or-empty-message,
 // kept a fixed 2 lines so the layout doesn't jump around as the inbox
 // empties out) if in clarify view, plus one line per active mark, plus
-// one trailing blank separator line if there's anything pinned at all —
-// 0 if there's nothing pinned.
+// the register section (see registerPinnedLineCount) if anything's
+// queued for paste, plus one trailing blank separator line if there's
+// anything pinned at all — 0 if there's nothing pinned.
 func (m *Model) pinnedHeaderHeight() int {
 	n := 0
 	if m.view == clarifyView {
@@ -5454,6 +5474,9 @@ func (m *Model) pinnedHeaderHeight() int {
 	}
 	if len(m.marks) > 0 {
 		n += 1 + len(m.marks) // "Active marks:" label + one line per mark
+	}
+	if len(m.register) > 0 {
+		n += 1 + m.registerPinnedLineCount() // "Register:" label + its (bounded) lines
 	}
 	if n == 0 {
 		return 0
@@ -5465,6 +5488,7 @@ func (m *Model) pinnedHeaderHeight() int {
 // screen: the current clarify target (if in clarify view, rendered
 // exactly as it appears in the listing below, or an empty-inbox
 // message), then every active mark (sorted by letter, one line each),
+// then whatever's queued in the paste register (see registerPinnedLines),
 // then a trailing blank separator — or nil if there's nothing pinned.
 func (m Model) pinnedHeaderLines() []string {
 	var lines []string
@@ -5482,6 +5506,7 @@ func (m Model) pinnedHeaderLines() []string {
 			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
 		}
 	}
+	lines = append(lines, m.registerPinnedLines()...)
 	if len(lines) == 0 {
 		return nil
 	}
@@ -5489,6 +5514,34 @@ func (m Model) pinnedHeaderLines() []string {
 	// tinted block reads as one solid panel rather than cutting off
 	// right before an untinted blank line.
 	return append(lines, m.padLineToWidth("", overlayBg))
+}
+
+// registerPinnedLines renders the register section of the pinned header:
+// a "Register:" label, then one row per queued entry (up to
+// maxRegisterPinnedLines, so a big <N>dd or visual-mode delete can't push
+// the actual outline listing off-screen), then a summary line for
+// whatever didn't fit — or nil if the register is empty. Every entry
+// shown, whether it came from a delete or a yank, is exactly what p/P
+// would paste next.
+func (m Model) registerPinnedLines() []string {
+	if len(m.register) == 0 {
+		return nil
+	}
+	lines := []string{m.padLineToWidth(fileStyle.Background(overlayBg).Render("Register:"), overlayBg)}
+	shown := m.register
+	overflow := 0
+	if len(shown) > maxRegisterPinnedLines {
+		overflow = len(shown) - maxRegisterPinnedLines
+		shown = shown[:maxRegisterPinnedLines]
+	}
+	for _, h := range shown {
+		lines = append(lines, m.renderPinnedRow("\"", h, false))
+	}
+	if overflow > 0 {
+		summary := statusStyle.Background(overlayBg).Render(fmt.Sprintf("  ...and %d more", overflow))
+		lines = append(lines, m.padLineToWidth(summary, overlayBg))
+	}
+	return lines
 }
 
 // sortedMarkLetters returns the letters of every active mark, sorted —

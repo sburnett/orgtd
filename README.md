@@ -282,6 +282,14 @@ always clear.
 Every active mark stays pinned to the top of the screen, in every view,
 until cleared or moved elsewhere.
 
+Whatever `dd`/`<N>dd`/visual-mode `d`/`yy` last put in the paste register
+stays pinned to the top of the screen too, under its own "Register:"
+label, right alongside marks — so it's obvious what `p`/`P` will paste
+next even for `yy`, which otherwise leaves the screen looking unchanged.
+Capped at 5 entries shown at once (a big `<N>dd` or visual-mode delete
+collapses the rest into a trailing "...and N more" line) so a large
+register can't push the actual listing off-screen.
+
 ### Search
 
 | Key | Action |
