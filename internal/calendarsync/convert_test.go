@@ -1,6 +1,7 @@
 package calendarsync
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +296,23 @@ func TestBuildHeadlineOmitsAttendeeTagsOverSeven(t *testing.T) {
 	}, nil, nil)
 	if len(h.Tags) != 0 {
 		t.Errorf("Tags = %v, want none (8 attendees exceeds the cap of 7)", h.Tags)
+	}
+}
+
+func TestBuildHeadlineCapCountsOnlyAcceptedAttendees(t *testing.T) {
+	var attendees []gcal.Attendee
+	for i := 0; i < 10; i++ {
+		attendees = append(attendees, gcal.Attendee{Email: strings.Repeat("a", i+1) + "@example.com", ResponseStatus: "needsAction"})
+	}
+	attendees = append(attendees, gcal.Attendee{Email: "alice@example.com", ResponseStatus: "accepted"})
+	h := buildHeadline(gcal.Event{
+		ID:        "abc123",
+		Start:     mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:       mustParse(t, "2026-09-10T09:15:00-07:00"),
+		Attendees: attendees,
+	}, nil, nil)
+	if got, want := h.Tags, []string{"@alice"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Tags = %v, want %v (only the one accepted attendee should count toward the cap)", got, want)
 	}
 }
 

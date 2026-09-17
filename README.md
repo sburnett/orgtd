@@ -503,9 +503,11 @@ onto the headline as `@username` — the portion of their email address
 before the `@`, e.g. `john@example.com` becomes `@john` (any character
 not otherwise valid in an org tag, like the `.` in `first.last@...`, is
 replaced with `_` so the tag still round-trips cleanly). Only for
-meetings with 7 or fewer attendees total — past that, the tags would be
-more clutter than signal — and skipped entirely (no attendee tags at
-all) above it, rather than showing a partial list. `gcalsync.attendee_tag_domains`
+meetings with 7 or fewer *confirmed* attendees — a large invite list
+with only a few acceptances still gets tagged; past 7 confirmed
+attendees the tags would be more clutter than signal, and are skipped
+entirely (no attendee tags at all), rather than showing a partial list.
+`gcalsync.attendee_tag_domains`
 (below) additionally restricts this to attendees whose email is on one
 of a set of domains — useful for tagging only coworkers, not every
 external guest, vendor, or room/resource calendar an event happens to

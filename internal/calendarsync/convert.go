@@ -136,32 +136,38 @@ func buildHeadline(ev gcal.Event, attendeeTagDomains, attendeeIgnorePatterns []s
 // attendee tags (see attendeeTags) — a large all-hands or broadcast
 // invite would otherwise bury the handful of tags that are actually
 // useful (a small meeting's own participants) under dozens of others.
+// Only attendees who've accepted count toward this cap — a large invite
+// list with just a few confirmed attendees is exactly the small,
+// meaningful meeting the cap is meant to let through.
 const maxAttendeesForTags = 7
 
 // attendeeTags returns one "@username" tag per attendee who has
 // confirmed (Google's "accepted" response status) on ev, derived from
 // the portion of their email address before the "@" — e.g.
 // "john@example.com" becomes "@john". Returns nil (no tags at all,
-// rather than a partial list) for an event with more than
-// maxAttendeesForTags attendees, and skips any attendee with no email or
-// whose address has nothing before the "@". If domains is non-empty, an
-// attendee is tagged only when their address's domain (case-insensitive,
-// a leading "@" in a configured domain ignored) exactly matches one of
-// them — see domainAllowed; an empty domains list (the default) tags
-// every confirmed attendee regardless of domain. Before any of that, an
+// rather than a partial list) if more than maxAttendeesForTags attendees
+// have accepted, and skips any attendee with no email or whose address
+// has nothing before the "@". If domains is non-empty, an attendee is
+// tagged only when their address's domain (case-insensitive, a leading
+// "@" in a configured domain ignored) exactly matches one of them — see
+// domainAllowed; an empty domains list (the default) tags every
+// confirmed attendee regardless of domain. Before any of that, an
 // attendee whose email matches one of ignorePatterns (see
 // attendeeIgnored) is dropped outright — e.g. "c_*@*" to exclude the
 // synthetic "c_...@..." attendees Google Calendar attaches to represent
 // a resource/room booking.
 func attendeeTags(ev gcal.Event, domains, ignorePatterns []string) []string {
-	if len(ev.Attendees) > maxAttendeesForTags {
+	var accepted []gcal.Attendee
+	for _, a := range ev.Attendees {
+		if a.ResponseStatus == "accepted" {
+			accepted = append(accepted, a)
+		}
+	}
+	if len(accepted) > maxAttendeesForTags {
 		return nil
 	}
 	var tags []string
-	for _, a := range ev.Attendees {
-		if a.ResponseStatus != "accepted" {
-			continue
-		}
+	for _, a := range accepted {
 		if attendeeIgnored(a.Email, ignorePatterns) {
 			continue
 		}
