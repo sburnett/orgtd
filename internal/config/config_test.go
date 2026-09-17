@@ -37,6 +37,7 @@ calendar_ids = ["primary", "team@example.com"]
 sync_past_days = 2
 sync_future_days = 21
 attendee_tag_domains = ["example.com", "example.org"]
+attendee_ignore_patterns = ["c_*@*", "*@resource.calendar.google.com"]
 
 [icons]
 dirty_icon = "*"
@@ -65,12 +66,13 @@ meeting_color = "5"
 		HideDoneAfterHours:      48,
 		Debug:                   true,
 		Gcalsync: GcalsyncConfig{
-			OAuthClientID:      "client-id",
-			OAuthClientSecret:  "client-secret",
-			CalendarIDs:        []string{"primary", "team@example.com"},
-			SyncPastDays:       2,
-			SyncFutureDays:     21,
-			AttendeeTagDomains: []string{"example.com", "example.org"},
+			OAuthClientID:          "client-id",
+			OAuthClientSecret:      "client-secret",
+			CalendarIDs:            []string{"primary", "team@example.com"},
+			SyncPastDays:           2,
+			SyncFutureDays:         21,
+			AttendeeTagDomains:     []string{"example.com", "example.org"},
+			AttendeeIgnorePatterns: []string{"c_*@*", "*@resource.calendar.google.com"},
 		},
 		Icons: IconsConfig{
 			DirtyIcon:    "*",

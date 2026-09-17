@@ -508,6 +508,13 @@ type Model struct {
 	// domain.
 	gcalAttendeeTagDomains []string
 
+	// gcalAttendeeIgnorePatterns excludes any attendee whose email
+	// matches one of these glob patterns from consideration entirely,
+	// before gcalAttendeeTagDomains is even checked — see
+	// WithGcalAttendeeIgnorePatterns. Empty (the default) means no
+	// exclusions.
+	gcalAttendeeIgnorePatterns []string
+
 	// dirty/mark/clarify/lock/meeting Icon/Color customize the outline's
 	// gutter markers (see gutter, markColumn, lockColumn, meetingColumn,
 	// and renderPinnedRow for the same markers pinned to the top of the
@@ -681,6 +688,18 @@ func WithGcalSyncWindow(pastDays, futureDays int) Option {
 // restriction — every confirmed attendee is tagged.
 func WithGcalAttendeeTagDomains(domains []string) Option {
 	return func(m *Model) { m.gcalAttendeeTagDomains = domains }
+}
+
+// WithGcalAttendeeIgnorePatterns excludes any attendee whose email
+// matches one of patterns — each a filepath.Match-style glob ("*"
+// matches any run of characters, "?" a single one), compared
+// case-insensitively against the whole address — from consideration
+// entirely, before WithGcalAttendeeTagDomains is even checked, e.g.
+// ["c_*@*"] to drop the synthetic "c_...@..." attendees Google Calendar
+// attaches to represent a resource/room booking. Default (if this
+// option is never applied, or patterns is empty): no exclusions.
+func WithGcalAttendeeIgnorePatterns(patterns []string) Option {
+	return func(m *Model) { m.gcalAttendeeIgnorePatterns = patterns }
 }
 
 // WithDirtyIcon sets the character and color of the gutter marker shown
@@ -1367,6 +1386,9 @@ func (m *Model) appendConfigRows() {
 			line("Attendee tag domains: %s", strings.Join(m.gcalAttendeeTagDomains, ", "))
 		} else {
 			line("Attendee tag domains: (none — every confirmed attendee is tagged)")
+		}
+		if len(m.gcalAttendeeIgnorePatterns) > 0 {
+			line("Attendee ignore patterns: %s", strings.Join(m.gcalAttendeeIgnorePatterns, ", "))
 		}
 	}
 

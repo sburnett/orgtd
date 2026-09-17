@@ -648,11 +648,13 @@ func meetingIsAttached(h *org.Headline, c meetingCandidate) bool {
 // entriesForMeeting's tag-matching, used by the gutter's meeting marker
 // and the status line's link list to treat a tag-matched meeting the
 // same as one attached via "gM", with no explicit attach needed. If h
-// is itself a synced calendar event, the meeting it itself represents
-// is excluded — sharing tags with its own occurrence (or a sibling
-// occurrence of the same series) isn't a link to some *other* meeting.
-// nil if h has no tags (other than meetingSeriesTag, which never
-// counts) to match with.
+// is itself a synced calendar event, it's never treated as tag-linked
+// to any meeting (itself, a sibling occurrence of its own series, or a
+// wholly different meeting) — mirrors entriesForMeeting's own blanket
+// exclusion of calendar events from tag-matched items, since only
+// entries elsewhere in the org directory can be linked this way. nil
+// if h has no tags (other than meetingSeriesTag, which never counts)
+// to match with.
 func (m *Model) tagLinkedMeetingCandidates(h *org.Headline, now time.Time) []meetingCandidate {
 	if h == nil {
 		return nil
@@ -667,13 +669,12 @@ func (m *Model) tagLinkedMeetingCandidates(h *org.Headline, now time.Time) []mee
 	if !hasTag {
 		return nil
 	}
-	selfKind, selfID, isEvent := meetingIdentity(h)
+	if _, _, isEvent := meetingIdentity(h); isEvent {
+		return nil
+	}
 
 	var out []meetingCandidate
 	for _, c := range m.meetingCandidates(now) {
-		if isEvent && c.kind == selfKind && c.id == selfID {
-			continue
-		}
 		if hasSharedTag(h.Tags, m.meetingTags(c.kind, c.id)) {
 			out = append(out, c)
 		}

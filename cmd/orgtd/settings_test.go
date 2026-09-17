@@ -38,12 +38,13 @@ func TestResolveSettingsAllDefaultsWhenNothingSet(t *testing.T) {
 func TestResolveSettingsGcalSettingsFollowConfigFileWithNoFlagOverride(t *testing.T) {
 	cfg := &config.Config{
 		Gcalsync: config.GcalsyncConfig{
-			OAuthClientID:      "client-id",
-			OAuthClientSecret:  "client-secret",
-			CalendarIDs:        []string{"primary", "team@example.com"},
-			SyncPastDays:       2,
-			SyncFutureDays:     21,
-			AttendeeTagDomains: []string{"example.com"},
+			OAuthClientID:          "client-id",
+			OAuthClientSecret:      "client-secret",
+			CalendarIDs:            []string{"primary", "team@example.com"},
+			SyncPastDays:           2,
+			SyncFutureDays:         21,
+			AttendeeTagDomains:     []string{"example.com"},
+			AttendeeIgnorePatterns: []string{"c_*@*"},
 		},
 	}
 	got := resolveSettings(flags(), "", cfg)
@@ -58,6 +59,9 @@ func TestResolveSettingsGcalSettingsFollowConfigFileWithNoFlagOverride(t *testin
 	}
 	if !reflect.DeepEqual(got.gcalAttendeeTagDomains, []string{"example.com"}) {
 		t.Errorf("gcalAttendeeTagDomains = %v, want [example.com]", got.gcalAttendeeTagDomains)
+	}
+	if !reflect.DeepEqual(got.gcalAttendeeIgnorePatterns, []string{"c_*@*"}) {
+		t.Errorf("gcalAttendeeIgnorePatterns = %v, want [c_*@*]", got.gcalAttendeeIgnorePatterns)
 	}
 }
 

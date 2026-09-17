@@ -139,6 +139,16 @@ type GcalsyncConfig struct {
 	// Matched case-insensitively; a leading "@" on a configured domain is
 	// ignored, so "example.com" and "@example.com" behave the same.
 	AttendeeTagDomains []string `toml:"attendee_tag_domains"`
+
+	// AttendeeIgnorePatterns excludes any attendee whose email matches
+	// one of these glob patterns from consideration entirely — checked
+	// before AttendeeTagDomains, and unrelated to it. Each pattern is
+	// matched case-insensitively against the whole address using
+	// filepath.Match syntax ("*" matches any run of characters, "?" a
+	// single one), e.g. ["c_*@*"] to drop the synthetic "c_...@..."
+	// attendees Google Calendar attaches to represent a resource/room
+	// booking. Empty (the default) means no exclusions.
+	AttendeeIgnorePatterns []string `toml:"attendee_ignore_patterns"`
 }
 
 // DefaultPath returns the config file location orgtd reads unless

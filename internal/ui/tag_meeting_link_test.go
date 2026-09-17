@@ -286,8 +286,7 @@ func TestMeetingColumnBlankWhenTagMatchesNothing(t *testing.T) {
 
 // TestTagLinkedMeetingCandidatesExcludesEventsOwnMeeting: a synced
 // calendar event sharing tags with itself (trivially true) never counts
-// as linked to its own meeting — only to some *other* meeting it might
-// separately tag-match.
+// as linked to its own meeting.
 func TestTagLinkedMeetingCandidatesExcludesEventsOwnMeeting(t *testing.T) {
 	now := time.Now()
 	event := oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now, now.Add(time.Hour))
@@ -300,5 +299,29 @@ func TestTagLinkedMeetingCandidatesExcludesEventsOwnMeeting(t *testing.T) {
 	got := m.tagLinkedMeetingCandidates(event, now)
 	if len(got) != 0 {
 		t.Errorf("tagLinkedMeetingCandidates = %+v, want none (an event can't be linked to its own meeting)", got)
+	}
+}
+
+// TestTagLinkedMeetingCandidatesExcludesOtherCalendarEvent: a synced
+// calendar event sharing a tag with a wholly different meeting (e.g. the
+// same attendee, invited to two unrelated meetings) is never treated as
+// tag-linked to it either — only entries elsewhere in the org directory
+// can be linked this way, mirroring entriesForMeeting's own blanket
+// exclusion of calendar events from tag-matched items (see
+// TestEntriesForMeetingExcludesOtherCalendarEventFromTagMatch).
+func TestTagLinkedMeetingCandidatesExcludesOtherCalendarEvent(t *testing.T) {
+	now := time.Now()
+	event1 := oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now, now.Add(time.Hour))
+	event1.Tags = []string{"@alice"}
+	event2 := oneOffCalendarEventHeadline("standup-1", "Standup", now, now.Add(time.Hour))
+	event2.Tags = []string{"@alice"}
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{event1, event2}},
+	)
+	m := New(ws)
+
+	got := m.tagLinkedMeetingCandidates(event1, now)
+	if len(got) != 0 {
+		t.Errorf("tagLinkedMeetingCandidates = %+v, want none (event2 is a calendar event, not a linkable meeting for event1)", got)
 	}
 }

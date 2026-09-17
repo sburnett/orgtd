@@ -14,7 +14,7 @@ func TestBuildFileSortsByStartTime(t *testing.T) {
 		{ID: "later", Summary: "Later", Start: mustParse(t, "2026-09-10T10:00:00-07:00"), End: mustParse(t, "2026-09-10T10:30:00-07:00")},
 		{ID: "earlier", Summary: "Earlier", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:30:00-07:00")},
 	}
-	f := BuildFile("/tmp/calendar.org", events, nil)
+	f := BuildFile("/tmp/calendar.org", events, nil, nil)
 	if len(f.Headlines) != 2 {
 		t.Fatalf("len(Headlines) = %d, want 2", len(f.Headlines))
 	}
@@ -33,7 +33,7 @@ func TestBuildHeadlineHasNoKeywordOrScheduled(t *testing.T) {
 		Summary:    "Standup",
 		Start:      mustParse(t, "2026-09-10T09:00:00-07:00"),
 		End:        mustParse(t, "2026-09-10T09:15:00-07:00"),
-	}, nil)
+	}, nil, nil)
 	if h.Keyword != "" {
 		t.Errorf("Keyword = %q, want empty", h.Keyword)
 	}
@@ -79,7 +79,7 @@ func TestBuildHeadlineRecordsRecurringEventID(t *testing.T) {
 		RecurringEventID: "series-abc",
 		Start:            mustParse(t, "2026-09-10T09:00:00-07:00"),
 		End:              mustParse(t, "2026-09-10T09:15:00-07:00"),
-	}, nil)
+	}, nil, nil)
 	if got := h.Properties["GCAL_RECURRING_EVENT_ID"]; got != "series-abc" {
 		t.Errorf("GCAL_RECURRING_EVENT_ID = %q, want %q", got, "series-abc")
 	}
@@ -93,7 +93,7 @@ func TestBuildHeadlineOneOffEventHasNoRecurrenceMarkers(t *testing.T) {
 		ID:    "one-off",
 		Start: mustParse(t, "2026-09-10T09:00:00-07:00"),
 		End:   mustParse(t, "2026-09-10T09:15:00-07:00"),
-	}, nil)
+	}, nil, nil)
 	if _, ok := h.Properties["GCAL_RECURRING_EVENT_ID"]; ok {
 		t.Errorf("GCAL_RECURRING_EVENT_ID = %q, want no such property", h.Properties["GCAL_RECURRING_EVENT_ID"])
 	}
@@ -103,7 +103,7 @@ func TestBuildHeadlineOneOffEventHasNoRecurrenceMarkers(t *testing.T) {
 }
 
 func TestBuildHeadlineEmptyTitleFallback(t *testing.T) {
-	h := buildHeadline(gcal.Event{ID: "x", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:15:00-07:00")}, nil)
+	h := buildHeadline(gcal.Event{ID: "x", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:15:00-07:00")}, nil, nil)
 	if h.Title != "(no title)" {
 		t.Errorf("Title = %q, want %q", h.Title, "(no title)")
 	}
@@ -118,7 +118,7 @@ func TestBuildHeadlineIncludesLocationDescriptionAndLink(t *testing.T) {
 		HTMLLink:    "https://calendar.google.com/event?eid=abc123",
 		Start:       mustParse(t, "2026-09-10T09:00:00-07:00"),
 		End:         mustParse(t, "2026-09-10T09:15:00-07:00"),
-	}, nil)
+	}, nil, nil)
 	body := strings.Join(h.Body, "\n")
 	for _, want := range []string{"Location: Room 5", "Agenda:", "line two", "[[https://calendar.google.com/event?eid=abc123][Open in Google Calendar]]"} {
 		if !strings.Contains(body, want) {
@@ -135,7 +135,7 @@ func TestBuildHeadlineNoHTMLLinkOmitsProperty(t *testing.T) {
 		ID:    "abc123",
 		Start: mustParse(t, "2026-09-10T09:00:00-07:00"),
 		End:   mustParse(t, "2026-09-10T09:15:00-07:00"),
-	}, nil)
+	}, nil, nil)
 	if _, ok := h.Properties["GCAL_HTML_LINK"]; ok {
 		t.Errorf("GCAL_HTML_LINK = %q, want no such property", h.Properties["GCAL_HTML_LINK"])
 	}
@@ -249,7 +249,7 @@ func TestBuildFileRoundTripsThroughRender(t *testing.T) {
 	events := []gcal.Event{
 		{ID: "abc123", CalendarID: "primary", Summary: "Standup", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:15:00-07:00")},
 	}
-	rendered := org.RenderFile(BuildFile("/tmp/calendar.org", events, nil))
+	rendered := org.RenderFile(BuildFile("/tmp/calendar.org", events, nil, nil))
 	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org")
 	if err != nil {
 		t.Fatalf("Parse(rendered): %v", err)
@@ -276,7 +276,7 @@ func TestBuildHeadlineTagsConfirmedAttendees(t *testing.T) {
 			{Email: "sam@example.com", ResponseStatus: "tentative"},
 			{Email: "alice@example.com", ResponseStatus: "needsAction"},
 		},
-	}, nil)
+	}, nil, nil)
 	if got, want := h.Tags, []string{"@john"}; len(got) != len(want) || got[0] != want[0] {
 		t.Errorf("Tags = %v, want %v (only the confirmed attendee)", got, want)
 	}
@@ -292,7 +292,7 @@ func TestBuildHeadlineOmitsAttendeeTagsOverSeven(t *testing.T) {
 		Start:     mustParse(t, "2026-09-10T09:00:00-07:00"),
 		End:       mustParse(t, "2026-09-10T09:15:00-07:00"),
 		Attendees: attendees,
-	}, nil)
+	}, nil, nil)
 	if len(h.Tags) != 0 {
 		t.Errorf("Tags = %v, want none (8 attendees exceeds the cap of 7)", h.Tags)
 	}
@@ -308,7 +308,7 @@ func TestBuildHeadlineKeepsAttendeeTagsAtExactlySeven(t *testing.T) {
 		Start:     mustParse(t, "2026-09-10T09:00:00-07:00"),
 		End:       mustParse(t, "2026-09-10T09:15:00-07:00"),
 		Attendees: attendees,
-	}, nil)
+	}, nil, nil)
 	if len(h.Tags) != 7 {
 		t.Errorf("Tags = %v, want 7 tags (exactly at the cap)", h.Tags)
 	}
@@ -323,7 +323,7 @@ func TestBuildHeadlineCombinesRecurringAndAttendeeTags(t *testing.T) {
 		Attendees: []gcal.Attendee{
 			{Email: "john@example.com", ResponseStatus: "accepted"},
 		},
-	}, nil)
+	}, nil, nil)
 	want := []string{"recurring", "@john"}
 	if len(h.Tags) != len(want) || h.Tags[0] != want[0] || h.Tags[1] != want[1] {
 		t.Errorf("Tags = %v, want %v (recurring first, then attendee tags)", h.Tags, want)
@@ -340,7 +340,7 @@ func TestBuildHeadlineSkipsAttendeeWithNoUsableEmail(t *testing.T) {
 			{Email: "@example.com", ResponseStatus: "accepted"},
 			{Email: "real@example.com", ResponseStatus: "accepted"},
 		},
-	}, nil)
+	}, nil, nil)
 	if got, want := h.Tags, []string{"@real"}; len(got) != len(want) || got[0] != want[0] {
 		t.Errorf("Tags = %v, want %v", got, want)
 	}
@@ -354,7 +354,7 @@ func TestBuildHeadlineSanitizesInvalidTagCharactersInAttendeeTags(t *testing.T) 
 		Attendees: []gcal.Attendee{
 			{Email: "john.smith-jones@example.com", ResponseStatus: "accepted"},
 		},
-	}, nil)
+	}, nil, nil)
 	if got, want := h.Tags, []string{"@john_smith_jones"}; len(got) != len(want) || got[0] != want[0] {
 		t.Errorf("Tags = %v, want %v (invalid org-tag characters replaced with _)", got, want)
 	}
@@ -381,7 +381,7 @@ func TestBuildHeadlineFiltersAttendeeTagsByDomain(t *testing.T) {
 			{Email: "john@example.com", ResponseStatus: "accepted"},
 			{Email: "vendor@outside.com", ResponseStatus: "accepted"},
 		},
-	}, []string{"example.com"})
+	}, []string{"example.com"}, nil)
 	if got, want := h.Tags, []string{"@john"}; len(got) != len(want) || got[0] != want[0] {
 		t.Errorf("Tags = %v, want %v (vendor@outside.com filtered out)", got, want)
 	}
@@ -395,7 +395,7 @@ func TestBuildHeadlineDomainFilterIsCaseInsensitiveAndIgnoresLeadingAt(t *testin
 		Attendees: []gcal.Attendee{
 			{Email: "john@Example.COM", ResponseStatus: "accepted"},
 		},
-	}, []string{"@example.com"})
+	}, []string{"@example.com"}, nil)
 	if got, want := h.Tags, []string{"@john"}; len(got) != len(want) || got[0] != want[0] {
 		t.Errorf("Tags = %v, want %v", got, want)
 	}
@@ -411,7 +411,7 @@ func TestBuildHeadlineDomainFilterAllowsMultipleDomains(t *testing.T) {
 			{Email: "jane@partner.org", ResponseStatus: "accepted"},
 			{Email: "vendor@outside.com", ResponseStatus: "accepted"},
 		},
-	}, []string{"example.com", "partner.org"})
+	}, []string{"example.com", "partner.org"}, nil)
 	want := []string{"@jane", "@john"}
 	if len(h.Tags) != len(want) || h.Tags[0] != want[0] || h.Tags[1] != want[1] {
 		t.Errorf("Tags = %v, want %v", h.Tags, want)
@@ -426,9 +426,53 @@ func TestBuildHeadlineDomainFilterExcludesEverySuchAttendee(t *testing.T) {
 		Attendees: []gcal.Attendee{
 			{Email: "john@outside.com", ResponseStatus: "accepted"},
 		},
-	}, []string{"example.com"})
+	}, []string{"example.com"}, nil)
 	if len(h.Tags) != 0 {
 		t.Errorf("Tags = %v, want none (no attendee matches the configured domain)", h.Tags)
+	}
+}
+
+func TestBuildHeadlineIgnorePatternExcludesMatchingAttendee(t *testing.T) {
+	h := buildHeadline(gcal.Event{
+		ID:    "abc123",
+		Start: mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:   mustParse(t, "2026-09-10T09:15:00-07:00"),
+		Attendees: []gcal.Attendee{
+			{Email: "john@example.com", ResponseStatus: "accepted"},
+			{Email: "c_abc123@resource.calendar.google.com", ResponseStatus: "accepted"},
+		},
+	}, nil, []string{"c_*@*"})
+	if got, want := h.Tags, []string{"@john"}; len(got) != len(want) || got[0] != want[0] {
+		t.Errorf("Tags = %v, want %v (synthetic c_...@... attendee excluded)", got, want)
+	}
+}
+
+func TestBuildHeadlineIgnorePatternIsCaseInsensitive(t *testing.T) {
+	h := buildHeadline(gcal.Event{
+		ID:    "abc123",
+		Start: mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:   mustParse(t, "2026-09-10T09:15:00-07:00"),
+		Attendees: []gcal.Attendee{
+			{Email: "C_abc123@Resource.Calendar.Google.Com", ResponseStatus: "accepted"},
+		},
+	}, nil, []string{"c_*@*"})
+	if len(h.Tags) != 0 {
+		t.Errorf("Tags = %v, want none (pattern match should be case-insensitive)", h.Tags)
+	}
+}
+
+func TestBuildHeadlineIgnorePatternCheckedBeforeDomainFilter(t *testing.T) {
+	h := buildHeadline(gcal.Event{
+		ID:    "abc123",
+		Start: mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:   mustParse(t, "2026-09-10T09:15:00-07:00"),
+		Attendees: []gcal.Attendee{
+			{Email: "c_abc123@example.com", ResponseStatus: "accepted"},
+			{Email: "john@example.com", ResponseStatus: "accepted"},
+		},
+	}, []string{"example.com"}, []string{"c_*@*"})
+	if got, want := h.Tags, []string{"@john"}; len(got) != len(want) || got[0] != want[0] {
+		t.Errorf("Tags = %v, want %v (ignore pattern excludes c_abc123 even though its domain would pass)", got, want)
 	}
 }
 

@@ -6,6 +6,7 @@ package calendarsync
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -48,9 +49,11 @@ func ExcludeTooLong(events []gcal.Event) []gcal.Event {
 // to be wholesale-regenerated on every sync (it's a cache, not something
 // hand-edited), so nothing here reads or preserves a previous version.
 // attendeeTagDomains restricts each headline's attendee tags to
-// attendees whose email ends in one of those domains (see
-// attendeeTags) — empty means no restriction.
-func BuildFile(path string, events []gcal.Event, attendeeTagDomains []string) *org.File {
+// attendees whose email ends in one of those domains, and
+// attendeeIgnorePatterns drops any attendee whose email matches one of
+// those glob patterns before tags are even considered (see
+// attendeeTags) — empty means no restriction/no exclusions.
+func BuildFile(path string, events []gcal.Event, attendeeTagDomains, attendeeIgnorePatterns []string) *org.File {
 	sorted := make([]gcal.Event, len(events))
 	copy(sorted, events)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -67,12 +70,12 @@ func BuildFile(path string, events []gcal.Event, attendeeTagDomains []string) *o
 		},
 	}
 	for _, ev := range sorted {
-		f.Headlines = append(f.Headlines, buildHeadline(ev, attendeeTagDomains))
+		f.Headlines = append(f.Headlines, buildHeadline(ev, attendeeTagDomains, attendeeIgnorePatterns))
 	}
 	return f
 }
 
-func buildHeadline(ev gcal.Event, attendeeTagDomains []string) *org.Headline {
+func buildHeadline(ev gcal.Event, attendeeTagDomains, attendeeIgnorePatterns []string) *org.Headline {
 	title := ev.Summary
 	if title == "" {
 		title = "(no title)"
@@ -87,7 +90,7 @@ func buildHeadline(ev gcal.Event, attendeeTagDomains []string) *org.Headline {
 		// the property drawer, that this instance is part of a series.
 		h.Tags = append(h.Tags, "recurring")
 	}
-	h.Tags = append(h.Tags, attendeeTags(ev, attendeeTagDomains)...)
+	h.Tags = append(h.Tags, attendeeTags(ev, attendeeTagDomains, attendeeIgnorePatterns)...)
 	h.SetProperty("GCAL_EVENT_ID", ev.ID)
 	h.SetProperty("GCAL_CALENDAR_ID", ev.CalendarID)
 	if ev.RecurringEventID != "" {
@@ -145,14 +148,21 @@ const maxAttendeesForTags = 7
 // attendee is tagged only when their address's domain (case-insensitive,
 // a leading "@" in a configured domain ignored) exactly matches one of
 // them — see domainAllowed; an empty domains list (the default) tags
-// every confirmed attendee regardless of domain.
-func attendeeTags(ev gcal.Event, domains []string) []string {
+// every confirmed attendee regardless of domain. Before any of that, an
+// attendee whose email matches one of ignorePatterns (see
+// attendeeIgnored) is dropped outright — e.g. "c_*@*" to exclude the
+// synthetic "c_...@..." attendees Google Calendar attaches to represent
+// a resource/room booking.
+func attendeeTags(ev gcal.Event, domains, ignorePatterns []string) []string {
 	if len(ev.Attendees) > maxAttendeesForTags {
 		return nil
 	}
 	var tags []string
 	for _, a := range ev.Attendees {
 		if a.ResponseStatus != "accepted" {
+			continue
+		}
+		if attendeeIgnored(a.Email, ignorePatterns) {
 			continue
 		}
 		username, domain, ok := splitEmail(a.Email)
@@ -163,6 +173,22 @@ func attendeeTags(ev gcal.Event, domains []string) []string {
 	}
 	sort.Strings(tags)
 	return tags
+}
+
+// attendeeIgnored reports whether email matches one of patterns (see
+// Settings.AttendeeIgnorePatterns), each a filepath.Match-style glob —
+// "*" matches any run of characters, "?" a single one — compared
+// case-insensitively against the whole address. False (nothing ignored)
+// when patterns is empty; a malformed pattern is treated as "does not
+// match" rather than failing the whole sync.
+func attendeeIgnored(email string, patterns []string) bool {
+	email = strings.ToLower(email)
+	for _, p := range patterns {
+		if matched, err := filepath.Match(strings.ToLower(p), email); err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 // splitEmail splits email into the portion before and after its "@", or

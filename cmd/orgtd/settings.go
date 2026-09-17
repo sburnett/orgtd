@@ -34,6 +34,7 @@ type settings struct {
 	gcalCalendarIDs                          []string
 	gcalSyncPastDays, gcalSyncFutureDays     int
 	gcalAttendeeTagDomains                   []string
+	gcalAttendeeIgnorePatterns               []string
 
 	// icon* customize the outline's gutter markers (see internal/ui) —
 	// config-file only, like the gcal* fields above: there's no
@@ -150,6 +151,7 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 		s.gcalSyncFutureDays = 14
 	}
 	s.gcalAttendeeTagDomains = cfg.Gcalsync.AttendeeTagDomains
+	s.gcalAttendeeIgnorePatterns = cfg.Gcalsync.AttendeeIgnorePatterns
 
 	s.iconDirtyIcon = cfg.Icons.DirtyIcon
 	s.iconDirtyColor = cfg.Icons.DirtyColor

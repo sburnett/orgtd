@@ -509,7 +509,11 @@ all) above it, rather than showing a partial list. `gcalsync.attendee_tag_domain
 (below) additionally restricts this to attendees whose email is on one
 of a set of domains — useful for tagging only coworkers, not every
 external guest, vendor, or room/resource calendar an event happens to
-list as an attendee. These are what Tag-based meeting links (see
+list as an attendee. `gcalsync.attendee_ignore_patterns` (below) instead
+drops matching attendees from consideration entirely, before that
+domain restriction is even checked — useful for excluding the synthetic
+`c_...@...`-style attendees Google Calendar attaches to some events on
+its own. These are what Tag-based meeting links (see
 Keybindings, below) matches against — tag a task `@alice` and it's
 automatically linked to every meeting she's a confirmed attendee of.
 
@@ -534,6 +538,7 @@ automatically linked to every meeting she's a confirmed attendee of.
    sync_past_days = 1
    sync_future_days = 14
    attendee_tag_domains = ["example.com"]
+   attendee_ignore_patterns = ["c_*@*"]
    ```
 
 3. Run `:sync-calendar`. The first run opens your system browser to
@@ -551,6 +556,7 @@ automatically linked to every meeting she's a confirmed attendee of.
 | `gcalsync.calendar_ids` | `["primary"]` | Google Calendar IDs to sync |
 | `gcalsync.sync_past_days` / `gcalsync.sync_future_days` | `1` / `14` | Sync window around now |
 | `gcalsync.attendee_tag_domains` | *(none — every confirmed attendee tagged)* | Restricts `@username` attendee tags (see above) to attendees whose email domain matches one of these, e.g. `["example.com"]` to tag only coworkers and drop external guests/vendors/room calendars. Matched case-insensitively; a leading `@` is optional (`"example.com"` and `"@example.com"` behave the same) |
+| `gcalsync.attendee_ignore_patterns` | *(none — no exclusions)* | Excludes any attendee whose email matches one of these glob patterns from consideration entirely, before `attendee_tag_domains` is even checked, e.g. `["c_*@*"]` to drop the synthetic `c_...@...` attendees Google Calendar attaches to some events. Uses Go's `filepath.Match` syntax (`*` matches any run of characters, `?` a single one) and is matched case-insensitively against the whole address |
 
 There are no command-line flags for these — `:sync-calendar` only ever
 runs interactively from inside orgtd, so they're config-file only.

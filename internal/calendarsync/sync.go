@@ -25,6 +25,15 @@ type Settings struct {
 	// in one of these domains. Empty means no restriction — every
 	// confirmed attendee is tagged, regardless of domain.
 	AttendeeTagDomains []string
+
+	// AttendeeIgnorePatterns excludes any attendee whose email matches
+	// one of these filepath.Match-style glob patterns from
+	// consideration entirely — checked before AttendeeTagDomains, and
+	// unrelated to it (see attendeeIgnored) — e.g. ["c_*@*"] to drop the
+	// synthetic "c_...@..." attendees Google Calendar attaches to
+	// represent a resource/room booking, which would otherwise each get
+	// their own meaningless tag. Empty means no exclusions.
+	AttendeeIgnorePatterns []string
 }
 
 // Result is one sync run's outcome: the regenerated org file (not yet
@@ -70,7 +79,7 @@ func Sync(ctx context.Context, s Settings, onConsentURL func(url string)) (Resul
 	events = ExcludeTooLong(events)
 
 	return Result{
-		File:          BuildFile(s.OutputPath, events, s.AttendeeTagDomains),
+		File:          BuildFile(s.OutputPath, events, s.AttendeeTagDomains, s.AttendeeIgnorePatterns),
 		EventCount:    len(events),
 		CalendarCount: len(s.CalendarIDs),
 	}, nil

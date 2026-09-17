@@ -119,6 +119,7 @@ func main() {
 			ui.WithGcalCalendarIDs(s.gcalCalendarIDs),
 			ui.WithGcalSyncWindow(s.gcalSyncPastDays, s.gcalSyncFutureDays),
 			ui.WithGcalAttendeeTagDomains(s.gcalAttendeeTagDomains),
+			ui.WithGcalAttendeeIgnorePatterns(s.gcalAttendeeIgnorePatterns),
 			ui.WithDirtyIcon(s.iconDirtyIcon, s.iconDirtyColor),
 			ui.WithMarkColor(s.iconMarkColor),
 			ui.WithClarifyIcon(s.iconClarifyIcon, s.iconClarifyColor),
