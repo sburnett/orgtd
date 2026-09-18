@@ -421,3 +421,57 @@ func TestNewSearchReplacesOldHighlight(t *testing.T) {
 		t.Errorf("lastSearchQuery = %q, want the new search to replace the old one", m.lastSearchQuery)
 	}
 }
+
+func TestSearchFindsHeadlineInsideFoldedSubtree(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Ship orgtd v0.1")
+	m = sendKey(m, "tab")
+	if !m.collapsed[m.currentHeadline()] {
+		t.Fatalf("fixture assumption broken: fold didn't collapse")
+	}
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "Bubble Tea viewer")
+
+	if got := m.currentHeadline(); got == nil || got.Title != "Implement the Bubble Tea viewer" {
+		t.Errorf("cursor = %v, want the match inside the folded subtree", got)
+	}
+}
+
+func TestSearchFindsBodyLineInsideFoldedSubtree(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Ship orgtd v0.1")
+	m = sendKey(m, "tab")
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "planning lines, properties")
+
+	got := m.currentHeadline()
+	if got == nil || got.Title != "Implement the org file parser" {
+		t.Fatalf("cursor = %v, want the entry owning the matching (folded-away) body text", got)
+	}
+	if m.collapsed[got] {
+		t.Errorf("matched entry is still folded — its body line couldn't actually be visible")
+	}
+}
+
+func TestSearchInHelpViewFindsReadmeText(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws, WithReadme("# orgtd\n\nSome unique-marker-xyz docs.\n"))
+	m = sendKey(m, ":")
+	m = typeKeys(m, "help")
+	m, _ = sendKeyCmd(m, "enter")
+
+	before := m.cursor
+	m = sendKey(m, "/")
+	m = typeKeys(m, "unique-marker-xyz")
+
+	if m.cursor == before {
+		t.Fatalf("search in help view found nothing")
+	}
+	if !m.rows[m.cursor].isTextLine || !strings.Contains(m.rows[m.cursor].text, "unique-marker-xyz") {
+		t.Errorf("cursor landed on %+v, want the matching help row", m.rows[m.cursor])
+	}
+}

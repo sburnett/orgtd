@@ -24,7 +24,11 @@ import (
 // redundant with that and the day-header grouping above, so they stay
 // one Tab away rather than showing by default; the link is also always
 // reachable straight from the status line (see calendarEventLinks).
-func (m *Model) appendCalendarRows() {
+// ignoreFold, when true, descends into every event's body/children
+// regardless of fold state — used by searchRows (see model.go) to build
+// the full calendar text search scans, so a match inside a folded
+// event's Location/description body isn't skipped.
+func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 	f := m.findCalendarFile()
 	if f == nil {
 		return
@@ -59,8 +63,8 @@ func (m *Model) appendCalendarRows() {
 			sj, _ := parseRFC3339Property(g.events[j], "GCAL_START")
 			return si.Before(sj)
 		})
-		m.rows = append(m.rows, row{section: day.Format("2006-01-02 Mon")})
-		m.appendCalendarHeadlines(g.events)
+		*dst = append(*dst, row{section: day.Format("2006-01-02 Mon")})
+		m.appendCalendarHeadlines(dst, g.events, ignoreFold)
 	}
 }
 

@@ -1143,6 +1143,25 @@ func TestMeetingHeaderRenderShowsTitleAndTime(t *testing.T) {
 	}
 }
 
+func TestSearchFindsMeetingHeaderByTitle(t *testing.T) {
+	now := time.Now()
+	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup Zzyzx", now.Add(time.Hour), now.Add(90*time.Minute))
+	item := linkedToRecurringMeetings("Follow up item", "series-abc")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{meeting}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{item}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "Zzyzx")
+
+	if !m.rows[m.cursor].isMeetingHeader || m.rows[m.cursor].meetingTitle != "Weekly Standup Zzyzx" {
+		t.Errorf("cursor landed on %+v, want the meeting header row", m.rows[m.cursor])
+	}
+}
+
 func TestFormatMeetingWhenOmitsTimeForAllDayMeeting(t *testing.T) {
 	start := time.Date(2026, 9, 20, 0, 0, 0, 0, time.Local)
 	end := time.Date(2026, 9, 21, 0, 0, 0, 0, time.Local)
