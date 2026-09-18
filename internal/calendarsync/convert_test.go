@@ -266,7 +266,7 @@ func TestBuildFileRoundTripsThroughRender(t *testing.T) {
 	}
 }
 
-func TestBuildHeadlineTagsConfirmedAttendees(t *testing.T) {
+func TestBuildHeadlineTagsEveryoneWhenInviteIsSmall(t *testing.T) {
 	h := buildHeadline(gcal.Event{
 		ID:    "abc123",
 		Start: mustParse(t, "2026-09-10T09:00:00-07:00"),
@@ -278,8 +278,43 @@ func TestBuildHeadlineTagsConfirmedAttendees(t *testing.T) {
 			{Email: "alice@example.com", ResponseStatus: "needsAction"},
 		},
 	}, nil, nil)
-	if got, want := h.Tags, []string{"@john"}; len(got) != len(want) || got[0] != want[0] {
-		t.Errorf("Tags = %v, want %v (only the confirmed attendee)", got, want)
+	want := []string{"@alice", "@john", "@sam"}
+	if got := h.Tags; !reflect.DeepEqual(got, want) {
+		t.Errorf("Tags = %v, want %v (small invite tags everyone but the decliner, confirmed or not)", got, want)
+	}
+}
+
+func TestBuildHeadlineOnlyConfirmedTaggedWhenInviteIsLarge(t *testing.T) {
+	var attendees []gcal.Attendee
+	for i := 0; i < 10; i++ {
+		attendees = append(attendees, gcal.Attendee{Email: strings.Repeat("a", i+1) + "@example.com", ResponseStatus: "needsAction"})
+	}
+	attendees = append(attendees, gcal.Attendee{Email: "alice@example.com", ResponseStatus: "accepted"})
+	h := buildHeadline(gcal.Event{
+		ID:        "abc123",
+		Start:     mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:       mustParse(t, "2026-09-10T09:15:00-07:00"),
+		Attendees: attendees,
+	}, nil, nil)
+	if got, want := h.Tags, []string{"@alice"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Tags = %v, want %v (invite too large to tag everyone, so only the confirmed attendee)", got, want)
+	}
+}
+
+func TestBuildHeadlineDeclinedAttendeesDontCountTowardInviteSize(t *testing.T) {
+	var attendees []gcal.Attendee
+	for i := 0; i < 10; i++ {
+		attendees = append(attendees, gcal.Attendee{Email: strings.Repeat("a", i+1) + "@example.com", ResponseStatus: "declined"})
+	}
+	attendees = append(attendees, gcal.Attendee{Email: "alice@example.com", ResponseStatus: "needsAction"})
+	h := buildHeadline(gcal.Event{
+		ID:        "abc123",
+		Start:     mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:       mustParse(t, "2026-09-10T09:15:00-07:00"),
+		Attendees: attendees,
+	}, nil, nil)
+	if got, want := h.Tags, []string{"@alice"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Tags = %v, want %v (10 decliners plus 1 pending attendee is still a small invite)", got, want)
 	}
 }
 
@@ -296,23 +331,6 @@ func TestBuildHeadlineOmitsAttendeeTagsOverSeven(t *testing.T) {
 	}, nil, nil)
 	if len(h.Tags) != 0 {
 		t.Errorf("Tags = %v, want none (8 attendees exceeds the cap of 7)", h.Tags)
-	}
-}
-
-func TestBuildHeadlineCapCountsOnlyAcceptedAttendees(t *testing.T) {
-	var attendees []gcal.Attendee
-	for i := 0; i < 10; i++ {
-		attendees = append(attendees, gcal.Attendee{Email: strings.Repeat("a", i+1) + "@example.com", ResponseStatus: "needsAction"})
-	}
-	attendees = append(attendees, gcal.Attendee{Email: "alice@example.com", ResponseStatus: "accepted"})
-	h := buildHeadline(gcal.Event{
-		ID:        "abc123",
-		Start:     mustParse(t, "2026-09-10T09:00:00-07:00"),
-		End:       mustParse(t, "2026-09-10T09:15:00-07:00"),
-		Attendees: attendees,
-	}, nil, nil)
-	if got, want := h.Tags, []string{"@alice"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("Tags = %v, want %v (only the one accepted attendee should count toward the cap)", got, want)
 	}
 }
 

@@ -271,7 +271,7 @@ below) with the same tag a synced calendar event carries links the two
 together automatically — no `gM` attach needed. This is mainly useful
 with `:sync-calendar`'s own attendee tags (see Calendar sync, below):
 tag a task `@alice`, and it's now linked to every meeting `:sync-calendar`
-has alice down as a confirmed attendee of, the same as if you'd `gM`-attached
+has tagged alice as an attendee of, the same as if you'd `gM`-attached
 it to each one by hand. A tag-based link behaves exactly like a `gM`
 attachment everywhere orgtd shows one: the entry shows up in the
 agenda's Meetings section and nested under the event in `:calendar`
@@ -498,16 +498,19 @@ The whole output file is wholesale-regenerated on
 every run (it's a cache, not something to hand-edit — a comment at the
 top says so); declined and cancelled events are left out.
 
-Each attendee who has confirmed (accepted the invitation) is also tagged
-onto the headline as `@username` — the portion of their email address
-before the `@`, e.g. `john@example.com` becomes `@john` (any character
-not otherwise valid in an org tag, like the `.` in `first.last@...`, is
-replaced with `_` so the tag still round-trips cleanly). Only for
-meetings with 7 or fewer *confirmed* attendees — a large invite list
-with only a few acceptances still gets tagged; past 7 confirmed
-attendees the tags would be more clutter than signal, and are skipped
-entirely (no attendee tags at all), rather than showing a partial list.
-`gcalsync.attendee_tag_domains`
+Each attendee is potentially tagged onto the headline as `@username` —
+the portion of their email address before the `@`, e.g.
+`john@example.com` becomes `@john` (any character not otherwise valid in
+an org tag, like the `.` in `first.last@...`, is replaced with `_` so
+the tag still round-trips cleanly). Confirmed (accepted) attendees are
+prioritized: an invite of 7 or fewer people (anyone who's declined
+doesn't count) is small enough that RSVP status doesn't matter, and
+everyone still tentative or pending is tagged right alongside anyone
+who's confirmed. Past that size, only confirmed attendees are
+considered — a large invite list with only a few acceptances still gets
+those tagged — and if even the confirmed attendees number more than 7,
+tagging is skipped entirely (no attendee tags at all), rather than
+showing a partial list. `gcalsync.attendee_tag_domains`
 (below) additionally restricts this to attendees whose email is on one
 of a set of domains — useful for tagging only coworkers, not every
 external guest, vendor, or room/resource calendar an event happens to
@@ -517,7 +520,7 @@ domain restriction is even checked — useful for excluding the synthetic
 `c_...@...`-style attendees Google Calendar attaches to some events on
 its own. These are what Tag-based meeting links (see
 Keybindings, below) matches against — tag a task `@alice` and it's
-automatically linked to every meeting she's a confirmed attendee of.
+automatically linked to every meeting she's tagged as an attendee of.
 
 ### Setup
 
