@@ -342,6 +342,62 @@ func TestGMFilterNarrowsBySubstring(t *testing.T) {
 	}
 }
 
+// TestGMFilterAlsoMatchesAttendeeTag covers matching on an attendee tag
+// (e.g. "@alice", the same tag :sync-calendar stamps on for Tag-based
+// meeting links — see README.md) rather than only the title, so typing an
+// attendee's name finds a meeting whose title doesn't happen to mention
+// them.
+func TestGMFilterAlsoMatchesAttendeeTag(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	standup := recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute))
+	standup.Tags = append(standup.Tags, "@alice")
+	planning := recurringCalendarEventHeadline("planning-1", "series-planning", "Sprint Planning", now.Add(2*time.Hour), now.Add(3*time.Hour))
+	planning.Tags = append(planning.Tags, "@bob")
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{standup, planning},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	m = typeKeys(m, "alice")
+
+	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) != 1 || matches[0].id != "series-standup" {
+		t.Fatalf("filtered matches = %+v, want just series-standup", matches)
+	}
+}
+
+// TestGMFilterIgnoresRecurringSystemTag covers that the "recurring" tag
+// every recurring occurrence carries (meetingSeriesTag) never counts as a
+// filter match on its own — it's noise stamped onto every series, not a
+// meaningful attendee, so typing "recurring" shouldn't match every
+// recurring meeting synced.
+func TestGMFilterIgnoresRecurringSystemTag(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	m = typeKeys(m, "recurring")
+
+	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) != 0 {
+		t.Fatalf("filtered matches = %+v, want none", matches)
+	}
+}
+
 func TestGMEnterAttachesHighlightedMeeting(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()

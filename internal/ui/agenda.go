@@ -497,6 +497,7 @@ type meetingCandidate struct {
 	link  string    // GCAL_HTML_LINK, "" if :sync-calendar didn't have one — see buildMeetingAttachAction
 	when  time.Time // the series' representative occurrence's start (or the one-off event's own start) — see meetingCandidates
 	end   time.Time // that same occurrence's end, zero if GCAL_END was missing/unparseable
+	tags  map[string]bool // meetingTags(kind, id) — attendee tags, "recurring" excluded — matched by filteredMeetingCandidates alongside title
 }
 
 // inProgress reports whether c's representative occurrence has started
@@ -560,7 +561,8 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 	}
 
 	candidates := make([]meetingCandidate, 0, len(best))
-	for _, c := range best {
+	for key, c := range best {
+		c.tags = m.meetingTags(key.kind, key.id)
 		candidates = append(candidates, c)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -605,11 +607,15 @@ func moreRelevantOccurrence(a, b, now time.Time) bool {
 	return a.Sub(now).Abs() < b.Sub(now).Abs()
 }
 
-// filteredMeetingCandidates returns every candidate whose title contains
-// filter, case-insensitively — plain substring matching, unlike the
-// status picker's matchesFilter (prefix/shortcut over a small fixed
-// keyword set): a meeting title is arbitrary text, not a keyword, so
-// there's no natural prefix or single-letter shortcut to match on.
+// filteredMeetingCandidates returns every candidate whose title, or one of
+// its attendee tags (c.tags — see meetingCandidates/meetingTags), contains
+// filter, case-insensitively — plain substring matching, unlike the status
+// picker's matchesFilter (prefix/shortcut over a small fixed keyword set):
+// a meeting title is arbitrary text, not a keyword, so there's no natural
+// prefix or single-letter shortcut to match on. Matching tags too lets
+// typing an attendee's name (e.g. "alice", matching the "@alice" tag
+// :sync-calendar stamps on — see Calendar sync) find a meeting whose title
+// doesn't happen to mention them.
 func filteredMeetingCandidates(candidates []meetingCandidate, filter string) []meetingCandidate {
 	if filter == "" {
 		return candidates
@@ -617,11 +623,22 @@ func filteredMeetingCandidates(candidates []meetingCandidate, filter string) []m
 	lower := strings.ToLower(filter)
 	var out []meetingCandidate
 	for _, c := range candidates {
-		if strings.Contains(strings.ToLower(c.title), lower) {
+		if strings.Contains(strings.ToLower(c.title), lower) || tagsContain(c.tags, lower) {
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// tagsContain reports whether any tag in tags contains lower, a
+// lowercased substring, case-insensitively.
+func tagsContain(tags map[string]bool, lower string) bool {
+	for t := range tags {
+		if strings.Contains(strings.ToLower(t), lower) {
+			return true
+		}
+	}
+	return false
 }
 
 // meetingIsAttached reports whether h's c.kind.idsProperty() (either
