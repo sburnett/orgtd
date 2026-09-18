@@ -6599,6 +6599,13 @@ func (m *Model) infoBufferHeight() int {
 //     every status candidate (see statusCandidates), one per line, the
 //     currently highlighted one in reverse video — the structured
 //     counterpart of the old single-line renderStatusSelector.
+//   - "Attach meeting:" — while the "gM" picker (meetingPickerMode) is
+//     open, every meeting candidate matching the typed filter (see
+//     filteredMeetingCandidates), one per line — title, resolved date,
+//     and whether it's already attached to the target entry — the
+//     currently highlighted one in reverse video (meetingPickerLines).
+//     The structured counterpart of the old single-candidate
+//     renderMeetingPicker, which only showed the highlighted one.
 //
 // A section that doesn't apply is simply omitted; nil (zero height) if
 // none of them do at all — same "collapses to nothing" convention as
@@ -6618,6 +6625,9 @@ func (m *Model) infoBufferLines() []string {
 	}
 	if m.mode == selectMode {
 		lines = m.appendInfoSectionRendered(lines, "Status:", m.statusSelectorLines())
+	}
+	if m.mode == meetingPickerMode {
+		lines = m.appendInfoSectionRendered(lines, "Attach meeting:", m.meetingPickerLines())
 	}
 
 	if len(lines) == 0 {
@@ -6700,6 +6710,45 @@ func (m Model) statusSelectorLines() []string {
 			lines[i] = cursorStyle.Render(" " + text)
 		} else {
 			lines[i] = bgSpan(overlayBg, " ") + shortcutStyle.Background(overlayBg).Render(fmt.Sprintf("[%c]", c.shortcut)) + bgSpan(overlayBg, " "+c.label)
+		}
+	}
+	return lines
+}
+
+// meetingPickerLines renders one line per meeting candidate matching the
+// "gM" picker's typed filter (see filteredMeetingCandidates) for the
+// info buffer's "Attach meeting:" section — the structured, one-per-line
+// counterpart of the old renderMeetingPicker, which only ever showed the
+// single highlighted candidate on the command line (there was nowhere
+// else to put the rest before the info buffer existed). Each line is
+// "<title>  <date>", with " (attached)" appended for a candidate already
+// on the target entry (see meetingIsAttached — picking it again detaches
+// rather than adding a duplicate), and the currently highlighted
+// candidate in reverse video, same convention as statusSelectorLines
+// above. nil if the filter matches nothing.
+func (m Model) meetingPickerLines() []string {
+	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) == 0 {
+		return nil
+	}
+	idx := m.meetingPickerIndex
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(matches) {
+		idx = len(matches) - 1
+	}
+
+	lines := make([]string, len(matches))
+	for i, c := range matches {
+		text := c.title + "  " + c.when.Local().Format("2006-01-02 Mon 15:04")
+		if meetingIsAttached(m.meetingPickerTarget, c) {
+			text += "  (attached)"
+		}
+		if i == idx {
+			lines[i] = cursorStyle.Render(" " + text)
+		} else {
+			lines[i] = bgSpan(overlayBg, " "+text)
 		}
 	}
 	return lines
@@ -7176,15 +7225,14 @@ func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), style)
 }
 
-// renderMeetingPicker renders the "gM" picker's single command-line row:
-// how many candidates match the typed filter, the highlighted one's
-// title/date (and whether it's already attached to the target entry —
-// see meetingIsAttached), and the filter text itself. Unlike the "R"
-// status picker's candidate list (statusSelectorLines, in the info
-// buffer — a small, fixed set with a shortcut apiece), this shows only
-// the one currently highlighted, right on the command line — the
-// candidate list here is arbitrary-length free-text titles, which
-// wouldn't fit on screen all at once the way the status picker's does.
+// renderMeetingPicker renders the "gM" picker's command-line prompt: how
+// many candidates match the typed filter (or that none do), and the
+// filter text itself. The candidate list itself — title, resolved date,
+// and whether each is already attached to the target entry — lives in
+// the info buffer's "Attach meeting:" section (see meetingPickerLines,
+// above), the same split selectMode's own "R" status picker uses for its
+// candidate list (statusSelectorLines) rather than crowding it onto this
+// single command-line row.
 func (m Model) renderMeetingPicker() string {
 	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
 	line := " Attach meeting: no matches"
@@ -7196,13 +7244,7 @@ func (m Model) renderMeetingPicker() string {
 		if idx >= len(matches) {
 			idx = len(matches) - 1
 		}
-		c := matches[idx]
-		action := "attaches"
-		if meetingIsAttached(m.meetingPickerTarget, c) {
-			action = "detaches (already attached)"
-		}
-		line = fmt.Sprintf(" Attach meeting (%d/%d): %s — %s  [Enter %s]",
-			idx+1, len(matches), c.title, c.when.Local().Format("2006-01-02 Mon 15:04"), action)
+		line = fmt.Sprintf(" Attach meeting (%d/%d, Enter toggles attach)", idx+1, len(matches))
 	}
 	if m.meetingPickerFilter != "" {
 		line += "   (" + m.meetingPickerFilter + ")"

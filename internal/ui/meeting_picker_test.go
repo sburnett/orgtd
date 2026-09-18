@@ -772,7 +772,12 @@ func TestGMTypedLettersFilterRatherThanNavigate(t *testing.T) {
 	}
 }
 
-func TestRenderMeetingPickerShowsTitleDateAndAction(t *testing.T) {
+// TestMeetingPickerCandidatesShowInInfoBufferNotOnPromptLine guards the
+// "Attach meeting:" section of the info buffer (see meetingPickerLines):
+// the "gM" picker's candidate list lives there, one per line — the
+// command line itself only ever shows the "Attach meeting" prefix, the
+// match count, and the typed filter.
+func TestMeetingPickerCandidatesShowInInfoBufferNotOnPromptLine(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()
 	ws.Files = append(ws.Files, &org.File{
@@ -787,18 +792,66 @@ func TestRenderMeetingPickerShowsTitleDateAndAction(t *testing.T) {
 	m = sendKey(m, "M")
 
 	rendered := stripANSI(m.renderMeetingPicker())
-	if !strings.Contains(rendered, "Weekly Standup") {
-		t.Errorf("rendered = %q, want the meeting title", rendered)
+	if strings.Contains(rendered, "Weekly Standup") {
+		t.Errorf("rendered = %q, the meeting title should not appear here anymore", rendered)
 	}
-	if !strings.Contains(rendered, "attaches") {
-		t.Errorf("rendered = %q, want it to say Enter attaches (not yet attached)", rendered)
+	if !strings.Contains(rendered, "Attach meeting") {
+		t.Errorf("rendered = %q, want the \"Attach meeting\" prefix", rendered)
+	}
+
+	var bufLines []string
+	for _, l := range m.infoBufferLines() {
+		bufLines = append(bufLines, stripANSI(l))
+	}
+	if !containsSubstring(bufLines, "Attach meeting:") {
+		t.Errorf("info buffer missing \"Attach meeting:\" section: %#v", bufLines)
+	}
+	if !containsSubstring(bufLines, "Weekly Standup") {
+		t.Errorf("info buffer missing candidate title: %#v", bufLines)
 	}
 
 	target := m.currentHeadline()
 	target.SetProperty("GCAL_RECURRING_EVENT_IDS", "series-standup")
-	rendered = stripANSI(m.renderMeetingPicker())
-	if !strings.Contains(rendered, "already attached") {
-		t.Errorf("rendered = %q, want it to flag the meeting as already attached", rendered)
+	bufLines = nil
+	for _, l := range m.infoBufferLines() {
+		bufLines = append(bufLines, stripANSI(l))
+	}
+	if !containsSubstring(bufLines, "(attached)") {
+		t.Errorf("info buffer missing \"(attached)\" marker for an already-attached candidate: %#v", bufLines)
+	}
+}
+
+// TestMeetingPickerHighlightsCurrentCandidateInInfoBuffer guards that the
+// highlighted candidate (meetingPickerIndex) is the one actually marked
+// (reverse video) among the info buffer's "Attach meeting:" lines, not
+// just tracked internally.
+func TestMeetingPickerHighlightsCurrentCandidateInInfoBuffer(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(time.Hour), now.Add(90*time.Minute)),
+			recurringCalendarEventHeadline("planning-1", "series-planning", "Sprint Planning", now.Add(2*time.Hour), now.Add(3*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+	m, _ = sendKeyCmd(m, "down")
+
+	var highlightedLine string
+	for _, l := range m.meetingPickerLines() {
+		if strings.Contains(l, "\x1b[7m") {
+			highlightedLine = l
+		}
+	}
+	if highlightedLine == "" {
+		t.Fatalf("no reverse-video candidate line found")
+	}
+	if !strings.Contains(stripANSI(highlightedLine), "Sprint Planning") {
+		t.Errorf("highlighted line = %q, want it to be Sprint Planning", stripANSI(highlightedLine))
 	}
 }
 
