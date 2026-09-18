@@ -257,9 +257,11 @@ when none of them apply, so it never costs a permanent row on screen:
   is open, every selectable state, one per line, with its bracketed
   shortcut and the currently highlighted one in reverse video.
 - **Attach meeting** — while the `gM` picker (see Keybindings, below) is
-  open, every meeting matching what's been typed so far, one per line —
-  title, resolved date, and `(attached)` for one already attached to the
-  target entry — with the currently highlighted one in reverse video.
+  open, every meeting matching what's been typed so far, in chronological
+  order, one per line — resolved date/time first (so times line up in a
+  column and are easy to compare down the list), then title, then
+  `(attached)` for one already attached to the target entry — with the
+  currently highlighted one in reverse video.
 
 Any section past 20 lines collapses the rest into a trailing "...and N
 more" summary rather than pushing the outline listing off-screen.

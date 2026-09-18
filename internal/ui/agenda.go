@@ -522,22 +522,23 @@ type meetingKey struct {
 // event, one per GCAL_EVENT_ID (every synced event carries this;
 // GCAL_RECURRING_EVENT_ID only if it's part of a series) — each using
 // whichever synced occurrence is currently most relevant
-// (meetingPickerLess) as its title/display date, sorted the same way so
-// index 0 — the picker's default highlight — is the one you're most
-// likely attaching an item to right now: a meeting currently in
-// progress, the shortest one if more than one is, else whichever starts
-// closest to now — including one that just ended, not only ones still
-// upcoming. Picking the representative occurrence with meetingPickerLess
-// rather than a start-only comparison matters for a series with more
-// than one instance synced at once (a daily standup: today's and
-// tomorrow's both fall inside the sync window): a start-only "soonest
-// upcoming wins" comparison would treat today's already-started
-// occurrence as simply "past" and lose it to tomorrow's, hiding the
-// fact that the series is in progress right now from the final sort
-// entirely. Only meaningful while :sync-calendar has synced at least one
-// relevant instance; a recurring series whose every synced occurrence
-// has aged out of the sync window (in either direction), or a one-off
-// event that's aged out entirely, simply won't appear until
+// (meetingPickerLess) as its title/display date. The returned slice is
+// sorted chronologically by that representative occurrence's start time,
+// so the picker's candidate list (see meetingPickerLines) reads
+// top-to-bottom in time order, making it easy to compare times across
+// entries — the picker's default highlight (see
+// meetingPickerDefaultIndex, in model.go) is computed separately, from
+// this same slice, rather than by relying on its ordering. Picking the
+// representative occurrence with meetingPickerLess rather than a
+// start-only comparison matters for a series with more than one instance
+// synced at once (a daily standup: today's and tomorrow's both fall
+// inside the sync window): a start-only "soonest upcoming wins"
+// comparison would treat today's already-started occurrence as simply
+// "past" and lose it to tomorrow's, hiding the fact that the series is
+// in progress right now. Only meaningful while :sync-calendar has synced
+// at least one relevant instance; a recurring series whose every synced
+// occurrence has aged out of the sync window (in either direction), or a
+// one-off event that's aged out entirely, simply won't appear until
 // :sync-calendar runs again.
 func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 	best := make(map[meetingKey]meetingCandidate)
@@ -566,7 +567,7 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 		candidates = append(candidates, c)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return meetingPickerLess(candidates[i], candidates[j], now)
+		return candidates[i].when.Before(candidates[j].when)
 	})
 	return candidates
 }
@@ -605,6 +606,27 @@ func meetingPickerLess(a, b meetingCandidate, now time.Time) bool {
 // already started.
 func moreRelevantOccurrence(a, b, now time.Time) bool {
 	return a.Sub(now).Abs() < b.Sub(now).Abs()
+}
+
+// meetingPickerDefaultIndex returns the index, within candidates (as
+// returned by meetingCandidates — sorted chronologically, not by
+// relevance), of the meeting "gM" should highlight when the picker first
+// opens: whichever one meetingPickerLess would rank first were the list
+// still relevance-ordered. Kept separate from meetingCandidates' own
+// ordering so the picker's list can read chronologically (easy to
+// compare times across entries) while still landing the cursor on the
+// meeting you're most likely attaching to right now, rather than
+// whichever happens to start earliest in the sync window. Returns 0 for
+// an empty slice (never actually reached — startMeetingPicker no-ops
+// first).
+func meetingPickerDefaultIndex(candidates []meetingCandidate, now time.Time) int {
+	best := 0
+	for i := 1; i < len(candidates); i++ {
+		if meetingPickerLess(candidates[i], candidates[best], now) {
+			best = i
+		}
+	}
+	return best
 }
 
 // filteredMeetingCandidates returns every candidate whose title, or one of

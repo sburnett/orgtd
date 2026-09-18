@@ -3462,7 +3462,8 @@ func (m *Model) startMeetingPicker() {
 	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
-	candidates := m.meetingCandidates(time.Now())
+	now := time.Now()
+	candidates := m.meetingCandidates(now)
 	if len(candidates) == 0 {
 		m.message = "No calendar meetings synced yet (see :sync-calendar)"
 		return
@@ -3471,7 +3472,7 @@ func (m *Model) startMeetingPicker() {
 	m.meetingPickerTarget = h
 	m.meetingPickerCandidates = candidates
 	m.meetingPickerFilter = ""
-	m.meetingPickerIndex = 0
+	m.meetingPickerIndex = meetingPickerDefaultIndex(candidates, now)
 }
 
 // updateMeetingPickerMode handles key presses while the "gM" picker is
@@ -6720,12 +6721,16 @@ func (m Model) statusSelectorLines() []string {
 // info buffer's "Attach meeting:" section — the structured, one-per-line
 // counterpart of the old renderMeetingPicker, which only ever showed the
 // single highlighted candidate on the command line (there was nowhere
-// else to put the rest before the info buffer existed). Each line is
-// "<title>  <date>", with " (attached)" appended for a candidate already
-// on the target entry (see meetingIsAttached — picking it again detaches
-// rather than adding a duplicate), and the currently highlighted
-// candidate in reverse video, same convention as statusSelectorLines
-// above. nil if the filter matches nothing.
+// else to put the rest before the info buffer existed). matches is
+// already in chronological order (meetingCandidates sorts it that way),
+// and each line leads with its date/time — "<date>  <title>" — rather
+// than the title, so the times line up in a column and are easy to
+// compare down the list; " (attached)" is appended for a candidate
+// already on the target entry (see meetingIsAttached — picking it again
+// detaches rather than adding a duplicate), and the currently highlighted
+// candidate (see meetingPickerDefaultIndex for how that's chosen when the
+// picker first opens) renders in reverse video, same convention as
+// statusSelectorLines above. nil if the filter matches nothing.
 func (m Model) meetingPickerLines() []string {
 	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
 	if len(matches) == 0 {
@@ -6741,7 +6746,7 @@ func (m Model) meetingPickerLines() []string {
 
 	lines := make([]string, len(matches))
 	for i, c := range matches {
-		text := c.title + "  " + c.when.Local().Format("2006-01-02 Mon 15:04")
+		text := c.when.Local().Format("2006-01-02 Mon 15:04") + "  " + c.title
 		if meetingIsAttached(m.meetingPickerTarget, c) {
 			text += "  (attached)"
 		}

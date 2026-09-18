@@ -214,13 +214,14 @@ func TestGMDefaultPrefersInProgressInstanceOverAFutureInstanceOfSameSeries(t *te
 	if len(m.meetingPickerCandidates) != 2 {
 		t.Fatalf("candidates = %d, want 2 (deduped by series)", len(m.meetingPickerCandidates))
 	}
-	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
-		t.Fatalf("candidates[0] = %q, want series-standup (its today instance is in progress)", got)
+	highlighted := m.meetingPickerCandidates[m.meetingPickerIndex]
+	if highlighted.id != "series-standup" {
+		t.Fatalf("default highlight = %q, want series-standup (its today instance is in progress)", highlighted.id)
 	}
 	// GCAL_START round-trips through RFC3339 (second precision), so
 	// compare at that resolution rather than requiring an exact Equal.
-	if when := m.meetingPickerCandidates[0].when; when.Unix() != now.Add(-5*time.Minute).Unix() {
-		t.Errorf("candidates[0].when = %v, want today's already-started instance (%v), not tomorrow's", when, now.Add(-5*time.Minute))
+	if when := highlighted.when; when.Unix() != now.Add(-5*time.Minute).Unix() {
+		t.Errorf("default highlight's when = %v, want today's already-started instance (%v), not tomorrow's", when, now.Add(-5*time.Minute))
 	}
 }
 
@@ -230,7 +231,10 @@ func TestGMDefaultPrefersInProgressInstanceOverAFutureInstanceOfSameSeries(t *te
 // end) is highlighted first — not just whichever started or was synced
 // first — so a quick standup you're nominally "in" right now doesn't
 // get buried under an hours-long meeting that's also technically
-// ongoing.
+// ongoing. The candidate list itself (m.meetingPickerCandidates) stays
+// chronological regardless — see TestGMOpensPickerWithDedupedRecurringSeries
+// and meetingCandidates — it's only the default highlight
+// (m.meetingPickerIndex) that follows this policy.
 func TestGMDefaultsToShortestInProgressMeeting(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()
@@ -254,14 +258,19 @@ func TestGMDefaultsToShortestInProgressMeeting(t *testing.T) {
 	if len(m.meetingPickerCandidates) != 3 {
 		t.Fatalf("candidates = %d, want 3", len(m.meetingPickerCandidates))
 	}
-	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
-		t.Errorf("candidates[0] = %q, want series-standup (shortest in-progress meeting)", got)
+	// Chronological: offsite started earliest (2h ago), then standup
+	// (10m ago), then planning (starts in 20m).
+	if got := m.meetingPickerCandidates[0].id; got != "series-offsite" {
+		t.Errorf("candidates[0] = %q, want series-offsite (starts earliest)", got)
 	}
-	if got := m.meetingPickerCandidates[1].id; got != "series-offsite" {
-		t.Errorf("candidates[1] = %q, want series-offsite (longer, but still in progress)", got)
+	if got := m.meetingPickerCandidates[1].id; got != "series-standup" {
+		t.Errorf("candidates[1] = %q, want series-standup", got)
 	}
 	if got := m.meetingPickerCandidates[2].id; got != "series-planning" {
-		t.Errorf("candidates[2] = %q, want series-planning last (not in progress)", got)
+		t.Errorf("candidates[2] = %q, want series-planning last (starts latest)", got)
+	}
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+		t.Errorf("default highlight = %q, want series-standup (shortest in-progress meeting)", got)
 	}
 }
 
@@ -285,8 +294,8 @@ func TestGMDefaultsToNextStartTimeWhenNothingInProgress(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "M")
 
-	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
-		t.Errorf("candidates[0] = %q, want series-standup (starts sooner, nothing in progress)", got)
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+		t.Errorf("default highlight = %q, want series-standup (starts sooner, nothing in progress)", got)
 	}
 }
 
@@ -314,8 +323,8 @@ func TestGMRecentlyEndedMeetingRanksNearTop(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "M")
 
-	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
-		t.Errorf("candidates[0] = %q, want series-standup (just ended, closer to now than a week-off meeting)", got)
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+		t.Errorf("default highlight = %q, want series-standup (just ended, closer to now than a week-off meeting)", got)
 	}
 }
 
