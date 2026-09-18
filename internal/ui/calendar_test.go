@@ -610,13 +610,11 @@ func TestCalendarViewStatusLineShowsEventOwnLink(t *testing.T) {
 	m.width, m.height = 200, len(m.rows)+5
 
 	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	status := lines[len(lines)-2]
 
-	if !strings.Contains(status, "Meeting abc123") {
-		t.Errorf("status line = %q, want the event's own title", status)
+	if !strings.Contains(out, "Meeting abc123") {
+		t.Errorf("view = %q, want the event's own title", out)
 	}
-	if !strings.Contains(status, "https://calendar.google.com/event?eid=abc123") {
-		t.Errorf("status line = %q, want the event's own GCAL_HTML_LINK", status)
+	if !strings.Contains(out, "https://calendar.google.com/event?eid=abc123") {
+		t.Errorf("view = %q, want the event's own GCAL_HTML_LINK", out)
 	}
 }

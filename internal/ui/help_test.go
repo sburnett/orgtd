@@ -127,9 +127,9 @@ func TestHelpStatusLineShowsPlace(t *testing.T) {
 
 	m.switchToView(helpView)
 
-	lines := m.normalStatusLines()
-	if len(lines) == 0 || !containsSubstring(lines, "help") {
-		t.Errorf("status line = %#v, want it to mention \"help\"", lines)
+	line := m.normalStatusLine()
+	if !strings.Contains(line, "help") {
+		t.Errorf("status line = %q, want it to mention \"help\"", line)
 	}
 }
 

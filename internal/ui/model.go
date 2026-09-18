@@ -4733,29 +4733,44 @@ func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
 	return t, true
 }
 
-// calendarEventLinks resolves h's calendar-meeting properties into
-// "<meeting name>: <url>" entries, used by normalStatusLines to surface
-// the meeting(s) an entry references, the same way a link embedded
-// directly in its title already is: h's own link, if h is itself a
-// synced calendar event (GCAL_HTML_LINK — see internal/calendarsync/convert.go);
-// one-off events it's attached to via "gM" (GCAL_EVENT_LINKS/
-// GCAL_EVENT_IDS); recurring series it's attached to, likewise via "gM"
-// (GCAL_RECURRING_EVENT_LINKS/GCAL_RECURRING_EVENT_IDS) — see
-// resolveMeetingLinks for how each of the latter two pairs is resolved;
-// and any meeting h is linked to purely by sharing a tag with it (see
-// tagLinkedMeetingCandidates), skipping one already covered by an
-// explicit attachment above so a meeting that's both "gM"-attached and
-// tag-matched isn't listed twice. This is what lets calendarView show an
-// event's meeting details (link, description, location) only on demand
-// (folded by default — see appendCalendarHeadlines) rather than inline:
-// the link is still always one glance away, on the status line.
-func (m *Model) calendarEventLinks(h *org.Headline) []string {
-	var links []string
+// calendarEventEntry is one calendar meeting a headline is linked to
+// (see calendarEventEntries): its name and link — the same pair
+// calendarEventLinks resolves into a "<meeting name>: <url>" string —
+// plus its start time, when one can still be resolved (hasWhen is false
+// once the meeting has aged out of calendar.org's synced window, the
+// same case in which the *_LINKS property snapshot keeps the name/link
+// working but there's no live time left to show).
+type calendarEventEntry struct {
+	title, url string
+	when       time.Time
+	hasWhen    bool
+}
+
+// calendarEventEntries resolves h's calendar-meeting properties into
+// one entry per linked meeting, used by infoBufferLines to surface the
+// meeting(s) an entry references in its own "Meeting:" section: h's own
+// link, if h is itself a synced calendar event (GCAL_HTML_LINK — see
+// internal/calendarsync/convert.go); one-off events it's attached to
+// via "gM" (GCAL_EVENT_LINKS/GCAL_EVENT_IDS); recurring series it's
+// attached to, likewise via "gM" (GCAL_RECURRING_EVENT_LINKS/
+// GCAL_RECURRING_EVENT_IDS) — see resolveMeetingEntries for how each of
+// the latter two pairs is resolved; and any meeting h is linked to
+// purely by sharing a tag with it (see tagLinkedMeetingCandidates),
+// skipping one already covered by an explicit attachment above so a
+// meeting that's both "gM"-attached and tag-matched isn't listed twice.
+// This is what lets calendarView show an event's meeting details (link,
+// description, location) only on demand (folded by default — see
+// appendCalendarHeadlines) rather than inline: the link is still always
+// one glance away, in the info buffer.
+func (m *Model) calendarEventEntries(h *org.Headline) []calendarEventEntry {
+	var entries []calendarEventEntry
 	if url := h.Properties["GCAL_HTML_LINK"]; url != "" {
-		links = append(links, h.Title+": "+url)
+		e := calendarEventEntry{title: h.Title, url: url}
+		e.when, e.hasWhen = parseRFC3339Property(h, "GCAL_START")
+		entries = append(entries, e)
 	}
-	links = append(links, m.resolveMeetingLinks(h, "GCAL_EVENT_LINKS", "GCAL_EVENT_ID", "GCAL_EVENT_IDS")...)
-	links = append(links, m.resolveMeetingLinks(h, "GCAL_RECURRING_EVENT_LINKS", "GCAL_RECURRING_EVENT_ID", "GCAL_RECURRING_EVENT_IDS")...)
+	entries = append(entries, m.resolveMeetingEntries(h, "GCAL_EVENT_LINKS", "GCAL_EVENT_ID", "GCAL_EVENT_IDS")...)
+	entries = append(entries, m.resolveMeetingEntries(h, "GCAL_RECURRING_EVENT_LINKS", "GCAL_RECURRING_EVENT_ID", "GCAL_RECURRING_EVENT_IDS")...)
 
 	attached := make(map[meetingKey]bool)
 	for _, id := range strings.Fields(h.Properties["GCAL_EVENT_IDS"]) {
@@ -4768,54 +4783,74 @@ func (m *Model) calendarEventLinks(h *org.Headline) []string {
 		if attached[meetingKey{c.kind, c.id}] || c.link == "" {
 			continue
 		}
-		links = append(links, c.title+": "+c.link)
+		entries = append(entries, calendarEventEntry{title: c.title, url: c.link, when: c.when, hasWhen: true})
+	}
+	return entries
+}
+
+// calendarEventLinks resolves h's calendar-meeting properties into
+// "<meeting name>: <url>" strings — calendarEventEntries (see above)
+// with the time dropped, kept only for the existing tests that check
+// link resolution without caring about meeting times.
+func (m *Model) calendarEventLinks(h *org.Headline) []string {
+	entries := m.calendarEventEntries(h)
+	if len(entries) == 0 {
+		return nil
+	}
+	links := make([]string, len(entries))
+	for i, e := range entries {
+		links[i] = e.title + ": " + e.url
 	}
 	return links
 }
 
-// resolveMeetingLinks resolves one (linksProp, idsProp) pair on h into
-// "<meeting name>: <url>" entries.
+// resolveMeetingEntries resolves one (linksProp, idProp, idsProp) triple
+// on h into calendarEventEntry values.
 //
 // linksProp (set by "gM" — one "[[url][title]]" per matched/attached
 // meeting) is tried first: it was captured once, at the time h was
-// linked to the meeting, so it keeps working indefinitely, even long
-// after :sync-calendar's sync window has moved past the meeting (or the
-// meeting stopped recurring entirely) and calendar.org no longer has it
-// cached. Only if linksProp is missing entirely — e.g. an idsProp
-// hand-attached to a task directly (per DESIGN.md's project↔meeting
-// association) rather than via "gM" — does this fall back to a live
-// lookup by idProp (the per-headline property identifying a single
-// calendar.org event, GCAL_EVENT_ID or
+// linked to the meeting, so its name/link keep working indefinitely,
+// even long after :sync-calendar's sync window has moved past the
+// meeting (or the meeting stopped recurring entirely) and calendar.org
+// no longer has it cached — its start time, looked up live by
+// findEventTimeByLink, is the one part of the entry that can still come
+// up empty in that case. Only if linksProp is missing entirely — e.g.
+// an idsProp hand-attached to a task directly (per DESIGN.md's
+// project↔meeting association) rather than via "gM" — does this fall
+// back to a live lookup by idProp (the per-headline property
+// identifying a single calendar.org event, GCAL_EVENT_ID or
 // GCAL_RECURRING_EVENT_ID) against whatever calendar.org currently has
 // cached, which (with no captured link to fall back on) can come up
-// empty once the event ages out; an ID that resolves neither way is
-// silently skipped rather than shown broken.
-func (m *Model) resolveMeetingLinks(h *org.Headline, linksProp, idProp, idsProp string) []string {
+// empty entirely once the event ages out; an ID that resolves neither
+// way is silently skipped rather than shown broken.
+func (m *Model) resolveMeetingEntries(h *org.Headline, linksProp, idProp, idsProp string) []calendarEventEntry {
 	if raw := h.Properties[linksProp]; raw != "" {
-		var links []string
+		var entries []calendarEventEntry
 		for _, l := range parseOrgLinks(raw) {
 			title := l.description
 			if title == "" {
 				title = l.url
 			}
-			links = append(links, title+": "+l.url)
+			e := calendarEventEntry{title: title, url: l.url}
+			e.when, e.hasWhen = m.findEventTimeByLink(l.url)
+			entries = append(entries, e)
 		}
-		return links
+		return entries
 	}
 
 	raw := h.Properties[idsProp]
 	if raw == "" {
 		return nil
 	}
-	var links []string
+	var entries []calendarEventEntry
 	for _, id := range strings.Fields(raw) {
-		title, url, ok := m.findHeadlineByProperty(idProp, id)
+		title, url, when, hasWhen, ok := m.findHeadlineByProperty(idProp, id)
 		if !ok || url == "" {
 			continue
 		}
-		links = append(links, title+": "+url)
+		entries = append(entries, calendarEventEntry{title: title, url: url, when: when, hasWhen: hasWhen})
 	}
-	return links
+	return entries
 }
 
 // orgLink is one org-mode "[[url][description]]" (or bare "[[url]]")
@@ -4839,21 +4874,45 @@ func parseOrgLinks(text string) []orgLink {
 
 // findHeadlineByProperty searches every loaded org file for a headline
 // whose idProp property (GCAL_EVENT_ID or GCAL_RECURRING_EVENT_ID —
-// i.e. one :sync-calendar wrote to calendar.org) equals id, returning its
-// title and GCAL_HTML_LINK.
-func (m *Model) findHeadlineByProperty(idProp, id string) (title, url string, ok bool) {
+// i.e. one :sync-calendar wrote to calendar.org) equals id, returning
+// its title, GCAL_HTML_LINK, and GCAL_START (when, hasWhen — false if
+// missing/unparseable, same as parseRFC3339Property).
+func (m *Model) findHeadlineByProperty(idProp, id string) (title, url string, when time.Time, hasWhen bool, ok bool) {
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(candidate *org.Headline) {
 			if ok || candidate.Properties[idProp] != id {
 				return
 			}
 			title, url, ok = candidate.Title, candidate.Properties["GCAL_HTML_LINK"], true
+			when, hasWhen = parseRFC3339Property(candidate, "GCAL_START")
 		})
 		if ok {
-			return title, url, true
+			return title, url, when, hasWhen, true
 		}
 	}
-	return "", "", false
+	return "", "", time.Time{}, false, false
+}
+
+// findEventTimeByLink searches every loaded org file for a synced
+// calendar event (GCAL_HTML_LINK) matching url, returning its
+// GCAL_START. Used by resolveMeetingEntries to recover a meeting's
+// start time for a "gM"-attached entry whose *_LINKS property only
+// captured the title/link, not the time, at attach time — comes up
+// empty once the event has aged out of calendar.org's synced window,
+// same as any other live lookup by ID.
+func (m *Model) findEventTimeByLink(url string) (when time.Time, ok bool) {
+	for _, f := range m.ws.Files {
+		org.Walk(f.Headlines, func(candidate *org.Headline) {
+			if ok || candidate.Properties["GCAL_HTML_LINK"] != url {
+				return
+			}
+			when, ok = parseRFC3339Property(candidate, "GCAL_START")
+		})
+		if ok {
+			return when, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // currentRowFile returns the file the cursor's current row belongs to:
@@ -5987,7 +6046,7 @@ func (m *Model) jumpToSubtreeBottom() {
 // room here for every boundary in the whole list would under-fill the
 // actual screen.
 func (m *Model) pageSize() int {
-	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.pinnedHeaderHeight()
+	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.pinnedHeaderHeight() - m.infoBufferHeight()
 	if n < 1 {
 		n = 1
 	}
@@ -5995,13 +6054,14 @@ func (m *Model) pageSize() int {
 }
 
 // contentBudget is exactly how many terminal lines the scrollable
-// content area may occupy: the screen height minus the pinned header
-// and the bottom status/command-line area — with no separate
-// reservation for section-separator blank lines, unlike pageSize. Used
-// by visibleRowCount to work out precisely how many rows fit from a
-// given starting row, and directly as the padding target in View().
+// content area may occupy: the screen height minus the pinned header,
+// the info buffer, and the bottom status/command-line area — with no
+// separate reservation for section-separator blank lines, unlike
+// pageSize. Used by visibleRowCount to work out precisely how many rows
+// fit from a given starting row, and directly as the padding target in
+// View().
 func (m *Model) contentBudget() int {
-	n := m.height - m.statusHeight() - m.pinnedHeaderHeight()
+	n := m.height - m.statusHeight() - m.pinnedHeaderHeight() - m.infoBufferHeight()
 	if n < 1 {
 		n = 1
 	}
@@ -6354,16 +6414,25 @@ func (m Model) View() string {
 		}
 	}
 
-	// Status line(s) — vim's own statusline equivalent: always visible
-	// regardless of mode, showing where we are (dir/view — item N/M —
-	// url). The command line below it (see the switch that follows) is a
+	// Info buffer — holds whatever might need more than one line: links
+	// and calendar-meeting detail for the current entry (always, in every
+	// mode), plus tag/command Tab-completion matches (only while that
+	// mode is active). See infoBufferLines. Renders nothing at all (zero
+	// height — see infoBufferHeight) when none of that applies, same
+	// convention as pinnedHeaderLines above.
+	for _, line := range m.infoBufferLines() {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	// Status line — vim's own statusline equivalent: always visible
+	// regardless of mode, showing where we are (dir/view — item N/M).
+	// The command line below it (see the switch that follows) is a
 	// separate row for whatever's active right now, mirroring vim's own
 	// split between the two rather than the command line ever replacing
 	// the status line.
-	for _, line := range m.normalStatusLines() {
-		b.WriteString(m.padLineToWidth(statusStyle.Background(overlayBg).Render(line), overlayBg))
-		b.WriteString("\n")
-	}
+	b.WriteString(m.padLineToWidth(statusStyle.Background(overlayBg).Render(m.normalStatusLine()), overlayBg))
+	b.WriteString("\n")
 
 	// Command line — vim's own command-line/message area equivalent:
 	// whatever's active right now (a typed command, a prompt, a mode
@@ -6372,25 +6441,32 @@ func (m Model) View() string {
 	case m.mode == commandMode:
 		b.WriteString(":" + m.commandInput)
 		b.WriteString(cursorStyle.Render(" ")) // caret, right after the input (no in-line editing yet)
-		if m.commandCompletions != "" {
-			b.WriteString("  " + statusStyle.Render(m.commandCompletions))
-		}
 		// m.message can be set without leaving commandMode (e.g. Tab
 		// completion finding no match) — shown here too, not just in the
 		// mode-less case below, or it'd be set but never actually visible.
+		// Completion matches themselves are in the info buffer above
+		// (see infoBufferLines), not appended here.
 		if m.message != "" {
 			b.WriteString("  " + errorStyle.Render(m.message))
 		}
 	case m.mode == selectMode:
-		b.WriteString(m.renderStatusSelector())
+		// The candidate list itself is in the info buffer above (see
+		// infoBufferLines' "Status:" section), not appended here.
+		prefix := " Set status:  "
+		if n := len(m.selectModeTargets); n > 0 {
+			prefix = fmt.Sprintf(" Set status for %d selected:  ", n)
+		}
+		b.WriteString(prefix)
+		if m.selectFilter != "" {
+			b.WriteString("(" + m.selectFilter + ")")
+		}
 	case m.mode == meetingPickerMode:
 		b.WriteString(m.renderMeetingPicker())
 	case m.mode == tagMode:
 		b.WriteString(" Tag (Tab completes, empty cancels; retyping an existing tag removes it): " + m.tagInput)
 		b.WriteString(cursorStyle.Render(" "))
-		if m.tagCompletions != "" {
-			b.WriteString("  " + statusStyle.Render(m.tagCompletions))
-		}
+		// Completion matches are in the info buffer above (see
+		// infoBufferLines), not appended here.
 		if m.message != "" {
 			b.WriteString("  " + errorStyle.Render(m.message))
 		}
@@ -6433,21 +6509,12 @@ func (m Model) View() string {
 	return b.String()
 }
 
-// normalStatusLines returns the line(s) for the default (mode-less)
-// status area: usually just one ("dir — item N/M — url"), but if the
-// current entry has one or more links and the combined line would be
-// wider than m.width, the link(s) are moved off of it — onto a line of
-// their own together if that fits, or (with multiple links) one per line
-// if even that doesn't — since a wrapped URL can't be resolved by the
-// terminal, this gives each the best chance of fitting unwrapped.
-// Unknown width (m.width <= 0) never triggers a split.
-//
-// Links come from two sources: any org-mode link literally in the
-// entry's title (linksInTitle), and — since a GCAL_EVENT_IDS property
-// (see startCapture) is just opaque IDs with no visible link of its own
-// — one "<meeting name>: <url>" entry per ID that still resolves to a
-// loaded calendar event (calendarEventLinks).
-func (m *Model) normalStatusLines() []string {
+// normalStatusLine returns the single line for the default (mode-less)
+// status area: "dir — item N/M". Links and calendar-meeting detail for
+// the current entry no longer live here — they're always in the info
+// buffer above (see infoBufferLines), one section per kind rather than
+// squeezed onto this line only when there's room for them.
+func (m *Model) normalStatusLine() string {
 	place := m.ws.Dir
 	switch m.view {
 	case agendaView:
@@ -6463,49 +6530,20 @@ func (m *Model) normalStatusLines() []string {
 	case calendarView:
 		place = "calendar"
 	}
-	main := fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
-	h := m.currentHeadline()
-	if h == nil {
-		return []string{main}
-	}
-	urls := linksInTitle(h.Title)
-	urls = append(urls, m.calendarEventLinks(h)...)
-	if len(urls) == 0 {
-		return []string{main}
-	}
-	// Plain, unstyled URLs, printed as-is (not org-mode link syntax) so
-	// the terminal's own URL detection can make them clickable.
-	joined := strings.Join(urls, "  ")
-	if m.width <= 0 || fitsWidth(main+"  —  "+joined, m.width) {
-		return []string{main + "  —  " + joined}
-	}
-	if fitsWidth(" "+joined, m.width) {
-		return []string{main, " " + joined}
-	}
-	lines := make([]string, 0, 1+len(urls))
-	lines = append(lines, main)
-	for _, u := range urls {
-		lines = append(lines, " "+u)
-	}
-	return lines
+	return fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 }
 
-// fitsWidth reports whether s (measured in runes, not bytes) fits within
-// width columns.
-func fitsWidth(s string, width int) bool {
-	return utf8.RuneCountInString(s) <= width
-}
-
-// statusHeight is how many lines the bottom area occupies in total:
-// the status line(s) — normalStatusLines, usually 1 but 2 when a link
-// needs its own line — plus exactly one command-line row below them
-// for whatever's active right now (a typed command, a search/deadline/
-// commit-message prompt, a mode banner, a message, or nothing at all).
-// Mirrors vim's own split between its statusline (always visible,
-// showing where you are) and the command-line/message area below it
-// (always a separate row, regardless of mode) — see View.
+// statusHeight is how many lines the bottom area occupies in total: the
+// one status line (normalStatusLine) plus exactly one command-line row
+// below it for whatever's active right now (a typed command, a search/
+// deadline/commit-message prompt, a mode banner, a message, or nothing
+// at all). Mirrors vim's own split between its statusline (always
+// visible, showing where you are) and the command-line/message area
+// below it (always a separate row, regardless of mode) — see View. The
+// info buffer (see infoBufferHeight) is accounted for separately, since
+// unlike this it can be zero height.
 func (m *Model) statusHeight() int {
-	return len(m.normalStatusLines()) + 1
+	return 2
 }
 
 // linksInTitle returns the URL of every org-mode link in title, in order.
@@ -6519,6 +6557,177 @@ func linksInTitle(title string) []string {
 		urls[i] = mm[1]
 	}
 	return urls
+}
+
+// maxInfoBufferLines caps how many lines any one section of the info
+// buffer (see infoBufferLines) shows before collapsing the rest into an
+// "...and N more" summary line — same convention as the register's own
+// maxRegisterPinnedLines above, just a higher cap: unlike the register
+// (routinely a handful of whole entries), a section here is more often
+// a handful of one-line items (links, tags, meetings), so it can afford
+// to show more before truncating.
+const maxInfoBufferLines = 20
+
+// infoBufferHeight is how many lines the info buffer occupies: 0 if
+// none of its sections apply, so it doesn't cost a permanent row on
+// every screen.
+func (m *Model) infoBufferHeight() int {
+	return len(m.infoBufferLines())
+}
+
+// infoBufferLines renders the info buffer that sits directly above the
+// status line — the multi-line counterpart of the single-line status
+// area, for whatever might need more than one line to show. Each
+// applicable kind gets its own labeled section (already backgrounded/
+// padded, ready to write straight to the screen):
+//
+//   - "Links:" — every org-mode link literally in the current entry's
+//     title (linksInTitle). Shown in every mode, not just when it
+//     wouldn't otherwise fit on the status line — unlike the old
+//     normalStatusLines, this doesn't depend on terminal width at all.
+//   - "Meeting:" — one line per calendar meeting the current entry is
+//     linked to (see calendarEventEntries), each "<title>  <time>  <url>"
+//     (or just "<title>  <url>" if no time could be resolved — see
+//     calendarEventEntry.hasWhen).
+//   - "Tags:" — while "gt" is prompting for a tag (tagMode) and there's
+//     more than one completion match (see completeTagInput), the
+//     matches themselves, one per line, instead of the old single
+//     space-joined line appended to the prompt.
+//   - "Matches:" — the same idea for command-mode ":<Tab>" completions
+//     (see completeCommand).
+//   - "Status:" — while the "R"/"r" status picker (selectMode) is open,
+//     every status candidate (see statusCandidates), one per line, the
+//     currently highlighted one in reverse video — the structured
+//     counterpart of the old single-line renderStatusSelector.
+//
+// A section that doesn't apply is simply omitted; nil (zero height) if
+// none of them do at all — same "collapses to nothing" convention as
+// pinnedHeaderLines above.
+func (m *Model) infoBufferLines() []string {
+	var lines []string
+
+	if h := m.currentHeadline(); h != nil {
+		lines = m.appendInfoSection(lines, "Links:", linksInTitle(h.Title))
+		lines = m.appendInfoSection(lines, "Meeting:", m.calendarEventDisplayLines(h))
+	}
+	if m.mode == tagMode && m.tagCompletions != "" {
+		lines = m.appendInfoSection(lines, "Tags:", strings.Fields(m.tagCompletions))
+	}
+	if m.mode == commandMode && m.commandCompletions != "" {
+		lines = m.appendInfoSection(lines, "Matches:", strings.Fields(m.commandCompletions))
+	}
+	if m.mode == selectMode {
+		lines = m.appendInfoSectionRendered(lines, "Status:", m.statusSelectorLines())
+	}
+
+	if len(lines) == 0 {
+		return nil
+	}
+	// The trailing separator carries the overlay background too, same
+	// reason as pinnedHeaderLines' own: the tinted block reads as one
+	// solid panel rather than cutting off right before an untinted
+	// blank line.
+	return append(lines, m.padLineToWidth("", overlayBg))
+}
+
+// appendInfoSection appends one info-buffer section to lines: a label
+// row, then up to maxInfoBufferLines of items — plain, unstyled text,
+// in particular so a URL among them can still be detected/clicked by
+// the terminal, same reasoning the old normalStatusLines called out —
+// then a "...and N more" summary for anything past that cap. Returns
+// lines unchanged if items is empty, so a section with nothing to show
+// never contributes a bare label.
+func (m Model) appendInfoSection(lines []string, label string, items []string) []string {
+	rendered := make([]string, len(items))
+	for i, item := range items {
+		rendered[i] = statusStyle.Background(overlayBg).Render(" " + item)
+	}
+	return m.appendInfoSectionRendered(lines, label, rendered)
+}
+
+// appendInfoSectionRendered is appendInfoSection's lower-level
+// counterpart, for a section whose items need their own styling per
+// line (e.g. the "Status:" section's highlighted candidate — see
+// statusSelectorLines) rather than the uniform plain-text style
+// appendInfoSection applies. items are already fully rendered; this
+// only handles the shared label/cap/overflow/padding scaffolding.
+func (m Model) appendInfoSectionRendered(lines []string, label string, items []string) []string {
+	if len(items) == 0 {
+		return lines
+	}
+	lines = append(lines, m.padLineToWidth(fileStyle.Background(overlayBg).Render(label), overlayBg))
+	shown := items
+	overflow := 0
+	if len(shown) > maxInfoBufferLines {
+		overflow = len(shown) - maxInfoBufferLines
+		shown = shown[:maxInfoBufferLines]
+	}
+	for _, item := range shown {
+		lines = append(lines, m.padLineToWidth(item, overlayBg))
+	}
+	if overflow > 0 {
+		lines = append(lines, m.padLineToWidth(statusStyle.Background(overlayBg).Render(fmt.Sprintf("  ...and %d more", overflow)), overlayBg))
+	}
+	return lines
+}
+
+// statusSelectorLines renders one line per statusCandidate (the "R"
+// status picker's candidates) for the info buffer's "Status:" section —
+// the structured, one-per-line counterpart of the old
+// renderStatusSelector, which crammed every candidate onto a single
+// command-line row. Every candidate is always shown, same as before
+// (matches only narrows which one is highlighted, not which are
+// listed — see filteredStatusCandidates): each line is "[shortcut]
+// label", with the currently highlighted candidate in reverse video.
+func (m Model) statusSelectorLines() []string {
+	matches := filteredStatusCandidates(m.selectFilter)
+	highlighted := -1
+	if len(matches) > 0 {
+		idx := m.selectIndex
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(matches) {
+			idx = len(matches) - 1
+		}
+		highlighted = statusCandidateIndex(matches[idx].keyword)
+	}
+
+	lines := make([]string, len(statusCandidates))
+	for i, c := range statusCandidates {
+		text := fmt.Sprintf("[%c] %s", c.shortcut, c.label)
+		if i == highlighted {
+			lines[i] = cursorStyle.Render(" " + text)
+		} else {
+			lines[i] = bgSpan(overlayBg, " ") + shortcutStyle.Background(overlayBg).Render(fmt.Sprintf("[%c]", c.shortcut)) + bgSpan(overlayBg, " "+c.label)
+		}
+	}
+	return lines
+}
+
+// formatCalendarEventEntry formats one calendarEventEntry for the info
+// buffer's "Meeting:" section: "<title>  <time>  <url>", using the
+// meeting picker's own time format (renderMeetingPicker, below) for
+// consistency, or just "<title>  <url>" when hasWhen is false.
+func formatCalendarEventEntry(e calendarEventEntry) string {
+	if e.hasWhen {
+		return e.title + "  " + e.when.Local().Format("2006-01-02 Mon 15:04") + "  " + e.url
+	}
+	return e.title + "  " + e.url
+}
+
+// calendarEventDisplayLines formats every one of h's calendarEventEntries
+// (see above) for the info buffer's "Meeting:" section.
+func (m *Model) calendarEventDisplayLines(h *org.Headline) []string {
+	entries := m.calendarEventEntries(h)
+	if len(entries) == 0 {
+		return nil
+	}
+	lines := make([]string, len(entries))
+	for i, e := range entries {
+		lines[i] = formatCalendarEventEntry(e)
+	}
+	return lines
 }
 
 // Default gutter icon characters/colors — used whenever the
@@ -6967,53 +7176,15 @@ func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), style)
 }
 
-// renderStatusSelector renders the R status picker's single status-line
-// menu: every candidate with its shortcut bracketed, the currently
-// highlighted one shown in reverse video.
-func (m Model) renderStatusSelector() string {
-	matches := filteredStatusCandidates(m.selectFilter)
-	highlighted := -1
-	if len(matches) > 0 {
-		idx := m.selectIndex
-		if idx < 0 {
-			idx = 0
-		}
-		if idx >= len(matches) {
-			idx = len(matches) - 1
-		}
-		highlighted = statusCandidateIndex(matches[idx].keyword)
-	}
-
-	var parts []string
-	for i, c := range statusCandidates {
-		label := fmt.Sprintf("[%c] %s", c.shortcut, c.label)
-		if i == highlighted {
-			label = cursorStyle.Render(label)
-		} else {
-			label = shortcutStyle.Render(fmt.Sprintf("[%c]", c.shortcut)) + " " + c.label
-		}
-		parts = append(parts, label)
-	}
-
-	prefix := " Set status:  "
-	if n := len(m.selectModeTargets); n > 0 {
-		prefix = fmt.Sprintf(" Set status for %d selected:  ", n)
-	}
-	line := prefix + strings.Join(parts, "   ")
-	if m.selectFilter != "" {
-		line += "   (" + m.selectFilter + ")"
-	}
-	return line
-}
-
 // renderMeetingPicker renders the "gM" picker's single command-line row:
 // how many candidates match the typed filter, the highlighted one's
 // title/date (and whether it's already attached to the target entry —
-// see meetingIsAttached), and the filter text itself. Unlike
-// renderStatusSelector, which always shows every candidate (a small,
-// fixed set with a shortcut apiece), this shows only the one currently
-// highlighted — the candidate list here is arbitrary-length free-text
-// titles, which wouldn't fit on one row all at once.
+// see meetingIsAttached), and the filter text itself. Unlike the "R"
+// status picker's candidate list (statusSelectorLines, in the info
+// buffer — a small, fixed set with a shortcut apiece), this shows only
+// the one currently highlighted, right on the command line — the
+// candidate list here is arbitrary-length free-text titles, which
+// wouldn't fit on screen all at once the way the status picker's does.
 func (m Model) renderMeetingPicker() string {
 	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
 	line := " Attach meeting: no matches"

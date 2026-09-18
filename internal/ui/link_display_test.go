@@ -161,7 +161,7 @@ func TestLinksInTitleNilWhenNoLinks(t *testing.T) {
 func TestStatusBarShowsURLWhenCursorOnEntryWithLink(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.width, m.height = 100, len(m.rows)+5
+	m.width, m.height = 100, len(m.rows)+10
 	idx := findRow(t, m, "Call the vet about Fido's checkup")
 	m.cursor = idx
 	h := m.currentHeadline()
@@ -169,13 +169,15 @@ func TestStatusBarShowsURLWhenCursorOnEntryWithLink(t *testing.T) {
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 
-	if !strings.Contains(last, "https://example.com/vet") {
-		t.Errorf("status bar = %q, want it to show the raw, clickable URL", last)
+	if !strings.Contains(out, "https://example.com/vet") {
+		t.Errorf("view = %q, want it to show the raw, clickable URL", out)
 	}
-	if strings.Contains(last, "[[") {
-		t.Errorf("status bar = %q, want the raw URL, not org-link syntax", last)
+	if strings.Contains(out, "[[") {
+		t.Errorf("view = %q, want the raw URL, not org-link syntax", out)
+	}
+	if !containsSubstring(lines, "Links:") {
+		t.Errorf("view missing the info buffer's \"Links:\" section:\n%s", out)
 	}
 }
 
@@ -185,12 +187,11 @@ func TestStatusBarOmitsURLWhenEntryHasNoLink(t *testing.T) {
 	m.width, m.height = 100, len(m.rows)+5
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
-
-	if strings.Contains(last, "http") {
-		t.Errorf("status bar = %q, should not mention a URL for a plain entry", last)
+	// Checked against just the info buffer, not the whole view: the
+	// fixture's own outline content has unrelated rows mentioning "http"
+	// elsewhere on screen.
+	if len(m.infoBufferLines()) != 0 {
+		t.Errorf("infoBufferLines = %#v, want none for a plain entry", m.infoBufferLines())
 	}
 }
 
@@ -204,19 +205,21 @@ func TestStatusBarShowsCalendarEventLinkWithMeetingNameAsTitle(t *testing.T) {
 		Headlines: []*org.Headline{calHeadline},
 	})
 	m := New(ws)
-	m.width, m.height = 200, len(m.rows)+5
+	m.width, m.height = 200, len(m.rows)+10
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m.currentHeadline().SetProperty("GCAL_EVENT_IDS", "abc123")
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 
-	if !strings.Contains(last, "Q3 planning sync") {
-		t.Errorf("status bar = %q, want the meeting name as the link's title", last)
+	if !strings.Contains(out, "Q3 planning sync") {
+		t.Errorf("view = %q, want the meeting name as the link's title", out)
 	}
-	if !strings.Contains(last, "https://calendar.google.com/event?eid=abc123") {
-		t.Errorf("status bar = %q, want the calendar event's URL", last)
+	if !strings.Contains(out, "https://calendar.google.com/event?eid=abc123") {
+		t.Errorf("view = %q, want the calendar event's URL", out)
+	}
+	if !containsSubstring(lines, "Meeting:") {
+		t.Errorf("view missing the info buffer's \"Meeting:\" section:\n%s", out)
 	}
 }
 
@@ -230,12 +233,11 @@ func TestStatusBarOmitsCalendarEventLinkWhenNoLinkEverRecorded(t *testing.T) {
 	// matching calendar.org headline to fall back to: nothing to show.
 	m.currentHeadline().SetProperty("GCAL_EVENT_IDS", "stale-id")
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-2]
-
-	if strings.Contains(last, "http") {
-		t.Errorf("status bar = %q, should not show a link that resolves nowhere", last)
+	// Checked against just the info buffer, not the whole view: the
+	// fixture's own outline content has unrelated rows mentioning "http"
+	// elsewhere on screen.
+	if len(m.infoBufferLines()) != 0 {
+		t.Errorf("infoBufferLines = %#v, want none for an unresolvable link", m.infoBufferLines())
 	}
 }
 
@@ -276,17 +278,15 @@ func TestStatusBarCalendarEventLinkSurvivesCalendarOrgAgingOut(t *testing.T) {
 			break
 		}
 	}
-	m.width, m.height = 200, len(m.rows)+5
+	m.width, m.height = 200, len(m.rows)+10
 
 	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-2]
 
-	if !strings.Contains(last, "Meeting abc123") {
-		t.Errorf("status bar = %q, want the meeting name even though calendar.org no longer has it cached", last)
+	if !strings.Contains(out, "Meeting abc123") {
+		t.Errorf("view = %q, want the meeting name even though calendar.org no longer has it cached", out)
 	}
-	if !strings.Contains(last, "https://calendar.google.com/event?eid=abc123") {
-		t.Errorf("status bar = %q, want the meeting's URL even though calendar.org no longer has it cached", last)
+	if !strings.Contains(out, "https://calendar.google.com/event?eid=abc123") {
+		t.Errorf("view = %q, want the meeting's URL even though calendar.org no longer has it cached", out)
 	}
 }
 
@@ -327,24 +327,27 @@ func TestStatusBarRecurringMeetingLinkSurvivesSeriesDroppingOffCalendar(t *testi
 			break
 		}
 	}
-	m.width, m.height = 200, len(m.rows)+5
+	m.width, m.height = 200, len(m.rows)+10
 
 	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-2]
 
-	if !strings.Contains(last, "Weekly Standup") {
-		t.Errorf("status bar = %q, want the meeting name even though it's gone from calendar.org", last)
+	if !strings.Contains(out, "Weekly Standup") {
+		t.Errorf("view = %q, want the meeting name even though it's gone from calendar.org", out)
 	}
-	if !strings.Contains(last, "https://calendar.google.com/event?eid=standup-1") {
-		t.Errorf("status bar = %q, want the meeting's URL even though it's gone from calendar.org", last)
+	if !strings.Contains(out, "https://calendar.google.com/event?eid=standup-1") {
+		t.Errorf("view = %q, want the meeting's URL even though it's gone from calendar.org", out)
 	}
 }
 
+// TestStatusBarShowsMultipleURLsWhenEntryHasMultipleLinks also guards
+// the info buffer's "always one per line" rule (see infoBufferLines):
+// unlike the old squeeze-to-fit status line, links never share a line
+// with each other or with the status line's own "item N/M" text,
+// regardless of how many there are or how wide the terminal is.
 func TestStatusBarShowsMultipleURLsWhenEntryHasMultipleLinks(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.width, m.height = 100, len(m.rows)+5
+	m.width, m.height = 100, len(m.rows)+10
 	idx := findRow(t, m, "Call the vet about Fido's checkup")
 	m.cursor = idx
 	h := m.currentHeadline()
@@ -352,131 +355,61 @@ func TestStatusBarShowsMultipleURLsWhenEntryHasMultipleLinks(t *testing.T) {
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
-	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
 
-	for _, url := range []string{"https://a.example.com", "https://b.example.com"} {
-		if !strings.Contains(last, url) {
-			t.Errorf("status bar = %q, missing %q", last, url)
+	urlA, urlB := "https://a.example.com", "https://b.example.com"
+	var lineA, lineB string
+	for _, l := range lines {
+		if strings.Contains(l, urlA) {
+			lineA = l
+		}
+		if strings.Contains(l, urlB) {
+			lineB = l
+		}
+		if strings.Contains(l, "item") && (strings.Contains(l, urlA) || strings.Contains(l, urlB)) {
+			t.Errorf("status line = %q, should not also carry a URL", l)
 		}
 	}
-}
-
-func TestStatusBarSplitsLinkOntoItsOwnLineWhenTooWide(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	idx := findRow(t, m, "Call the vet about Fido's checkup")
-	m.cursor = idx
-	h := m.currentHeadline()
-	h.Title = "Call the vet, see [[https://example.com/a-rather-long-path/for-testing][Vet Site]] for hours"
-
-	// Wide enough for the plain status line or the link alone, but not
-	// both combined on one line.
-	m.width, m.height = 40, len(m.rows)+5
-
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	if len(lines) != m.height {
-		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
+	if lineA == "" {
+		t.Errorf("view missing %q:\n%s", urlA, out)
 	}
-
-	statusLine := lines[len(lines)-3]
-	linkLine := lines[len(lines)-2]
-	commandLine := lines[len(lines)-1]
-
-	if strings.Contains(statusLine, "http") {
-		t.Errorf("status line = %q, should not also carry the URL", statusLine)
+	if lineB == "" {
+		t.Errorf("view missing %q:\n%s", urlB, out)
 	}
-	if !strings.Contains(statusLine, "item") {
-		t.Errorf("status line = %q, missing the usual item count", statusLine)
-	}
-	if !strings.Contains(linkLine, "https://example.com/a-rather-long-path/for-testing") {
-		t.Errorf("link line = %q, want the full URL on its own line", linkLine)
-	}
-	if commandLine != "" {
-		t.Errorf("command line = %q, want blank (idle)", commandLine)
+	if lineA == lineB {
+		t.Errorf("both URLs shared a line (%q), want one per line", lineA)
 	}
 }
 
-func TestStatusBarKeepsOneLineWhenLinkFits(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	idx := findRow(t, m, "Call the vet about Fido's checkup")
-	m.cursor = idx
-	h := m.currentHeadline()
-	h.Title = "Call the vet, see [[https://example.com/vet][Vet Site]] for hours"
+// TestStatusBarLinksIgnoreTerminalWidth guards against reintroducing the
+// old width-dependent squeeze/split behavior: the "Links:" section
+// always shows one URL per line, and the status line never carries a
+// URL, regardless of m.width (narrow, wide, or unset).
+func TestStatusBarLinksIgnoreTerminalWidth(t *testing.T) {
+	url := "https://example.com/a-rather-long-path/for-testing"
 
-	m.width, m.height = 200, len(m.rows)+5
+	for _, width := range []int{0, 40, 200} {
+		ws := loadFixture(t)
+		m := New(ws)
+		idx := findRow(t, m, "Call the vet about Fido's checkup")
+		m.cursor = idx
+		h := m.currentHeadline()
+		h.Title = fmt.Sprintf("Call the vet, see [[%s][Vet Site]] for hours", url)
+		m.width, m.height = width, len(m.rows)+10
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	if len(lines) != m.height {
-		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
-	}
+		out := stripANSI(m.View())
+		lines := strings.Split(out, "\n")
 
-	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
-	if !strings.Contains(last, "item") || !strings.Contains(last, "https://example.com/vet") {
-		t.Errorf("last line = %q, want both the item count and the URL on one line", last)
-	}
-}
-
-func TestStatusBarSplitIgnoredWhenWidthUnknown(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	idx := findRow(t, m, "Call the vet about Fido's checkup")
-	m.cursor = idx
-	h := m.currentHeadline()
-	h.Title = "Call the vet, see [[https://example.com/a-rather-long-path/for-testing][Vet Site]] for hours"
-
-	// Width unset (zero value): never split, since we can't tell whether
-	// it would actually overflow.
-	m.height = len(m.rows) + 5
-
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	if len(lines) != m.height {
-		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
-	}
-	last := lines[len(lines)-2] // -1 is the (blank) command line below the status line
-	if !strings.Contains(last, "https://example.com/a-rather-long-path/for-testing") {
-		t.Errorf("last line = %q, want the URL still shown (unsplit) when width is unknown", last)
-	}
-}
-
-func TestStatusBarPutsMultipleLongURLsOnSeparateLinesWhenTheyStillDontFitTogether(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	idx := findRow(t, m, "Call the vet about Fido's checkup")
-	m.cursor = idx
-	h := m.currentHeadline()
-	urlA := "https://example.com/a-rather-long-path/for-testing-one"
-	urlB := "https://example.com/a-rather-long-path/for-testing-two"
-	h.Title = fmt.Sprintf("See [[%s][A]] and [[%s][B]]", urlA, urlB)
-
-	// Wide enough for either URL alone, but not for both together on one
-	// line (nor combined with the status text).
-	m.width, m.height = 60, len(m.rows)+5
-
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
-	if len(lines) != m.height {
-		t.Fatalf("got %d lines, want %d (height)\n---\n%s", len(lines), m.height, out)
-	}
-
-	statusLine := lines[len(lines)-4]
-	lineA := lines[len(lines)-3]
-	lineB := lines[len(lines)-2]
-	commandLine := lines[len(lines)-1]
-
-	if strings.Contains(statusLine, "http") {
-		t.Errorf("status line = %q, should not carry either URL", statusLine)
-	}
-	if !strings.Contains(lineA, urlA) || strings.Contains(lineA, urlB) {
-		t.Errorf("line = %q, want just %q on it", lineA, urlA)
-	}
-	if !strings.Contains(lineB, urlB) || strings.Contains(lineB, urlA) {
-		t.Errorf("line = %q, want just %q on it", lineB, urlB)
-	}
-	if commandLine != "" {
-		t.Errorf("command line = %q, want blank (idle)", commandLine)
+		var found bool
+		for _, l := range lines {
+			if strings.Contains(l, "item") && strings.Contains(l, url) {
+				t.Errorf("width=%d: status line = %q, should not also carry the URL", width, l)
+			}
+			if strings.Contains(l, url) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("width=%d: view missing the URL:\n%s", width, out)
+		}
 	}
 }

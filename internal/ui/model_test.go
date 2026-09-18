@@ -1332,6 +1332,11 @@ func TestCommandModeShowsCursor(t *testing.T) {
 	}
 }
 
+// TestCommandModeCaretStaysRightAfterInputWhenCompletionsShown guards
+// against the completion list bleeding back onto the command line: it
+// now lives in the info buffer's own "Matches:" section (see
+// infoBufferLines), one match per line, above the status line — the
+// command line itself only ever shows ":w" and the caret.
 func TestCommandModeCaretStaysRightAfterInputWhenCompletionsShown(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
@@ -1347,19 +1352,21 @@ func TestCommandModeCaretStaysRightAfterInputWhenCompletionsShown(t *testing.T) 
 	lines := strings.Split(m.View(), "\n")
 	last := lines[len(lines)-1]
 
-	// The caret must sit immediately after ":w" — not after the
-	// completion list — so it still reads as "this is where your typed
-	// input ends", with the completions shown as a hint past it.
-	caretIdx := strings.Index(last, "\x1b[7m")
-	completionsIdx := strings.Index(last, "w  wq  write")
-	if caretIdx < 0 || completionsIdx < 0 {
-		t.Fatalf("status line = %q, missing caret or completions", last)
+	if last != ":w\x1b[7m \x1b[0m" {
+		t.Errorf("command line = %q, want just \":w\" and the caret", last)
 	}
-	if !strings.HasPrefix(last, ":w\x1b[7m") {
-		t.Errorf("status line = %q, want the caret immediately after ':w'", last)
+
+	var bufLines []string
+	for _, l := range m.infoBufferLines() {
+		bufLines = append(bufLines, stripANSI(l))
 	}
-	if caretIdx >= completionsIdx {
-		t.Errorf("status line = %q, want the caret before the completion list", last)
+	if !containsSubstring(bufLines, "Matches:") {
+		t.Errorf("info buffer missing \"Matches:\" section: %#v", bufLines)
+	}
+	for _, want := range strings.Fields(m.commandCompletions) {
+		if !containsSubstring(bufLines, want) {
+			t.Errorf("info buffer missing completion match %q: %#v", want, bufLines)
+		}
 	}
 }
 

@@ -170,6 +170,42 @@ func TestGtTabListsAmbiguousMatches(t *testing.T) {
 	}
 }
 
+// TestGtTabAmbiguousMatchesShowInInfoBufferNotOnPromptLine guards the
+// "Tags:" section of the info buffer (see infoBufferLines): the
+// completion matches themselves live there, one per line, above the
+// status line — the "gt" prompt's own command line only ever shows the
+// typed input and the caret.
+func TestGtTabAmbiguousMatchesShowInInfoBufferNotOnPromptLine(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.width, m.height = 100, 30
+	m.cursor = findRow(t, m, "Implement the Bubble Tea viewer")
+	other := m.currentHeadline()
+	other.Tags = []string{"features"}
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "t")
+	m = typeKeys(m, "fe")
+	m = sendKey(m, "tab")
+
+	lines := strings.Split(m.View(), "\n")
+	last := stripANSI(lines[len(lines)-1])
+	if strings.Contains(last, "feedback") || strings.Contains(last, "features") {
+		t.Errorf("command line = %q, completions should not appear here anymore", last)
+	}
+
+	var bufLines []string
+	for _, l := range m.infoBufferLines() {
+		bufLines = append(bufLines, stripANSI(l))
+	}
+	if !containsSubstring(bufLines, "Tags:") {
+		t.Errorf("info buffer missing \"Tags:\" section: %#v", bufLines)
+	}
+	if !containsSubstring(bufLines, "feedback") || !containsSubstring(bufLines, "features") {
+		t.Errorf("info buffer missing completion matches: %#v", bufLines)
+	}
+}
+
 func TestGtTabNoMatchShowsMessage(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)

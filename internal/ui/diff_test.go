@@ -195,8 +195,8 @@ func TestDiffStatusLineShowsPlace(t *testing.T) {
 
 	m.showDiff()
 
-	lines := m.normalStatusLines()
-	if len(lines) == 0 || !strings.Contains(lines[0], "diff") {
-		t.Errorf("status line = %#v, want it to mention \"diff\"", lines)
+	line := m.normalStatusLine()
+	if !strings.Contains(line, "diff") {
+		t.Errorf("status line = %q, want it to mention \"diff\"", line)
 	}
 }

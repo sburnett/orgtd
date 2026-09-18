@@ -146,8 +146,9 @@ logging is on.
   detail you don't need at a glance, so it stays one `Tab` away rather
   than cluttering every day's listing by default (an event you've
   explicitly unfolded stays that way across redraws). The link is still
-  always one glance away regardless — on the status line, same as any
-  other entry's link (see above). Otherwise an ordinary foldable list of
+  always one glance away regardless — in the info buffer's "Links"/
+  "Meeting" sections, same as any other entry's link (see above).
+  Otherwise an ordinary foldable list of
   headlines — `i`, `dd`, `r`, `gd`, marks, and every other per-entry
   command all work exactly as they do in the outline, though any edit
   only lasts until the next `:sync-calendar` overwrites the file regardless.
@@ -229,40 +230,66 @@ logging is on.
 
 Marks (see below) stay pinned at the top of the screen in every view.
 
-The bottom of the screen is always split into two lines, like vim's own
-statusline-above-command-line layout: the top one is the status line
-(current view/directory, item position, and any link on the current
-entry — see the tables above for what each view's "place" shows there),
-always visible regardless of mode; the bottom one is the command line —
-where `:`/`/`/`?` input, prompts (deadline, commit message, the status
+The bottom of the screen has up to three parts. The status line (current
+view/directory and item position only) is always exactly one line,
+always visible regardless of mode; the command line below it — where
+`:`/`/`/`?` input, prompts (deadline, commit message, the status
 picker), the visual-mode banner, and messages all appear, blank when
-there's nothing to show. Neither ever replaces the other.
+there's nothing to show — is always exactly one more. Neither ever
+replaces the other, mirroring vim's own statusline-above-command-line
+layout.
 
-"Any link" includes an org-mode link literally in the entry's title; if
-the entry is itself a synced calendar event (i.e. you're browsing
-`:calendar`, above), its own `GCAL_HTML_LINK`; and, if the entry has
-been attached to a meeting via `gM` (see below) — a recurring series or
-a one-off event alike — one `<meeting name>: <url>` entry per attached
-meeting, read from its `GCAL_RECURRING_EVENT_LINKS` (recurring) or
-`GCAL_EVENT_LINKS` (one-off) property. Since that property is a
-snapshot taken at attach time rather than a live lookup, it keeps
-working indefinitely — you can jump straight to the meeting no matter
-how long ago it was attached, even long after `:sync-calendar` has
-resynced `calendar.org` and the meeting no longer has anything cached. A
-`GCAL_RECURRING_EVENT_IDS`/`GCAL_EVENT_IDS` with no matching
-`GCAL_RECURRING_EVENT_LINKS`/`GCAL_EVENT_LINKS` entry (e.g. one
+Above both, an info buffer holds whatever might need more than one
+line, grouped into labeled sections — collapsed entirely (zero height)
+when none of them apply, so it never costs a permanent row on screen:
+
+- **Links** — every org-mode link literally in the current entry's
+  title.
+- **Meeting** — one line per calendar meeting the current entry is
+  linked to (see below for how a link is established), each showing the
+  meeting's name, start time (when still resolvable), and link.
+- **Tags** — while `gt` (see Keybindings, below) is prompting for a tag
+  and more than one existing tag matches what's typed so far, the
+  matches themselves, one per line.
+- **Matches** — the same, for command-mode (`:`) `Tab` completion (see
+  Command mode, below) when more than one command name matches.
+- **Status** — while the `r`/`R` status picker (see Keybindings, below)
+  is open, every selectable state, one per line, with its bracketed
+  shortcut and the currently highlighted one in reverse video.
+
+Any section past 20 lines collapses the rest into a trailing "...and N
+more" summary rather than pushing the outline listing off-screen.
+
+A meeting link comes from: the entry's own `GCAL_HTML_LINK`, if it's
+itself a synced calendar event (i.e. you're browsing `:calendar`,
+above); or, if it's been attached to a meeting via `gM` (see below) — a
+recurring series or a one-off event alike — its
+`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_LINKS` (one-off)
+property, one `<meeting name>` per attached meeting. Since that
+property is a snapshot taken at attach time rather than a live lookup,
+the name and link keep working indefinitely — you can jump straight to
+the meeting no matter how long ago it was attached, even long after
+`:sync-calendar` has resynced `calendar.org` and the meeting no longer
+has anything cached (though its start time, unlike the name/link, is
+always a live lookup, so it stops showing once the meeting ages out —
+see below). A `GCAL_RECURRING_EVENT_IDS`/`GCAL_EVENT_IDS` with no
+matching `GCAL_RECURRING_EVENT_LINKS`/`GCAL_EVENT_LINKS` entry (e.g. one
 hand-attached to a task directly, per DESIGN.md's project↔meeting
 association, rather than via `gM`) falls back to resolving those IDs
 against whatever `calendar.org` currently has cached, which — unlike
 the `..._LINKS` properties — can come up empty if the meeting has aged
 out; an ID that resolves neither way is simply left off. Finally, one
-more `<meeting name>: <url>` entry per meeting the entry is linked to
-purely by a shared tag (see Tag-based meeting links, below), resolved
-live against whatever `calendar.org` currently has cached (there's no
-attach-time snapshot for a tag match, since there was never an explicit
-attach) — skipped if it names a meeting already covered by one of the
-property-based entries above, so a meeting that's both `gM`-attached and
-tag-matched isn't listed twice.
+more meeting per meeting the entry is linked to purely by a shared tag
+(see Tag-based meeting links, below), resolved live against whatever
+`calendar.org` currently has cached (there's no attach-time snapshot for
+a tag match, since there was never an explicit attach) — skipped if it
+names a meeting already covered by one of the property-based entries
+above, so a meeting that's both `gM`-attached and tag-matched isn't
+listed twice. In every case, the meeting's start time shown alongside
+its name/link is always a live lookup against whatever `calendar.org`
+currently has cached — it simply doesn't show once the meeting ages out
+of the sync window, the one part of a meeting entry that can't fall
+back to a snapshot.
 
 ## Tag-based meeting links
 
@@ -325,7 +352,7 @@ stop), and so on.
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
-| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the status line — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. A linked entry (attached via `gM`, or tag-matched — see Tag-based meeting links, above) shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it's linked to a meeting is visible at a glance, in every view, without opening it |
+| `gM` | Open a picker (type to filter by title, ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the info buffer's "Meeting" section — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. A linked entry (attached via `gM`, or tag-matched — see Tag-based meeting links, above) shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it's linked to a meeting is visible at a glance, in every view, without opening it |
 | `gX` | `gC` immediately followed by `gM`: capture as usual, and once the editor session commits, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion, without a separate `gM` bracketing the (possibly slow) editor round-trip. Cancelling the capture (empty or blank result, or the editor failing to run) never opens the picker; if nothing's synced yet, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
 | `gt` | Prompt for a tag and toggle it on the current entry: typing one already on the entry removes it, anything else is added. `Tab` completes against every tag already used anywhere in the workspace (extending to the longest common prefix and listing the matches, same as command-mode `:<Tab>`); an empty prompt's `Tab` lists all of them. Enter with nothing typed, or `Esc`, cancels without changes. Tags can also be added/removed by hand in `i`/edit mode (a trailing `:tag1:tag2:` on the title line) — `gt` is just the faster path for one at a time. A tag matching one on a synced calendar event automatically links the two — see Tag-based meeting links, above |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
@@ -378,8 +405,9 @@ text) and stay highlighted after you move on, until the next search or
 
 ### Command mode (`:`)
 
-`<Tab>` completes a partial command, listing every match if it's
-ambiguous. `↑`/`↓` recall previous commands, most recent first —
+`<Tab>` completes a partial command, listing every match (in the info
+buffer's "Matches" section — see above) if it's ambiguous. `↑`/`↓`
+recall previous commands, most recent first —
 matching vim's own cmdline history: every command actually run is
 recorded (whether or not it turned out valid, and without deduplicating
 repeats), and `↑` past the oldest entry stops there rather than
@@ -474,12 +502,15 @@ The timestamp is deliberately *not* `SCHEDULED`/`DEADLINE` — events
 aren't tasks, so they don't show up in orgtd's agenda view, only in the
 plain outline. `GCAL_START`/`GCAL_END` are a machine-readable copy of the
 same start/end, used by the agenda's Meetings section and `gM`'s picker
-(see above) to find and order current/upcoming meetings; `GCAL_HTML_LINK`
-is a machine-readable copy of the link at the bottom, which `gM` copies
-onto an attached entry's own `GCAL_RECURRING_EVENT_LINKS` (recurring) or
-`GCAL_EVENT_LINKS` (one-off) property so the status line can keep
-showing this event's title and URL long after this cached headline is
-gone; the timestamp and link in the body are the human-readable ones,
+(see above) to find and order current/upcoming meetings, and by the
+info buffer's "Meeting" section (see above) to show a linked meeting's
+start time; `GCAL_HTML_LINK` is a machine-readable copy of the link at
+the bottom, which `gM` copies onto an attached entry's own
+`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_LINKS` (one-off)
+property so the info buffer can keep showing this event's title and URL
+long after this cached headline is gone (its start time, unlike the
+title/URL, isn't snapshotted this way, so it stops showing once this
+cached headline does); the timestamp and link in the body are the human-readable ones,
 for browsing calendar.org itself.
 
 A recurring meeting is expanded into one headline per occurrence within
