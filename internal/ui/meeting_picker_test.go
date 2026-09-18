@@ -290,6 +290,35 @@ func TestGMDefaultsToNextStartTimeWhenNothingInProgress(t *testing.T) {
 	}
 }
 
+// TestGMRecentlyEndedMeetingRanksNearTop covers the reported gap:
+// attaching an entry to a meeting that just ended (so it's no longer
+// in progress) should be easy — the just-ended meeting must outrank a
+// meeting that's merely upcoming but much further off, even though
+// "upcoming" used to always beat "past" outright.
+func TestGMRecentlyEndedMeetingRanksNearTop(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			// Ended 2 minutes ago.
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(-32*time.Minute), now.Add(-2*time.Minute)),
+			// Starts in a week — upcoming, but far less relevant than the
+			// meeting that just wrapped up.
+			recurringCalendarEventHeadline("planning-1", "series-planning", "Sprint Planning", now.Add(7*24*time.Hour), now.Add(7*24*time.Hour+time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	if got := m.meetingPickerCandidates[0].id; got != "series-standup" {
+		t.Errorf("candidates[0] = %q, want series-standup (just ended, closer to now than a week-off meeting)", got)
+	}
+}
+
 func TestGMFilterNarrowsBySubstring(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()

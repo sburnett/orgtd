@@ -524,8 +524,9 @@ type meetingKey struct {
 // (meetingPickerLess) as its title/display date, sorted the same way so
 // index 0 — the picker's default highlight — is the one you're most
 // likely attaching an item to right now: a meeting currently in
-// progress, the shortest one if more than one is, else the next one to
-// start. Picking the representative occurrence with meetingPickerLess
+// progress, the shortest one if more than one is, else whichever starts
+// closest to now — including one that just ended, not only ones still
+// upcoming. Picking the representative occurrence with meetingPickerLess
 // rather than a start-only comparison matters for a series with more
 // than one instance synced at once (a daily standup: today's and
 // tomorrow's both fall inside the sync window): a start-only "soonest
@@ -575,7 +576,7 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 // first — so a quick standup you're nominally "in" right now doesn't
 // get buried under an hours-long meeting that's also technically
 // ongoing. Neither in progress: falls back to moreRelevantOccurrence
-// (soonest upcoming first, else most recently ended).
+// (whichever starts closest to now, upcoming or recently ended alike).
 func meetingPickerLess(a, b meetingCandidate, now time.Time) bool {
 	aIn, bIn := a.inProgress(now), b.inProgress(now)
 	if aIn != bIn {
@@ -590,22 +591,18 @@ func meetingPickerLess(a, b meetingCandidate, now time.Time) bool {
 // moreRelevantOccurrence reports whether a should rank ahead of b — used
 // by meetingPickerLess as its fallback order once "in progress" is
 // already decided (neither a nor b is a substitute for that check on
-// its own: it has no notion of "in progress" at all, only "upcoming vs.
-// past" by start time, which is why meetingCandidates picks a series'
-// representative occurrence via meetingPickerLess rather than this
-// directly): an upcoming occurrence (>= now) always ranks ahead of a
-// past one; between two upcoming occurrences the soonest ranks first;
-// between two past ones the most recent ranks first.
+// its own: it has no notion of "in progress" at all, which is why
+// meetingCandidates picks a series' representative occurrence via
+// meetingPickerLess rather than this directly): whichever start time is
+// closer to now, in either direction, ranks first. This is deliberately
+// not "soonest upcoming always beats any past occurrence" — a meeting
+// that just ended is exactly the kind of thing you're likely reaching
+// for "gM" to attach something to (jotting down a note right as a
+// meeting wraps up), so it needs to surface near the top rather than
+// sink beneath every future meeting, however far off, just for having
+// already started.
 func moreRelevantOccurrence(a, b, now time.Time) bool {
-	aUpcoming := !a.Before(now)
-	bUpcoming := !b.Before(now)
-	if aUpcoming != bUpcoming {
-		return aUpcoming
-	}
-	if aUpcoming {
-		return a.Before(b)
-	}
-	return a.After(b)
+	return a.Sub(now).Abs() < b.Sub(now).Abs()
 }
 
 // filteredMeetingCandidates returns every candidate whose title contains
