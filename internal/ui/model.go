@@ -50,10 +50,21 @@ var (
 	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("245"))
 
 	// overlayBg is the subtle background tint for the pinned header
-	// (clarify/marks) and the status bar — a light/dark pair so it reads
-	// as a faint panel regardless of the terminal's own color scheme,
-	// resolved via lipgloss's terminal background detection.
+	// (clarify/marks/register) and the info buffer (links, meeting detail,
+	// tag/command-completion matches, the status and "gM" meeting pickers)
+	// — a light/dark pair so it reads as a faint panel regardless of the
+	// terminal's own color scheme, resolved via lipgloss's terminal
+	// background detection.
 	overlayBg = lipgloss.AdaptiveColor{Light: "#e4e4e4", Dark: "#262626"}
+
+	// statusBarBg tints the one-line status bar at the bottom of the
+	// screen (see normalStatusLine) — deliberately a different shade from
+	// overlayBg (above) rather than reusing it, so the status bar reads as
+	// its own fixed landmark distinct from the pinned header/info buffer
+	// panels above it, which can grow, shrink, or disappear entirely
+	// depending on mode; without the distinction all three used to blend
+	// into one indistinct gray band.
+	statusBarBg = lipgloss.AdaptiveColor{Light: "#d7d0c2", Dark: "#332c1f"}
 
 	// cursorBg highlights the row under the cursor, filling the whole
 	// terminal width — a distinct, more prominent shade than overlayBg
@@ -6432,7 +6443,7 @@ func (m Model) View() string {
 	// separate row for whatever's active right now, mirroring vim's own
 	// split between the two rather than the command line ever replacing
 	// the status line.
-	b.WriteString(m.padLineToWidth(statusStyle.Background(overlayBg).Render(m.normalStatusLine()), overlayBg))
+	b.WriteString(m.padLineToWidth(statusStyle.Background(statusBarBg).Render(m.normalStatusLine()), statusBarBg))
 	b.WriteString("\n")
 
 	// Command line — vim's own command-line/message area equivalent:
