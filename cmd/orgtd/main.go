@@ -125,6 +125,7 @@ func main() {
 			ui.WithClarifyIcon(s.iconClarifyIcon, s.iconClarifyColor),
 			ui.WithLockIcon(s.iconLockIcon, s.iconLockColor),
 			ui.WithMeetingIcon(s.iconMeetingIcon, s.iconMeetingColor),
+			ui.WithColors(ui.ColorOverrides(s.colors)),
 		),
 		tea.WithAltScreen(),
 	)

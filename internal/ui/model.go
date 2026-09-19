@@ -34,96 +34,238 @@ import (
 // closest to in meaning, not just in hue, so the mapping stays sensible
 // if either side's palette shifts later. Since matching one specific
 // dark theme is the whole point, these are plain (non-adaptive) colors
-// rather than the light/dark pairs orgtd used before — they always
-// render as wildcharm-dark now, regardless of the terminal's own
-// background.
-var (
-	// fileStyle marks a file's own header row — wildcharm's Directory
-	// (bold blue), the closest match for "a path, not an item".
-	fileStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00afff"))
+// rather than light/dark pairs — they always render as wildcharm-dark by
+// default, regardless of the terminal's own background, unless
+// overridden (see ColorOverrides/WithColors and the config file's
+// "[colors]" section, README.md).
+//
+// Every one of these is a Model method rather than a package-level
+// value, resolving m.colors' matching field (falling back to the
+// default* constant below when unset — see orDefault) fresh on each
+// call, so a Model built with WithColors renders with its own overrides
+// while a zero-value Model (as most tests construct directly) still gets
+// the built-in wildcharm-dark look for free.
+const (
+	defaultFileColor = "#00afff" // Directory: bold blue, the closest match for "a path, not an item"
 
-	keywordStyles = map[string]lipgloss.Style{
-		// TODO: not yet started — wildcharm's Error/Removed red, the most
-		// alarming color in the palette.
-		"TODO": lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d7005f")),
-		// NEXT: do this one now — wildcharm's Type/WarningMsg/WildMenu
-		// orange.
-		"NEXT": lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaf00")),
-		// WAITING: blocked on something else — wildcharm's Special purple,
-		// distinct from both TODO's red and NEXT's orange.
-		"WAITING": lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#875fff")),
-		// SOMEDAY/DONE/CANCELLED are all deliberately unbold, unlike the
-		// three active states above — wildcharm reserves bold for things
-		// that need attention.
-		"SOMEDAY":   lipgloss.NewStyle().Foreground(lipgloss.Color("#767676")), // Comment grey
-		"DONE":      lipgloss.NewStyle().Foreground(lipgloss.Color("#00d75f")), // Constant/Added green
-		"CANCELLED": lipgloss.NewStyle().Foreground(lipgloss.Color("#585858")), // LineNr/Conceal dark grey
-	}
+	// TODO/Next/Waiting: wildcharm's most alarming/attention colors.
+	// Someday/Done/Cancelled are deliberately unbold — wildcharm reserves
+	// bold for things that need attention.
+	defaultTODOColor      = "#d7005f" // Error/Removed red
+	defaultNextColor      = "#ffaf00" // Type/WarningMsg/WildMenu orange
+	defaultWaitingColor   = "#875fff" // Special purple
+	defaultSomedayColor   = "#767676" // Comment grey
+	defaultDoneColor      = "#00d75f" // Constant/Added green
+	defaultCancelledColor = "#585858" // LineNr/Conceal dark grey
 
-	tagStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#00d7d7")) // PreProc cyan
-	doneTitleStyle = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("#767676"))
-	statusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#767676")) // Comment grey, for muted status/info text
-	timestampStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff87ff")) // Identifier/Question magenta
-	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#d7005f")) // Error/Removed red
-	shortcutStyle  = lipgloss.NewStyle().Bold(true)
-	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("#767676"))
+	defaultTagColor       = "#00d7d7" // PreProc cyan
+	defaultDoneTitleColor = "#767676" // Comment grey
+	defaultStatusColor    = "#767676" // Comment grey, for muted status/info text
+	defaultTimestampColor = "#ff87ff" // Identifier/Question magenta
+	defaultErrorColor     = "#d7005f" // Error/Removed red
+	defaultBodyColor      = "#767676" // Comment grey
 
-	// caretStyle renders the command-line's text-cursor caret (a lone
-	// space standing in for the terminal's own cursor block, since
+	// defaultCaretFg/Bg color the command-line's text-cursor caret (a
+	// lone space standing in for the terminal's own cursor block, since
 	// there's no in-line editing to place a real one) — wildcharm's
 	// Cursor: a solid, unmissable block regardless of what's behind it,
-	// unlike cursorStyle below (which only ever tints a background,
-	// leaving whatever foreground was already there alone).
-	caretStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(lipgloss.Color("#ffffff"))
+	// unlike defaultHighlightBg below (which only ever tints a
+	// background, leaving whatever foreground was already there alone).
+	defaultCaretFg = "#000000"
+	defaultCaretBg = "#ffffff"
 
-	// cursorStyle highlights the selected line within an overlay list —
-	// the "R"/status picker and "gM" meeting picker's highlighted
+	// defaultHighlightBg tints the selected line within an overlay
+	// list — the "R"/status picker and "gM" meeting picker's highlighted
 	// candidate (see statusSelectorLines/meetingPickerLines) — wildcharm's
 	// PmenuSel: like real Vim's own popup-menu selection, it changes only
 	// the background, leaving the row's own text color alone, rather than
 	// inverting video the way a plain terminal cursor block does.
-	cursorStyle = lipgloss.NewStyle().Background(lipgloss.Color("#585858"))
+	defaultHighlightBg = "#585858"
 
-	// overlayBg is the background tint for the pinned header
-	// (clarify/marks/register) and the info buffer (links, meeting detail,
-	// tag/command-completion matches, the status and "gM" meeting
-	// pickers) — wildcharm's Pmenu: its popup-menu panel color.
-	overlayBg = lipgloss.Color("#303030")
+	// defaultPanelBg tints the pinned header (clarify/marks/register) and
+	// the info buffer (links, meeting detail, tag/command-completion
+	// matches, the status and "gM" meeting pickers) — wildcharm's Pmenu:
+	// its popup-menu panel color.
+	defaultPanelBg = "#303030"
 
-	// statusBarBg tints the one-line status bar at the bottom of the
-	// screen (see normalStatusLine) — wildcharm's StatusLine, which is
-	// defined as light-grey-on-black with a "reverse" attribute; rather
-	// than rely on terminal reverse-video (whose effect on top of our own
-	// explicit colors elsewhere would be inconsistent), the swap is baked
-	// in directly: this is the *visual* result, StatusLine's background
-	// once reversed.
-	statusBarBg = lipgloss.Color("#9e9e9e")
+	// defaultStatusBarBg/Fg tint the one-line status bar at the bottom of
+	// the screen (see normalStatusLine) — wildcharm's StatusLine, which
+	// is defined as light-grey-on-black with a "reverse" attribute;
+	// rather than rely on terminal reverse-video (whose effect on top of
+	// our own explicit colors elsewhere would be inconsistent), the swap
+	// is baked in directly: these are the *visual* result, StatusLine's
+	// colors once reversed.
+	defaultStatusBarBg = "#9e9e9e"
+	defaultStatusBarFg = "#000000"
 
-	// statusBarFg is the status bar's own text color — StatusLine's
-	// background once reversed, mirroring statusBarBg above.
-	statusBarFg = lipgloss.Color("#000000")
-
-	// cursorBg highlights the row under the cursor, filling the whole
-	// terminal width — wildcharm's Visual (its selection color), the
-	// obvious match for "the entry you currently have selected". In
+	// defaultCursorRowBg highlights the row under the cursor, filling the
+	// whole terminal width — wildcharm's Visual (its selection color),
+	// the obvious match for "the entry you currently have selected". In
 	// visual mode, only the cursor's own entry keeps this shade (see
-	// visualSelectionBg for the rest of the selection), so which end of a
-	// multi-entry selection is the actual cursor is always unambiguous.
-	cursorBg = lipgloss.Color("#204060")
+	// defaultVisualSelectionBg for the rest of the selection), so which
+	// end of a multi-entry selection is the actual cursor is always
+	// unambiguous.
+	defaultCursorRowBg = "#204060"
 
-	// visualSelectionBg highlights the part of a visual-mode selection
-	// that isn't the cursor's own entry — wildcharm has no second
-	// selection shade of its own, so this is cursorBg's same hue blended
-	// halfway toward Normal's black background, staying recognizably the
-	// same color family while reading as less prominent than the cursor.
-	visualSelectionBg = lipgloss.Color("#102030")
+	// defaultVisualSelectionBg highlights the part of a visual-mode
+	// selection that isn't the cursor's own entry — wildcharm has no
+	// second selection shade of its own, so this is defaultCursorRowBg's
+	// same hue blended halfway toward Normal's black background, staying
+	// recognizably the same color family while reading as less prominent
+	// than the cursor.
+	defaultVisualSelectionBg = "#102030"
 
-	// searchHighlightBg marks every occurrence of the active search term
-	// (see activeSearchQuery) — vim's 'hlsearch' — layered on top of
-	// whatever background (if any) a segment already carries. Wildcharm's
-	// own Search background.
-	searchHighlightBg = lipgloss.Color("#3a4a3a")
+	// defaultSearchHighlightBg marks every occurrence of the active
+	// search term (see activeSearchQuery) — vim's 'hlsearch' — layered on
+	// top of whatever background (if any) a segment already carries.
+	// Wildcharm's own Search background.
+	defaultSearchHighlightBg = "#3a4a3a"
 )
+
+// shortcutStyle is the one piece of styling with no configurable color
+// at all — it only ever sets Bold, matching wildcharm's own Title group
+// (gui=bold, no guifg) — used for a picker candidate's bracketed
+// shortcut ("[t]").
+var shortcutStyle = lipgloss.NewStyle().Bold(true)
+
+// ColorOverrides customizes every configurable color in orgtd's built-in
+// scheme (see WithColors and the fields' matching Model-method
+// resolvers, e.g. fileStyle/cursorBg/overlayBg below) beyond the gutter
+// markers WithDirtyIcon and its siblings already cover. Every field is a
+// color string (an ANSI code "0"-"255" or a hex RGB string) — an empty
+// one leaves that color at its built-in wildcharm-dark default. Mirrors
+// internal/config's ColorsConfig field-for-field (see cmd/orgtd/main.go,
+// which converts one directly to the other), but defined here too so the
+// ui package doesn't have to import internal/config just for this type.
+type ColorOverrides struct {
+	File                                          string
+	TODO, Next, Waiting, Someday, Done, Cancelled string
+	Tag, DoneTitle, Status, Timestamp, Error      string
+	Body                                          string
+	CaretFg, CaretBg                              string
+	HighlightBg                                   string
+	PanelBg                                       string
+	StatusBarBg, StatusBarFg                      string
+	CursorRowBg                                   string
+	VisualSelectionBg                             string
+	SearchHighlightBg                             string
+}
+
+// WithColors overrides orgtd's built-in wildcharm-dark color scheme —
+// see ColorOverrides for what each field controls. Fields left at ""
+// (the zero value, including every field when this option is never
+// applied at all) keep their built-in default.
+func WithColors(c ColorOverrides) Option {
+	return func(m *Model) { m.colors = c }
+}
+
+// fileStyle marks a file's own header row.
+func (m Model) fileStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.File, defaultFileColor)))
+}
+
+// keywordStyle returns the style for a headline's TODO keyword, and
+// whether it's a recognized one at all (an unrecognized/absent keyword
+// gets ok == false, same as the old keywordStyles map's own comma-ok
+// lookup) — see keywordStyles' old doc comment (now folded into the
+// default* constants above) for why each keyword gets the color it does.
+func (m Model) keywordStyle(keyword string) (lipgloss.Style, bool) {
+	switch keyword {
+	case "TODO":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.TODO, defaultTODOColor))), true
+	case "NEXT":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.Next, defaultNextColor))), true
+	case "WAITING":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.Waiting, defaultWaitingColor))), true
+	case "SOMEDAY":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Someday, defaultSomedayColor))), true
+	case "DONE":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Done, defaultDoneColor))), true
+	case "CANCELLED":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Cancelled, defaultCancelledColor))), true
+	default:
+		return lipgloss.Style{}, false
+	}
+}
+
+func (m Model) tagStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Tag, defaultTagColor)))
+}
+
+func (m Model) doneTitleStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color(orDefault(m.colors.DoneTitle, defaultDoneTitleColor)))
+}
+
+// statusStyle is for muted status/info text: the directory path on the
+// status line, register/overflow summaries, and the visual-mode banner.
+func (m Model) statusStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Status, defaultStatusColor)))
+}
+
+func (m Model) timestampStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Timestamp, defaultTimestampColor)))
+}
+
+func (m Model) errorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Error, defaultErrorColor)))
+}
+
+func (m Model) bodyStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color(orDefault(m.colors.Body, defaultBodyColor)))
+}
+
+// caretStyle renders the command-line's text-cursor caret.
+func (m Model) caretStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(orDefault(m.colors.CaretFg, defaultCaretFg))).
+		Background(lipgloss.Color(orDefault(m.colors.CaretBg, defaultCaretBg)))
+}
+
+// cursorStyle highlights the selected line within an overlay list — the
+// "R"/status picker and "gM" meeting picker's highlighted candidate (see
+// statusSelectorLines/meetingPickerLines).
+func (m Model) cursorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Background(lipgloss.Color(orDefault(m.colors.HighlightBg, defaultHighlightBg)))
+}
+
+// overlayBg is the background tint for the pinned header
+// (clarify/marks/register) and the info buffer (links, meeting detail,
+// tag/command-completion matches, the status and "gM" meeting pickers).
+func (m Model) overlayBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.colors.PanelBg, defaultPanelBg))
+}
+
+// statusBarBg/statusBarFg tint the one-line status bar at the bottom of
+// the screen (see normalStatusLine).
+func (m Model) statusBarBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.colors.StatusBarBg, defaultStatusBarBg))
+}
+
+func (m Model) statusBarFg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.colors.StatusBarFg, defaultStatusBarFg))
+}
+
+// cursorBg highlights the row under the cursor, filling the whole
+// terminal width. In visual mode, only the cursor's own entry keeps this
+// shade (see visualSelectionBg for the rest of the selection), so which
+// end of a multi-entry selection is the actual cursor is always
+// unambiguous.
+func (m Model) cursorBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.colors.CursorRowBg, defaultCursorRowBg))
+}
+
+// visualSelectionBg highlights the part of a visual-mode selection that
+// isn't the cursor's own entry.
+func (m Model) visualSelectionBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.colors.VisualSelectionBg, defaultVisualSelectionBg))
+}
+
+// searchHighlightBg marks every occurrence of the active search term
+// (see activeSearchQuery) — vim's 'hlsearch' — layered on top of
+// whatever background (if any) a segment already carries.
+func (m Model) searchHighlightBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.colors.SearchHighlightBg, defaultSearchHighlightBg))
+}
 
 // bgSpan renders s with only a background color — no other styling —
 // for the plain-text gaps (join separators, padding) inside a
@@ -150,14 +292,16 @@ func (m Model) activeSearchQuery() string {
 // base, and everything else rendered plainly with base. Each segment is
 // rendered independently (not nested) so this composes correctly
 // regardless of what background base itself already carries. A blank
-// query renders s with base unchanged.
-func highlightMatches(s, query string, base lipgloss.Style) string {
+// query renders s with base unchanged. A method (rather than a free
+// function) purely so it can resolve m's own searchHighlightBg (see
+// ColorOverrides) — it doesn't otherwise depend on any Model state.
+func (m Model) highlightMatches(s, query string, base lipgloss.Style) string {
 	if query == "" {
 		return base.Render(s)
 	}
 	lowerS := strings.ToLower(s)
 	lowerQ := strings.ToLower(query)
-	highlight := base.Background(searchHighlightBg)
+	highlight := base.Background(m.searchHighlightBg())
 
 	var b strings.Builder
 	last := 0
@@ -577,6 +721,14 @@ type Model struct {
 	clarifyIcon, clarifyColor string
 	lockIcon, lockColor       string
 	meetingIcon, meetingColor string
+
+	// colors overrides the rest of the built-in color scheme (see
+	// ColorOverrides and WithColors, and the resolver methods —
+	// fileStyle, keywordStyle, tagStyle, and friends, near the top of
+	// this file) — set from the config file's [colors] section, same as
+	// the icon fields above, each field defaulting to that resolver's own
+	// built-in wildcharm-dark color when unset.
+	colors ColorOverrides
 
 	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
 	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
@@ -1447,6 +1599,28 @@ func (m *Model) appendConfigRows() {
 		orDefault(m.clarifyIcon, defaultClarifyIcon), orDefault(m.clarifyColor, defaultClarifyColor),
 		orDefault(m.lockIcon, defaultLockIcon), orDefault(m.lockColor, defaultLockColor),
 		orDefault(m.meetingIcon, defaultMeetingIcon), orDefault(m.meetingColor, defaultMeetingColor))
+
+	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), status-bar (%s on %s), cursor-row (%s), visual-selection (%s), search-highlight (%s)",
+		orDefault(m.colors.File, defaultFileColor),
+		orDefault(m.colors.TODO, defaultTODOColor),
+		orDefault(m.colors.Next, defaultNextColor),
+		orDefault(m.colors.Waiting, defaultWaitingColor),
+		orDefault(m.colors.Someday, defaultSomedayColor),
+		orDefault(m.colors.Done, defaultDoneColor),
+		orDefault(m.colors.Cancelled, defaultCancelledColor),
+		orDefault(m.colors.Tag, defaultTagColor),
+		orDefault(m.colors.DoneTitle, defaultDoneTitleColor),
+		orDefault(m.colors.Status, defaultStatusColor),
+		orDefault(m.colors.Timestamp, defaultTimestampColor),
+		orDefault(m.colors.Error, defaultErrorColor),
+		orDefault(m.colors.Body, defaultBodyColor),
+		orDefault(m.colors.CaretFg, defaultCaretFg), orDefault(m.colors.CaretBg, defaultCaretBg),
+		orDefault(m.colors.HighlightBg, defaultHighlightBg),
+		orDefault(m.colors.PanelBg, defaultPanelBg),
+		orDefault(m.colors.StatusBarFg, defaultStatusBarFg), orDefault(m.colors.StatusBarBg, defaultStatusBarBg),
+		orDefault(m.colors.CursorRowBg, defaultCursorRowBg),
+		orDefault(m.colors.VisualSelectionBg, defaultVisualSelectionBg),
+		orDefault(m.colors.SearchHighlightBg, defaultSearchHighlightBg))
 }
 
 // appendLogRows populates m.rows for :log — every external command
@@ -5295,11 +5469,13 @@ func buildBareURLRegexp(extraPrefixes []string) *regexp.Regexp {
 // raw "[[url][description]]" syntax. base is the style otherwise applied
 // to the title (e.g. doneTitleStyle for a DONE/CANCELLED item); every
 // segment — link or plain text — is rendered with base (underlined,
-// for a link) so the two compose without nesting escape codes.
-func renderTitleForDisplay(title string, base lipgloss.Style, query string) string {
+// for a link) so the two compose without nesting escape codes. A method
+// (rather than a free function) purely so it can pass m's own
+// searchHighlightBg through to highlightMatches.
+func (m Model) renderTitleForDisplay(title string, base lipgloss.Style, query string) string {
 	matches := orgLinkRe.FindAllStringSubmatchIndex(title, -1)
 	if len(matches) == 0 {
-		return highlightMatches(title, query, base)
+		return m.highlightMatches(title, query, base)
 	}
 	linkStyle := base.Underline(true)
 
@@ -5317,13 +5493,13 @@ func renderTitleForDisplay(title string, base lipgloss.Style, query string) stri
 			display = url
 		}
 		if start > last {
-			b.WriteString(highlightMatches(title[last:start], query, base))
+			b.WriteString(m.highlightMatches(title[last:start], query, base))
 		}
-		b.WriteString(highlightMatches(display, query, linkStyle))
+		b.WriteString(m.highlightMatches(display, query, linkStyle))
 		last = end
 	}
 	if last < len(title) {
-		b.WriteString(highlightMatches(title[last:], query, base))
+		b.WriteString(m.highlightMatches(title[last:], query, base))
 	}
 	return b.String()
 }
@@ -6197,15 +6373,15 @@ func (m *Model) pinnedHeaderHeight() int {
 func (m Model) pinnedHeaderLines() []string {
 	var lines []string
 	if m.view == clarifyView {
-		lines = append(lines, m.padLineToWidth(fileStyle.Background(overlayBg).Render("Clarifying:"), overlayBg))
+		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Clarifying:"), m.overlayBg()))
 		if m.clarifyTarget == nil {
-			lines = append(lines, m.padLineToWidth(statusStyle.Background(overlayBg).Render("  Inbox is empty."), overlayBg))
+			lines = append(lines, m.padLineToWidth(m.statusStyle().Background(m.overlayBg()).Render("  Inbox is empty."), m.overlayBg()))
 		} else {
 			lines = append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
 		}
 	}
 	if letters := m.sortedMarkLetters(); len(letters) > 0 {
-		lines = append(lines, m.padLineToWidth(fileStyle.Background(overlayBg).Render("Active marks:"), overlayBg))
+		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Active marks:"), m.overlayBg()))
 		for _, letter := range letters {
 			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
 		}
@@ -6217,7 +6393,7 @@ func (m Model) pinnedHeaderLines() []string {
 	// The trailing separator carries the overlay background too, so the
 	// tinted block reads as one solid panel rather than cutting off
 	// right before an untinted blank line.
-	return append(lines, m.padLineToWidth("", overlayBg))
+	return append(lines, m.padLineToWidth("", m.overlayBg()))
 }
 
 // registerPinnedLines renders the register section of the pinned header:
@@ -6231,7 +6407,7 @@ func (m Model) registerPinnedLines() []string {
 	if len(m.register) == 0 {
 		return nil
 	}
-	lines := []string{m.padLineToWidth(fileStyle.Background(overlayBg).Render("Register:"), overlayBg)}
+	lines := []string{m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Register:"), m.overlayBg())}
 	shown := m.register
 	overflow := 0
 	if len(shown) > maxRegisterPinnedLines {
@@ -6242,8 +6418,8 @@ func (m Model) registerPinnedLines() []string {
 		lines = append(lines, m.renderPinnedRow("\"", h, false))
 	}
 	if overflow > 0 {
-		summary := statusStyle.Background(overlayBg).Render(fmt.Sprintf("  ...and %d more", overflow))
-		lines = append(lines, m.padLineToWidth(summary, overlayBg))
+		summary := m.statusStyle().Background(m.overlayBg()).Render(fmt.Sprintf("  ...and %d more", overflow))
+		lines = append(lines, m.padLineToWidth(summary, m.overlayBg()))
 	}
 	return lines
 }
@@ -6280,19 +6456,19 @@ func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) 
 	if forClarify {
 		markerColor = orDefault(m.clarifyColor, defaultClarifyColor)
 	}
-	prefix := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(markerColor)).Background(overlayBg).Render(marker) +
-		bgSpan(overlayBg, "  ") +
-		joinBg(m.renderKeywordAndTitle(h, overlayBg), overlayBg)
+	prefix := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(markerColor)).Background(m.overlayBg()).Render(marker) +
+		bgSpan(m.overlayBg(), "  ") +
+		joinBg(m.renderKeywordAndTitle(h, m.overlayBg()), m.overlayBg())
 	var suffix string
 	if forClarify {
 		if created := h.Properties["CREATED"]; created != "" {
-			suffix += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render("Created: "+created)
+			suffix += bgSpan(m.overlayBg(), "  ") + m.timestampStyle().Background(m.overlayBg()).Render("Created: "+created)
 		}
 		if planning := planningSummary(h); planning != "" {
-			suffix += bgSpan(overlayBg, "  ") + timestampStyle.Background(overlayBg).Render(planning)
+			suffix += bgSpan(m.overlayBg(), "  ") + m.timestampStyle().Background(m.overlayBg()).Render(planning)
 		}
 	}
-	return m.padLineToWidth(fitRowLine(prefix, suffix, m.width, overlayBg), overlayBg)
+	return m.padLineToWidth(fitRowLine(prefix, suffix, m.width, m.overlayBg()), m.overlayBg())
 }
 
 // sectionSeparatorBudget is how many blank separator lines a full render
@@ -6425,7 +6601,7 @@ func (m Model) View() string {
 		// extend the highlight from the cursor over any of its own body
 		// lines that immediately follow. In visual mode, the rest of the
 		// selection (from visualAnchor to the cursor) is also
-		// highlighted, but with visualSelectionBg rather than cursorBg —
+		// highlighted, but with m.visualSelectionBg() rather than m.cursorBg() —
 		// otherwise the whole block looks uniform and there'd be no way
 		// to tell which end is actually the cursor (e.g. before extending
 		// the selection further, or right after Esc leaves the cursor
@@ -6445,9 +6621,9 @@ func (m Model) View() string {
 			var line string
 			switch {
 			case i >= cursorStart && i <= cursorEnd:
-				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
+				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], m.cursorBg()), m.cursorBg())
 			case i >= selStart && i <= selEnd:
-				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], visualSelectionBg), visualSelectionBg)
+				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], m.visualSelectionBg()), m.visualSelectionBg())
 			default:
 				line = m.renderRow(m.rows[i])
 			}
@@ -6481,8 +6657,8 @@ func (m Model) View() string {
 	// separate row for whatever's active right now, mirroring vim's own
 	// split between the two rather than the command line ever replacing
 	// the status line.
-	statusLineStyle := lipgloss.NewStyle().Bold(true).Foreground(statusBarFg).Background(statusBarBg)
-	b.WriteString(m.padLineToWidth(statusLineStyle.Render(m.normalStatusLine()), statusBarBg))
+	statusLineStyle := lipgloss.NewStyle().Bold(true).Foreground(m.statusBarFg()).Background(m.statusBarBg())
+	b.WriteString(m.padLineToWidth(statusLineStyle.Render(m.normalStatusLine()), m.statusBarBg()))
 	b.WriteString("\n")
 
 	// Command line — vim's own command-line/message area equivalent:
@@ -6491,14 +6667,14 @@ func (m Model) View() string {
 	switch {
 	case m.mode == commandMode:
 		b.WriteString(":" + m.commandInput)
-		b.WriteString(caretStyle.Render(" ")) // caret, right after the input (no in-line editing yet)
+		b.WriteString(m.caretStyle().Render(" ")) // caret, right after the input (no in-line editing yet)
 		// m.message can be set without leaving commandMode (e.g. Tab
 		// completion finding no match) — shown here too, not just in the
 		// mode-less case below, or it'd be set but never actually visible.
 		// Completion matches themselves are in the info buffer above
 		// (see infoBufferLines), not appended here.
 		if m.message != "" {
-			b.WriteString("  " + errorStyle.Render(m.message))
+			b.WriteString("  " + m.errorStyle().Render(m.message))
 		}
 	case m.mode == selectMode:
 		// The candidate list itself is in the info buffer above (see
@@ -6515,29 +6691,29 @@ func (m Model) View() string {
 		b.WriteString(m.renderMeetingPicker())
 	case m.mode == tagMode:
 		b.WriteString(" Tag (Tab completes, empty cancels; retyping an existing tag removes it): " + m.tagInput)
-		b.WriteString(caretStyle.Render(" "))
+		b.WriteString(m.caretStyle().Render(" "))
 		// Completion matches are in the info buffer above (see
 		// infoBufferLines), not appended here.
 		if m.message != "" {
-			b.WriteString("  " + errorStyle.Render(m.message))
+			b.WriteString("  " + m.errorStyle().Render(m.message))
 		}
 	case m.mode == deadlineMode:
 		b.WriteString(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
-		b.WriteString(caretStyle.Render(" "))
+		b.WriteString(m.caretStyle().Render(" "))
 		// As above: an invalid date sets m.message but deliberately leaves
 		// the prompt open for correction (see applyDeadlineInput), so it
 		// must be shown here rather than only in the mode-less case below.
 		if m.message != "" {
-			b.WriteString("  " + errorStyle.Render(m.message))
+			b.WriteString("  " + m.errorStyle().Render(m.message))
 		}
 	case m.mode == commitMessageMode:
 		b.WriteString(" Commit message: " + m.commitMessageInput)
-		b.WriteString(caretStyle.Render(" "))
+		b.WriteString(m.caretStyle().Render(" "))
 		// As above (deadlineMode): an empty message sets m.message but
 		// leaves the prompt open for correction (see
 		// applyCommitMessageInput), so it must be shown here too.
 		if m.message != "" {
-			b.WriteString("  " + errorStyle.Render(m.message))
+			b.WriteString("  " + m.errorStyle().Render(m.message))
 		}
 	case m.mode == searchMode:
 		prefix := "/"
@@ -6545,16 +6721,16 @@ func (m Model) View() string {
 			prefix = "?"
 		}
 		b.WriteString(prefix + m.searchQuery)
-		b.WriteString(caretStyle.Render(" "))
+		b.WriteString(m.caretStyle().Render(" "))
 	case m.mode == confirmMode:
-		b.WriteString(errorStyle.Render(m.confirmMessage))
+		b.WriteString(m.errorStyle().Render(m.confirmMessage))
 	case m.mode == visualMode:
-		b.WriteString(statusStyle.Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, y: yank, R: set status, Esc: cancel)", len(m.visualSelectedHeadlines()))))
+		b.WriteString(m.statusStyle().Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, y: yank, R: set status, Esc: cancel)", len(m.visualSelectedHeadlines()))))
 		if m.message != "" {
-			b.WriteString("  " + errorStyle.Render(m.message))
+			b.WriteString("  " + m.errorStyle().Render(m.message))
 		}
 	case m.message != "":
-		b.WriteString(errorStyle.Render(m.message))
+		b.WriteString(m.errorStyle().Render(m.message))
 	}
 
 	return b.String()
@@ -6688,7 +6864,7 @@ func (m *Model) infoBufferLines() []string {
 	// reason as pinnedHeaderLines' own: the tinted block reads as one
 	// solid panel rather than cutting off right before an untinted
 	// blank line.
-	return append(lines, m.padLineToWidth("", overlayBg))
+	return append(lines, m.padLineToWidth("", m.overlayBg()))
 }
 
 // appendInfoSection appends one info-buffer section to lines: a label
@@ -6701,7 +6877,7 @@ func (m *Model) infoBufferLines() []string {
 func (m Model) appendInfoSection(lines []string, label string, items []string) []string {
 	rendered := make([]string, len(items))
 	for i, item := range items {
-		rendered[i] = statusStyle.Background(overlayBg).Render(" " + item)
+		rendered[i] = m.statusStyle().Background(m.overlayBg()).Render(" " + item)
 	}
 	return m.appendInfoSectionRendered(lines, label, rendered)
 }
@@ -6716,7 +6892,7 @@ func (m Model) appendInfoSectionRendered(lines []string, label string, items []s
 	if len(items) == 0 {
 		return lines
 	}
-	lines = append(lines, m.padLineToWidth(fileStyle.Background(overlayBg).Render(label), overlayBg))
+	lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render(label), m.overlayBg()))
 	shown := items
 	overflow := 0
 	if len(shown) > maxInfoBufferLines {
@@ -6724,10 +6900,10 @@ func (m Model) appendInfoSectionRendered(lines []string, label string, items []s
 		shown = shown[:maxInfoBufferLines]
 	}
 	for _, item := range shown {
-		lines = append(lines, m.padLineToWidth(item, overlayBg))
+		lines = append(lines, m.padLineToWidth(item, m.overlayBg()))
 	}
 	if overflow > 0 {
-		lines = append(lines, m.padLineToWidth(statusStyle.Background(overlayBg).Render(fmt.Sprintf("  ...and %d more", overflow)), overlayBg))
+		lines = append(lines, m.padLineToWidth(m.statusStyle().Background(m.overlayBg()).Render(fmt.Sprintf("  ...and %d more", overflow)), m.overlayBg()))
 	}
 	return lines
 }
@@ -6758,9 +6934,9 @@ func (m Model) statusSelectorLines() []string {
 	for i, c := range statusCandidates {
 		text := fmt.Sprintf("[%c] %s", c.shortcut, c.label)
 		if i == highlighted {
-			lines[i] = cursorStyle.Render(" " + text)
+			lines[i] = m.cursorStyle().Render(" " + text)
 		} else {
-			lines[i] = bgSpan(overlayBg, " ") + shortcutStyle.Background(overlayBg).Render(fmt.Sprintf("[%c]", c.shortcut)) + bgSpan(overlayBg, " "+c.label)
+			lines[i] = bgSpan(m.overlayBg(), " ") + shortcutStyle.Background(m.overlayBg()).Render(fmt.Sprintf("[%c]", c.shortcut)) + bgSpan(m.overlayBg(), " "+c.label)
 		}
 	}
 	return lines
@@ -6801,9 +6977,9 @@ func (m Model) meetingPickerLines() []string {
 			text += "  (attached)"
 		}
 		if i == idx {
-			lines[i] = cursorStyle.Render(" " + text)
+			lines[i] = m.cursorStyle().Render(" " + text)
 		} else {
-			lines[i] = bgSpan(overlayBg, " "+text)
+			lines[i] = bgSpan(m.overlayBg(), " "+text)
 		}
 	}
 	return lines
@@ -6991,11 +7167,11 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		if _, plain := bg.(lipgloss.NoColor); !plain {
 			text = ansi.Strip(text)
 		}
-		return highlightMatches(text, query, lipgloss.NewStyle().Background(bg))
+		return m.highlightMatches(text, query, lipgloss.NewStyle().Background(bg))
 	case r.section != "":
 		// Flush left (no gutter/indent), unlike every item row below it,
 		// so a section header stands out at a glance in a long agenda.
-		return highlightMatches(r.section, query, fileStyle.Background(bg))
+		return m.highlightMatches(r.section, query, m.fileStyle().Background(bg))
 	case r.isMeetingHeader:
 		return m.renderMeetingHeaderRowWithBg(r, bg)
 	case r.file != nil:
@@ -7003,7 +7179,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		// never marked, locked by :format-links, or attached to a
 		// meeting, but this keeps every row's dirty marker lined up in
 		// the same column.
-		name := highlightMatches(filepath.Base(r.file.Path), query, fileStyle.Background(bg))
+		name := m.highlightMatches(filepath.Base(r.file.Path), query, m.fileStyle().Background(bg))
 		return bgSpan(bg, " ") + bgSpan(bg, " ") + bgSpan(bg, " ") + m.gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
 	case r.isAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
@@ -7031,11 +7207,11 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 
 	var suffix string
 	if len(h.Tags) > 0 {
-		suffix += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
+		suffix += bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
 	}
 
 	if ts := planningSummary(h); ts != "" {
-		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(ts)
+		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(ts)
 	}
 
 	return fitRowLine(prefix, suffix, m.width, bg)
@@ -7051,24 +7227,24 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 	query := m.activeSearchQuery()
 	var parts []string
 	if h.Keyword != "" {
-		style, ok := keywordStyles[h.Keyword]
+		style, ok := m.keywordStyle(h.Keyword)
 		if !ok {
 			style = lipgloss.NewStyle()
 		}
 		style = m.fadeIfImmutable(style, h)
-		parts = append(parts, highlightMatches(h.Keyword, query, style.Background(bg)))
+		parts = append(parts, m.highlightMatches(h.Keyword, query, style.Background(bg)))
 	}
 	if h.Priority != "" {
 		style := m.fadeIfImmutable(lipgloss.NewStyle(), h)
-		parts = append(parts, highlightMatches(fmt.Sprintf("[#%s]", h.Priority), query, style.Background(bg)))
+		parts = append(parts, m.highlightMatches(fmt.Sprintf("[#%s]", h.Priority), query, style.Background(bg)))
 	}
 
 	base := lipgloss.NewStyle()
 	if org.IsDoneKeyword(h.Keyword) {
-		base = doneTitleStyle
+		base = m.doneTitleStyle()
 	}
 	base = m.fadeIfImmutable(base, h).Background(bg)
-	parts = append(parts, renderTitleForDisplay(h.Title, base, query))
+	parts = append(parts, m.renderTitleForDisplay(h.Title, base, query))
 	return parts
 }
 
@@ -7092,10 +7268,10 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 
 	var tags string
 	if len(h.Tags) > 0 {
-		tags = bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(tagStyle, h).Background(bg))
+		tags = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
 	}
 
-	timestamp := m.fadeIfImmutable(timestampStyle, h).Background(bg)
+	timestamp := m.fadeIfImmutable(m.timestampStyle(), h).Background(bg)
 	dateSuffix := func(place string) string {
 		if r.agendaLabel == "" {
 			// A Next Actions entry: no date to show, just where it's from.
@@ -7159,8 +7335,8 @@ func (m Model) agendaPlace(h *org.Headline, parentMaxWidth int) string {
 // indented one level under the section row, followed by its date/time.
 func (m Model) renderMeetingHeaderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	query := m.activeSearchQuery()
-	title := highlightMatches(r.meetingTitle, query, fileStyle.Background(bg))
-	when := highlightMatches(formatMeetingWhen(r.meetingStart, r.meetingEnd), query, timestampStyle.Background(bg))
+	title := m.highlightMatches(r.meetingTitle, query, m.fileStyle().Background(bg))
+	when := m.highlightMatches(formatMeetingWhen(r.meetingStart, r.meetingEnd), query, m.timestampStyle().Background(bg))
 	return fitRowLine(bgSpan(bg, "  ")+title, bgSpan(bg, "  ")+when, m.width, bg)
 }
 
@@ -7206,13 +7382,13 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
 	if when := calendarItemTime(h); when != "" {
-		prefix += m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(when) + bgSpan(bg, "  ")
+		prefix += m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(when) + bgSpan(bg, "  ")
 	}
 	prefix += joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
 	var suffix string
 	if len(h.Tags) > 0 {
-		suffix = bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
+		suffix = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
 	}
 	return fitRowLine(prefix, suffix, m.width, bg)
 }
@@ -7239,9 +7415,9 @@ func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColo
 
 	var suffix string
 	if len(h.Tags) > 0 {
-		suffix += bgSpan(bg, "  ") + highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(tagStyle, h).Background(bg))
+		suffix += bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
 	}
-	suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(timestampStyle, h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, -1)))
+	suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, -1)))
 
 	return fitRowLine(prefix, suffix, m.width, bg)
 }
@@ -7280,8 +7456,8 @@ func sameLocalDay(a, b time.Time) bool {
 func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := strings.Repeat("  ", r.level)
 	blanks := bgSpan(bg, "     "+indent+"  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
-	style := m.fadeIfImmutable(bodyStyle, r.headline).Background(bg)
-	return blanks + highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), style)
+	style := m.fadeIfImmutable(m.bodyStyle(), r.headline).Background(bg)
+	return blanks + m.highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), style)
 }
 
 // renderMeetingPicker renders the "gM" picker's command-line prompt: how

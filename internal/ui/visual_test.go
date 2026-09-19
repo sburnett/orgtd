@@ -323,9 +323,9 @@ func TestVisualModeOnlyCursorEntryUsesCursorBg(t *testing.T) {
 	firstIdx, secondIdx, thirdIdx := findRow(t, m, "First"), findRow(t, m, "Second"), findRow(t, m, "Third")
 	firstLine, secondLine, thirdLine := lines[firstIdx], lines[secondIdx], lines[thirdIdx]
 
-	wantCursorLine := m.padLineToWidth(m.renderRowWithBg(m.rows[thirdIdx], cursorBg), cursorBg)
+	wantCursorLine := m.padLineToWidth(m.renderRowWithBg(m.rows[thirdIdx], m.cursorBg()), m.cursorBg())
 	if thirdLine != wantCursorLine {
-		t.Errorf("cursor row (Third) = %q, want the cursorBg-highlighted line %q", thirdLine, wantCursorLine)
+		t.Errorf("cursor row (Third) = %q, want the cursor-highlighted line %q", thirdLine, wantCursorLine)
 	}
 	if firstLine == wantCursorLine || secondLine == wantCursorLine {
 		t.Error("non-cursor rows in the visual selection should not render with the same background as the cursor row")
@@ -334,9 +334,9 @@ func TestVisualModeOnlyCursorEntryUsesCursorBg(t *testing.T) {
 		t.Error("cursor row and other selected rows rendered identically; expected visually distinct backgrounds")
 	}
 
-	wantSecondLine := m.padLineToWidth(m.renderRowWithBg(m.rows[secondIdx], visualSelectionBg), visualSelectionBg)
+	wantSecondLine := m.padLineToWidth(m.renderRowWithBg(m.rows[secondIdx], m.visualSelectionBg()), m.visualSelectionBg())
 	if secondLine != wantSecondLine {
-		t.Errorf("non-cursor selected row (Second) = %q, want the visualSelectionBg-highlighted line %q", secondLine, wantSecondLine)
+		t.Errorf("non-cursor selected row (Second) = %q, want the visual-selection-highlighted line %q", secondLine, wantSecondLine)
 	}
 }
 

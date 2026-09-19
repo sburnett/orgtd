@@ -19,8 +19,8 @@ func TestCursorHighlightCoversWholeLineRegardlessOfKeyword(t *testing.T) {
 	withKeyword := m.rows[1] // "* TODO Has a keyword"
 	withoutKeyword := m.rows[2]
 
-	lineA := m.renderRowWithBg(withKeyword, cursorBg)
-	lineB := m.renderRowWithBg(withoutKeyword, cursorBg)
+	lineA := m.renderRowWithBg(withKeyword, m.cursorBg())
+	lineB := m.renderRowWithBg(withoutKeyword, m.cursorBg())
 
 	// Every ANSI-styled segment on the line resets independently, so the
 	// background escape must reappear after every one of them — not
@@ -39,7 +39,7 @@ func TestCursorHighlightCoversWholeLineRegardlessOfKeyword(t *testing.T) {
 	// confirming the highlight extends the full line, not just up to
 	// wherever the visible text ends.
 	for _, line := range []string{lineA, lineB} {
-		padded := m.padLineToWidth(line, cursorBg)
+		padded := m.padLineToWidth(line, m.cursorBg())
 		if got := lipgloss.Width(padded); got != m.width {
 			t.Errorf("padded highlighted line width = %d, want %d: %q", got, m.width, padded)
 		}

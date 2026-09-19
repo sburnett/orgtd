@@ -41,8 +41,8 @@ func TestMain(m *testing.M) {
 // not package-level vars, since they render through the color profile
 // TestMain sets — which isn't in effect yet while package-level vars are
 // still being initialized.
-func cursorStyleSGR() string { return ansiEscapeRe.FindString(cursorStyle.Render("x")) }
-func caretStyleSGR() string  { return ansiEscapeRe.FindString(caretStyle.Render("x")) }
+func cursorStyleSGR() string { return ansiEscapeRe.FindString((Model{}).cursorStyle().Render("x")) }
+func caretStyleSGR() string  { return ansiEscapeRe.FindString((Model{}).caretStyle().Render("x")) }
 
 func loadFixture(t *testing.T) *workspace.Workspace {
 	t.Helper()

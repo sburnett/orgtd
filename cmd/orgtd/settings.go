@@ -47,6 +47,13 @@ type settings struct {
 	iconClarifyIcon, iconClarifyColor string
 	iconLockIcon, iconLockColor       string
 	iconMeetingIcon, iconMeetingColor string
+
+	// colors is the rest of orgtd's color scheme (see internal/ui's
+	// ColorOverrides, which this converts directly to — see main.go) —
+	// config-file only, like the icon* fields above. Resolved straight
+	// from the config file's [colors] section; an empty field leaves
+	// internal/ui's own built-in wildcharm-dark default in place.
+	colors config.ColorsConfig
 }
 
 // flagValues is the raw output of flag parsing: each flag's value
@@ -162,6 +169,8 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 	s.iconLockColor = cfg.Icons.LockColor
 	s.iconMeetingIcon = cfg.Icons.MeetingIcon
 	s.iconMeetingColor = cfg.Icons.MeetingColor
+
+	s.colors = cfg.Colors
 
 	return s
 }

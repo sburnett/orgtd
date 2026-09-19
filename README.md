@@ -111,14 +111,43 @@ lock_icon     = "◆"    # locked by an in-flight :format-links batch
 lock_color    = "#ffaf00"
 meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag
 meeting_color = "#00afff"
+
+# Customizes the rest of the built-in color scheme, beyond the gutter
+# markers above. Every key here is optional and independent, and falls
+# back to its own built-in color (shown below) when unset. A color is
+# either an ANSI color code or a hex RGB string, same as [icons] above.
+[colors]
+file_color              = "#00afff"  # a file's own header row
+todo_color              = "#d7005f"  # the TODO keyword
+next_color              = "#ffaf00"  # the NEXT keyword
+waiting_color           = "#875fff"  # the WAITING keyword
+someday_color           = "#767676"  # the SOMEDAY keyword
+done_color              = "#00d75f"  # the DONE keyword
+cancelled_color         = "#585858"  # the CANCELLED keyword
+tag_color               = "#00d7d7"  # an entry's ":tag:" text
+done_title_color        = "#767676"  # a DONE/CANCELLED entry's (struck-through) title
+status_color            = "#767676"  # muted status/info text (the status line's directory path, register/overflow summaries, the visual-mode banner)
+timestamp_color         = "#ff87ff"  # a SCHEDULED/DEADLINE/CREATED/CLOSED date
+error_color             = "#d7005f"  # an error message on the command line
+body_color              = "#767676"  # an entry's free-text body lines
+caret_fg                = "#000000"  # the command line's text-cursor caret
+caret_bg                = "#ffffff"
+highlight_bg            = "#585858"  # the highlighted candidate in an overlay list (the "R"/status picker, "gM"'s meeting picker)
+panel_bg                = "#303030"  # the pinned header (clarify/marks/register) and the info buffer (links, meeting detail, completions, pickers)
+status_bar_fg           = "#000000"  # the one-line status bar at the bottom of the screen
+status_bar_bg           = "#9e9e9e"
+cursor_row_bg           = "#204060"  # the row under the cursor
+visual_selection_bg     = "#102030"  # the rest of a visual-mode selection, besides the cursor's own row
+search_highlight_bg     = "#3a4a3a"  # every match of the active search term (vim's 'hlsearch')
 ```
 
-The built-in color scheme (gutter icons above, TODO-keyword colors, tags,
-timestamps, the status bar, and every other pinned/popup panel) matches
-the dark variant of the [wildcharm](https://github.com/vim/colorschemes/blob/master/colors/wildcharm.vim)
+The built-in color scheme (`[colors]` and `[icons]` above) matches the
+dark variant of the [wildcharm](https://github.com/vim/colorschemes/blob/master/colors/wildcharm.vim)
 vim colorscheme — it's fixed rather than adapting to the terminal's own
 light/dark setting, since the whole point is to render as that specific
-theme.
+theme, though every individual color can still be overridden as shown
+above. `:config` shows the current, effective value of every one of
+them.
 
 ### Debug log
 

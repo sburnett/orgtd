@@ -296,7 +296,7 @@ func TestSearchStatusLineShowsPrefixAndQuery(t *testing.T) {
 }
 
 func TestHighlightMatchesMarksEveryOccurrence(t *testing.T) {
-	got := highlightMatches("cat and cat and dog", "cat", lipgloss.NewStyle())
+	got := (Model{}).highlightMatches("cat and cat and dog", "cat", lipgloss.NewStyle())
 	plain := stripANSI(got)
 	if plain != "cat and cat and dog" {
 		t.Fatalf("plain text = %q, want unchanged", plain)
@@ -307,7 +307,7 @@ func TestHighlightMatchesMarksEveryOccurrence(t *testing.T) {
 }
 
 func TestHighlightMatchesCaseInsensitive(t *testing.T) {
-	got := highlightMatches("Finance report", "finance", lipgloss.NewStyle())
+	got := (Model{}).highlightMatches("Finance report", "finance", lipgloss.NewStyle())
 	if !strings.Contains(got, "\x1b[") {
 		t.Errorf("got %q, want the differently-cased match still highlighted", got)
 	}
@@ -317,7 +317,7 @@ func TestHighlightMatchesCaseInsensitive(t *testing.T) {
 }
 
 func TestHighlightMatchesNoQueryIsPlain(t *testing.T) {
-	got := highlightMatches("plain text", "", lipgloss.NewStyle())
+	got := (Model{}).highlightMatches("plain text", "", lipgloss.NewStyle())
 	if got != "plain text" {
 		t.Errorf("got %q, want unstyled plain text with an empty query", got)
 	}

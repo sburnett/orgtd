@@ -163,8 +163,8 @@ func TestTextLineWithEmbeddedANSIGetsFullBackgroundHighlight(t *testing.T) {
 	m := New(ws)
 	r := row{isTextLine: true, text: "\x1b[31mred\x1b[0mplain"}
 
-	got := m.renderRowWithBg(r, cursorBg)
-	want := highlightMatches("redplain", "", lipgloss.NewStyle().Background(cursorBg))
+	got := m.renderRowWithBg(r, m.cursorBg())
+	want := m.highlightMatches("redplain", "", lipgloss.NewStyle().Background(m.cursorBg()))
 	if got != want {
 		t.Errorf("renderRowWithBg(highlighted) = %q, want %q (embedded ANSI stripped before the background is applied)", got, want)
 	}

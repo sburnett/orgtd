@@ -97,6 +97,39 @@ func TestResolveSettingsIconSettingsFollowConfigFile(t *testing.T) {
 	}
 }
 
+func TestResolveSettingsColorSettingsFollowConfigFile(t *testing.T) {
+	cfg := &config.Config{
+		Colors: config.ColorsConfig{
+			File:              "#111111",
+			TODO:              "#222222",
+			Next:              "#333333",
+			Waiting:           "#444444",
+			Someday:           "#555555",
+			Done:              "#666666",
+			Cancelled:         "#777777",
+			Tag:               "#888888",
+			DoneTitle:         "#999999",
+			Status:            "#aaaaaa",
+			Timestamp:         "#bbbbbb",
+			Error:             "#cccccc",
+			Body:              "#dddddd",
+			CaretFg:           "#eeeeee",
+			CaretBg:           "#ffffff",
+			HighlightBg:       "#101010",
+			PanelBg:           "#202020",
+			StatusBarBg:       "#303030",
+			StatusBarFg:       "#404040",
+			CursorRowBg:       "#505050",
+			VisualSelectionBg: "#606060",
+			SearchHighlightBg: "#707070",
+		},
+	}
+	got := resolveSettings(flags(), "", cfg)
+	if !reflect.DeepEqual(got.colors, cfg.Colors) {
+		t.Errorf("colors = %+v, want the config file's [colors] section verbatim: %+v", got.colors, cfg.Colors)
+	}
+}
+
 func TestResolveSettingsConfigFileOverridesDefaults(t *testing.T) {
 	cfg := &config.Config{
 		OrgDir:                  "/from/config",

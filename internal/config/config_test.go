@@ -49,6 +49,30 @@ lock_icon = "#"
 lock_color = "4"
 meeting_icon = "%"
 meeting_color = "5"
+
+[colors]
+file_color = "#111111"
+todo_color = "#222222"
+next_color = "#333333"
+waiting_color = "#444444"
+someday_color = "#555555"
+done_color = "#666666"
+cancelled_color = "#777777"
+tag_color = "#888888"
+done_title_color = "#999999"
+status_color = "#aaaaaa"
+timestamp_color = "#bbbbbb"
+error_color = "#cccccc"
+body_color = "#dddddd"
+caret_fg = "#eeeeee"
+caret_bg = "#ffffff"
+highlight_bg = "#101010"
+panel_bg = "#202020"
+status_bar_bg = "#303030"
+status_bar_fg = "#404040"
+cursor_row_bg = "#505050"
+visual_selection_bg = "#606060"
+search_highlight_bg = "#707070"
 `)
 	c, err := Load(path)
 	if err != nil {
@@ -84,6 +108,30 @@ meeting_color = "5"
 			LockColor:    "4",
 			MeetingIcon:  "%",
 			MeetingColor: "5",
+		},
+		Colors: ColorsConfig{
+			File:              "#111111",
+			TODO:              "#222222",
+			Next:              "#333333",
+			Waiting:           "#444444",
+			Someday:           "#555555",
+			Done:              "#666666",
+			Cancelled:         "#777777",
+			Tag:               "#888888",
+			DoneTitle:         "#999999",
+			Status:            "#aaaaaa",
+			Timestamp:         "#bbbbbb",
+			Error:             "#cccccc",
+			Body:              "#dddddd",
+			CaretFg:           "#eeeeee",
+			CaretBg:           "#ffffff",
+			HighlightBg:       "#101010",
+			PanelBg:           "#202020",
+			StatusBarBg:       "#303030",
+			StatusBarFg:       "#404040",
+			CursorRowBg:       "#505050",
+			VisualSelectionBg: "#606060",
+			SearchHighlightBg: "#707070",
 		},
 	}
 	if !reflect.DeepEqual(*c, want) {

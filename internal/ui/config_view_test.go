@@ -119,6 +119,7 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"Debug logging: off",
 		"Calendar sync: (not configured — see README's Calendar sync section)",
 		`Gutter icons: dirty "+" (#0087d7), mark (#ff87ff), clarify "●" (#ff87ff), lock "◆" (#ffaf00), meeting "▣" (#00afff)`,
+		"Colors: file (#00afff), todo (#d7005f), next (#ffaf00), waiting (#875fff), someday (#767676), done (#00d75f), cancelled (#585858), tag (#00d7d7), done-title (#767676), status (#767676), timestamp (#ff87ff), error (#d7005f), body (#767676), caret (#000000 on #ffffff), highlight (#585858), panel (#303030), status-bar (#000000 on #9e9e9e), cursor-row (#204060), visual-selection (#102030), search-highlight (#3a4a3a)",
 	} {
 		if !containsSubstring(lines, want) {
 			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)
@@ -162,5 +163,18 @@ func TestConfigViewReportsCustomIcons(t *testing.T) {
 
 	if !containsSubstring(configLines(m), `Gutter icons: dirty "*" (1), mark (2), clarify "@" (3), lock "#" (4), meeting "%" (5)`) {
 		t.Errorf("config view lines = %#v, want it to reflect the custom gutter icons", configLines(m))
+	}
+}
+
+func TestConfigViewReportsCustomColors(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Something\n")
+	m := New(ws, WithColors(ColorOverrides{TODO: "9", PanelBg: "233"}))
+	m.switchToView(configView)
+
+	if !containsSubstring(configLines(m), "Colors: file (#00afff), todo (9)") {
+		t.Errorf("config view lines = %#v, want it to reflect the custom todo color", configLines(m))
+	}
+	if !containsSubstring(configLines(m), "panel (233)") {
+		t.Errorf("config view lines = %#v, want it to reflect the custom panel color", configLines(m))
 	}
 }
