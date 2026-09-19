@@ -888,8 +888,8 @@ func TestMeetingPickerCandidatesShowInInfoBufferNotOnPromptLine(t *testing.T) {
 
 // TestMeetingPickerHighlightsCurrentCandidateInInfoBuffer guards that the
 // highlighted candidate (meetingPickerIndex) is the one actually marked
-// (reverse video) among the info buffer's "Attach meeting:" lines, not
-// just tracked internally.
+// (cursorStyle's background tint) among the info buffer's "Attach
+// meeting:" lines, not just tracked internally.
 func TestMeetingPickerHighlightsCurrentCandidateInInfoBuffer(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()
@@ -908,12 +908,12 @@ func TestMeetingPickerHighlightsCurrentCandidateInInfoBuffer(t *testing.T) {
 
 	var highlightedLine string
 	for _, l := range m.meetingPickerLines() {
-		if strings.Contains(l, "\x1b[7m") {
+		if strings.Contains(l, cursorStyleSGR()) {
 			highlightedLine = l
 		}
 	}
 	if highlightedLine == "" {
-		t.Fatalf("no reverse-video candidate line found")
+		t.Fatalf("no cursorStyle-highlighted candidate line found")
 	}
 	if !strings.Contains(stripANSI(highlightedLine), "Sprint Planning") {
 		t.Errorf("highlighted line = %q, want it to be Sprint Planning", stripANSI(highlightedLine))

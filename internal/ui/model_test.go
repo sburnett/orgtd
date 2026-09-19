@@ -33,6 +33,17 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// cursorStyleSGR/caretStyleSGR return the raw opening SGR escape
+// cursorStyle/caretStyle produce under the test color profile (see
+// TestMain) — computed from the real styles, rather than a hardcoded
+// escape sequence, so a test checking for "the highlighted candidate
+// row"/"the caret" stays correct if the color scheme changes. Functions,
+// not package-level vars, since they render through the color profile
+// TestMain sets — which isn't in effect yet while package-level vars are
+// still being initialized.
+func cursorStyleSGR() string { return ansiEscapeRe.FindString(cursorStyle.Render("x")) }
+func caretStyleSGR() string  { return ansiEscapeRe.FindString(caretStyle.Render("x")) }
+
 func loadFixture(t *testing.T) *workspace.Workspace {
 	t.Helper()
 	ws, err := workspace.Load("../../testdata/orgdir")
@@ -1325,10 +1336,10 @@ func TestCommandModeShowsCursor(t *testing.T) {
 	if !strings.HasPrefix(last, ":q") {
 		t.Fatalf("status line = %q, want it to start with the typed command", last)
 	}
-	// The caret is rendered as a reverse-video space (SGR 7) after the
-	// typed text, like a terminal block cursor.
-	if !strings.Contains(last, "\x1b[7m") {
-		t.Errorf("status line = %q, want a reverse-video cursor caret", last)
+	// The caret is rendered as a solid block (caretStyle) after the typed
+	// text, like a terminal block cursor.
+	if !strings.Contains(last, caretStyleSGR()) {
+		t.Errorf("status line = %q, want a caretStyle cursor caret", last)
 	}
 }
 
@@ -1352,8 +1363,8 @@ func TestCommandModeCaretStaysRightAfterInputWhenCompletionsShown(t *testing.T) 
 	lines := strings.Split(m.View(), "\n")
 	last := lines[len(lines)-1]
 
-	if last != ":w\x1b[7m \x1b[0m" {
-		t.Errorf("command line = %q, want just \":w\" and the caret", last)
+	if want := ":w" + caretStyleSGR() + " \x1b[0m"; last != want {
+		t.Errorf("command line = %q, want %q (just \":w\" and the caret)", last, want)
 	}
 
 	var bufLines []string

@@ -103,15 +103,22 @@ debug = false
 # alignment with the rows around it.
 [icons]
 dirty_icon    = "+"    # unsaved changes
-dirty_color   = "9"
-mark_color    = "212"  # a vim-style mark's own letter ("m<letter>") — no matching icon, since the glyph is the letter itself
+dirty_color   = "#0087d7"
+mark_color    = "#ff87ff"  # a vim-style mark's own letter ("m<letter>") — no matching icon, since the glyph is the letter itself
 clarify_icon  = "●"    # the :clarify view's pinned inbox item
-clarify_color = "212"
+clarify_color = "#ff87ff"
 lock_icon     = "◆"    # locked by an in-flight :format-links batch
-lock_color    = "208"
+lock_color    = "#ffaf00"
 meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag
-meeting_color = "39"
+meeting_color = "#00afff"
 ```
+
+The built-in color scheme (gutter icons above, TODO-keyword colors, tags,
+timestamps, the status bar, and every other pinned/popup panel) matches
+the dark variant of the [wildcharm](https://github.com/vim/colorschemes/blob/master/colors/wildcharm.vim)
+vim colorscheme — it's fixed rather than adapting to the terminal's own
+light/dark setting, since the whole point is to render as that specific
+theme.
 
 ### Debug log
 

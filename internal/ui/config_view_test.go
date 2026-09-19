@@ -118,7 +118,7 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"currently off",
 		"Debug logging: off",
 		"Calendar sync: (not configured — see README's Calendar sync section)",
-		`Gutter icons: dirty "+" (9), mark (212), clarify "●" (212), lock "◆" (208), meeting "▣" (39)`,
+		`Gutter icons: dirty "+" (#0087d7), mark (#ff87ff), clarify "●" (#ff87ff), lock "◆" (#ffaf00), meeting "▣" (#00afff)`,
 	} {
 		if !containsSubstring(lines, want) {
 			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)

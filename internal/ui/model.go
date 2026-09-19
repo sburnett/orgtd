@@ -28,66 +28,101 @@ import (
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
+// The whole color scheme below matches the dark variant of "wildcharm"
+// (https://github.com/vim/colorschemes/blob/master/colors/wildcharm.vim):
+// each orgtd role is mapped to whichever wildcharm highlight group it's
+// closest to in meaning, not just in hue, so the mapping stays sensible
+// if either side's palette shifts later. Since matching one specific
+// dark theme is the whole point, these are plain (non-adaptive) colors
+// rather than the light/dark pairs orgtd used before — they always
+// render as wildcharm-dark now, regardless of the terminal's own
+// background.
 var (
-	fileStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
+	// fileStyle marks a file's own header row — wildcharm's Directory
+	// (bold blue), the closest match for "a path, not an item".
+	fileStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00afff"))
 
 	keywordStyles = map[string]lipgloss.Style{
-		"TODO":      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9")),
-		"NEXT":      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11")),
-		"WAITING":   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")),
-		"SOMEDAY":   lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
-		"DONE":      lipgloss.NewStyle().Foreground(lipgloss.Color("10")),
-		"CANCELLED": lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
+		// TODO: not yet started — wildcharm's Error/Removed red, the most
+		// alarming color in the palette.
+		"TODO": lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d7005f")),
+		// NEXT: do this one now — wildcharm's Type/WarningMsg/WildMenu
+		// orange.
+		"NEXT": lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaf00")),
+		// WAITING: blocked on something else — wildcharm's Special purple,
+		// distinct from both TODO's red and NEXT's orange.
+		"WAITING": lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#875fff")),
+		// SOMEDAY/DONE/CANCELLED are all deliberately unbold, unlike the
+		// three active states above — wildcharm reserves bold for things
+		// that need attention.
+		"SOMEDAY":   lipgloss.NewStyle().Foreground(lipgloss.Color("#767676")), // Comment grey
+		"DONE":      lipgloss.NewStyle().Foreground(lipgloss.Color("#00d75f")), // Constant/Added green
+		"CANCELLED": lipgloss.NewStyle().Foreground(lipgloss.Color("#585858")), // LineNr/Conceal dark grey
 	}
 
-	tagStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	doneTitleStyle = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("245"))
-	cursorStyle    = lipgloss.NewStyle().Reverse(true)
-	statusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	timestampStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	tagStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#00d7d7")) // PreProc cyan
+	doneTitleStyle = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("#767676"))
+	statusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#767676")) // Comment grey, for muted status/info text
+	timestampStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff87ff")) // Identifier/Question magenta
+	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#d7005f")) // Error/Removed red
 	shortcutStyle  = lipgloss.NewStyle().Bold(true)
-	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("245"))
+	bodyStyle      = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("#767676"))
 
-	// overlayBg is the subtle background tint for the pinned header
+	// caretStyle renders the command-line's text-cursor caret (a lone
+	// space standing in for the terminal's own cursor block, since
+	// there's no in-line editing to place a real one) — wildcharm's
+	// Cursor: a solid, unmissable block regardless of what's behind it,
+	// unlike cursorStyle below (which only ever tints a background,
+	// leaving whatever foreground was already there alone).
+	caretStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")).Background(lipgloss.Color("#ffffff"))
+
+	// cursorStyle highlights the selected line within an overlay list —
+	// the "R"/status picker and "gM" meeting picker's highlighted
+	// candidate (see statusSelectorLines/meetingPickerLines) — wildcharm's
+	// PmenuSel: like real Vim's own popup-menu selection, it changes only
+	// the background, leaving the row's own text color alone, rather than
+	// inverting video the way a plain terminal cursor block does.
+	cursorStyle = lipgloss.NewStyle().Background(lipgloss.Color("#585858"))
+
+	// overlayBg is the background tint for the pinned header
 	// (clarify/marks/register) and the info buffer (links, meeting detail,
-	// tag/command-completion matches, the status and "gM" meeting pickers)
-	// — a muted slate blue, light/dark pair so it reads as a faint panel
-	// regardless of the terminal's own color scheme, resolved via
-	// lipgloss's terminal background detection. A different (and more
-	// saturated) shade of blue from statusBarBg below, and from
-	// cursorBg/visualSelectionBg further below, so all four read as
-	// distinct things rather than blending into one blue haze.
-	overlayBg = lipgloss.AdaptiveColor{Light: "#dbe3ee", Dark: "#20303f"}
+	// tag/command-completion matches, the status and "gM" meeting
+	// pickers) — wildcharm's Pmenu: its popup-menu panel color.
+	overlayBg = lipgloss.Color("#303030")
 
 	// statusBarBg tints the one-line status bar at the bottom of the
-	// screen (see normalStatusLine) — a deeper, more saturated blue than
-	// overlayBg (above) rather than reusing it, so the status bar reads as
-	// its own fixed landmark distinct from the pinned header/info buffer
-	// panels above it, which can grow, shrink, or disappear entirely
-	// depending on mode; without the distinction all three used to blend
-	// into one indistinct band.
-	statusBarBg = lipgloss.AdaptiveColor{Light: "#a9c6e8", Dark: "#173654"}
+	// screen (see normalStatusLine) — wildcharm's StatusLine, which is
+	// defined as light-grey-on-black with a "reverse" attribute; rather
+	// than rely on terminal reverse-video (whose effect on top of our own
+	// explicit colors elsewhere would be inconsistent), the swap is baked
+	// in directly: this is the *visual* result, StatusLine's background
+	// once reversed.
+	statusBarBg = lipgloss.Color("#9e9e9e")
+
+	// statusBarFg is the status bar's own text color — StatusLine's
+	// background once reversed, mirroring statusBarBg above.
+	statusBarFg = lipgloss.Color("#000000")
 
 	// cursorBg highlights the row under the cursor, filling the whole
-	// terminal width — a distinct, more prominent shade than overlayBg
-	// so the current line and the pinned overlay read as different
-	// things. In visual mode, only the cursor's own entry keeps this
-	// shade (see visualSelectionBg for the rest of the selection), so
-	// which end of a multi-entry selection is the actual cursor is
-	// always unambiguous.
-	cursorBg = lipgloss.AdaptiveColor{Light: "#cce0ff", Dark: "#2d3f5e"}
+	// terminal width — wildcharm's Visual (its selection color), the
+	// obvious match for "the entry you currently have selected". In
+	// visual mode, only the cursor's own entry keeps this shade (see
+	// visualSelectionBg for the rest of the selection), so which end of a
+	// multi-entry selection is the actual cursor is always unambiguous.
+	cursorBg = lipgloss.Color("#204060")
 
 	// visualSelectionBg highlights the part of a visual-mode selection
-	// that isn't the cursor's own entry — a softer tint of cursorBg's
-	// same hue, so the whole selection still reads as one contiguous
-	// block while staying visibly less prominent than the cursor itself.
-	visualSelectionBg = lipgloss.AdaptiveColor{Light: "#e2ecfb", Dark: "#212d42"}
+	// that isn't the cursor's own entry — wildcharm has no second
+	// selection shade of its own, so this is cursorBg's same hue blended
+	// halfway toward Normal's black background, staying recognizably the
+	// same color family while reading as less prominent than the cursor.
+	visualSelectionBg = lipgloss.Color("#102030")
 
 	// searchHighlightBg marks every occurrence of the active search term
 	// (see activeSearchQuery) — vim's 'hlsearch' — layered on top of
-	// whatever background (if any) a segment already carries.
-	searchHighlightBg = lipgloss.AdaptiveColor{Light: "#fff099", Dark: "#5c4a00"}
+	// whatever background (if any) a segment already carries. Wildcharm's
+	// own Search background.
+	searchHighlightBg = lipgloss.Color("#3a4a3a")
 )
 
 // bgSpan renders s with only a background color — no other styling —
@@ -6446,7 +6481,8 @@ func (m Model) View() string {
 	// separate row for whatever's active right now, mirroring vim's own
 	// split between the two rather than the command line ever replacing
 	// the status line.
-	b.WriteString(m.padLineToWidth(statusStyle.Background(statusBarBg).Render(m.normalStatusLine()), statusBarBg))
+	statusLineStyle := lipgloss.NewStyle().Bold(true).Foreground(statusBarFg).Background(statusBarBg)
+	b.WriteString(m.padLineToWidth(statusLineStyle.Render(m.normalStatusLine()), statusBarBg))
 	b.WriteString("\n")
 
 	// Command line — vim's own command-line/message area equivalent:
@@ -6455,7 +6491,7 @@ func (m Model) View() string {
 	switch {
 	case m.mode == commandMode:
 		b.WriteString(":" + m.commandInput)
-		b.WriteString(cursorStyle.Render(" ")) // caret, right after the input (no in-line editing yet)
+		b.WriteString(caretStyle.Render(" ")) // caret, right after the input (no in-line editing yet)
 		// m.message can be set without leaving commandMode (e.g. Tab
 		// completion finding no match) — shown here too, not just in the
 		// mode-less case below, or it'd be set but never actually visible.
@@ -6479,7 +6515,7 @@ func (m Model) View() string {
 		b.WriteString(m.renderMeetingPicker())
 	case m.mode == tagMode:
 		b.WriteString(" Tag (Tab completes, empty cancels; retyping an existing tag removes it): " + m.tagInput)
-		b.WriteString(cursorStyle.Render(" "))
+		b.WriteString(caretStyle.Render(" "))
 		// Completion matches are in the info buffer above (see
 		// infoBufferLines), not appended here.
 		if m.message != "" {
@@ -6487,7 +6523,7 @@ func (m Model) View() string {
 		}
 	case m.mode == deadlineMode:
 		b.WriteString(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
-		b.WriteString(cursorStyle.Render(" "))
+		b.WriteString(caretStyle.Render(" "))
 		// As above: an invalid date sets m.message but deliberately leaves
 		// the prompt open for correction (see applyDeadlineInput), so it
 		// must be shown here rather than only in the mode-less case below.
@@ -6496,7 +6532,7 @@ func (m Model) View() string {
 		}
 	case m.mode == commitMessageMode:
 		b.WriteString(" Commit message: " + m.commitMessageInput)
-		b.WriteString(cursorStyle.Render(" "))
+		b.WriteString(caretStyle.Render(" "))
 		// As above (deadlineMode): an empty message sets m.message but
 		// leaves the prompt open for correction (see
 		// applyCommitMessageInput), so it must be shown here too.
@@ -6509,7 +6545,7 @@ func (m Model) View() string {
 			prefix = "?"
 		}
 		b.WriteString(prefix + m.searchQuery)
-		b.WriteString(cursorStyle.Render(" "))
+		b.WriteString(caretStyle.Render(" "))
 	case m.mode == confirmMode:
 		b.WriteString(errorStyle.Render(m.confirmMessage))
 	case m.mode == visualMode:
@@ -6803,17 +6839,21 @@ func (m *Model) calendarEventDisplayLines(h *org.Headline) []string {
 // by New() with no matching WithXxxIcon option applied, and a Model
 // built as a bare zero value (as plenty of tests do) without going
 // through New() at all. See dirtyIcon/dirtyColor and friends, above, and
-// orDefault, below.
+// orDefault, below. Colors are drawn from the wildcharm dark palette
+// (see the package doc comment above the style vars, near fileStyle) —
+// dirty's blue matches its "Changed" highlight, mark/clarify share its
+// magenta Identifier/Question color, lock takes its orange Type/Warning
+// color, and meeting takes its blue Statement/Directory color.
 const (
 	defaultDirtyIcon    = "+"
-	defaultDirtyColor   = "9"
-	defaultMarkColor    = "212"
+	defaultDirtyColor   = "#0087d7"
+	defaultMarkColor    = "#ff87ff"
 	defaultClarifyIcon  = "●"
-	defaultClarifyColor = "212"
+	defaultClarifyColor = "#ff87ff"
 	defaultLockIcon     = "◆"
-	defaultLockColor    = "208"
+	defaultLockColor    = "#ffaf00"
 	defaultMeetingIcon  = "▣"
-	defaultMeetingColor = "39"
+	defaultMeetingColor = "#00afff"
 )
 
 // orDefault returns s, or def if s is empty — used to fall back to a

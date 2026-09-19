@@ -132,8 +132,8 @@ func TestSelectModeShowsCandidatesInInfoBufferNotOnPromptLine(t *testing.T) {
 
 // TestSelectModeHighlightsCurrentCandidateInInfoBuffer guards that the
 // preselected/highlighted candidate (see currentStatusIndex) is the one
-// actually marked (reverse video) among the info buffer's "Status:"
-// lines, not just tracked internally.
+// actually marked (cursorStyle's background tint) among the info
+// buffer's "Status:" lines, not just tracked internally.
 func TestSelectModeHighlightsCurrentCandidateInInfoBuffer(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
@@ -147,12 +147,12 @@ func TestSelectModeHighlightsCurrentCandidateInInfoBuffer(t *testing.T) {
 
 	var highlightedLine string
 	for _, l := range m.statusSelectorLines() {
-		if strings.Contains(l, "\x1b[7m") {
+		if strings.Contains(l, cursorStyleSGR()) {
 			highlightedLine = l
 		}
 	}
 	if highlightedLine == "" {
-		t.Fatalf("no reverse-video candidate line found")
+		t.Fatalf("no cursorStyle-highlighted candidate line found")
 	}
 	if !strings.Contains(stripANSI(highlightedLine), "WAITING") {
 		t.Errorf("highlighted line = %q, want it to be WAITING", stripANSI(highlightedLine))
