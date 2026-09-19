@@ -52,19 +52,22 @@ var (
 	// overlayBg is the subtle background tint for the pinned header
 	// (clarify/marks/register) and the info buffer (links, meeting detail,
 	// tag/command-completion matches, the status and "gM" meeting pickers)
-	// — a light/dark pair so it reads as a faint panel regardless of the
-	// terminal's own color scheme, resolved via lipgloss's terminal
-	// background detection.
-	overlayBg = lipgloss.AdaptiveColor{Light: "#e4e4e4", Dark: "#262626"}
+	// — a muted slate blue, light/dark pair so it reads as a faint panel
+	// regardless of the terminal's own color scheme, resolved via
+	// lipgloss's terminal background detection. A different (and more
+	// saturated) shade of blue from statusBarBg below, and from
+	// cursorBg/visualSelectionBg further below, so all four read as
+	// distinct things rather than blending into one blue haze.
+	overlayBg = lipgloss.AdaptiveColor{Light: "#dbe3ee", Dark: "#20303f"}
 
 	// statusBarBg tints the one-line status bar at the bottom of the
-	// screen (see normalStatusLine) — deliberately a different shade from
+	// screen (see normalStatusLine) — a deeper, more saturated blue than
 	// overlayBg (above) rather than reusing it, so the status bar reads as
 	// its own fixed landmark distinct from the pinned header/info buffer
 	// panels above it, which can grow, shrink, or disappear entirely
 	// depending on mode; without the distinction all three used to blend
-	// into one indistinct gray band.
-	statusBarBg = lipgloss.AdaptiveColor{Light: "#d7d0c2", Dark: "#332c1f"}
+	// into one indistinct band.
+	statusBarBg = lipgloss.AdaptiveColor{Light: "#a9c6e8", Dark: "#173654"}
 
 	// cursorBg highlights the row under the cursor, filling the whole
 	// terminal width — a distinct, more prominent shade than overlayBg
