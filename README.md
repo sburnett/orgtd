@@ -243,19 +243,22 @@ logging is on.
   since it was last opened.
   `:outline` returns to the outline.
 - **Diff** (`:diff`) — the raw `git diff HEAD` output for every file
-  currently open in the outline. Refuses outright unless the org
-  directory is itself the *root* of its git repository (same
-  requirement, and the same reason, as `:commit` below) — since a diff
-  can't offer to `git add` an untracked file it isn't safe to touch,
-  showing one at all from a nested workspace (e.g. this project's own
-  `testdata/orgdir`) would just be misleading about what `:commit` could
-  actually do with it. When it does run: if any open file isn't tracked
-  by git yet, asks first (`[y/N]`) whether to `git add` it — declining
-  just leaves it out of the diff. Shows a placeholder if there are no
-  changes or no files open. Also recorded in `:log`, like any other
-  external command. `:outline` returns to the outline. `:commit` (only
-  available here — see below) commits and pushes what `:diff` is
-  showing.
+  currently open in the outline. Refuses outright if any of them has
+  unsaved changes — `git diff` only ever sees what's actually on disk,
+  and nothing is written until `:w`, so showing a diff anyway would
+  silently leave out whatever's still only in memory. Also refuses
+  outright unless the org directory is itself the *root* of its git
+  repository (same requirement, and the same reason, as `:commit`
+  below) — since a diff can't offer to `git add` an untracked file it
+  isn't safe to touch, showing one at all from a nested workspace (e.g.
+  this project's own `testdata/orgdir`) would just be misleading about
+  what `:commit` could actually do with it. When it does run: if any
+  open file isn't tracked by git yet, asks first (`[y/N]`) whether to
+  `git add` it — declining just leaves it out of the diff. Shows a
+  placeholder if there are no changes or no files open. Also recorded in
+  `:log`, like any other external command. `:outline` returns to the
+  outline. `:commit` (only available here — see below) commits and
+  pushes what `:diff` is showing.
 - **Help** (`:help`) — this README, rendered as terminal-styled markdown
   (via [glamour](https://github.com/charmbracelet/glamour) — headings,
   tables, code blocks and all), embedded into the binary at build time
@@ -469,7 +472,7 @@ History doesn't persist between sessions.
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
-| `:commit` | Diff view only (see Views, above) — refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; declining leaves it untracked, which makes the commit that follows fail outright, since `git commit`'s pathspec rejects a file that's never been `git add`ed at all), then runs `git commit` with a stock message ("orgtd commit"), scoped to the same files `:diff` shows, followed by `git push` — no prompt for a commit message. Refuses outside diff view too, and refuses a second `:commit` while one is already running. Unlike `:diff`, `git commit` and `git push` run in the background (same as `:format-links`/`:sync-calendar`), showing a status message while they're in flight so the rest of the app stays usable, including however long `git push` takes to reach the remote; `:w`/`:wq` refuse to write in the meantime, since the commit already captured which files and content it's committing when it started. A failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. The diff data refreshes once the background run finishes either way (so it's never left showing a stale pre-commit diff), but only pulls diff view back up if you're still on it — if you've since switched to another view, finishing the commit doesn't yank you back to diff view |
+| `:commit` | Diff view only (see Views, above) — refuses if any open file has unsaved changes (same as `:diff`; diff view's own content isn't re-diffed on every keystroke, so this is checked again here even if `:diff` already refused it once on entry), and refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; declining leaves it untracked, which makes the commit that follows fail outright, since `git commit`'s pathspec rejects a file that's never been `git add`ed at all), then runs `git commit` with a stock message ("orgtd commit"), scoped to the same files `:diff` shows, followed by `git push` — no prompt for a commit message. Refuses outside diff view too, and refuses a second `:commit` while one is already running. Unlike `:diff`, `git commit` and `git push` run in the background (same as `:format-links`/`:sync-calendar`), showing a status message while they're in flight so the rest of the app stays usable, including however long `git push` takes to reach the remote; `:w`/`:wq` refuse to write in the meantime, since the commit already captured which files and content it's committing when it started. A failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. The diff data refreshes once the background run finishes either way (so it's never left showing a stale pre-commit diff), but only pulls diff view back up if you're still on it — if you've since switched to another view, finishing the commit doesn't yank you back to diff view |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
 | `:noh` / `:nohlsearch` | See Search, above |

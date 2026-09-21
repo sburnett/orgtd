@@ -200,3 +200,43 @@ func TestDiffStatusLineShowsPlace(t *testing.T) {
 		t.Errorf("status line = %q, want it to mention \"diff\"", line)
 	}
 }
+
+// TestDiffRefusesWithUnsavedChanges guards against :diff showing a diff
+// that's silently missing an in-memory edit: `git diff` only ever sees
+// what's actually on disk, and orgtd doesn't write anything until :w,
+// so a dirty file's on-disk content is stale until then.
+func TestDiffRefusesWithUnsavedChanges(t *testing.T) {
+	ws := gitRepoFixture(t, "todo.org", "* TODO Old title\n", "* TODO Old title\n")
+	m := New(ws)
+	m.cursor = findRow(t, m, "Old title")
+	m = setStatus(m, "n") // TODO -> NEXT, an in-memory edit never written to disk
+
+	m.showDiff()
+
+	if m.view == diffView {
+		t.Fatalf("view = diffView, want :diff to refuse rather than show a diff missing the unsaved edit")
+	}
+	if !strings.Contains(m.message, "Unsaved changes") {
+		t.Errorf("message = %q, want it to explain there are unsaved changes", m.message)
+	}
+}
+
+// TestDiffWorksAgainOnceSaved is TestDiffRefusesWithUnsavedChanges'
+// counterpart: once the edit is actually written, :diff should work
+// normally again — and see the write.
+func TestDiffWorksAgainOnceSaved(t *testing.T) {
+	ws := gitRepoFixture(t, "todo.org", "* TODO Old title\n", "* TODO Old title\n")
+	m := New(ws)
+	m.cursor = findRow(t, m, "Old title")
+	m = setStatus(m, "n") // TODO -> NEXT
+	m.message = m.writeAll()
+
+	m.showDiff()
+
+	if m.view != diffView {
+		t.Fatalf("view = %v, want diffView now that the edit is saved", m.view)
+	}
+	if !strings.Contains(m.diffOutput, "NEXT") {
+		t.Errorf("diffOutput = %q, want it to show the now-saved status change", m.diffOutput)
+	}
+}

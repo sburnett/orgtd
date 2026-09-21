@@ -297,14 +297,21 @@ func TestSecondCommitRefusesWhileOneIsStillRunning(t *testing.T) {
 func TestWriteRefusesWhileGitIsRunning(t *testing.T) {
 	ws := gitRepoFixtureWithRemote(t, "todo.org", "* TODO Old title\n", "* TODO New title\n")
 	m := New(ws)
-	m.cursor = findRow(t, m, "New title")
-	m = setStatus(m, "n") // TODO -> NEXT, so the file is dirty and :w has something to write
-
 	m.showDiff()
 	cmd := m.startCommit()
 	if cmd == nil {
 		t.Fatalf("startCommit returned a nil tea.Cmd, want the commit+push to be running in the background")
 	}
+
+	// An edit made after the commit+push has already started running in
+	// the background — :w should still refuse this on its own (see
+	// gitRunning in writeAllResult), independent of the unsaved-changes
+	// check :commit itself uses before it'll even start (see
+	// anyGitFileDirty), which only guards against *starting* a commit,
+	// not editing while one already is one.
+	m.switchToView(outlineView)
+	m.cursor = findRow(t, m, "New title")
+	m = setStatus(m, "n") // TODO -> NEXT, so the file is dirty and :w has something to write
 
 	m = sendKey(m, ":")
 	m = typeKeys(m, "w")
@@ -387,5 +394,40 @@ func TestCommitFinishingRefreshesDiffDataEvenWhenNotShowingIt(t *testing.T) {
 	}
 	if len(m.rows) != 1 || !strings.Contains(m.rows[0].text, "No changes") {
 		t.Errorf("rows after returning to diff view = %#v, want a fresh 'No changes' diff", m.rows)
+	}
+}
+
+// TestCommitRefusesWithUnsavedChanges guards the same concern as
+// TestDiffRefusesWithUnsavedChanges, but for :commit specifically:
+// diff view's own rows aren't re-diffed on every keystroke (see
+// refreshDiffData), so an edit made after :diff already ran — while
+// still sitting in diff view — must still block :commit from
+// committing disk content it knows is now stale, rather than relying
+// solely on showDiff's own guard at entry.
+func TestCommitRefusesWithUnsavedChanges(t *testing.T) {
+	ws := gitRepoFixtureWithRemote(t, "todo.org", "* TODO Old title\n", "* TODO New title\n")
+	m := New(ws)
+	m.showDiff()
+
+	// An edit made without leaving diff view's own data stale-refreshed:
+	// switchToView only rebuilds rows from the diff already captured, it
+	// doesn't rerun `git diff`.
+	m.switchToView(outlineView)
+	m.cursor = findRow(t, m, "New title")
+	m = setStatus(m, "n") // TODO -> NEXT
+	m.switchToView(diffView)
+
+	cmd := m.startCommit()
+
+	if cmd != nil {
+		t.Errorf("startCommit with unsaved changes should return a nil tea.Cmd")
+	}
+	if !strings.Contains(m.message, "Unsaved changes") {
+		t.Errorf("message = %q, want it to explain there are unsaved changes", m.message)
+	}
+	for _, e := range m.execLog.snapshot() {
+		if e.kind == execLogStart && strings.Contains(e.text, "commit") {
+			t.Errorf("execLog = %#v, git commit should never run with unsaved changes present", m.execLog.snapshot())
+		}
 	}
 }

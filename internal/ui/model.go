@@ -1676,11 +1676,30 @@ func (m *Model) appendDiffRows() {
 	}
 }
 
+// anyGitFileDirty reports whether any file :diff/:commit would actually
+// touch (see gitFiles) has unsaved in-memory changes. Both commands
+// only ever see what's on disk (`git diff`/`git commit` read the
+// working tree, not orgtd's in-memory org.File), so a dirty file's
+// on-disk content is stale until :w — scoped to gitFiles() rather than
+// m.dirty as a whole so an unrelated dirty calendar file (never part of
+// what :diff/:commit show or commit — see gitFiles) doesn't block
+// either.
+func (m *Model) anyGitFileDirty() bool {
+	for _, f := range m.gitFiles() {
+		if m.dirty[f] {
+			return true
+		}
+	}
+	return false
+}
+
 // showDiff (":diff") shows the result of `git diff` for every file
-// currently open in the outline — refusing altogether unless the
-// workspace is the root of its git repository (see
-// gitRepoRootRefusal), same as :commit: a diff run from some
-// subdirectory of a larger repo (or outside a repo entirely) would
+// currently open in the outline — refusing outright if any of them has
+// unsaved changes (see anyGitFileDirty), since otherwise the diff shown
+// would silently be missing them, looking like they were never made at
+// all. Also refuses unless the workspace is the root of its git
+// repository (see gitRepoRootRefusal), same as :commit: a diff run from
+// some subdirectory of a larger repo (or outside a repo entirely) would
 // never be able to offer adding an untracked file either, so showing it
 // at all would be misleading about what :commit could actually do with
 // it. Otherwise, first checks whether any open file isn't tracked by
@@ -1688,6 +1707,10 @@ func (m *Model) appendDiffRows() {
 // question and only actually runs the diff (via runDiffNow) once it's
 // answered.
 func (m *Model) showDiff() {
+	if m.anyGitFileDirty() {
+		m.message = "Unsaved changes — :w first, since :diff only shows what's actually on disk"
+		return
+	}
 	if len(m.gitFiles()) > 0 {
 		if reason := m.gitRepoRootRefusal(); reason != "" {
 			m.message = fmt.Sprintf("Refusing to diff: %s", reason)
@@ -1902,9 +1925,15 @@ const stockCommitMessage = "orgtd commit"
 // :commit commits" the same thing. Refuses outright if a previous
 // :commit's git commit/push is still running in the background (see
 // gitRunning) — starting a second one concurrently would race the
-// first over the same working tree. Otherwise, since :commit always
-// ends in a mutating git add/commit/push, it refuses altogether unless
-// the workspace is safe to run those against (see gitRepoRootRefusal) —
+// first over the same working tree. Also refuses if any file :commit
+// would touch has unsaved changes (see anyGitFileDirty): entering diff
+// view already refuses this (see showDiff), but diff view's own content
+// isn't re-diffed on every keystroke, so an edit made — or a jump back
+// into a stale diff view via the jump list — after :diff ran could
+// otherwise let :commit commit disk content that's missing whatever's
+// still only in memory. Otherwise, since :commit always ends in a
+// mutating git add/commit/push, it refuses altogether unless the
+// workspace is safe to run those against (see gitRepoRootRefusal) —
 // checked up front, before even asking about untracked files, so
 // declining that question is never even on the table when the real
 // problem is the repository itself. Otherwise, as with :diff, first
@@ -1919,6 +1948,10 @@ func (m *Model) startCommit() tea.Cmd {
 	}
 	if m.gitRunning {
 		m.message = "git is still running in the background from a previous :commit"
+		return nil
+	}
+	if m.anyGitFileDirty() {
+		m.message = "Unsaved changes — :w first, since :commit only commits what's actually on disk"
 		return nil
 	}
 	if reason := m.gitRepoRootRefusal(); reason != "" {
