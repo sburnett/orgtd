@@ -5798,15 +5798,18 @@ type formatLinksTarget struct {
 }
 
 // collectFormatLinksTargets walks every headline in every loaded file
-// and returns each one that contains a bare URL not already wrapped in
-// an org-mode link, together with the flat, ordered list of those URLs
-// (target by target, Title then each Body line in order within a
-// target) — the same order finishFormatLinks later consumes the
-// external formatter's output in. A headline already locked by an
-// earlier, still-in-flight :format-links batch (see m.immutable) is
-// skipped: it's already queued, and rescanning it here against text
-// that batch hasn't rewritten yet would just queue the same URLs a
-// second time.
+// except the calendar file (see WithCalendarFile) — it's regenerated
+// wholesale by :sync-calendar, so any bare URL there (e.g. a meeting
+// link pasted into an event's description) would just be reformatted
+// again, or dropped, on the next sync — and returns each one that
+// contains a bare URL not already wrapped in an org-mode link, together
+// with the flat, ordered list of those URLs (target by target, Title
+// then each Body line in order within a target) — the same order
+// finishFormatLinks later consumes the external formatter's output in.
+// A headline already locked by an earlier, still-in-flight
+// :format-links batch (see m.immutable) is skipped: it's already
+// queued, and rescanning it here against text that batch hasn't
+// rewritten yet would just queue the same URLs a second time.
 func (m *Model) collectFormatLinksTargets() ([]*formatLinksTarget, []string) {
 	if m.bareURLRe == nil {
 		m.bareURLRe = buildBareURLRegexp(m.urlFormatterPrefixes)
@@ -5814,6 +5817,9 @@ func (m *Model) collectFormatLinksTargets() ([]*formatLinksTarget, []string) {
 	var targets []*formatLinksTarget
 	var urls []string
 	for _, f := range m.ws.Files {
+		if filepath.Base(f.Path) == m.calendarFile {
+			continue
+		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
 			if m.immutable[h] {
 				return

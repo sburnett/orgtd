@@ -84,6 +84,33 @@ func TestCollectFormatLinksTargetsOrdersMultipleURLsInOneField(t *testing.T) {
 	}
 }
 
+// TestCollectFormatLinksTargetsSkipsCalendarFile guards against
+// :format-links churning on calendar.org: it's rewritten wholesale by
+// :sync-calendar, so reformatting a bare URL there (e.g. a meeting link
+// pasted into an event's description) would just be redone, or lost,
+// on the next sync.
+func TestCollectFormatLinksTargetsSkipsCalendarFile(t *testing.T) {
+	calEvent, err := org.Parse(strings.NewReader("* Standup https://example.com/meet\n"), "calendar.org")
+	if err != nil {
+		t.Fatalf("org.Parse: %v", err)
+	}
+	other, err := org.Parse(strings.NewReader("* TODO url https://example.com/a\n"), "projects.org")
+	if err != nil {
+		t.Fatalf("org.Parse: %v", err)
+	}
+	ws := meetingsFixture(calEvent, other)
+	m := New(ws, WithURLFormatter("fake"))
+
+	targets, urls := m.collectFormatLinksTargets()
+
+	if len(targets) != 1 || targets[0].h.Title != "url https://example.com/a" {
+		t.Fatalf("targets = %v, want only the projects.org entry", targets)
+	}
+	if len(urls) != 1 || urls[0] != "https://example.com/a" {
+		t.Errorf("urls = %v, want [https://example.com/a] (calendar.org's url skipped)", urls)
+	}
+}
+
 func TestCollectFormatLinksTargetsSkipsAlreadyLockedHeadlines(t *testing.T) {
 	ws := agendaFixture(t, "* TODO url https://example.com/a\n")
 	m := New(ws, WithURLFormatter("fake"))
