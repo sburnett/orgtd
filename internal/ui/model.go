@@ -7506,7 +7506,9 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 // renderBodyLineWithBg) — this row doesn't support folding its own
 // children/body. Tagged with "[file › parent]" (see agendaPlace), same
 // as an agenda item, since the entry lives elsewhere in the workspace
-// and wouldn't otherwise be placeable from its title alone.
+// and wouldn't otherwise be placeable from its title alone — including
+// the same budget-driven truncation of the parent title (see
+// renderAgendaItemRowWithBg) when the row doesn't fit at full width.
 func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
 	query := m.activeSearchQuery()
@@ -7514,11 +7516,23 @@ func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColo
 
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + bgSpan(bg, " ") + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
-	var suffix string
+	var tags string
 	if len(h.Tags) > 0 {
-		suffix += bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
+		tags = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
 	}
-	suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, -1)))
+	place := func(parentMaxWidth int) string {
+		return bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, parentMaxWidth)))
+	}
+
+	suffix := tags + place(-1)
+	if m.width > 0 && lipgloss.Width(prefix)+lipgloss.Width(suffix) > m.width {
+		overhead := lipgloss.Width(tags) + lipgloss.Width(place(0))
+		parentBudget := m.width - lipgloss.Width(prefix) - overhead
+		if parentBudget < 0 {
+			parentBudget = 0
+		}
+		suffix = tags + place(parentBudget)
+	}
 
 	return fitRowLine(prefix, suffix, m.width, bg)
 }

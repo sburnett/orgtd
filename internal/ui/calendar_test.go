@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -451,6 +454,45 @@ func TestCalendarViewShowsItemsAttachedToAMeetingByDefault(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("linked item %q not shown under its meeting, even though the event is still folded", linked.Title)
+	}
+}
+
+// TestCalendarLinkedItemRowTruncatesLongParentTitleInPlaceTag mirrors
+// TestAgendaItemRowTruncatesLongParentTitleInPlaceTag (row_width_test.go):
+// renderCalendarLinkedItemRowWithBg's "[file › parent]" tag is built the
+// same way as an agenda row's (see agendaPlace), so an unbounded parent
+// title needs the same budget-driven truncation or it pushes the item's
+// own title, and even its tags, off the edge.
+func TestCalendarLinkedItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	orgText := fmt.Sprintf("* Project %s\n** Follow up on budget\n", strings.Repeat("a very long parent title ", 10))
+	f, err := org.Parse(strings.NewReader(orgText), "projects.org")
+	if err != nil {
+		t.Fatalf("org.Parse: %v", err)
+	}
+	linked := f.Headlines[0].Children[0]
+	linked.SetProperty("GCAL_EVENT_IDS", "abc123")
+	ws.Files = append(ws.Files,
+		&org.File{Path: filepath.Join(ws.Dir, "calendar.org"), Headlines: []*org.Headline{event}},
+		f,
+	)
+	m := New(ws)
+	m.width = 60
+	m.switchToView(calendarView)
+
+	line := m.renderRow(m.rows[findRow(t, m, "Follow up on budget")])
+	plain := stripANSI(line)
+
+	if !strings.Contains(plain, "Follow up on budget") {
+		t.Errorf("rendered calendar linked-item row = %q, want the item's own title still visible despite the long parent title", plain)
+	}
+	if !strings.Contains(plain, "…") {
+		t.Errorf("rendered calendar linked-item row = %q, want an ellipsis marking the truncated parent title", plain)
+	}
+	if w := lipgloss.Width(line); w > m.width {
+		t.Errorf("rendered calendar linked-item row width = %d, want <= %d", w, m.width)
 	}
 }
 
