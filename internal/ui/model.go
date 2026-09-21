@@ -477,6 +477,18 @@ type row struct {
 	meetingStart    time.Time
 	meetingEnd      time.Time
 
+	// meetingItemTitle/meetingItemStart are set alongside isAgendaItem on
+	// a Meetings-section item row (see appendMeetingsSection), echoing
+	// the meetingTitle/meetingStart of the isMeetingHeader row it's
+	// nested under. An item linked to more than one meeting legitimately
+	// gets one row per meeting (see appendMeetingsSection) — all sharing
+	// the same headline — so sameRow (below) needs these to tell those
+	// rows apart; without them, search's "n"/"N" (see findMatch) could
+	// never advance past the first such row, since every later one would
+	// look identical to it.
+	meetingItemTitle string
+	meetingItemStart time.Time
+
 	// isCalendarItem marks a calendar-event row in calendarView (see
 	// appendCalendarHeadlines): rendered with its GCAL_START/GCAL_END
 	// time shown before the title (see renderCalendarItemRowWithBg),
@@ -491,6 +503,14 @@ type row struct {
 	// than the event) rather than the headline's own real level in its
 	// own file (see renderCalendarLinkedItemRowWithBg).
 	isCalendarLinkedItem bool
+
+	// linkedFromEvent is the calendar event headline a
+	// isCalendarLinkedItem row is nested under (see
+	// appendCalendarHeadlines). An entry linked to more than one event
+	// gets one row per event, all sharing the same linked headline — so
+	// sameRow (below) needs this to tell those rows apart, the same
+	// reason meetingItemTitle/meetingItemStart exist above.
+	linkedFromEvent *org.Headline
 
 	// isTextLine marks a plain read-only informational row (:config/:log/
 	// :diff/:help), rendered flush left and never interactive; text is
@@ -2181,7 +2201,7 @@ func (m *Model) appendCalendarHeadlines(dst *[]row, headlines []*org.Headline, i
 			}
 		}
 		for _, item := range m.linkedMeetingItems(h) {
-			*dst = append(*dst, row{headline: item, level: h.Level + 1, isCalendarLinkedItem: true})
+			*dst = append(*dst, row{headline: item, level: h.Level + 1, isCalendarLinkedItem: true, linkedFromEvent: h})
 		}
 	}
 }
@@ -3177,10 +3197,27 @@ func sameRow(a, b row) bool {
 	case a.isBodyLine || b.isBodyLine:
 		return a.isBodyLine == b.isBodyLine && a.headline == b.headline && a.bodyText == b.bodyText
 	case a.headline != nil || b.headline != nil:
-		// Covers plain headline rows and the isCalendarItem/
-		// isCalendarLinkedItem variants alike — none of those flags
-		// change what row a headline points at.
-		return a.headline == b.headline
+		// Covers plain headline rows and the isCalendarItem variant
+		// alike — that flag doesn't change what row a headline points
+		// at. isCalendarLinkedItem and the Meetings-section isAgendaItem
+		// case are different: the same headline can legitimately appear
+		// in more than one such row (an entry linked to several
+		// meetings/events), so those need their extra fields compared
+		// too, or every row past the first would look identical to it.
+		if a.headline != b.headline {
+			return false
+		}
+		if a.isCalendarLinkedItem || b.isCalendarLinkedItem {
+			return a.isCalendarLinkedItem == b.isCalendarLinkedItem && a.linkedFromEvent == b.linkedFromEvent
+		}
+		if a.isAgendaItem || b.isAgendaItem {
+			return a.isAgendaItem == b.isAgendaItem &&
+				a.agendaLabel == b.agendaLabel &&
+				a.agendaDate.Equal(b.agendaDate) &&
+				a.meetingItemTitle == b.meetingItemTitle &&
+				a.meetingItemStart.Equal(b.meetingItemStart)
+		}
+		return true
 	case a.isMeetingHeader || b.isMeetingHeader:
 		// headline is nil on both sides here, so nil == nil would
 		// otherwise make every meeting header (and every section/

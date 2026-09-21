@@ -1089,6 +1089,41 @@ func TestMeetingsSectionItemLinkedToMultipleMeetingsAppearsInEachGroup(t *testin
 	}
 }
 
+func TestNAdvancesBetweenAnItemsTwoMeetingRowsInsteadOfStickingOnTheFirst(t *testing.T) {
+	now := time.Now()
+	first := recurringCalendarEventHeadline("first", "series-first", "First Meeting", now.Add(time.Hour), now.Add(2*time.Hour))
+	second := recurringCalendarEventHeadline("second", "series-second", "Second Meeting", now.Add(3*time.Hour), now.Add(4*time.Hour))
+	shared := linkedToRecurringMeetings("Zzyzx cross-cutting item", "series-first", "series-second")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{first, second}},
+		&org.File{Path: "projects.org", Headlines: []*org.Headline{shared}},
+	)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "Zzyzx")
+	m, _ = sendKeyCmd(m, "enter")
+	firstHit := m.cursor
+	if m.rows[firstHit].headline != shared {
+		t.Fatalf("confirmed search landed on %+v, want the shared item's first row", m.rows[firstHit])
+	}
+
+	m = sendKey(m, "n")
+	secondHit := m.cursor
+	if secondHit == firstHit {
+		t.Fatalf("n did not move off the shared item's first row — got stuck instead of advancing to its second meeting row")
+	}
+	if m.rows[secondHit].headline != shared {
+		t.Errorf("n landed on %+v, want the shared item's other row", m.rows[secondHit])
+	}
+
+	m = sendKey(m, "n")
+	if m.cursor != firstHit {
+		t.Errorf("second n = %d, want wraparound back to the first row (%d)", m.cursor, firstHit)
+	}
+}
+
 func TestMeetingsSectionExcludesDoneAndCancelledLinkedItems(t *testing.T) {
 	now := time.Now()
 	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now.Add(time.Hour), now.Add(2*time.Hour))

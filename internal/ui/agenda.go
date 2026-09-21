@@ -405,7 +405,7 @@ func (m *Model) appendMeetingsSection() {
 	for _, mt := range meetings {
 		m.rows = append(m.rows, row{level: 1, isMeetingHeader: true, meetingTitle: mt.title, meetingStart: mt.start, meetingEnd: mt.end})
 		for _, h := range mt.items {
-			m.rows = append(m.rows, row{headline: h, level: 2, isAgendaItem: true})
+			m.rows = append(m.rows, row{headline: h, level: 2, isAgendaItem: true, meetingItemTitle: mt.title, meetingItemStart: mt.start})
 		}
 	}
 }
