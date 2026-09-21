@@ -129,22 +129,18 @@ func TestCommitAsksToAddUntrackedFiles(t *testing.T) {
 	}
 }
 
-func TestCommitAcceptingAddsFileThenOpensMessagePrompt(t *testing.T) {
+func TestCommitAcceptingAddsFileThenCommits(t *testing.T) {
 	ws := gitRepoWithUntrackedFile(t)
 	m := New(ws)
 	m.switchToView(diffView)
 	m.startCommit()
 
-	m, _ = sendKeyCmd(m, "y")
+	updated, cmd := sendKeyCmd(m, "y")
+	m = runCommitCmd(t, updated, cmd)
 
-	if m.mode != commitMessageMode {
-		t.Fatalf("mode after accepting = %v, want commitMessageMode", m.mode)
+	if m.mode != normalMode {
+		t.Fatalf("mode after accepting = %v, want normalMode", m.mode)
 	}
-
-	m = typeKeys(m, "Add new file")
-	updated, _ := sendKeyCmd(m, "enter")
-	m = updated
-
 	if !strings.Contains(m.message, "Committed") {
 		t.Errorf("message = %q, want the commit to have gone through", m.message)
 	}
@@ -153,16 +149,25 @@ func TestCommitAcceptingAddsFileThenOpensMessagePrompt(t *testing.T) {
 	}
 }
 
-func TestCommitDecliningStillOpensMessagePromptWithoutAdding(t *testing.T) {
+func TestCommitDecliningLeavesTheUntrackedFileUntrackedAndFailsTheCommit(t *testing.T) {
+	// Declining still passes new.org to `git commit -- <pathspec>...`
+	// (see gitFiles/runGitCommit), and git refuses that outright — a
+	// pathspec element matching no tracked file is a hard error, not a
+	// silent skip — so nothing at all gets committed here, not even
+	// todo.org's own change.
 	ws := gitRepoWithUntrackedFile(t)
 	m := New(ws)
 	m.switchToView(diffView)
 	m.startCommit()
 
-	m, _ = sendKeyCmd(m, "n")
+	updated, cmd := sendKeyCmd(m, "n")
+	m = runCommitCmd(t, updated, cmd)
 
-	if m.mode != commitMessageMode {
-		t.Fatalf("mode after declining = %v, want commitMessageMode (commit still proceeds, just without the new file)", m.mode)
+	if m.mode != normalMode {
+		t.Fatalf("mode after declining = %v, want normalMode", m.mode)
+	}
+	if !strings.Contains(m.message, "git commit failed") {
+		t.Errorf("message = %q, want the commit to fail since new.org's pathspec matches nothing tracked", m.message)
 	}
 
 	untracked, err := m.untrackedFiles()

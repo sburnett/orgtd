@@ -385,7 +385,6 @@ const (
 	searchMode
 	confirmMode
 	visualMode
-	commitMessageMode
 	meetingPickerMode
 	tagMode
 )
@@ -628,8 +627,6 @@ type Model struct {
 	tagInput       string
 	tagCompletions string
 
-	commitMessageInput string // typed so far, in commitMessageMode (see startCommit)
-
 	searchQuery   string // typed so far, in searchMode
 	searchForward bool   // true for "/" (forward), false for "?" (backward)
 	searchOrigin  int    // cursor position when the search started, restored on Esc
@@ -647,7 +644,7 @@ type Model struct {
 	// Never set at the same time as pendingFileEdit — the two questions
 	// are asked from unrelated commands.
 	pendingUntrackedFiles []string
-	pendingUntrackedThen  func(m *Model)
+	pendingUntrackedThen  func(m *Model) tea.Cmd
 
 	urlFormatterCmd      string         // external program that turns a bare URL into an org-mode link when editing an entry; disabled if empty
 	urlFormatterPrefixes []string       // extra bare-URL prefixes beyond http(s)://, e.g. "bit.ly/", "go/" (see WithURLFormatterPrefixes)
@@ -732,6 +729,15 @@ type Model struct {
 
 	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
 	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
+
+	// gitRunning is true while :commit's git commit + git push are in
+	// flight on their own goroutine (see applyCommit/finishCommitPush) —
+	// unlike :diff (fast, always synchronous), a push can block on the
+	// remote for a while, so it runs in the background like
+	// :format-links/:sync-calendar. Guards against a second :commit
+	// starting concurrently, and against :w running while the working
+	// tree git is about to commit could still change underneath it.
+	gitRunning bool
 
 	readme string // README.md's content, embedded into the binary by the caller (see WithReadme); :help shows it verbatim
 }
@@ -1688,7 +1694,7 @@ func (m *Model) showDiff() {
 			return
 		}
 		if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
-			m.requestAddUntracked(untracked, func(m *Model) { m.runDiffNow() })
+			m.requestAddUntracked(untracked, func(m *Model) tea.Cmd { m.runDiffNow(); return nil })
 			return
 		}
 	}
@@ -1696,12 +1702,26 @@ func (m *Model) showDiff() {
 }
 
 // runDiffNow does showDiff's actual work once there's nothing left to
-// ask about: runs `git diff` and switches to diff view to show the
-// result. Run synchronously — unlike :format-links' potentially slow,
-// arbitrary external formatter, `git diff` on a handful of local org
-// files is fast, so there's no need for the async tea.Cmd/Msg dance
-// that keeps the app responsive during a longer-running command.
+// ask about: refreshes the diff data (see refreshDiffData) and switches
+// to diff view to show the result. Run synchronously — unlike
+// :format-links' potentially slow, arbitrary external formatter, `git
+// diff` on a handful of local org files is fast, so there's no need for
+// the async tea.Cmd/Msg dance that keeps the app responsive during a
+// longer-running command.
 func (m *Model) runDiffNow() {
+	m.refreshDiffData()
+	m.switchToView(diffView)
+}
+
+// refreshDiffData is runDiffNow's data half on its own, without the
+// switch to diff view: runs `git diff` (see runGitDiff), updating
+// m.diffOutput/m.diffErr, and — only if diff view happens to be showing
+// already — rebuilds m.rows so it's visibly current too. Used by
+// finishCommitPush once a background :commit finishes, so the diff
+// reflects the commit it just made without forcing the user back into
+// diff view if they've since navigated elsewhere themselves; if they're
+// still there, they see it refresh in place.
+func (m *Model) refreshDiffData() {
 	m.diffOutput, m.diffErr = "", ""
 	if len(m.gitFiles()) > 0 {
 		out, err := m.runGitDiff()
@@ -1711,7 +1731,9 @@ func (m *Model) runDiffNow() {
 			m.diffOutput = out
 		}
 	}
-	m.switchToView(diffView)
+	if m.view == diffView {
+		m.rebuildRows()
+	}
 }
 
 // runGitDiff runs `git diff HEAD` scoped to every file currently open in
@@ -1758,12 +1780,16 @@ func (m *Model) untrackedFiles() ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
-// gitRepoRoot returns the git repository root that contains m.ws.Dir —
-// via `git rev-parse --show-toplevel` — or "" if ws.Dir isn't inside a
-// git repository at all (or git itself failed). Logged like any other
-// external command.
-func (m *Model) gitRepoRoot() string {
-	out, err := runLoggedCommand(m.execLog, "git", []string{"-C", m.ws.Dir, "rev-parse", "--show-toplevel"}, "")
+// gitRepoRoot returns the git repository root that contains dir — via
+// `git rev-parse --show-toplevel` — or "" if dir isn't inside a git
+// repository at all (or git itself failed). Logged like any other
+// external command. A free function, rather than a *Model method, so
+// applyCommit's background goroutine can call it directly with values
+// captured up front instead of reaching back into a Model that a
+// concurrently running Update call could be mutating — see
+// applyCommit.
+func gitRepoRoot(elog *execLog, dir string) string {
+	out, err := runLoggedCommand(elog, "git", []string{"-C", dir, "rev-parse", "--show-toplevel"}, "")
 	if err != nil {
 		return ""
 	}
@@ -1771,26 +1797,26 @@ func (m *Model) gitRepoRoot() string {
 }
 
 // gitRepoRootRefusal reports why mutating git commands (add, commit,
-// push — see requireGitRepoRoot) must refuse to run against the current
-// workspace, or "" if they're fine to run. They're refused unless the
-// org directory is itself the *root* of its git repository, not merely
-// somewhere inside one: git add/commit are scoped to specific files, so
-// on their own a nested workspace wouldn't be too dangerous, but git
-// push is not scoped to files at all — it pushes the *whole* current
-// branch — and a workspace that's really just a subdirectory of some
-// larger, unrelated repository (e.g. orgtd's own testdata/orgdir,
-// nested inside this very repo) must never have that run against it.
-// Paths are compared after resolving symlinks (see filepath.EvalSymlinks)
-// since e.g. macOS routes /tmp and /var through symlinks into /private —
-// comparing raw paths would otherwise misreport plenty of genuinely
-// rooted workspaces (anything under the system's temp dir included) as
-// nested elsewhere.
-func (m *Model) gitRepoRootRefusal() string {
-	root := m.gitRepoRoot()
+// push — see requireGitRepoRoot) must refuse to run against dir, or ""
+// if they're fine to run. They're refused unless dir is itself the
+// *root* of its git repository, not merely somewhere inside one: git
+// add/commit are scoped to specific files, so on their own a nested
+// workspace wouldn't be too dangerous, but git push is not scoped to
+// files at all — it pushes the *whole* current branch — and a workspace
+// that's really just a subdirectory of some larger, unrelated repository
+// (e.g. orgtd's own testdata/orgdir, nested inside this very repo) must
+// never have that run against it. Paths are compared after resolving
+// symlinks (see filepath.EvalSymlinks) since e.g. macOS routes /tmp and
+// /var through symlinks into /private — comparing raw paths would
+// otherwise misreport plenty of genuinely rooted workspaces (anything
+// under the system's temp dir included) as nested elsewhere. A free
+// function for the same reason as gitRepoRoot.
+func gitRepoRootRefusal(elog *execLog, dir string) string {
+	root := gitRepoRoot(elog, dir)
 	if root == "" {
 		return "the org directory isn't inside a git repository"
 	}
-	wsResolved, wsErr := filepath.EvalSymlinks(m.ws.Dir)
+	wsResolved, wsErr := filepath.EvalSymlinks(dir)
 	rootResolved, rootErr := filepath.EvalSymlinks(root)
 	if wsErr != nil || rootErr != nil || wsResolved != rootResolved {
 		return fmt.Sprintf("the org directory isn't the root of its git repository (root is %s)", root)
@@ -1804,13 +1830,18 @@ func (m *Model) gitRepoRootRefusal() string {
 // at the higher-level call sites that ask about it first, for a better
 // error message — see showDiff/startCommit) so there's no way to reach
 // an actual mutation without passing this, regardless of how it's
-// eventually called.
-func (m *Model) requireGitRepoRoot() error {
-	if reason := m.gitRepoRootRefusal(); reason != "" {
+// eventually called. A free function for the same reason as
+// gitRepoRoot.
+func requireGitRepoRoot(elog *execLog, dir string) error {
+	if reason := gitRepoRootRefusal(elog, dir); reason != "" {
 		return fmt.Errorf("%s", reason)
 	}
 	return nil
 }
+
+func (m *Model) gitRepoRoot() string       { return gitRepoRoot(m.execLog, m.ws.Dir) }
+func (m *Model) gitRepoRootRefusal() string { return gitRepoRootRefusal(m.execLog, m.ws.Dir) }
+func (m *Model) requireGitRepoRoot() error  { return requireGitRepoRoot(m.execLog, m.ws.Dir) }
 
 // requestAddUntracked interrupts :diff/:commit with a y/N confirmation
 // (reusing confirmMode, alongside its existing file-edit prompt — see
@@ -1818,8 +1849,11 @@ func (m *Model) requireGitRepoRoot() error {
 // something. then runs either way once answered (see
 // updateConfirmMode): `git add`ing untracked first if accepted, or
 // completely unchanged if declined — a deliberately untracked file
-// shouldn't block diffing/committing everything else.
-func (m *Model) requestAddUntracked(untracked []string, then func(m *Model)) {
+// shouldn't block diffing/committing everything else. then returns a
+// tea.Cmd so :commit's caller (unlike :diff's) can hand back a
+// background commit+push to run once the question is settled (see
+// applyCommit).
+func (m *Model) requestAddUntracked(untracked []string, then func(m *Model) tea.Cmd) {
 	m.mode = confirmMode
 	m.confirmMessage = fmt.Sprintf("Not tracked by git: %s. Add to git? [y/N]", strings.Join(untracked, ", "))
 	m.pendingUntrackedFiles = untracked
@@ -1853,130 +1887,152 @@ func gitErrorText(err error) string {
 	return err.Error()
 }
 
-// startCommit (":commit") opens a one-line prompt for a commit message
-// (see updateCommitMessageMode/applyCommitMessageInput), restricted to
-// diff view: :commit only makes sense once you've actually looked at
-// what's about to be committed via :diff, and reusing that view's own
-// file scope — rather than letting :commit imply some other set of
-// files — keeps "what :diff shows" and "what :commit commits" the same
-// thing. Since :commit always ends in a mutating git add/commit/push,
-// it refuses altogether unless the workspace is safe to run those
-// against (see gitRepoRootRefusal) — checked up front, before even
-// asking about untracked files, so declining that question is never
-// even on the table when the real problem is the repository itself.
-// Otherwise, as with :diff, first checks for files git doesn't track at
-// all yet (see requestAddUntracked) — `git commit -- <pathspec>`
-// silently skips a file that was never even `git add`ed once, so
-// without this an untracked org file would just never make it into a
-// commit.
-func (m *Model) startCommit() {
+// stockCommitMessage is the fixed message every :commit uses — see
+// applyCommit. orgtd commits are frequent, small, and scoped to exactly
+// what :diff already showed, so a per-commit message would mostly just
+// restate that; a stock message keeps :commit a single keystroke rather
+// than a prompt to fill in each time.
+const stockCommitMessage = "orgtd commit"
+
+// startCommit (":commit") commits and pushes what :diff shows (see
+// applyCommit), restricted to diff view: :commit only makes sense once
+// you've actually looked at what's about to be committed via :diff, and
+// reusing that view's own file scope — rather than letting :commit
+// imply some other set of files — keeps "what :diff shows" and "what
+// :commit commits" the same thing. Refuses outright if a previous
+// :commit's git commit/push is still running in the background (see
+// gitRunning) — starting a second one concurrently would race the
+// first over the same working tree. Otherwise, since :commit always
+// ends in a mutating git add/commit/push, it refuses altogether unless
+// the workspace is safe to run those against (see gitRepoRootRefusal) —
+// checked up front, before even asking about untracked files, so
+// declining that question is never even on the table when the real
+// problem is the repository itself. Otherwise, as with :diff, first
+// checks for files git doesn't track at all yet (see
+// requestAddUntracked) — `git commit -- <pathspec>` silently skips a
+// file that was never even `git add`ed once, so without this an
+// untracked org file would just never make it into a commit.
+func (m *Model) startCommit() tea.Cmd {
 	if m.view != diffView {
 		m.message = ":commit only works in diff view — see :diff"
-		return
+		return nil
+	}
+	if m.gitRunning {
+		m.message = "git is still running in the background from a previous :commit"
+		return nil
 	}
 	if reason := m.gitRepoRootRefusal(); reason != "" {
 		m.message = fmt.Sprintf("Refusing to commit: %s", reason)
-		return
+		return nil
 	}
 	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
-		m.requestAddUntracked(untracked, func(m *Model) { m.openCommitPrompt() })
-		return
+		m.requestAddUntracked(untracked, func(m *Model) tea.Cmd { return m.applyCommit() })
+		return nil
 	}
-	m.openCommitPrompt()
+	return m.applyCommit()
 }
 
-// openCommitPrompt opens the one-line commit-message prompt itself,
-// split out from startCommit so requestAddUntracked can defer straight
-// to it once its own question is answered.
-func (m *Model) openCommitPrompt() {
-	m.mode = commitMessageMode
-	m.commitMessageInput = ""
+// commitPushMsg reports that :commit's git commit + git push (see
+// applyCommit) finished running in the background. commitErr, if set,
+// means `git commit` itself failed and push never even ran; pushErr, if
+// set, means the commit succeeded but the push that followed it didn't.
+// Both nil means both succeeded.
+type commitPushMsg struct {
+	commitErr error
+	pushErr   error
 }
 
-// updateCommitMessageMode handles the one-line commit-message prompt
-// opened by startCommit — Enter applies it (see applyCommitMessageInput),
-// Esc cancels without committing anything. Mirrors updateDeadlineMode.
-func (m Model) updateCommitMessageMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type != tea.KeyEnter {
-		m.message = ""
+// applyCommit commits every file currently open in the outline except
+// the calendar file (the same scope :diff shows) with stockCommitMessage,
+// then pushes — both run on their own goroutine (see
+// startFormatLinks/startSyncCalendar for the same pattern) so the rest
+// of the app stays usable while git runs, including however long the
+// remote takes to respond to the push. Every value the goroutine needs
+// (elog, dir, the file paths) is captured here, before it starts,
+// rather than read from m inside it — m keeps being mutated by the main
+// goroutine's own Update calls while this runs, and gitFiles() in
+// particular walks m.ws.Files, which finishSyncCalendar/finishEditFile
+// can replace out from under it. m.gitRunning is set immediately, for
+// the same reason plus so a repeated :commit or :w can refuse right
+// away rather than racing the goroutine — finishCommitPush clears it
+// once the result comes back. A failed commit leaves the working tree
+// untouched and never attempts the push; a failed push still leaves the
+// commit in place, so the diff view is refreshed either way (in
+// finishCommitPush) to show whatever actually happened.
+func (m *Model) applyCommit() tea.Cmd {
+	m.gitRunning = true
+	m.message = "Running git commit and git push in the background..."
+
+	elog := m.execLog
+	dir := m.ws.Dir
+	gitFiles := m.gitFiles()
+	paths := make([]string, 0, len(gitFiles))
+	for _, f := range gitFiles {
+		paths = append(paths, f.Path)
 	}
 
-	switch msg.Type {
-	case tea.KeyEsc:
-		m.mode = normalMode
-		m.commitMessageInput = ""
-		return m, nil
-
-	case tea.KeyEnter:
-		return m.applyCommitMessageInput()
-
-	case tea.KeyBackspace:
-		if r := []rune(m.commitMessageInput); len(r) > 0 {
-			m.commitMessageInput = string(r[:len(r)-1])
+	return func() tea.Msg {
+		if _, err := runGitCommit(elog, dir, paths, stockCommitMessage); err != nil {
+			return commitPushMsg{commitErr: err}
 		}
-		return m, nil
-
-	case tea.KeySpace:
-		m.commitMessageInput += " "
-		return m, nil
-
-	case tea.KeyRunes:
-		m.commitMessageInput += string(msg.Runes)
-		return m, nil
+		if _, err := runGitPush(elog, dir); err != nil {
+			return commitPushMsg{pushErr: err}
+		}
+		return commitPushMsg{}
 	}
-	return m, nil
 }
 
-// applyCommitMessageInput commits every file currently open in the
-// outline except the calendar file (the same scope :diff shows) with the typed message, then
-// pushes — both run synchronously, same tradeoff as showDiff (simple,
-// but blocks the UI for as long as git takes to respond, including,
-// for the push, however long the remote takes). An empty message leaves
-// the prompt open rather than committing with nothing to describe the
-// change. A failed commit leaves the working tree untouched and never
-// attempts the push; a failed push still leaves the commit in place, so
-// the diff view is refreshed either way to show whatever actually
-// happened.
-func (m Model) applyCommitMessageInput() (tea.Model, tea.Cmd) {
-	m.message = ""
-	input := strings.TrimSpace(m.commitMessageInput)
-	if input == "" {
-		m.message = "Commit message can't be empty"
+// finishCommitPush applies a completed :commit run (see applyCommit and
+// commitPushMsg) — clears m.gitRunning either way, then reports success
+// or failure. On anything but an outright failed commit (where nothing
+// changed, so the diff already shown is still accurate), refreshes the
+// diff data (see refreshDiffData) so it's never left stale — but
+// deliberately via refreshDiffData, not showDiff/runDiffNow: this runs
+// whenever the background commit+push happens to finish, possibly well
+// after the user has navigated away from diff view to do something
+// else, and it shouldn't yank them back to it just because a commit
+// they started earlier finally completed.
+func (m Model) finishCommitPush(msg commitPushMsg) (tea.Model, tea.Cmd) {
+	m.gitRunning = false
+
+	if msg.commitErr != nil {
+		m.message = fmt.Sprintf("git commit failed: %s", gitErrorText(msg.commitErr))
 		return m, nil
 	}
-
-	m.mode = normalMode
-	m.commitMessageInput = ""
-
-	if _, err := m.runGitCommit(input); err != nil {
-		m.message = fmt.Sprintf("git commit failed: %s", gitErrorText(err))
-		return m, nil
-	}
-	if _, err := m.runGitPush(); err != nil {
-		m.message = fmt.Sprintf("Committed, but git push failed: %s", gitErrorText(err))
-		m.showDiff()
+	if msg.pushErr != nil {
+		m.message = fmt.Sprintf("Committed, but git push failed: %s", gitErrorText(msg.pushErr))
+		m.refreshDiffData()
 		return m, nil
 	}
 
 	m.message = "Committed and pushed"
-	m.showDiff()
+	m.refreshDiffData()
 	return m, nil
 }
 
 // runGitCommit commits every file currently open in the outline except
-// the calendar file (m.gitFiles() — the same scope runGitDiff uses) with message, from
-// within the workspace directory. Refuses outside the workspace's own
-// git repository root — see requireGitRepoRoot. Logged like any other
-// external command — see runLoggedCommand.
+// the calendar file (m.gitFiles() — the same scope runGitDiff uses) with
+// message, from within the workspace directory. Refuses outside the
+// workspace's own git repository root — see requireGitRepoRoot. Logged
+// like any other external command — see runLoggedCommand.
 func (m *Model) runGitCommit(message string) (string, error) {
-	if err := m.requireGitRepoRoot(); err != nil {
+	gitFiles := m.gitFiles()
+	paths := make([]string, 0, len(gitFiles))
+	for _, f := range gitFiles {
+		paths = append(paths, f.Path)
+	}
+	return runGitCommit(m.execLog, m.ws.Dir, paths, message)
+}
+
+// runGitCommit is runGitCommit's free-function core (see gitRepoRoot for
+// why): commits paths, from within dir, with message.
+func runGitCommit(elog *execLog, dir string, paths []string, message string) (string, error) {
+	if err := requireGitRepoRoot(elog, dir); err != nil {
 		return "", err
 	}
-	args := []string{"-C", m.ws.Dir, "commit", "-m", message, "--"}
-	for _, f := range m.gitFiles() {
-		args = append(args, f.Path)
-	}
-	return runLoggedCommand(m.execLog, "git", args, "")
+	args := []string{"-C", dir, "commit", "-m", message, "--"}
+	args = append(args, paths...)
+	return runLoggedCommand(elog, "git", args, "")
 }
 
 // runGitPush runs a plain `git push` from within the workspace
@@ -1987,10 +2043,16 @@ func (m *Model) runGitCommit(message string) (string, error) {
 // whole repository's history, not just the org files orgtd knows about.
 // Logged like any other external command — see runLoggedCommand.
 func (m *Model) runGitPush() (string, error) {
-	if err := m.requireGitRepoRoot(); err != nil {
+	return runGitPush(m.execLog, m.ws.Dir)
+}
+
+// runGitPush is runGitPush's free-function core (see gitRepoRoot for
+// why).
+func runGitPush(elog *execLog, dir string) (string, error) {
+	if err := requireGitRepoRoot(elog, dir); err != nil {
 		return "", err
 	}
-	return runLoggedCommand(m.execLog, "git", []string{"-C", m.ws.Dir, "push"}, "")
+	return runLoggedCommand(elog, "git", []string{"-C", dir, "push"}, "")
 }
 
 // onOff renders b as "on"/"off", for a status line reporting a toggle's
@@ -2169,6 +2231,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case syncCalendarMsg:
 		return m.finishSyncCalendar(msg)
 
+	case commitPushMsg:
+		return m.finishCommitPush(msg)
+
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			if len(m.dirty) == 0 || m.pendingForceQuit {
@@ -2200,8 +2265,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearchMode(msg)
 		case confirmMode:
 			return m.updateConfirmMode(msg)
-		case commitMessageMode:
-			return m.updateCommitMessageMode(msg)
 		case visualMode:
 			return m.updateVisualMode(msg)
 		default:
@@ -2928,8 +2991,7 @@ func (m Model) updateConfirmMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		untrackedThen(&m)
-		return m, nil
+		return m, untrackedThen(&m)
 	}
 
 	if !accepted {
@@ -3461,7 +3523,7 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 		m.showDiff()
 
 	case "commit":
-		m.startCommit()
+		return m, m.startCommit()
 
 	case "help":
 		m.switchToView(helpView)
@@ -3509,8 +3571,17 @@ func (m *Model) writeAll() string {
 
 // writeAllResult is writeAll but also reports whether every write
 // succeeded (false if any file failed), so callers like :wq can decide
-// whether it's safe to proceed.
+// whether it's safe to proceed. Refuses outright while a :commit's git
+// commit/push is still running in the background (see gitRunning): it
+// reads the same files that commit just captured a scope/message
+// against, so writing over them mid-commit could save changes that
+// either end up silently included in a commit already in flight, or
+// racing its own on-disk read of what to diff/commit next.
 func (m *Model) writeAllResult() (string, bool) {
+	if m.gitRunning {
+		return "Can't write while git is running in the background — see :log", false
+	}
+
 	var written, failed []string
 	for _, f := range m.ws.Files {
 		if !m.dirty[f] {
@@ -6706,15 +6777,6 @@ func (m Model) View() string {
 		if m.message != "" {
 			b.WriteString("  " + m.errorStyle().Render(m.message))
 		}
-	case m.mode == commitMessageMode:
-		b.WriteString(" Commit message: " + m.commitMessageInput)
-		b.WriteString(m.caretStyle().Render(" "))
-		// As above (deadlineMode): an empty message sets m.message but
-		// leaves the prompt open for correction (see
-		// applyCommitMessageInput), so it must be shown here too.
-		if m.message != "" {
-			b.WriteString("  " + m.errorStyle().Render(m.message))
-		}
 	case m.mode == searchMode:
 		prefix := "/"
 		if !m.searchForward {
@@ -6763,8 +6825,8 @@ func (m *Model) normalStatusLine() string {
 // statusHeight is how many lines the bottom area occupies in total: the
 // one status line (normalStatusLine) plus exactly one command-line row
 // below it for whatever's active right now (a typed command, a search/
-// deadline/commit-message prompt, a mode banner, a message, or nothing
-// at all). Mirrors vim's own split between its statusline (always
+// deadline prompt, a mode banner, a message, or nothing at all).
+// Mirrors vim's own split between its statusline (always
 // visible, showing where you are) and the command-line/message area
 // below it (always a separate row, regardless of mode) — see View. The
 // info buffer (see infoBufferHeight) is accounted for separately, since

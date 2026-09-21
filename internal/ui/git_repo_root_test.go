@@ -128,9 +128,6 @@ func TestCommitRefusesWhenNestedInALargerRepo(t *testing.T) {
 
 	m.startCommit()
 
-	if m.mode == commitMessageMode {
-		t.Fatalf("mode = commitMessageMode, want :commit to refuse rather than prompt")
-	}
 	if !strings.Contains(m.message, "root of its git repository") {
 		t.Errorf("message = %q, want it to explain the workspace isn't the repo root", m.message)
 	}
@@ -150,9 +147,6 @@ func TestCommitRefusesWhenNotAGitRepositoryAtAll(t *testing.T) {
 
 	m.startCommit()
 
-	if m.mode == commitMessageMode {
-		t.Fatalf("mode = commitMessageMode, want :commit to refuse rather than prompt")
-	}
 	if !strings.Contains(m.message, "isn't inside a git repository") {
 		t.Errorf("message = %q, want it to explain there's no git repository at all", m.message)
 	}

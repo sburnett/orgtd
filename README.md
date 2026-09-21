@@ -269,9 +269,9 @@ Marks (see below) stay pinned at the top of the screen in every view.
 The bottom of the screen has up to three parts. The status line (current
 view/directory and item position only) is always exactly one line,
 always visible regardless of mode; the command line below it — where
-`:`/`/`/`?` input, prompts (deadline, commit message, the status
-picker), the visual-mode banner, and messages all appear, blank when
-there's nothing to show — is always exactly one more. Neither ever
+`:`/`/`/`?` input, prompts (deadline, the status picker), the
+visual-mode banner, and messages all appear, blank when there's nothing
+to show — is always exactly one more. Neither ever
 replaces the other, mirroring vim's own statusline-above-command-line
 layout.
 
@@ -459,8 +459,8 @@ History doesn't persist between sessions.
 
 | Command | Action |
 |---|---|
-| `:w` / `:write` | Write every file with unsaved changes |
-| `:wq` | Write, then quit |
+| `:w` / `:write` | Write every file with unsaved changes. Refuses while a `:commit`'s `git commit`/`git push` is still running in the background (see `:commit` below) |
+| `:wq` | Write, then quit. Same `git`-running refusal as `:w` above |
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
@@ -469,7 +469,7 @@ History doesn't persist between sessions.
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
-| `:commit` | Diff view only (see Views, above) — refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; note a file left untracked here won't actually be committed, since `git commit` never picks up a file that's never been `git add`ed at all), then prompts for a commit message, runs `git commit` scoped to the same files `:diff` shows, followed by `git push`. Refuses outside diff view too. Runs synchronously (both commands can briefly block the UI, `git push` for as long as the remote takes to respond); a failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. Diff view refreshes afterward either way, so the result is immediately visible |
+| `:commit` | Diff view only (see Views, above) — refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; declining leaves it untracked, which makes the commit that follows fail outright, since `git commit`'s pathspec rejects a file that's never been `git add`ed at all), then runs `git commit` with a stock message ("orgtd commit"), scoped to the same files `:diff` shows, followed by `git push` — no prompt for a commit message. Refuses outside diff view too, and refuses a second `:commit` while one is already running. Unlike `:diff`, `git commit` and `git push` run in the background (same as `:format-links`/`:sync-calendar`), showing a status message while they're in flight so the rest of the app stays usable, including however long `git push` takes to reach the remote; `:w`/`:wq` refuse to write in the meantime, since the commit already captured which files and content it's committing when it started. A failed commit (e.g. nothing to commit) never attempts the push, while a failed push still leaves the commit in place locally. The diff data refreshes once the background run finishes either way (so it's never left showing a stale pre-commit diff), but only pulls diff view back up if you're still on it — if you've since switched to another view, finishing the commit doesn't yank you back to diff view |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
 | `:noh` / `:nohlsearch` | See Search, above |
