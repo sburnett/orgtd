@@ -691,6 +691,15 @@ type Model struct {
 	// by day, in calendarView (see appendCalendarRows).
 	calendarFile string
 
+	// meetingTagsFile is the base name of the file holding durable
+	// meeting-tag records (e.g. "meeting-tags.org", the default) — "gt"
+	// on a calendarView entry writes here instead of editing the entry
+	// itself (see applyMeetingTag), so the tag survives calendarFile's
+	// wholesale regeneration by :sync-calendar. Excluded from the outline
+	// view entirely (see rebuildRows' default case) and shown instead, as
+	// an editable outline of its own, in meetingTagsView.
+	meetingTagsFile string
+
 	hideDoneAfterHours int  // how many hours after CLOSED a DONE/CANCELLED item disappears from the outline; see WithHideDoneAfterHours
 	hideDoneEnabled    bool // whether hideDoneAfterHours filtering is active; off by default (see New), toggled by :toggledone, turned on at startup by WithHideDoneAfterHours
 
@@ -774,6 +783,7 @@ const (
 	diffView
 	helpView
 	calendarView
+	meetingTagsView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -846,6 +856,19 @@ func WithCalendarFile(name string) Option {
 	return func(m *Model) {
 		if name != "" {
 			m.calendarFile = name
+		}
+	}
+}
+
+// WithMeetingTagsFile sets the base file name excluded from the outline
+// view and shown instead (as an editable outline of its own) in
+// meetingTagsView — the file "gt" on a calendar entry writes durable
+// meeting-tag records to (e.g. "meeting-tags.org", the default). name ==
+// "" is treated as the default.
+func WithMeetingTagsFile(name string) Option {
+	return func(m *Model) {
+		if name != "" {
+			m.meetingTagsFile = name
 		}
 	}
 }
@@ -1013,6 +1036,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		agendaDays:         14,
 		inboxFile:          "inbox.org",
 		calendarFile:       "calendar.org",
+		meetingTagsFile:    "meeting-tags.org",
 		hideDoneAfterHours: 24,
 		gcalCalendarIDs:    []string{"primary"},
 		gcalSyncPastDays:   1,
@@ -1045,9 +1069,11 @@ func (m *Model) rebuildRows() {
 		m.appendHelpRows()
 	case calendarView:
 		m.appendCalendarRows(&m.rows, false)
+	case meetingTagsView:
+		m.appendMeetingTagsRows(&m.rows, false)
 	default:
 		for _, f := range m.ws.Files {
-			if filepath.Base(f.Path) == m.calendarFile {
+			if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
 				continue
 			}
 			m.rows = append(m.rows, row{file: f})
@@ -1104,6 +1130,37 @@ func (m *Model) findCalendarFile() *org.File {
 		}
 	}
 	return nil
+}
+
+// findMeetingTagsFile returns the workspace file meetingTagsView shows
+// (see WithMeetingTagsFile), or nil if it isn't loaded yet — nothing has
+// ever been tagged via "gt" on a calendar entry, so the file doesn't
+// exist on disk (see applyMeetingTag, which materializes it lazily on
+// first use, mirroring how finishSyncCalendar lazily creates the
+// calendar file's own workspace entry).
+func (m *Model) findMeetingTagsFile() *org.File {
+	for _, f := range m.ws.Files {
+		if filepath.Base(f.Path) == m.meetingTagsFile {
+			return f
+		}
+	}
+	return nil
+}
+
+// appendMeetingTagsRows appends meetingTagsFile's headlines into dst as
+// an ordinary outline (see appendHeadlines): meeting-tags.org needs none
+// of calendarView's day-grouping or linked-item nesting (see
+// appendCalendarHeadlines), so unlike that view this one reuses
+// appendHeadlines directly. ignoreFold is passed straight through — see
+// appendHeadlines' own doc comment (used by searchRows to build the
+// full-text search space regardless of fold state).
+func (m *Model) appendMeetingTagsRows(dst *[]row, ignoreFold bool) {
+	f := m.findMeetingTagsFile()
+	if f == nil {
+		return
+	}
+	*dst = append(*dst, row{file: f})
+	m.appendHeadlines(dst, f.Headlines, ignoreFold)
 }
 
 // gitFiles returns m.ws.Files minus the calendar file (see
@@ -1602,6 +1659,7 @@ func (m *Model) appendConfigRows() {
 	line("Agenda window: %d days", m.agendaDays)
 	line("Inbox file: %s", m.inboxFile)
 	line("Calendar file: %s", m.calendarFile)
+	line("Meeting tags file: %s", m.meetingTagsFile)
 	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.hideDoneAfterHours, onOff(m.hideDoneEnabled))
 	line("Debug logging: %s", onOff(m.debug))
 
@@ -1882,7 +1940,7 @@ func requireGitRepoRoot(elog *execLog, dir string) error {
 	return nil
 }
 
-func (m *Model) gitRepoRoot() string       { return gitRepoRoot(m.execLog, m.ws.Dir) }
+func (m *Model) gitRepoRoot() string        { return gitRepoRoot(m.execLog, m.ws.Dir) }
 func (m *Model) gitRepoRootRefusal() string { return gitRepoRootRefusal(m.execLog, m.ws.Dir) }
 func (m *Model) requireGitRepoRoot() error  { return requireGitRepoRoot(m.execLog, m.ws.Dir) }
 
@@ -3169,7 +3227,7 @@ func (m *Model) searchRows() []row {
 	case outlineView, clarifyView:
 		var rows []row
 		for _, f := range m.ws.Files {
-			if filepath.Base(f.Path) == m.calendarFile {
+			if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
 				continue
 			}
 			rows = append(rows, row{file: f})
@@ -3179,6 +3237,10 @@ func (m *Model) searchRows() []row {
 	case calendarView:
 		var rows []row
 		m.appendCalendarRows(&rows, true)
+		return rows
+	case meetingTagsView:
+		var rows []row
+		m.appendMeetingTagsRows(&rows, true)
 		return rows
 	default:
 		return m.rows
@@ -3254,7 +3316,7 @@ func indexOfRow(rows []row, target row) int {
 // opened by search open rather than closing it back up.
 func (m *Model) revealRow(target row) {
 	switch m.view {
-	case outlineView, clarifyView, calendarView:
+	case outlineView, clarifyView, calendarView, meetingTagsView:
 	default:
 		return
 	}
@@ -3425,7 +3487,7 @@ func (m *Model) recallCommandHistory(dir int) {
 // type and want completed.
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
-	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar",
+	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar", "meeting-tags",
 	"delmarks", "delmarks!", "clear-registers", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
 	"sync-calendar", "sync-calendar!",
 }
@@ -3549,6 +3611,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "calendar":
 		m.switchToView(calendarView)
+
+	case "meeting-tags":
+		m.switchToView(meetingTagsView)
 
 	case "capture":
 		return m, m.startCapture()
@@ -4372,6 +4437,11 @@ func (m *Model) completeTagInput() {
 // "clear all tags" from "typed nothing" otherwise, and gd's own
 // empty-clears convention doesn't apply here since a headline can carry
 // more than one tag. Always returns to normal mode.
+//
+// If target is itself a synced calendar event (meetingIdentity), the
+// tag is recorded in meeting-tags.org instead (see applyMeetingTag) —
+// editing target's own Tags here would just be undone by the next
+// :sync-calendar, which wholesale-regenerates the calendar file.
 func (m Model) applyTagInput() (tea.Model, tea.Cmd) {
 	m.message = ""
 	tag := strings.TrimSpace(m.tagInput)
@@ -4381,6 +4451,11 @@ func (m Model) applyTagInput() (tea.Model, tea.Cmd) {
 	m.tagInput = ""
 	m.tagCompletions = ""
 	if tag == "" || target == nil {
+		return m, nil
+	}
+
+	if kind, id, ok := meetingIdentity(target); ok {
+		m.applyMeetingTag(target, kind, id, tag)
 		return m, nil
 	}
 
@@ -6673,6 +6748,8 @@ func (m Model) View() string {
 			msg = fmt.Sprintf("Nothing due in the next %d days. :outline to go back.", m.agendaDays)
 		} else if m.view == calendarView {
 			msg = "No calendar events found. :outline to go back."
+		} else if m.view == meetingTagsView {
+			msg = "No meeting tags yet. :outline to go back."
 		}
 		b.WriteString(msg)
 		b.WriteString("\n")
@@ -6837,6 +6914,8 @@ func (m *Model) normalStatusLine() string {
 		place = "help"
 	case calendarView:
 		place = "calendar"
+	case meetingTagsView:
+		place = "meeting-tags"
 	}
 	return fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 }
@@ -6894,8 +6973,10 @@ func (m *Model) infoBufferHeight() int {
 //     renderPinnedRow) or an empty-inbox message — kept a fixed 2 lines
 //     (label + item-or-empty-message) so the layout doesn't jump around
 //     as the inbox empties out.
+//
 //   - "Active marks:" — every active vim-style mark (see setMark),
 //     sorted by letter (sortedMarkLetters), one row each.
+//
 //   - "Register:" — whatever's queued in the paste register (see
 //     registerPinnedLines), one row per entry up to
 //     maxRegisterPinnedLines.
@@ -6908,20 +6989,25 @@ func (m *Model) infoBufferHeight() int {
 //     title (linksInTitle). Shown in every mode, not just when it
 //     wouldn't otherwise fit on the status line — unlike the old
 //     normalStatusLines, this doesn't depend on terminal width at all.
+//
 //   - "Meeting:" — one line per calendar meeting the current entry is
 //     linked to (see calendarEventEntries), each "<title>  <time>  <url>"
 //     (or just "<title>  <url>" if no time could be resolved — see
 //     calendarEventEntry.hasWhen).
+//
 //   - "Tags:" — while "gt" is prompting for a tag (tagMode) and there's
 //     more than one completion match (see completeTagInput), the
 //     matches themselves, one per line, instead of the old single
 //     space-joined line appended to the prompt.
+//
 //   - "Matches:" — the same idea for command-mode ":<Tab>" completions
 //     (see completeCommand).
+//
 //   - "Status:" — while the "R"/"r" status picker (selectMode) is open,
 //     every status candidate (see statusCandidates), one per line, the
 //     currently highlighted one in reverse video — the structured
 //     counterpart of the old single-line renderStatusSelector.
+//
 //   - "Attach meeting:" — while the "gM" picker (meetingPickerMode) is
 //     open, every meeting candidate matching the typed filter (see
 //     filteredMeetingCandidates), one per line — title, resolved date,
@@ -7495,9 +7581,10 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 	}
 	prefix += joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
+	displayTags := m.calendarDisplayTags(h)
 	var suffix string
-	if len(h.Tags) > 0 {
-		suffix = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
+	if len(displayTags) > 0 {
+		suffix = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(displayTags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
 	}
 	return fitRowLine(prefix, suffix, m.width, bg)
 }

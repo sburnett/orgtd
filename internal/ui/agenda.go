@@ -345,6 +345,14 @@ func (m *Model) entriesForMeeting(kind meetingIDKind, id string) []*org.Headline
 			if _, _, ok := meetingIdentity(h); ok {
 				return
 			}
+			if isMeetingTagsRecord(h) {
+				// A meeting-tags.org headline (see meeting_tags.go)
+				// necessarily carries whatever tag it records, so it
+				// would otherwise always tag-match its own meeting —
+				// it's bookkeeping for the meeting, not something that
+				// needs attention during it.
+				return
+			}
 			if hasSharedTag(h.Tags, tags) {
 				items = append(items, h)
 			}
@@ -353,11 +361,15 @@ func (m *Model) entriesForMeeting(kind meetingIDKind, id string) []*org.Headline
 	return items
 }
 
-// meetingTags returns the union of every tag (the "recurring" system
-// tag excluded — see meetingSeriesTag) carried by any synced occurrence
-// of the meeting kind/id identifies, across every loaded file — the set
-// entriesForMeeting/tagLinkedMeetingCandidates match an entry's own tags
-// against for automatic (non-"gM") meeting linking.
+// meetingTags returns the union of every tag (the "recurring" system tag
+// excluded — see meetingSeriesTag) carried by any synced occurrence of
+// the meeting kind/id identifies, across every loaded file, plus any
+// tags meeting-tags.org durably records for it (see meetingTagOverlay) —
+// the set entriesForMeeting/tagLinkedMeetingCandidates match an entry's
+// own tags against for automatic (non-"gM") meeting linking. Computed
+// live from whatever's currently loaded, so a "gt" edit to
+// meeting-tags.org (or a resync of the calendar file) takes effect
+// immediately, with no separate cache to invalidate.
 func (m *Model) meetingTags(kind meetingIDKind, id string) map[string]bool {
 	idProp := kind.idProperty()
 	tags := make(map[string]bool)
@@ -372,6 +384,11 @@ func (m *Model) meetingTags(kind meetingIDKind, id string) map[string]bool {
 				}
 			}
 		})
+	}
+	for _, t := range m.meetingTagOverlay(kind, id) {
+		if t != meetingSeriesTag {
+			tags[t] = true
+		}
 	}
 	return tags
 }
@@ -458,6 +475,21 @@ func (k meetingIDKind) linksProperty() string {
 	return "GCAL_EVENT_LINKS"
 }
 
+// meetingTagsIDsProperty names the property a meeting-tags.org headline
+// (see internal/ui/meeting_tags.go) records its meeting ID set through,
+// for this kind — deliberately distinct from idsProperty above (which
+// entriesForMeeting's property-match branch scans for gM-style
+// attachments): a meeting-tags.org headline isn't attached to a meeting
+// the way a task/project is, it's a tag-set keyed by meeting ID, and
+// reusing idsProperty's name would make every one of these headlines
+// wrongly show up as a "linked item" nested under its own meeting.
+func (k meetingIDKind) meetingTagsIDsProperty() string {
+	if k == recurringMeeting {
+		return "MEETING_TAG_RECURRING_EVENT_IDS"
+	}
+	return "MEETING_TAG_EVENT_IDS"
+}
+
 // meetingSeriesTag is the tag :sync-calendar itself stamps onto every
 // occurrence of a recurring series (see internal/calendarsync's
 // buildHeadline) — excluded from tag-based meeting linking (see
@@ -494,9 +526,9 @@ type meetingCandidate struct {
 	id    string // GCAL_RECURRING_EVENT_ID if kind == recurringMeeting, else GCAL_EVENT_ID
 	kind  meetingIDKind
 	title string
-	link  string    // GCAL_HTML_LINK, "" if :sync-calendar didn't have one — see buildMeetingAttachAction
-	when  time.Time // the series' representative occurrence's start (or the one-off event's own start) — see meetingCandidates
-	end   time.Time // that same occurrence's end, zero if GCAL_END was missing/unparseable
+	link  string          // GCAL_HTML_LINK, "" if :sync-calendar didn't have one — see buildMeetingAttachAction
+	when  time.Time       // the series' representative occurrence's start (or the one-off event's own start) — see meetingCandidates
+	end   time.Time       // that same occurrence's end, zero if GCAL_END was missing/unparseable
 	tags  map[string]bool // meetingTags(kind, id) — attendee tags, "recurring" excluded — matched by filteredMeetingCandidates alongside title
 }
 

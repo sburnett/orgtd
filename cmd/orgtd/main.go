@@ -26,6 +26,7 @@ func main() {
 	agendaDays := flag.Int("agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
 	inboxFile := flag.String("inbox-file", "", "base name of the file :clarify treats as the inbox (default: the config file's inbox_file, else inbox.org)")
 	calendarFile := flag.String("calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
+	meetingTagsFile := flag.String("meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
 	hideDoneAfterHours := flag.Int("hide-done-after-hours", 0, "how many hours after a DONE/CANCELLED item's CLOSED timestamp it's hidden from the outline view; :toggledone shows everything again (default: the config file's hide_done_after_hours, else 24)")
 	editor := flag.String("editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
 	debug := flag.Bool("debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
@@ -53,6 +54,7 @@ func main() {
 		agendaDays:              *agendaDays,
 		inboxFile:               *inboxFile,
 		calendarFile:            *calendarFile,
+		meetingTagsFile:         *meetingTagsFile,
 		hideDoneAfterHours:      *hideDoneAfterHours,
 		editor:                  *editor,
 		debug:                   *debug,
@@ -74,8 +76,8 @@ func main() {
 		} else {
 			log.SetOutput(io.Discard)
 		}
-		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q calendar_file=%q hide_done_after_hours=%d",
-			s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.formatLinksURLFormatter, s.agendaDays, s.inboxFile, s.calendarFile, s.hideDoneAfterHours)
+		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q hide_done_after_hours=%d",
+			s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.formatLinksURLFormatter, s.agendaDays, s.inboxFile, s.calendarFile, s.meetingTagsFile, s.hideDoneAfterHours)
 	} else {
 		log.SetOutput(io.Discard)
 	}
@@ -111,6 +113,7 @@ func main() {
 			ui.WithAgendaDays(s.agendaDays),
 			ui.WithInboxFile(s.inboxFile),
 			ui.WithCalendarFile(s.calendarFile),
+			ui.WithMeetingTagsFile(s.meetingTagsFile),
 			ui.WithHideDoneAfterHours(s.hideDoneAfterHours),
 			ui.WithEditor(s.editor),
 			ui.WithDebug(s.debug),

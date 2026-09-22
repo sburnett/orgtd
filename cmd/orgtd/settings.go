@@ -19,6 +19,7 @@ type settings struct {
 	agendaDays              int
 	inboxFile               string
 	calendarFile            string
+	meetingTagsFile         string
 	hideDoneAfterHours      int
 	editor                  string
 	debug                   bool
@@ -64,13 +65,13 @@ type settings struct {
 // must treat differently (an explicit flag always wins; an
 // unset-and-still-zero one falls through to the config file).
 type flagValues struct {
-	dir, urlFormatter, inboxFile, calendarFile, editor string
-	formatLinksURLFormatter                            string
-	urlFormatterPrefixes                               []string
-	agendaDays                                         int
-	hideDoneAfterHours                                 int
-	debug                                              bool
-	explicit                                           map[string]bool
+	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor string
+	formatLinksURLFormatter                                             string
+	urlFormatterPrefixes                                                []string
+	agendaDays                                                          int
+	hideDoneAfterHours                                                  int
+	debug                                                               bool
+	explicit                                                            map[string]bool
 }
 
 // resolveSettings merges f, $ORGTD_DIR (orgtdDirEnv), and cfg into the
@@ -97,6 +98,7 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 		agendaDays:              f.agendaDays,
 		inboxFile:               f.inboxFile,
 		calendarFile:            f.calendarFile,
+		meetingTagsFile:         f.meetingTagsFile,
 		hideDoneAfterHours:      f.hideDoneAfterHours,
 		editor:                  f.editor,
 		debug:                   f.debug,
@@ -129,6 +131,9 @@ func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) setti
 	}
 	if !f.explicit["calendar-file"] && cfg.CalendarFile != "" {
 		s.calendarFile = cfg.CalendarFile
+	}
+	if !f.explicit["meeting-tags-file"] && cfg.MeetingTagsFile != "" {
+		s.meetingTagsFile = cfg.MeetingTagsFile
 	}
 	if !f.explicit["hide-done-after-hours"] && cfg.HideDoneAfterHours != 0 {
 		s.hideDoneAfterHours = cfg.HideDoneAfterHours

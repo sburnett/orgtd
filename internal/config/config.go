@@ -30,6 +30,15 @@ type Config struct {
 	// default, calendar.org.
 	CalendarFile string `toml:"calendar_file"`
 
+	// MeetingTagsFile is the base name of the file holding durable
+	// meeting tags — records mapping one or more Google Calendar
+	// recurring/event IDs to a set of tags, so "gt" on a :calendar entry
+	// survives :sync-calendar's wholesale regeneration of CalendarFile.
+	// Excluded from the outline view and shown instead, as an editable
+	// outline of its own, in the :meeting-tags view. Empty falls back to
+	// the built-in default, meeting-tags.org.
+	MeetingTagsFile string `toml:"meeting_tags_file"`
+
 	// HideDoneAfterHours is how many hours after a DONE/CANCELLED
 	// headline's CLOSED timestamp it's hidden from the outline view (the
 	// feature can still be toggled off at runtime with :toggledone,
