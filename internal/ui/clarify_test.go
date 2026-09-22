@@ -39,10 +39,8 @@ func TestClarifyHeaderRendersPinnedItem(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 
 	if strings.TrimRight(lines[0], " ") != "Clarifying:" {
 		t.Fatalf("line 0 = %q, want %q (plus trailing background padding)", lines[0], "Clarifying:")
@@ -59,10 +57,8 @@ func TestClarifyHeaderShowsCreatedProperty(t *testing.T) {
 	ws := agendaFixture(t, "* TODO New idea\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
 	m := New(ws, WithInboxFile("agenda.org"))
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "Created: [2026-09-07 Mon 14:32]") {
 		t.Errorf("line 1 = %q, want the CREATED property shown", lines[1])
 	}
@@ -72,10 +68,8 @@ func TestClarifyHeaderOmitsCreatedLabelWhenPropertyAbsent(t *testing.T) {
 	ws := agendaFixture(t, "* TODO No created property\n")
 	m := New(ws, WithInboxFile("agenda.org"))
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 	if strings.Contains(lines[1], "Created:") {
 		t.Errorf("line 1 = %q, should not mention Created when the property is absent", lines[1])
 	}
@@ -85,10 +79,8 @@ func TestClarifyHeaderShowsDeadline(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Follow up\n  DEADLINE: <2026-09-20 Sun>\n")
 	m := New(ws, WithInboxFile("agenda.org"))
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "DEADLINE: <2026-09-20 Sun>") {
 		t.Errorf("line 1 = %q, want the DEADLINE shown", lines[1])
 	}
@@ -98,10 +90,8 @@ func TestClarifyHeaderShowsScheduled(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Follow up\n  SCHEDULED: <2026-09-10 Thu>\n")
 	m := New(ws, WithInboxFile("agenda.org"))
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "SCHEDULED: <2026-09-10 Thu>") {
 		t.Errorf("line 1 = %q, want the SCHEDULED date shown", lines[1])
 	}
@@ -111,10 +101,8 @@ func TestClarifyHeaderShowsCreatedAndDeadlineTogether(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Follow up\n  DEADLINE: <2026-09-20 Sun>\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
 	m := New(ws, WithInboxFile("agenda.org"))
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "Created: [2026-09-07 Mon 14:32]") || !strings.Contains(lines[1], "DEADLINE: <2026-09-20 Sun>") {
 		t.Errorf("line 1 = %q, want both CREATED and DEADLINE shown", lines[1])
 	}
@@ -124,10 +112,8 @@ func TestClarifyHeaderOmitsDateWhenAbsent(t *testing.T) {
 	ws := agendaFixture(t, "* TODO No date at all\n")
 	m := New(ws, WithInboxFile("agenda.org"))
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
 
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 	for _, want := range []string{"SCHEDULED:", "DEADLINE:", "CLOSED:"} {
 		if strings.Contains(lines[1], want) {
 			t.Errorf("line 1 = %q, should not mention %q when absent", lines[1], want)
@@ -148,7 +134,7 @@ func TestMarkedRowDoesNotShowDeadline(t *testing.T) {
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
 
-	lines := m.pinnedHeaderLines()
+	lines := m.infoBufferLines()
 	markLine := stripANSI(lines[1]) // 0: "Active marks:" label, 1: the "a" mark row
 	if strings.Contains(markLine, "DEADLINE:") {
 		t.Errorf("marks pinned row = %q, should not show DEADLINE", markLine)
@@ -162,7 +148,7 @@ func TestMarkedRowDoesNotShowCreatedProperty(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Has created\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
 	m := New(ws)
 	m.cursor = 1 // the headline row, after the file row
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
@@ -177,9 +163,9 @@ func TestClarifySeparatorLineCarriesOverlayBackground(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	m.width = 100
 
-	lines := m.pinnedHeaderLines()
+	lines := m.infoBufferLines()
 	separator := lines[len(lines)-1]
 	if strings.TrimSpace(stripANSI(separator)) != "" {
 		t.Fatalf("separator = %q, want blank text content", separator)
@@ -223,7 +209,7 @@ func TestClarifyEmptyInboxShowsMessage(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Not in the inbox\n") // agenda.org, not inbox.org
 	m := New(ws)
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 
 	if m.clarifyTarget != nil {
 		t.Fatalf("clarifyTarget = %v, want nil (no inbox.org loaded)", m.clarifyTarget)
@@ -506,11 +492,11 @@ func TestWithInboxFileOption(t *testing.T) {
 	}
 }
 
-func TestClarifyPageHeightAccountsForPinnedHeader(t *testing.T) {
+func TestClarifyPageHeightAccountsForInfoBuffer(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.enterClarifyView()
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+10
+	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+10
 
 	out := m.View()
 	lines := strings.Split(out, "\n")

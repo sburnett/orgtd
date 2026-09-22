@@ -184,7 +184,7 @@ func TestYankWorksInClarifyView(t *testing.T) {
 	}
 }
 
-func TestYankShowsInPinnedHeader(t *testing.T) {
+func TestYankShowsInInfoBuffer(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
@@ -192,7 +192,7 @@ func TestYankShowsInPinnedHeader(t *testing.T) {
 	m = sendKey(m, "y")
 	m = sendKey(m, "y")
 
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 	out := stripANSI(m.View())
 	if !strings.Contains(out, "Register:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
 		t.Fatalf("view after yy = %q, want a pinned \"Register:\" section showing the yanked entry", out)
@@ -210,7 +210,7 @@ func TestDeleteAlsoShowsInPinnedRegister(t *testing.T) {
 	m = sendKey(m, "d")
 	m = sendKey(m, "d")
 
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 	out := stripANSI(m.View())
 	if !strings.Contains(out, "Register:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
 		t.Fatalf("view after dd = %q, want a pinned \"Register:\" section showing the deleted entry", out)
@@ -250,7 +250,7 @@ func TestRegisterPinnedSectionIsHeightBounded(t *testing.T) {
 		t.Errorf("summary line = %q, want it to mention %d more entries", summary, wantOverflow)
 	}
 
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 	if !strings.Contains(stripANSI(m.View()), fmt.Sprintf("...and %d more", wantOverflow)) {
 		t.Errorf("rendered view is missing the overflow summary line")
 	}

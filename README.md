@@ -133,7 +133,7 @@ body_color              = "#767676"  # an entry's free-text body lines
 caret_fg                = "#000000"  # the command line's text-cursor caret
 caret_bg                = "#ffffff"
 highlight_bg            = "#585858"  # the highlighted candidate in an overlay list (the "R"/status picker, "gM"'s meeting picker)
-panel_bg                = "#303030"  # the pinned header (clarify/marks/register) and the info buffer (links, meeting detail, completions, pickers)
+panel_bg                = "#303030"  # the info buffer (clarify/marks/register, links, meeting detail, completions, pickers)
 status_bar_fg           = "#000000"  # the one-line status bar at the bottom of the screen
 status_bar_bg           = "#9e9e9e"
 cursor_row_bg           = "#204060"  # the row under the cursor
@@ -218,8 +218,9 @@ logging is on.
   out entirely, and an item linked to more than one meeting legitimately
   shows up under each.
 - **Clarify** (`:clarify`) — pins the inbox's first non-`DONE`/`CANCELLED`
-  top-level headline to the top of the screen, alongside its `CREATED`
-  property (so you can see how long it's been sitting there) and any
+  top-level headline in the info buffer at the bottom of the screen (see
+  below), alongside its `CREATED` property (so you can see how long it's
+  been sitting there) and any
   `SCHEDULED`/`DEADLINE` it already has, while you navigate the rest of
   the outline to file it away; deleting the pinned item, or marking it
   `DONE`/`CANCELLED`, advances to the next pending one. `:next` / `:prev`
@@ -267,8 +268,6 @@ logging is on.
   the terminal is resized while it's open. `:outline` returns to the
   outline.
 
-Marks (see below) stay pinned at the top of the screen in every view.
-
 The bottom of the screen has up to three parts. The status line (current
 view/directory and item position only) is always exactly one line,
 always visible regardless of mode; the command line below it — where
@@ -282,6 +281,15 @@ Above both, an info buffer holds whatever might need more than one
 line, grouped into labeled sections — collapsed entirely (zero height)
 when none of them apply, so it never costs a permanent row on screen:
 
+- **Clarifying** — in `:clarify` view (see below), the inbox item
+  currently pinned for clarification, alongside its `CREATED` property
+  and any `SCHEDULED`/`DEADLINE` it already has (or a message when the
+  inbox is empty) — kept a fixed two lines so the layout doesn't jump
+  around as the inbox empties out.
+- **Active marks** — every active mark (see Marks, below), sorted by
+  letter, one row each — visible in every view until cleared.
+- **Register** — whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put
+  in the paste register (see Marks, below), one row per entry.
 - **Links** — every org-mode link literally in the current entry's
   title.
 - **Meeting** — one line per calendar meeting the current entry is
@@ -423,16 +431,17 @@ always clear.
 | `'<letter>` | Jump to a mark |
 | `:delmarks <letters>` / `:delmarks!` | Delete specific marks / delete all marks |
 
-Every active mark stays pinned to the top of the screen, in every view,
-until cleared or moved elsewhere.
+Every active mark stays pinned in the info buffer at the bottom of the
+screen (see Views, above), in every view, until cleared or moved
+elsewhere.
 
 Whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put in the paste
-register stays pinned to the top of the screen too, under its own
-"Register:" label, right alongside marks — so it's obvious what `p`/`P`
-will paste next even for `yy`/visual-mode `y`, which otherwise leave the
-screen looking unchanged. Capped at 5 entries shown at once (a big
-`<N>dd` or visual-mode delete/yank collapses the rest into a trailing
-"...and N more" line) so a large register can't push the actual listing
+register stays pinned in the info buffer too, under its own "Register:"
+label, right alongside marks — so it's obvious what `p`/`P` will paste
+next even for `yy`/visual-mode `y`, which otherwise leave the screen
+looking unchanged. Capped at 5 entries shown at once (a big `<N>dd` or
+visual-mode delete/yank collapses the rest into a trailing "...and N
+more" line) so a large register can't push the actual listing
 off-screen. `:clear-registers`
 empties it (and its pinned display) without needing another `dd`/`yy`.
 

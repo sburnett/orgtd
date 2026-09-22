@@ -25,6 +25,18 @@ func stripANSI(s string) string {
 	return ansiEscapeRe.ReplaceAllString(s, "")
 }
 
+// stripANSILines applies stripANSI to each of lines — for tests that
+// inspect infoBufferLines()-style output (already rendered, one screen
+// row per element) without depending on lipgloss's exact styling
+// sequences.
+func stripANSILines(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = stripANSI(l)
+	}
+	return out
+}
+
 // TestMain forces a color profile so styling assertions in View() tests
 // are meaningful even though go test's stdout isn't a terminal (lipgloss
 // would otherwise auto-detect "no color" and strip all SGR codes).

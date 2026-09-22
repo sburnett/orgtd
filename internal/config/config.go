@@ -73,11 +73,11 @@ type Config struct {
 
 	// Colors customizes the rest of orgtd's built-in color scheme (see
 	// internal/ui's ColorOverrides) — every keyword/tag/timestamp color,
-	// the pinned header/info buffer panels, the status bar, the
-	// current-row and visual-selection highlights, and search
-	// highlighting. Kept under its own section, like Icons, since it's an
-	// optional block of unrelated settings rather than something that
-	// belongs at the top level.
+	// the info buffer panel, the status bar, the current-row and
+	// visual-selection highlights, and search highlighting. Kept under
+	// its own section, like Icons, since it's an optional block of
+	// unrelated settings rather than something that belongs at the top
+	// level.
 	Colors ColorsConfig `toml:"colors"`
 }
 
@@ -94,14 +94,16 @@ type IconsConfig struct {
 	DirtyColor string `toml:"dirty_color"`
 
 	// MarkColor styles a vim-style mark's letter ("m<letter>"), both in
-	// the gutter and pinned to the top of the screen (default: a pink).
-	// There's no MarkIcon since the glyph is always the mark's own
-	// letter, chosen by whoever set the mark, not a fixed character.
+	// the gutter and pinned in the info buffer at the bottom of the
+	// screen (default: a pink). There's no MarkIcon since the glyph is
+	// always the mark's own letter, chosen by whoever set the mark, not
+	// a fixed character.
 	MarkColor string `toml:"mark_color"`
 
 	// ClarifyIcon/ClarifyColor style the marker on :clarify's pinned
-	// inbox item, both in the gutter and pinned to the top of the screen
-	// (default: "●", the same pink as MarkColor).
+	// inbox item, both in the gutter and pinned in the info buffer at
+	// the bottom of the screen (default: "●", the same pink as
+	// MarkColor).
 	ClarifyIcon  string `toml:"clarify_icon"`
 	ClarifyColor string `toml:"clarify_color"`
 
@@ -171,9 +173,9 @@ type ColorsConfig struct {
 	// meeting picker (default: a grey).
 	HighlightBg string `toml:"highlight_bg"`
 
-	// PanelBg tints the pinned header (clarify/marks/register) and the
-	// info buffer (links, meeting detail, tag/command-completion matches,
-	// the status and "gM" meeting pickers) (default: a dark grey).
+	// PanelBg tints the info buffer (clarify/marks/register, links,
+	// meeting detail, tag/command-completion matches, the status and
+	// "gM" meeting pickers) (default: a dark grey).
 	PanelBg string `toml:"panel_bg"`
 
 	// StatusBarBg/StatusBarFg color the one-line status bar at the bottom

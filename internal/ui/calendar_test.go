@@ -273,7 +273,7 @@ func TestCalendarViewFillsScreenWhenPaginated(t *testing.T) {
 	ws.Files = append(ws.Files, manyDaysCalendarFile(ws.Dir, 10))
 	m := New(ws)
 	m.switchToView(calendarView)
-	m.width, m.height = 100, 10 // contentBudget = 10 - statusHeight(2) - pinnedHeader(0) = 8
+	m.width, m.height = 100, 10 // contentBudget = 10 - statusHeight(2) - infoBufferHeight(0) = 8
 
 	if got := m.visibleRowCount(0); got != 6 {
 		t.Fatalf("visibleRowCount(0) = %d, want 6 (3 full days: 3 section rows + 3 event rows, using the 8-line budget exactly)", got)

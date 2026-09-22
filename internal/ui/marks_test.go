@@ -214,7 +214,7 @@ func TestJumpToUnsetMarkShowsMessage(t *testing.T) {
 	}
 }
 
-func TestMultipleMarksStackInPinnedHeader(t *testing.T) {
+func TestMultipleMarksStackInInfoBuffer(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
@@ -224,9 +224,7 @@ func TestMultipleMarksStackInPinnedHeader(t *testing.T) {
 	m = sendKey(m, "m")
 	m = sendKey(m, "b")
 
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
-	out := stripANSI(m.View())
-	lines := strings.Split(out, "\n")
+	lines := stripANSILines(m.infoBufferLines())
 
 	if strings.TrimRight(lines[0], " ") != "Active marks:" {
 		t.Fatalf("line 0 = %q, want %q (plus trailing background padding)", lines[0], "Active marks:")
@@ -236,9 +234,6 @@ func TestMultipleMarksStackInPinnedHeader(t *testing.T) {
 	}
 	if !strings.Contains(lines[2], "Follow up with finance about the Q3 budget doc") {
 		t.Errorf("line 2 = %q, want mark b's item second", lines[2])
-	}
-	if strings.TrimRight(lines[3], " ") != "" {
-		t.Errorf("line 3 = %q, want a blank (background-padded) separator after the pinned marks", lines[3])
 	}
 }
 
@@ -296,8 +291,8 @@ func TestMarksVisibleInEveryView(t *testing.T) {
 
 	for _, v := range []viewKind{outlineView, agendaView, clarifyView} {
 		m.switchToView(v)
-		if len(m.pinnedHeaderLines()) == 0 {
-			t.Errorf("view %v: pinnedHeaderLines is empty, want the 'a' mark to still show", v)
+		if len(m.infoBufferLines()) == 0 {
+			t.Errorf("view %v: infoBufferLines is empty, want the 'a' mark to still show", v)
 		}
 	}
 }

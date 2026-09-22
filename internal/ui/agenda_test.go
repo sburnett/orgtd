@@ -510,7 +510,7 @@ func TestAgendaItemRowShowsMarkLetterInGutter(t *testing.T) {
 	}
 }
 
-func TestPinnedHeaderVisibleInAgendaView(t *testing.T) {
+func TestPinnedMarksVisibleInAgendaView(t *testing.T) {
 	now := truncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
@@ -520,10 +520,10 @@ func TestPinnedHeaderVisibleInAgendaView(t *testing.T) {
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
 
-	m.width, m.height = 100, len(m.rows)+m.pinnedHeaderHeight()+3
+	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 	out := stripANSI(m.View())
 	if !strings.Contains(out, "Active marks:") || !strings.Contains(out, "Draft the doc") {
-		t.Errorf("View() in agenda view missing the pinned marks header:\n%s", out)
+		t.Errorf("View() in agenda view missing the pinned marks section:\n%s", out)
 	}
 }
 

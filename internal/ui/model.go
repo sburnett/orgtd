@@ -82,10 +82,10 @@ const (
 	// inverting video the way a plain terminal cursor block does.
 	defaultHighlightBg = "#585858"
 
-	// defaultPanelBg tints the pinned header (clarify/marks/register) and
-	// the info buffer (links, meeting detail, tag/command-completion
-	// matches, the status and "gM" meeting pickers) — wildcharm's Pmenu:
-	// its popup-menu panel color.
+	// defaultPanelBg tints the info buffer (clarify/marks/register,
+	// links, meeting detail, tag/command-completion matches, the status
+	// and "gM" meeting pickers) — wildcharm's Pmenu: its popup-menu
+	// panel color.
 	defaultPanelBg = "#303030"
 
 	// defaultStatusBarBg/Fg tint the one-line status bar at the bottom of
@@ -228,9 +228,9 @@ func (m Model) cursorStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Background(lipgloss.Color(orDefault(m.colors.HighlightBg, defaultHighlightBg)))
 }
 
-// overlayBg is the background tint for the pinned header
-// (clarify/marks/register) and the info buffer (links, meeting detail,
-// tag/command-completion matches, the status and "gM" meeting pickers).
+// overlayBg is the background tint for the info buffer (clarify/marks/
+// register, links, meeting detail, tag/command-completion matches, the
+// status and "gM" meeting pickers).
 func (m Model) overlayBg() lipgloss.TerminalColor {
 	return lipgloss.Color(orDefault(m.colors.PanelBg, defaultPanelBg))
 }
@@ -557,9 +557,9 @@ type Model struct {
 	// key", not "ctrl+c was pressed at some earlier point in the session".
 	pendingForceQuit bool
 
-	register []*org.Headline // last deleted (dd/<N>dd/visual d) or yanked (yy) top-level entry/entries, pasted (as copies, in the same order) by p/P; stays pinned to the top of the screen (see pinnedHeaderLines) until overwritten by a later delete/yank
+	register []*org.Headline // last deleted (dd/<N>dd/visual d) or yanked (yy) top-level entry/entries, pasted (as copies, in the same order) by p/P; stays pinned in the info buffer at the bottom of the screen (see infoBufferLines) until overwritten by a later delete/yank
 
-	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned to the top of the screen (see pinnedHeaderLines) until cleared
+	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned in the info buffer at the bottom of the screen (see infoBufferLines) until cleared
 
 	// jumpList/jumpPos implement vim's own jumplist (ctrl-o/"gi" here —
 	// see jumpBack/jumpForward): jumpList holds one entry per recorded
@@ -727,12 +727,12 @@ type Model struct {
 
 	// dirty/mark/clarify/lock/meeting Icon/Color customize the outline's
 	// gutter markers (see gutter, markColumn, lockColumn, meetingColumn,
-	// and renderPinnedRow for the same markers pinned to the top of the
-	// screen) — set from the config file's [icons] section (see
-	// WithDirtyIcon and its siblings, below), each defaulting to New's
-	// own built-in glyph/color when unset. markColor has no matching
-	// markIcon: a mark's glyph is always the letter it was set with
-	// ("m<letter>"), not a fixed character.
+	// and renderPinnedRow for the same markers pinned in the info buffer
+	// at the bottom of the screen) — set from the config file's [icons]
+	// section (see WithDirtyIcon and its siblings, below), each
+	// defaulting to New's own built-in glyph/color when unset. markColor
+	// has no matching markIcon: a mark's glyph is always the letter it
+	// was set with ("m<letter>"), not a fixed character.
 	dirtyIcon, dirtyColor     string
 	markColor                 string
 	clarifyIcon, clarifyColor string
@@ -945,9 +945,9 @@ func WithDirtyIcon(icon, color string) Option {
 }
 
 // WithMarkColor sets the color of a vim-style mark's letter ("m<letter>"),
-// both in the gutter and pinned to the top of the screen (default:
-// "212"). There's no matching icon option — a mark's glyph is always the
-// letter it was set with, not a fixed character.
+// both in the gutter and pinned in the info buffer at the bottom of the
+// screen (default: "212"). There's no matching icon option — a mark's
+// glyph is always the letter it was set with, not a fixed character.
 func WithMarkColor(color string) Option {
 	return func(m *Model) {
 		if color != "" {
@@ -957,9 +957,9 @@ func WithMarkColor(color string) Option {
 }
 
 // WithClarifyIcon sets the character and color of the marker on
-// :clarify's pinned inbox item, both in the gutter and pinned to the top
-// of the screen (default: "●", color "212"). An empty icon or color
-// leaves that half at its default.
+// :clarify's pinned inbox item, both in the gutter and pinned in the
+// info buffer at the bottom of the screen (default: "●", color "212").
+// An empty icon or color leaves that half at its default.
 func WithClarifyIcon(icon, color string) Option {
 	return func(m *Model) {
 		if icon != "" {
@@ -1147,9 +1147,9 @@ func (m *Model) advanceClarifyTarget() {
 
 // advanceClarifyTargetIfDone re-pins past the current clarify target if
 // a status change (r/R, single or bulk) just left it DONE/CANCELLED —
-// there's no reason to keep a resolved item pinned at the top waiting to
-// be filed away. A no-op outside clarify view, if nothing's pinned, or
-// if the target is still active.
+// there's no reason to keep a resolved item pinned in the info buffer
+// waiting to be filed away. A no-op outside clarify view, if nothing's
+// pinned, or if the target is still active.
 func (m *Model) advanceClarifyTargetIfDone() {
 	if m.view == clarifyView && m.clarifyTarget != nil && org.IsDoneKeyword(m.clarifyTarget.Keyword) {
 		m.advanceClarifyTarget()
@@ -1215,9 +1215,9 @@ func (m *Model) jumpToClarifyTarget() {
 }
 
 // setMark ("m<letter>") marks the current headline as letter: '<letter>
-// jumps back to it later, and it stays pinned to the top of the screen
-// (in every view, alongside any other active marks — see
-// pinnedHeaderLines) until the mark is deleted or moved elsewhere with
+// jumps back to it later, and it stays pinned in the info buffer at the
+// bottom of the screen (in every view, alongside any other active marks —
+// see infoBufferLines) until the mark is deleted or moved elsewhere with
 // another "m<letter>". A no-op on a file/section row (nothing to mark).
 //
 // Each entry holds at most one mark: marking an entry that already has
@@ -6419,7 +6419,7 @@ func (m *Model) jumpToSubtreeBottom() {
 // room here for every boundary in the whole list would under-fill the
 // actual screen.
 func (m *Model) pageSize() int {
-	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.pinnedHeaderHeight() - m.infoBufferHeight()
+	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.infoBufferHeight()
 	if n < 1 {
 		n = 1
 	}
@@ -6427,14 +6427,13 @@ func (m *Model) pageSize() int {
 }
 
 // contentBudget is exactly how many terminal lines the scrollable
-// content area may occupy: the screen height minus the pinned header,
-// the info buffer, and the bottom status/command-line area — with no
-// separate reservation for section-separator blank lines, unlike
-// pageSize. Used by visibleRowCount to work out precisely how many rows
-// fit from a given starting row, and directly as the padding target in
-// View().
+// content area may occupy: the screen height minus the info buffer and
+// the bottom status/command-line area — with no separate reservation
+// for section-separator blank lines, unlike pageSize. Used by
+// visibleRowCount to work out precisely how many rows fit from a given
+// starting row, and directly as the padding target in View().
 func (m *Model) contentBudget() int {
-	n := m.height - m.statusHeight() - m.pinnedHeaderHeight() - m.infoBufferHeight()
+	n := m.height - m.statusHeight() - m.infoBufferHeight()
 	if n < 1 {
 		n = 1
 	}
@@ -6469,15 +6468,16 @@ func (m *Model) visibleRowCount(start int) int {
 }
 
 // maxRegisterPinnedLines caps how many of the register's entries the
-// pinned header (see pinnedHeaderLines) shows at once. A single yank
-// only ever queues one entry, but <N>dd and a visual-mode "d" can queue
-// dozens of top-level entries at a stroke — showing all of them would
-// push the actual outline listing off-screen entirely, so anything past
-// this count collapses into one "...and N more" summary line instead.
+// info buffer's "Register:" section (see registerPinnedLines) shows at
+// once. A single yank only ever queues one entry, but <N>dd and a
+// visual-mode "d" can queue dozens of top-level entries at a stroke —
+// showing all of them would push the actual outline listing off-screen
+// entirely, so anything past this count collapses into one "...and N
+// more" summary line instead.
 const maxRegisterPinnedLines = 5
 
 // registerPinnedLineCount is how many lines the register section of the
-// pinned header occupies below its own label: one per entry, or
+// info buffer occupies below its own label: one per entry, or
 // maxRegisterPinnedLines plus one summary line once there are more than
 // that.
 func (m *Model) registerPinnedLineCount() int {
@@ -6487,63 +6487,7 @@ func (m *Model) registerPinnedLineCount() int {
 	return len(m.register)
 }
 
-// pinnedHeaderHeight is how many lines the pinned header occupies at the
-// top of the screen: the clarify block (label + item-or-empty-message,
-// kept a fixed 2 lines so the layout doesn't jump around as the inbox
-// empties out) if in clarify view, plus one line per active mark, plus
-// the register section (see registerPinnedLineCount) if anything's
-// queued for paste, plus one trailing blank separator line if there's
-// anything pinned at all — 0 if there's nothing pinned.
-func (m *Model) pinnedHeaderHeight() int {
-	n := 0
-	if m.view == clarifyView {
-		n += 2 // "Clarifying:" label + the item/empty-message line
-	}
-	if len(m.marks) > 0 {
-		n += 1 + len(m.marks) // "Active marks:" label + one line per mark
-	}
-	if len(m.register) > 0 {
-		n += 1 + m.registerPinnedLineCount() // "Register:" label + its (bounded) lines
-	}
-	if n == 0 {
-		return 0
-	}
-	return n + 1
-}
-
-// pinnedHeaderLines renders the pinned header fixed to the top of the
-// screen: the current clarify target (if in clarify view, rendered
-// exactly as it appears in the listing below, or an empty-inbox
-// message), then every active mark (sorted by letter, one line each),
-// then whatever's queued in the paste register (see registerPinnedLines),
-// then a trailing blank separator — or nil if there's nothing pinned.
-func (m Model) pinnedHeaderLines() []string {
-	var lines []string
-	if m.view == clarifyView {
-		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Clarifying:"), m.overlayBg()))
-		if m.clarifyTarget == nil {
-			lines = append(lines, m.padLineToWidth(m.statusStyle().Background(m.overlayBg()).Render("  Inbox is empty."), m.overlayBg()))
-		} else {
-			lines = append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
-		}
-	}
-	if letters := m.sortedMarkLetters(); len(letters) > 0 {
-		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Active marks:"), m.overlayBg()))
-		for _, letter := range letters {
-			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
-		}
-	}
-	lines = append(lines, m.registerPinnedLines()...)
-	if len(lines) == 0 {
-		return nil
-	}
-	// The trailing separator carries the overlay background too, so the
-	// tinted block reads as one solid panel rather than cutting off
-	// right before an untinted blank line.
-	return append(lines, m.padLineToWidth("", m.overlayBg()))
-}
-
-// registerPinnedLines renders the register section of the pinned header:
+// registerPinnedLines renders the register section of the info buffer:
 // a "Register:" label, then one row per queued entry (up to
 // maxRegisterPinnedLines, so a big <N>dd or visual-mode delete can't push
 // the actual outline listing off-screen), then a summary line for
@@ -6572,7 +6516,7 @@ func (m Model) registerPinnedLines() []string {
 }
 
 // sortedMarkLetters returns the letters of every active mark, sorted —
-// for a deterministic display order in pinnedHeaderLines.
+// for a deterministic display order in infoBufferLines.
 func (m Model) sortedMarkLetters() []rune {
 	letters := make([]rune, 0, len(m.marks))
 	for letter := range m.marks {
@@ -6582,22 +6526,23 @@ func (m Model) sortedMarkLetters() []rune {
 	return letters
 }
 
-// renderPinnedRow renders one line of the pinned header: marker (the
-// clarify target's m.clarifyIcon, or a mark's letter — the register's
-// own callers pass a literal quote mark instead) in place of the
-// gutter/indent/fold a normal listing row would have, then h's keyword
-// and title — the same format regardless of which pinned section it's
-// in, and regardless of h's actual level in its file's tree. The marker
-// is colored with m.clarifyColor when forClarify, m.markColor otherwise
-// (see WithClarifyIcon/WithMarkColor), so it matches whichever gutter
-// column (markColumn) it echoes. The whole line carries the overlay
-// background, padded to fill the terminal width. forClarify appends h's
-// CREATED property (if it has one) and any SCHEDULED/DEADLINE/CLOSED
-// planning line (via planningSummary, the same rendering the outline
-// view itself uses) — on for the clarify target, where knowing how long
-// an item has sat in the inbox and whether it already has a date is
-// useful triage context; off for marks, which can point at any headline
-// in the outline and aren't about triage.
+// renderPinnedRow renders one line of the info buffer's clarify/marks/
+// register sections: marker (the clarify target's m.clarifyIcon, or a
+// mark's letter — the register's own callers pass a literal quote mark
+// instead) in place of the gutter/indent/fold a normal listing row would
+// have, then h's keyword and title — the same format regardless of which
+// pinned section it's in, and regardless of h's actual level in its
+// file's tree. The marker is colored with m.clarifyColor when
+// forClarify, m.markColor otherwise (see WithClarifyIcon/WithMarkColor),
+// so it matches whichever gutter column (markColumn) it echoes. The
+// whole line carries the overlay background, padded to fill the
+// terminal width. forClarify appends h's CREATED property (if it has
+// one) and any SCHEDULED/DEADLINE/CLOSED planning line (via
+// planningSummary, the same rendering the outline view itself uses) —
+// on for the clarify target, where knowing how long an item has sat in
+// the inbox and whether it already has a date is useful triage context;
+// off for marks, which can point at any headline in the outline and
+// aren't about triage.
 func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) string {
 	markerColor := orDefault(m.markColor, defaultMarkColor)
 	if forClarify {
@@ -6718,11 +6663,6 @@ func (m *Model) scrollView(delta int) {
 
 func (m Model) View() string {
 	var b strings.Builder
-	for _, line := range m.pinnedHeaderLines() {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-
 	if len(m.rows) == 0 {
 		// No items to list (an empty agenda, or a workspace with no org
 		// files at all) — still falls through to the status/command-line
@@ -6787,12 +6727,15 @@ func (m Model) View() string {
 		}
 	}
 
-	// Info buffer — holds whatever might need more than one line: links
-	// and calendar-meeting detail for the current entry (always, in every
-	// mode), plus tag/command Tab-completion matches (only while that
-	// mode is active). See infoBufferLines. Renders nothing at all (zero
-	// height — see infoBufferHeight) when none of that applies, same
-	// convention as pinnedHeaderLines above.
+	// Info buffer — sits directly above the status/command-line area and
+	// holds whatever might need more than one line: the clarify target,
+	// active marks, and the paste register (always, in every view, kept
+	// first since they're triage/navigation state rather than detail
+	// tied to the current entry), then links and calendar-meeting detail
+	// for the current entry (always), plus tag/command Tab-completion
+	// matches and the status/meeting pickers (only while that mode is
+	// active). See infoBufferLines. Renders nothing at all (zero height
+	// — see infoBufferHeight) when none of that applies.
 	for _, line := range m.infoBufferLines() {
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -6946,6 +6889,21 @@ func (m *Model) infoBufferHeight() int {
 // applicable kind gets its own labeled section (already backgrounded/
 // padded, ready to write straight to the screen):
 //
+//   - "Clarifying:" — in clarifyView, the current clarify target
+//     (rendered exactly as it appears in the listing below, via
+//     renderPinnedRow) or an empty-inbox message — kept a fixed 2 lines
+//     (label + item-or-empty-message) so the layout doesn't jump around
+//     as the inbox empties out.
+//   - "Active marks:" — every active vim-style mark (see setMark),
+//     sorted by letter (sortedMarkLetters), one row each.
+//   - "Register:" — whatever's queued in the paste register (see
+//     registerPinnedLines), one row per entry up to
+//     maxRegisterPinnedLines.
+//
+//     These three sit first, ahead of everything below, since they're
+//     always-relevant triage/navigation state rather than detail tied
+//     to whatever the cursor happens to be on right now.
+//
 //   - "Links:" — every org-mode link literally in the current entry's
 //     title (linksInTitle). Shown in every mode, not just when it
 //     wouldn't otherwise fit on the status line — unlike the old
@@ -6973,10 +6931,25 @@ func (m *Model) infoBufferHeight() int {
 //     renderMeetingPicker, which only showed the highlighted one.
 //
 // A section that doesn't apply is simply omitted; nil (zero height) if
-// none of them do at all — same "collapses to nothing" convention as
-// pinnedHeaderLines above.
+// none of them do at all.
 func (m *Model) infoBufferLines() []string {
 	var lines []string
+
+	if m.view == clarifyView {
+		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Clarifying:"), m.overlayBg()))
+		if m.clarifyTarget == nil {
+			lines = append(lines, m.padLineToWidth(m.statusStyle().Background(m.overlayBg()).Render("  Inbox is empty."), m.overlayBg()))
+		} else {
+			lines = append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
+		}
+	}
+	if letters := m.sortedMarkLetters(); len(letters) > 0 {
+		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Active marks:"), m.overlayBg()))
+		for _, letter := range letters {
+			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
+		}
+	}
+	lines = append(lines, m.registerPinnedLines()...)
 
 	if h := m.currentHeadline(); h != nil {
 		lines = m.appendInfoSection(lines, "Links:", linksInTitle(h.Title))
@@ -6998,10 +6971,9 @@ func (m *Model) infoBufferLines() []string {
 	if len(lines) == 0 {
 		return nil
 	}
-	// The trailing separator carries the overlay background too, same
-	// reason as pinnedHeaderLines' own: the tinted block reads as one
-	// solid panel rather than cutting off right before an untinted
-	// blank line.
+	// The trailing separator carries the overlay background too, so the
+	// tinted block reads as one solid panel rather than cutting off
+	// right before an untinted blank line.
 	return append(lines, m.padLineToWidth("", m.overlayBg()))
 }
 
@@ -7359,8 +7331,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 // its links shown as display text, see renderTitleForDisplay) as
 // space-joinable parts — shared between the outline, agenda, and pinned
 // row renderers. bg is the background every part is rendered with —
-// lipgloss.NoColor{} outside the pinned header, where nothing is
-// tinted.
+// lipgloss.NoColor{} outside a pinned row, where nothing is tinted.
 func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor) []string {
 	query := m.activeSearchQuery()
 	var parts []string
