@@ -173,3 +173,92 @@ func (m *Model) applyMeetingTag(target *org.Headline, kind meetingIDKind, id, ta
 	}
 	m.pushUndo(&tagChangeAction{h: existing, f: tagsFile, oldTags: old, newTags: newTags})
 }
+
+// meetingTagsMatchingEvents returns every currently-synced calendar
+// event (across the whole workspace, any file) whose identity
+// (meetingIdentity) matches one of h's own MEETING_TAG_RECURRING_EVENT_IDS/
+// MEETING_TAG_EVENT_IDS IDs — nil if h isn't a meeting-tags.org record at
+// all (isMeetingTagsRecord), or none of its IDs currently resolve to a
+// synced occurrence. That second case is meeting-tags.org's own window
+// into a stale record: an ID whose series was deleted and recreated (a
+// new GCAL_RECURRING_EVENT_ID), or a one-off event that's aged out of
+// the sync window, simply shows nothing nested under it in
+// meetingTagsView, rather than silently doing nothing forever. Sorted
+// chronologically by start time, like :calendar's own day-by-day
+// ordering.
+func (m *Model) meetingTagsMatchingEvents(h *org.Headline) []*org.Headline {
+	recurIDs := strings.Fields(h.Properties[recurringMeeting.meetingTagsIDsProperty()])
+	eventIDs := strings.Fields(h.Properties[oneOffMeeting.meetingTagsIDsProperty()])
+	if len(recurIDs) == 0 && len(eventIDs) == 0 {
+		return nil
+	}
+	var matches []*org.Headline
+	for _, f := range m.ws.Files {
+		org.Walk(f.Headlines, func(cand *org.Headline) {
+			kind, id, ok := meetingIdentity(cand)
+			if !ok {
+				return
+			}
+			ids := eventIDs
+			if kind == recurringMeeting {
+				ids = recurIDs
+			}
+			if indexOfString(ids, id) >= 0 {
+				matches = append(matches, cand)
+			}
+		})
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		si, _ := parseRFC3339Property(matches[i], "GCAL_START")
+		sj, _ := parseRFC3339Property(matches[j], "GCAL_START")
+		return si.Before(sj)
+	})
+	return matches
+}
+
+// appendMeetingTagsHeadlines is appendHeadlines' meetingTagsView
+// counterpart (see appendMeetingTagsRows, model.go): same recursion
+// (body lines, children), but a headline that's itself a
+// meeting-tags.org record (isMeetingTagsRecord) is marked
+// isMeetingTagsRecordRow (see renderMeetingTagsRecordRowWithBg — a
+// tighter row than the default headline case, no indent/fold columns),
+// and has every calendar event it currently matches
+// (meetingTagsMatchingEvents) appended right after it, one level
+// deeper — the meeting-tags.org analogue of appendCalendarHeadlines
+// nesting linked items under each event, so browsing :meeting-tags shows
+// at a glance which synced occurrences a record's IDs actually resolve
+// to right now. Genuinely one level deeper (not flush with the record),
+// and not just visually: row.level is also what moveDeeper/
+// moveShallower (see model.go) use to decide what "l"/"h" step into or
+// out of, so a nested event's level is what makes it reachable as the
+// record's "child" via those keys, the same way
+// renderCalendarLinkedItemRowWithBg's r.level-based indent does for
+// :calendar's own linked items (its actual rendered indent is separately
+// capped — see renderCalendarItemRowWithBg). Each nested event row is
+// marked isCalendarItem, the same as its own row in :calendar (same
+// headline pointer), so it renders, folds, and edits identically —
+// including "gt", which applyTagInput routes right back to this same
+// record.
+func (m *Model) appendMeetingTagsHeadlines(dst *[]row, headlines []*org.Headline, ignoreFold bool) {
+	for _, h := range headlines {
+		if m.hiddenAsStaleDone(h) {
+			continue
+		}
+		*dst = append(*dst, row{headline: h, level: h.Level, isMeetingTagsRecordRow: isMeetingTagsRecord(h)})
+		if ignoreFold || !m.collapsed[h] {
+			m.appendBodyLines(dst, h)
+			if len(h.Children) > 0 {
+				m.appendMeetingTagsHeadlines(dst, h.Children, ignoreFold)
+			}
+		}
+		for _, event := range m.meetingTagsMatchingEvents(h) {
+			if _, ok := m.collapsed[event]; !ok {
+				m.collapsed[event] = true
+			}
+			*dst = append(*dst, row{headline: event, level: h.Level + 1, isCalendarItem: true})
+			if ignoreFold || !m.collapsed[event] {
+				m.appendBodyLines(dst, event)
+			}
+		}
+	}
+}

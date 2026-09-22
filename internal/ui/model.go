@@ -495,6 +495,14 @@ type row struct {
 	// rather than the outline's usual keyword-first layout.
 	isCalendarItem bool
 
+	// isMeetingTagsRecord marks a meeting-tags.org record's own row in
+	// meetingTagsView (see appendMeetingTagsHeadlines/isMeetingTagsRecord
+	// in meeting_tags.go): rendered without the indent/fold columns every
+	// other headline row reserves (see renderMeetingTagsRecordRowWithBg)
+	// — a record is always effectively top-level and never has foldable
+	// content in practice, so those columns would just be dead space.
+	isMeetingTagsRecordRow bool
+
 	// isCalendarLinkedItem marks a row for an entry elsewhere in the
 	// workspace linked to a calendar event — attached via "gM", or
 	// sharing a tag with it (see linkedMeetingItems) — shown right after
@@ -1147,20 +1155,20 @@ func (m *Model) findMeetingTagsFile() *org.File {
 	return nil
 }
 
-// appendMeetingTagsRows appends meetingTagsFile's headlines into dst as
-// an ordinary outline (see appendHeadlines): meeting-tags.org needs none
-// of calendarView's day-grouping or linked-item nesting (see
-// appendCalendarHeadlines), so unlike that view this one reuses
-// appendHeadlines directly. ignoreFold is passed straight through — see
-// appendHeadlines' own doc comment (used by searchRows to build the
-// full-text search space regardless of fold state).
+// appendMeetingTagsRows appends meetingTagsFile's headlines into dst —
+// see appendMeetingTagsHeadlines (meeting_tags.go) for the nesting this
+// does beyond a plain appendHeadlines call. No file-header row, same as
+// appendCalendarRows — there's only ever the one file behind this view,
+// so a header would just be one more line of noise above every entry.
+// ignoreFold is passed straight through — see appendHeadlines' own doc
+// comment (used by searchRows to build the full-text search space
+// regardless of fold state).
 func (m *Model) appendMeetingTagsRows(dst *[]row, ignoreFold bool) {
 	f := m.findMeetingTagsFile()
 	if f == nil {
 		return
 	}
-	*dst = append(*dst, row{file: f})
-	m.appendHeadlines(dst, f.Headlines, ignoreFold)
+	m.appendMeetingTagsHeadlines(dst, f.Headlines, ignoreFold)
 }
 
 // gitFiles returns m.ws.Files minus the calendar file (see
@@ -7383,6 +7391,8 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		return m.renderCalendarItemRowWithBg(r, bg)
 	case r.isCalendarLinkedItem:
 		return m.renderCalendarLinkedItemRowWithBg(r, bg)
+	case r.isMeetingTagsRecordRow:
+		return m.renderMeetingTagsRecordRowWithBg(r, bg)
 	case r.isBodyLine:
 		return m.renderBodyLineWithBg(r, bg)
 	}
@@ -7555,16 +7565,29 @@ func isMidnight(t time.Time) bool {
 	return t.Hour() == 0 && t.Minute() == 0
 }
 
-// renderCalendarItemRowWithBg renders one calendarView event row: mark/
-// lock/gutter/fold columns exactly as the outline's own default
-// headline-row case (see the bottom of renderRowWithBg), but with its
-// GCAL_START/GCAL_END time (see calendarItemTime) shown before the
-// title in place of a TODO keyword — the time is what's worth seeing at
-// a glance here, and a calendar event never has a keyword anyway.
+// renderCalendarItemRowWithBg renders one calendar event row — in
+// calendarView, one of the file's own top-level events; in
+// meetingTagsView, one nested under the meeting-tags.org record it
+// matches (see appendMeetingTagsHeadlines) — with mark/lock/gutter/fold
+// columns exactly as the outline's own default headline-row case (see
+// the bottom of renderRowWithBg), but its GCAL_START/GCAL_END time (see
+// calendarItemTime) shown before the title in place of a TODO keyword —
+// the time is what's worth seeing at a glance here, and a calendar event
+// never has a keyword anyway. Its own visual indent is capped at one
+// level, regardless of r.level: r.level is genuinely record.Level+1 in
+// meetingTagsView (see appendMeetingTagsHeadlines), since that's what
+// moveDeeper/moveShallower ("l"/"h") use to treat the event as the
+// record's child, but rendering the full, uncapped width would push it
+// needlessly far right — the row's own gutter columns and its
+// GCAL_START/GCAL_END time before the title already mark it as nested
+// detail, not another top-level entry, so a single indent step is enough
+// to read as "under" whatever's above it (same idea as
+// renderCalendarLinkedItemRowWithBg's r.level-based indent, just capped
+// rather than passed through raw).
 func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
 	query := m.activeSearchQuery()
-	indent := bgSpan(bg, strings.Repeat("  ", h.Level))
+	indent := bgSpan(bg, strings.Repeat("  ", min(r.level, 1)))
 
 	fold := bgSpan(bg, " ")
 	if hasFoldableContent(h) {
@@ -7585,6 +7608,32 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 	var suffix string
 	if len(displayTags) > 0 {
 		suffix = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(displayTags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
+	}
+	return fitRowLine(prefix, suffix, m.width, bg)
+}
+
+// renderMeetingTagsRecordRowWithBg renders a meeting-tags.org record's
+// own row in meetingTagsView (see isMeetingTagsRecordRow) — mark/lock/
+// meeting/dirty gutter and title/tags exactly as the outline's own
+// default headline-row case (see the bottom of renderRowWithBg), but
+// without that case's indent or fold columns: a record is always
+// effectively top-level here regardless of where it happens to sit in
+// meeting-tags.org, and in practice never has foldable body/children
+// (see applyMeetingTag, which creates one with neither), so reserving
+// width for either would just be dead space in front of every record's
+// title.
+func (m Model) renderMeetingTagsRecordRowWithBg(r row, bg lipgloss.TerminalColor) string {
+	h := r.headline
+	query := m.activeSearchQuery()
+
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+
+	var suffix string
+	if len(h.Tags) > 0 {
+		suffix += bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
+	}
+	if ts := planningSummary(h); ts != "" {
+		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(ts)
 	}
 	return fitRowLine(prefix, suffix, m.width, bg)
 }

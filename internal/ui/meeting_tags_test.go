@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/sburnett/orgtd/internal/calendarsync"
 	"github.com/sburnett/orgtd/internal/org"
@@ -376,4 +377,241 @@ func TestDiffIncludesMeetingTagsFile(t *testing.T) {
 	if !sawOld || !sawNew {
 		t.Errorf("rows = %#v, want lines showing meeting-tags.org's old and new titles", m.rows)
 	}
+}
+
+// TestMeetingTagsViewNestsMatchingOneOffEvent covers the core of this
+// file's nesting: a meeting-tags.org record naming a one-off event's ID
+// shows that synced event nested right under it, one level deeper.
+func TestMeetingTagsViewNestsMatchingOneOffEvent(t *testing.T) {
+	now := time.Now()
+	event := oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now, now.Add(time.Hour))
+	record := &org.Headline{Level: 1, Title: "Client Kickoff", Tags: []string{"bob_project"}}
+	record.SetProperty("MEETING_TAG_EVENT_IDS", "kickoff-1")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{event}},
+		&org.File{Path: "meeting-tags.org", Headlines: []*org.Headline{record}},
+	)
+	m := New(ws)
+	m.switchToView(meetingTagsView)
+
+	recordIdx, eventIdx := -1, -1
+	for i, r := range m.rows {
+		switch r.headline {
+		case record:
+			recordIdx = i
+		case event:
+			eventIdx = i
+		}
+	}
+	if recordIdx == -1 {
+		t.Fatalf("meeting-tags.org record row not found; rows: %+v", m.rows)
+	}
+	if eventIdx == -1 {
+		t.Fatalf("matching calendar event not nested under its meeting-tags.org record; rows: %+v", m.rows)
+	}
+	if eventIdx != recordIdx+1 {
+		t.Errorf("event row at index %d, want immediately after the record at %d", eventIdx, recordIdx)
+	}
+	if got, want := m.rows[eventIdx].level, m.rows[recordIdx].level+1; got != want {
+		t.Errorf("event row level = %d, want %d (one deeper than the record)", got, want)
+	}
+	if !m.rows[eventIdx].isCalendarItem {
+		t.Errorf("nested event row isn't marked isCalendarItem")
+	}
+}
+
+// TestMeetingTagsViewNestsEveryRecurringOccurrence: a record naming a
+// recurring series' ID nests every synced occurrence of it (not just
+// one), chronologically — showing at a glance how many instances of the
+// series are currently in the sync window.
+func TestMeetingTagsViewNestsEveryRecurringOccurrence(t *testing.T) {
+	now := time.Now()
+	later := recurringCalendarEventHeadline("instance-2", "series-abc", "Weekly Standup", now.Add(48*time.Hour), now.Add(49*time.Hour))
+	earlier := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now, now.Add(time.Hour))
+	record := &org.Headline{Level: 1, Title: "Weekly Standup", Tags: []string{"bob_project"}}
+	record.SetProperty("MEETING_TAG_RECURRING_EVENT_IDS", "series-abc")
+	ws := meetingsFixture(
+		// Deliberately out of chronological order, so a passing test can't
+		// be an accident of file order.
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{later, earlier}},
+		&org.File{Path: "meeting-tags.org", Headlines: []*org.Headline{record}},
+	)
+	m := New(ws)
+	m.switchToView(meetingTagsView)
+
+	var nested []*org.Headline
+	for _, r := range m.rows {
+		if r.headline == earlier || r.headline == later {
+			nested = append(nested, r.headline)
+		}
+	}
+	if len(nested) != 2 || nested[0] != earlier || nested[1] != later {
+		t.Errorf("nested occurrences = %+v, want [earlier later] in chronological order", nested)
+	}
+}
+
+// TestMeetingTagsViewNestsNothingForStaleID: a record whose ID no longer
+// matches any currently-synced event shows nothing nested under it —
+// meeting-tags.org's own window into a stale record (see
+// meetingTagsMatchingEvents) — rather than erroring or showing a stale
+// placeholder.
+func TestMeetingTagsViewNestsNothingForStaleID(t *testing.T) {
+	record := &org.Headline{Level: 1, Title: "Long-gone meeting", Tags: []string{"bob_project"}}
+	record.SetProperty("MEETING_TAG_EVENT_IDS", "no-longer-synced")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: nil},
+		&org.File{Path: "meeting-tags.org", Headlines: []*org.Headline{record}},
+	)
+	m := New(ws)
+	m.switchToView(meetingTagsView)
+
+	if len(m.rows) != 1 { // just the record's own row, nothing nested
+		t.Errorf("rows = %+v, want just the record, nothing nested", m.rows)
+	}
+}
+
+// TestMeetingTagsViewNestedEventSupportsGt: "gt" on a nested event row —
+// the same headline as :calendar's own row for it — still routes through
+// applyMeetingTag and updates the very record it's nested under, since
+// it's the same *org.Headline, not a copy.
+func TestMeetingTagsViewNestedEventSupportsGt(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	ws.Files = append(ws.Files, &org.File{Path: filepath.Join(ws.Dir, "calendar.org"), Headlines: []*org.Headline{event}})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m = gtOnCalendarRow(t, m, "Meeting abc123", "bob_project")
+
+	m.switchToView(meetingTagsView)
+	m.cursor = findRow(t, m, "Meeting abc123")
+	m = sendKey(m, "g")
+	m = sendKey(m, "t")
+	m = typeKeys(m, "launch")
+	m, _ = sendKeyCmd(m, "enter")
+
+	record := m.findMeetingTagsFile().Headlines[0]
+	if len(record.Tags) != 2 || record.Tags[0] != "bob_project" || record.Tags[1] != "launch" {
+		t.Errorf("record Tags = %v, want [bob_project launch]", record.Tags)
+	}
+}
+
+// TestMeetingTagsViewHasNoFileHeaderRow: unlike the plain outline,
+// meetingTagsView shows no "meeting-tags.org" file-header row — same as
+// calendarView, which shows no "calendar.org" header either.
+func TestMeetingTagsViewHasNoFileHeaderRow(t *testing.T) {
+	record := &org.Headline{Level: 1, Title: "Client Kickoff", Tags: []string{"bob_project"}}
+	record.SetProperty("MEETING_TAG_EVENT_IDS", "kickoff-1")
+	ws := meetingsFixture(&org.File{Path: "meeting-tags.org", Headlines: []*org.Headline{record}})
+	m := New(ws)
+	m.switchToView(meetingTagsView)
+
+	for _, r := range m.rows {
+		if r.file != nil {
+			t.Errorf("rows = %+v, want no file-header row", m.rows)
+		}
+	}
+}
+
+// TestMeetingTagsViewNestedEventVisualIndentIsCappedAtOneLevel: even
+// though a nested event's row.level is genuinely one deeper than its
+// record's (so "l"/"h" treat it as a child — see
+// TestMeetingTagsViewLAndHNavigateToAndFromNestedEvent), its rendered
+// indent (renderCalendarItemRowWithBg) is capped at a single level
+// rather than scaling with row.level, and the record's own row
+// (renderMeetingTagsRecordRowWithBg) omits the indent/fold columns
+// entirely — so the gap between them is exactly those omitted columns'
+// width (indent + fold + space = 4), not something that keeps growing
+// with how deeply either one happens to be nested.
+func TestMeetingTagsViewNestedEventVisualIndentIsCappedAtOneLevel(t *testing.T) {
+	now := time.Now()
+	event := oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now, now.Add(time.Hour))
+	record := &org.Headline{Level: 1, Title: "Client Kickoff", Tags: []string{"bob_project"}}
+	record.SetProperty("MEETING_TAG_EVENT_IDS", "kickoff-1")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{event}},
+		&org.File{Path: "meeting-tags.org", Headlines: []*org.Headline{record}},
+	)
+	m := New(ws)
+	m.switchToView(meetingTagsView)
+	if len(m.rows) != 2 {
+		t.Fatalf("rows = %+v, want exactly [record, nested event]", m.rows)
+	}
+	if m.rows[1].level != m.rows[0].level+1 {
+		t.Fatalf("nested event's row.level = %d, want %d (record's %d, one deeper, for l/h)", m.rows[1].level, m.rows[0].level+1, m.rows[0].level)
+	}
+
+	recordPrefix := contentStartColumn(stripANSI(m.renderRow(m.rows[0])))
+	eventPrefix := contentStartColumn(stripANSI(m.renderRow(m.rows[1])))
+	if eventPrefix != recordPrefix+4 {
+		t.Errorf("nested event's gutter width = %d, want %d (record's %d, plus the indent/fold/space columns the record's own compact row omits)", eventPrefix, recordPrefix+4, recordPrefix)
+	}
+}
+
+// TestMeetingTagsViewLAndHNavigateToAndFromNestedEvent: since a nested
+// event's row.level is one deeper than its record's (see
+// appendMeetingTagsHeadlines), "l"/"h" (moveDeeper/moveShallower) step
+// between them exactly as they would between a headline and its real
+// child anywhere else in the outline.
+func TestMeetingTagsViewLAndHNavigateToAndFromNestedEvent(t *testing.T) {
+	now := time.Now()
+	event := oneOffCalendarEventHeadline("kickoff-1", "Client Kickoff", now, now.Add(time.Hour))
+	record := &org.Headline{Level: 1, Title: "Client Kickoff", Tags: []string{"bob_project"}}
+	record.SetProperty("MEETING_TAG_EVENT_IDS", "kickoff-1")
+	ws := meetingsFixture(
+		&org.File{Path: "calendar.org", Headlines: []*org.Headline{event}},
+		&org.File{Path: "meeting-tags.org", Headlines: []*org.Headline{record}},
+	)
+	m := New(ws)
+	m.switchToView(meetingTagsView)
+	m.cursor = findRow(t, m, "Client Kickoff") // the record's own row, listed first
+
+	m = sendKey(m, "l")
+	if m.currentHeadline() != event {
+		t.Fatalf("after l, currentHeadline = %v, want the nested event %v", m.currentHeadline(), event)
+	}
+
+	m = sendKey(m, "h")
+	if m.currentHeadline() != record {
+		t.Errorf("after h, currentHeadline = %v, want back on the record %v", m.currentHeadline(), record)
+	}
+}
+
+// TestMeetingTagsViewRecordRowOmitsIndentAndFoldColumns: a
+// meeting-tags.org record's own row (renderMeetingTagsRecordRowWithBg)
+// goes straight from its gutter (mark/lock/meeting/dirty) to its title —
+// no indent or fold column reserved, unlike a plain headline row
+// elsewhere in the app.
+func TestMeetingTagsViewRecordRowOmitsIndentAndFoldColumns(t *testing.T) {
+	record := &org.Headline{Level: 1, Title: "Client Kickoff", Tags: []string{"bob_project"}}
+	record.SetProperty("MEETING_TAG_EVENT_IDS", "kickoff-1")
+	ws := meetingsFixture(&org.File{Path: "meeting-tags.org", Headlines: []*org.Headline{record}})
+	m := New(ws)
+	m.switchToView(meetingTagsView)
+	if len(m.rows) != 1 {
+		t.Fatalf("rows = %+v, want just the record", m.rows)
+	}
+	if !m.rows[0].isMeetingTagsRecordRow {
+		t.Fatalf("record row isn't marked isMeetingTagsRecordRow")
+	}
+
+	// mark(1) + lock(1) + meeting(1) + dirty(1) + space(1) = 5, then the
+	// title — no indent, no fold column.
+	if got := contentStartColumn(stripANSI(m.renderRow(m.rows[0]))); got != 5 {
+		t.Errorf("record row content starts at column %d, want 5 (gutter only, no indent/fold)", got)
+	}
+}
+
+// contentStartColumn returns the rune index of the first letter or digit
+// in s — the point where a row's gutter/indent columns end and its own
+// text (a time, or a title) begins. Unlike counting leading spaces, this
+// isn't thrown off by a non-blank gutter glyph (e.g. "▣"), which occupies
+// its column's width without being a space or the row's actual content.
+func contentStartColumn(s string) int {
+	for i, r := range []rune(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return i
+		}
+	}
+	return -1
 }

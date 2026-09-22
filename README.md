@@ -207,7 +207,10 @@ logging is on.
   ordinary foldable/editable outline (same `i`, `dd`, `r`, marks, etc. as
   any other file) rather than something tool-managed like `calendar_file`
   — nothing ever regenerates it, so it's exactly as durable as any other
-  org file, and gets committed alongside them by `:diff`/`:commit`.
+  org file, and gets committed alongside them by `:diff`/`:commit`. A
+  record's own row skips the indent/fold column every other headline row
+  reserves — it's always effectively top-level here, and never has
+  foldable content of its own in practice.
   Each headline records one or more tags (its own `:tag:`s) that apply to
   one or more meetings, named by `MEETING_TAG_RECURRING_EVENT_IDS`/
   `MEETING_TAG_EVENT_IDS` properties (space-separated, either or both) —
@@ -215,7 +218,19 @@ logging is on.
   automatically (see below), but hand-adding a second ID to an existing
   entry's property here is how you group two otherwise-unrelated
   meetings (different recurring series, or a recurring series and a
-  one-off event) under the same tag.
+  one-off event) under the same tag. Every calendar event a record's IDs
+  currently resolve to — every synced occurrence, for a recurring series
+  — is shown nested one level under it (`l`/`h` step down to/back up from
+  it like any other parent/child pair, though its rendered indent is
+  capped rather than growing with how deeply the record itself happens to
+  be nested), the same `:calendar`-style event row (time before title,
+  its own body a `Tab` away) since it's the very same synced headline;
+  edits made here, `gt`
+  included, apply to it exactly as they would from `:calendar` itself. A
+  record with nothing nested under it is a stale
+  one — its ID(s) no longer match
+  anything currently synced (a deleted/recreated series, or a one-off
+  event that's aged out of the sync window).
 - **Agenda** (`:agenda`) — a flat, date-driven view across every file:
   **Overdue**, **Due Today**, and **Upcoming** sections built from
   `SCHEDULED`/`DEADLINE` timestamps, plus a **Next Actions** section
