@@ -3648,7 +3648,7 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 		m.switchToView(configView)
 
 	case "calendar":
-		m.switchToView(calendarView)
+		m.enterCalendarView()
 
 	case "meeting-tags":
 		m.switchToView(meetingTagsView)

@@ -68,6 +68,56 @@ func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 	}
 }
 
+// enterCalendarView switches to calendarView with the cursor already on
+// the meeting currently in progress, or the most recently started past
+// meeting if none is (see findCalendarCursorTarget) — landing at row 0
+// (switchToView's own default), same as any other view switch, if
+// neither applies (e.g. every synced event is still upcoming, or
+// calendar_file isn't loaded/has nothing synced).
+func (m *Model) enterCalendarView() {
+	m.switchToView(calendarView)
+	f := m.findCalendarFile()
+	if f == nil {
+		return
+	}
+	if h := findCalendarCursorTarget(f, time.Now()); h != nil {
+		m.focusHeadline(h)
+	}
+}
+
+// findCalendarCursorTarget picks the event enterCalendarView should land
+// the cursor on: among every headline in f with a GCAL_START at or
+// before now, the one with the latest start that's still in progress
+// (now before its GCAL_END) wins outright; failing that, the one with
+// the latest start overall (in progress or not — an unparseable/missing
+// GCAL_END, or one already elapsed, both fall here) — i.e. "the current
+// meeting, or the prior one if none is current". nil if nothing in f
+// has a GCAL_START at or before now at all (every synced event is still
+// upcoming, or f has no synced events).
+func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
+	var current, prior *org.Headline
+	var currentStart, priorStart time.Time
+	for _, h := range f.Headlines {
+		start, ok := parseRFC3339Property(h, "GCAL_START")
+		if !ok || start.After(now) {
+			continue
+		}
+		if end, ok := parseRFC3339Property(h, "GCAL_END"); ok && now.Before(end) {
+			if current == nil || start.After(currentStart) {
+				current, currentStart = h, start
+			}
+			continue
+		}
+		if prior == nil || start.After(priorStart) {
+			prior, priorStart = h, start
+		}
+	}
+	if current != nil {
+		return current
+	}
+	return prior
+}
+
 // linkedMeetingItems returns every entry, elsewhere in the workspace,
 // linked to calendar event h — attached via "gM", or sharing a tag with
 // it (e.g. a confirmed attendee's "@username" — see entriesForMeeting

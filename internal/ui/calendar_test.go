@@ -179,6 +179,62 @@ func TestCalendarCommandSwitchesViewAndBack(t *testing.T) {
 	}
 }
 
+func TestCalendarCommandPositionsCursorOnInProgressMeeting(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("past", now.Add(-2*time.Hour), now.Add(-1*time.Hour)),
+			calendarEventHeadline("current", now.Add(-15*time.Minute), now.Add(15*time.Minute)),
+			calendarEventHeadline("future", now.Add(time.Hour), now.Add(2*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.enterCalendarView()
+
+	if got, want := m.currentHeadline().Title, "Meeting current"; got != want {
+		t.Errorf("cursor landed on %q, want %q (the in-progress meeting)", got, want)
+	}
+}
+
+func TestCalendarCommandPositionsCursorOnPriorMeetingWhenNoneInProgress(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("older", now.Add(-4*time.Hour), now.Add(-3*time.Hour)),
+			calendarEventHeadline("prior", now.Add(-2*time.Hour), now.Add(-1*time.Hour)),
+			calendarEventHeadline("future", now.Add(time.Hour), now.Add(2*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.enterCalendarView()
+
+	if got, want := m.currentHeadline().Title, "Meeting prior"; got != want {
+		t.Errorf("cursor landed on %q, want %q (the most recent past meeting)", got, want)
+	}
+}
+
+func TestCalendarCommandLeavesCursorAtTopWhenNothingHasStarted(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			calendarEventHeadline("soon", now.Add(time.Hour), now.Add(2*time.Hour)),
+			calendarEventHeadline("later", now.Add(3*time.Hour), now.Add(4*time.Hour)),
+		},
+	})
+	m := New(ws)
+	m.enterCalendarView()
+
+	if m.cursor != 0 {
+		t.Errorf("cursor = %d, want 0 (no in-progress or prior meeting to land on)", m.cursor)
+	}
+}
+
 func TestWithCalendarFileOptionUsesCustomName(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()

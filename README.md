@@ -176,7 +176,11 @@ logging is on.
 - **Calendar** (`:calendar`) — every event in `calendar_file` (default
   `calendar.org`; see Calendar sync, below), grouped under one flush-left
   header per calendar day, both the days and the events within each day
-  in chronological order. This is the only place `calendar_file`'s
+  in chronological order. The cursor starts on whichever meeting is
+  currently in progress, or the most recently started past meeting if
+  none is, so you land right where the day already is rather than at
+  the top — falling back to the very first row if nothing has started
+  yet (every synced event is still upcoming). This is the only place `calendar_file`'s
   contents are shown, since it's excluded from the outline view (above)
   entirely. Each event shows its time before its title (`14:00-14:30
   Standup`, or `All day` for an all-day event) in place of a TODO

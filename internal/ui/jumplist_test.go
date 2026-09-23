@@ -249,13 +249,19 @@ func TestSwitchViewPushesJumpAndCtrlOReturnsAcrossViews(t *testing.T) {
 // there. Before this fix, pushJumpAt refused to bookmark a headline-less
 // row at all, so jumpBack's implicit "bookmark the live position" step
 // had nothing to record and gi silently did nothing.
+//
+// The fixture event is deliberately in the future — :calendar now
+// positions the cursor on the in-progress (or most recent past) meeting
+// when one exists (see enterCalendarView), which would otherwise land
+// row 0 on the event itself rather than the day-header row this test
+// means to exercise.
 func TestJumpForwardReturnsToViewOnlyPosition(t *testing.T) {
 	ws := loadFixture(t)
 	now := time.Now()
 	ws.Files = append(ws.Files, &org.File{
 		Path: filepath.Join(ws.Dir, "calendar.org"),
 		Headlines: []*org.Headline{
-			calendarEventHeadline("abc123", now, now.Add(time.Hour)),
+			calendarEventHeadline("abc123", now.Add(time.Hour), now.Add(2*time.Hour)),
 		},
 	})
 	m := New(ws)
