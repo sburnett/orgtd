@@ -97,6 +97,40 @@ func TestOutlineRowTruncatesLongTitleKeepingTagsAndTimestampVisible(t *testing.T
 	}
 }
 
+// TestOutlineRowCapsLongTagListKeepingTitleVisible is the mirror image
+// of TestOutlineRowTruncatesLongTitleKeepingTagsAndTimestampVisible: a
+// headline with a short title but a very long tag list (e.g. a meeting
+// with a couple dozen "@attendee" tags — see calendarDisplayTags) used
+// to render the tag list in full via fitRowLine's "suffix always wins"
+// rule, which could crowd even a short title down to nothing. The tag
+// list itself is now capped (see renderTagsSuffix/maxTagsSuffixWidth),
+// so the title stays visible on any reasonably sized terminal.
+func TestOutlineRowCapsLongTagListKeepingTitleVisible(t *testing.T) {
+	var tags []string
+	for i := 0; i < 20; i++ {
+		tags = append(tags, fmt.Sprintf("attendee-name-number-%d", i))
+	}
+	h := &org.Headline{
+		Level:   1,
+		Keyword: "TODO",
+		Title:   "Standup",
+		Tags:    tags,
+	}
+	m := Model{width: 100, ws: &workspace.Workspace{}}
+	line := m.renderRow(row{headline: h})
+	plain := stripANSI(line)
+
+	if !strings.Contains(plain, "Standup") {
+		t.Errorf("rendered row = %q, want the short title still visible despite the long tag list", plain)
+	}
+	if !strings.Contains(plain, "…") {
+		t.Errorf("rendered row = %q, want an ellipsis marking the truncated tag list", plain)
+	}
+	if strings.Contains(plain, "attendee-name-number-19") {
+		t.Errorf("rendered row = %q, want the tag list capped well short of all 20 tags", plain)
+	}
+}
+
 // TestAgendaItemRowTruncatesLongTitleKeepingPlaceAndDateVisible mirrors
 // the outline case for the agenda view, where the trailing [file ›
 // parent]  Label: date tag is exactly the "other information" the user

@@ -552,6 +552,46 @@ func TestCalendarLinkedItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
 	}
 }
 
+// TestCalendarViewCapsLongAttendeeTagListKeepingTitleVisible is the
+// reported bug: a meeting with a large invite list carries one
+// "@attendee" tag per attendee (see attendeeTags in
+// internal/calendarsync/convert.go), and renderCalendarItemRowWithBg
+// used to show that list in full via fitRowLine's "suffix always wins"
+// rule, which could crowd even a short meeting title off the row
+// entirely. The tag list is now capped (see renderTagsSuffix), so the
+// title stays visible.
+func TestCalendarViewCapsLongAttendeeTagListKeepingTitleVisible(t *testing.T) {
+	ws := loadFixture(t)
+	base := truncateToDate(time.Now()).Add(9 * time.Hour)
+	h := calendarEventHeadline("abc123", base, base.Add(30*time.Minute))
+	h.Title = "Standup"
+	var tags []string
+	for i := 0; i < 20; i++ {
+		tags = append(tags, fmt.Sprintf("attendee-name-number-%d", i))
+	}
+	h.Tags = tags
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{h},
+	})
+	m := New(ws)
+	m.width = 100
+	m.switchToView(calendarView)
+
+	line := m.renderRow(m.rows[findRow(t, m, "Standup")])
+	plain := stripANSI(line)
+
+	if !strings.Contains(plain, "Standup") {
+		t.Errorf("rendered calendar row = %q, want the meeting title still visible despite the long attendee tag list", plain)
+	}
+	if !strings.Contains(plain, "…") {
+		t.Errorf("rendered calendar row = %q, want an ellipsis marking the truncated tag list", plain)
+	}
+	if strings.Contains(plain, "attendee-name-number-19") {
+		t.Errorf("rendered calendar row = %q, want the tag list capped well short of all 20 attendees", plain)
+	}
+}
+
 // TestCalendarViewUnfoldedBodyShowsBeforeLinkedItems is a regression
 // test: appendCalendarHeadlines used to append an event's linked items
 // (see linkedMeetingItems) unconditionally right after the event row,

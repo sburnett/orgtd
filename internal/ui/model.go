@@ -374,6 +374,34 @@ func fitRowLine(prefix, suffix string, width int, bg lipgloss.TerminalColor) str
 	return ansi.Truncate(prefix, avail, bgSpan(bg, "…")) + suffix
 }
 
+// maxTagsSuffixWidth caps how wide the ":tag1:tag2:...:" portion of a
+// row's suffix (see renderTagsSuffix) is allowed to be, ellipsized
+// beyond that. fitRowLine always keeps suffix intact and shrinks prefix
+// (the title) instead — right for an ordinary tag or two, but a
+// meeting's attendee tags (see calendarDisplayTags) can run well past a
+// dozen for a large invite list, and left uncapped that would consume
+// the whole row and crowd the title down to nothing. Fixed rather than
+// proportional to m.width: the point is to guarantee the title a usable
+// share of the row on any reasonably sized terminal, not to let a wide
+// terminal grow the tag list without bound either.
+const maxTagsSuffixWidth = 40
+
+// renderTagsSuffix builds the "  :tag1:tag2:...:" suffix shared by
+// every row renderer that shows a headline's tags (the outline's own
+// default row, agenda items, calendar events and their linked items,
+// and meeting-tags.org records) — capped to maxTagsSuffixWidth (see
+// its own doc comment) rather than left to fitRowLine's usual
+// "suffix always wins" rule. tags is the tag list to render: h.Tags for
+// every caller except the calendar event row, which unions in
+// meeting-tags.org tags too (see calendarDisplayTags). Empty if tags is.
+func (m Model) renderTagsSuffix(h *org.Headline, tags []string, query string, bg lipgloss.TerminalColor) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	joined := ansi.Truncate(":"+strings.Join(tags, ":")+":", maxTagsSuffixWidth, "…")
+	return bgSpan(bg, "  ") + m.highlightMatches(joined, query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
+}
+
 // mode selects how key presses are interpreted.
 type mode int
 
@@ -7441,10 +7469,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
-	var suffix string
-	if len(h.Tags) > 0 {
-		suffix += bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
-	}
+	suffix := m.renderTagsSuffix(h, h.Tags, query, bg)
 
 	if ts := planningSummary(h); ts != "" {
 		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(ts)
@@ -7501,10 +7526,7 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 	h := r.headline
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
-	var tags string
-	if len(h.Tags) > 0 {
-		tags = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", m.activeSearchQuery(), m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
-	}
+	tags := m.renderTagsSuffix(h, h.Tags, m.activeSearchQuery(), bg)
 
 	timestamp := m.fadeIfImmutable(m.timestampStyle(), h).Background(bg)
 	dateSuffix := func(place string) string {
@@ -7634,11 +7656,7 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 	}
 	prefix += joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
-	displayTags := m.calendarDisplayTags(h)
-	var suffix string
-	if len(displayTags) > 0 {
-		suffix = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(displayTags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
-	}
+	suffix := m.renderTagsSuffix(h, m.calendarDisplayTags(h), query, bg)
 	return fitRowLine(prefix, suffix, m.width, bg)
 }
 
@@ -7658,10 +7676,7 @@ func (m Model) renderMeetingTagsRecordRowWithBg(r row, bg lipgloss.TerminalColor
 
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
-	var suffix string
-	if len(h.Tags) > 0 {
-		suffix += bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
-	}
+	suffix := m.renderTagsSuffix(h, h.Tags, query, bg)
 	if ts := planningSummary(h); ts != "" {
 		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(ts)
 	}
@@ -7690,10 +7705,7 @@ func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColo
 
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + bgSpan(bg, " ") + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
 
-	var tags string
-	if len(h.Tags) > 0 {
-		tags = bgSpan(bg, "  ") + m.highlightMatches(":"+strings.Join(h.Tags, ":")+":", query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
-	}
+	tags := m.renderTagsSuffix(h, h.Tags, query, bg)
 	place := func(parentMaxWidth int) string {
 		return bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, parentMaxWidth)))
 	}
