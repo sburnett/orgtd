@@ -6773,6 +6773,26 @@ func (m *Model) entryEnd(i int) int {
 	return end
 }
 
+// centerOnCursor scrolls the viewport so the cursor's row sits as close to
+// the middle of the screen as the top/bottom of the row list allows —
+// unlike ensureVisible, which only nudges the offset the minimum amount
+// needed to bring the cursor back on screen. Used where landing in the
+// middle of the page, rather than merely somewhere on it, matters (e.g.
+// enterCalendarView's in-progress-meeting cursor).
+func (m *Model) centerOnCursor() {
+	if len(m.rows) == 0 {
+		return
+	}
+	offset := m.cursor - m.contentBudget()/2
+	if offset < 0 {
+		offset = 0
+	}
+	if max := len(m.rows) - 1; offset > max {
+		offset = max
+	}
+	m.offset = offset
+}
+
 // scrollView shifts the viewport by delta lines (positive scrolls the view
 // down, negative scrolls it up) independently of the cursor — Ctrl-E and
 // Ctrl-Y, like vim, move the window a single line at a time and leave the

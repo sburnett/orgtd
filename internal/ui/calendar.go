@@ -70,8 +70,10 @@ func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 
 // enterCalendarView switches to calendarView with the cursor already on
 // the meeting currently in progress, or the most recently started past
-// meeting if none is (see findCalendarCursorTarget) — landing at row 0
-// (switchToView's own default), same as any other view switch, if
+// meeting if none is (see findCalendarCursorTarget), scrolled to the
+// middle of the screen (see centerOnCursor) so you land right where the
+// day already is rather than at the top or edge of the page — landing at
+// row 0 (switchToView's own default), same as any other view switch, if
 // neither applies (e.g. every synced event is still upcoming, or
 // calendar_file isn't loaded/has nothing synced).
 func (m *Model) enterCalendarView() {
@@ -81,7 +83,13 @@ func (m *Model) enterCalendarView() {
 		return
 	}
 	if h := findCalendarCursorTarget(f, time.Now()); h != nil {
-		m.focusHeadline(h)
+		for i, r := range m.rows {
+			if r.headline == h {
+				m.cursor = i
+				m.centerOnCursor()
+				break
+			}
+		}
 	}
 }
 
