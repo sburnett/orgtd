@@ -1055,6 +1055,20 @@ func TestIKeyOnHeadlineReturnsEditCmd(t *testing.T) {
 	// Deliberately not invoking cmd() — that would actually launch $EDITOR.
 }
 
+// TestCapitalIKeyOnHeadlineReturnsEditCmd mirrors
+// TestIKeyOnHeadlineReturnsEditCmd: "I" is just an alias for "i", going
+// through the exact same startEditWithPlacement path.
+func TestCapitalIKeyOnHeadlineReturnsEditCmd(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	_, cmd := sendKeyCmd(m, "I")
+	if cmd == nil {
+		t.Fatalf("expected a non-nil edit command")
+	}
+	// Deliberately not invoking cmd() — that would actually launch $EDITOR.
+}
+
 // TestAKeyOnHeadlineReturnsEditCmd mirrors TestIKeyOnHeadlineReturnsEditCmd:
 // "A" goes through the exact same startEditWithPlacement path as "i",
 // just with a different editorCursorPlacement, so it should behave

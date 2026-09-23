@@ -2554,7 +2554,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.visualAnchor = m.cursor
 		}
 
-	case "i":
+	case "i", "I":
 		if wasPendingG {
 			m.jumpForward()
 		} else if cmd := m.startEdit(); cmd != nil {
@@ -4535,7 +4535,7 @@ type editFinishedMsg struct {
 	err    error
 }
 
-// startEdit ("i") writes the current headline (and its entire subtree)
+// startEdit ("i"/"I") writes the current headline (and its entire subtree)
 // to a temp file and opens it in $EDITOR for editing in place — for a
 // vim-family editor, with the cursor already placed right after the
 // bullet ("* ") and insert mode already started, so typing begins
