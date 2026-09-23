@@ -47,6 +47,17 @@ type Event struct {
 	// internal/calendarsync to tag the synced headline with each
 	// confirmed attendee's "@username" — see BuildFile.
 	Attendees []Attendee
+
+	// SelfResponseStatus is the calendar owner's own RSVP to this event
+	// (the Self attendee's ResponseStatus — see declinedBySelf), one of
+	// "accepted", "declined" (excluded before this ever gets set — see
+	// ListEvents), "tentative", or "needsAction". An event with no Self
+	// attendee at all (a personal entry with no invite list) is treated
+	// as "accepted": nothing to RSVP to means it's implicitly confirmed.
+	// Used by internal/ui's "gM" picker to require acceptance, not just
+	// invitation, before a meeting counts as "in progress" for ranking
+	// purposes — see meetingPickerLess.
+	SelfResponseStatus string
 }
 
 // Attendee is one invitee on a calendar event — just enough of what
@@ -124,6 +135,17 @@ func declinedBySelf(item *calendar.Event) bool {
 	return false
 }
 
+// selfResponseStatus reports the calendar owner's own RSVP to item — see
+// Event.SelfResponseStatus.
+func selfResponseStatus(item *calendar.Event) string {
+	for _, a := range item.Attendees {
+		if a.Self {
+			return a.ResponseStatus
+		}
+	}
+	return "accepted"
+}
+
 func toEvent(calendarID string, item *calendar.Event) (Event, bool) {
 	start, allDay, ok := parseEventTime(item.Start)
 	if !ok {
@@ -138,17 +160,18 @@ func toEvent(calendarID string, item *calendar.Event) (Event, bool) {
 		attendees = append(attendees, Attendee{Email: a.Email, ResponseStatus: a.ResponseStatus})
 	}
 	return Event{
-		ID:               item.Id,
-		CalendarID:       calendarID,
-		Summary:          item.Summary,
-		Description:      item.Description,
-		Location:         item.Location,
-		HTMLLink:         item.HtmlLink,
-		RecurringEventID: item.RecurringEventId,
-		AllDay:           allDay,
-		Start:            start,
-		End:              end,
-		Attendees:        attendees,
+		ID:                 item.Id,
+		CalendarID:         calendarID,
+		Summary:            item.Summary,
+		Description:        item.Description,
+		Location:           item.Location,
+		HTMLLink:           item.HtmlLink,
+		RecurringEventID:   item.RecurringEventId,
+		AllDay:             allDay,
+		Start:              start,
+		End:                end,
+		Attendees:          attendees,
+		SelfResponseStatus: selfResponseStatus(item),
 	}, true
 }
 

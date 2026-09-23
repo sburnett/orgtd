@@ -530,12 +530,27 @@ type meetingCandidate struct {
 	when  time.Time       // the series' representative occurrence's start (or the one-off event's own start) — see meetingCandidates
 	end   time.Time       // that same occurrence's end, zero if GCAL_END was missing/unparseable
 	tags  map[string]bool // meetingTags(kind, id) — attendee tags, "recurring" excluded — matched by filteredMeetingCandidates alongside title
+
+	// accepted is GCAL_SELF_RESPONSE_STATUS == "accepted" (see
+	// internal/calendarsync's Event.SelfResponseStatus): the calendar
+	// owner's own RSVP, not merely having been invited. A "maybe"
+	// (tentative) or not-yet-responded (needsAction) invite does not
+	// count — see prioritized.
+	accepted bool
 }
 
 // inProgress reports whether c's representative occurrence has started
 // but not yet ended, as of now.
 func (c meetingCandidate) inProgress(now time.Time) bool {
 	return !c.when.After(now) && now.Before(c.end)
+}
+
+// prioritized reports whether c gets meetingPickerLess's top-tier boost:
+// currently in progress *and* accepted, not merely invited — a meeting
+// you're only tentative on (or never responded to) shouldn't jump ahead
+// of everything else just because it happens to overlap now.
+func (c meetingCandidate) prioritized(now time.Time) bool {
+	return c.inProgress(now) && c.accepted
 }
 
 // meetingKey identifies one meetingCandidate within meetingCandidates'
@@ -585,7 +600,8 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 				return
 			}
 			end, _ := parseRFC3339Property(h, "GCAL_END")
-			cand := meetingCandidate{id: id, kind: kind, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start, end: end}
+			accepted := h.Properties["GCAL_SELF_RESPONSE_STATUS"] == "accepted"
+			cand := meetingCandidate{id: id, kind: kind, title: h.Title, link: h.Properties["GCAL_HTML_LINK"], when: start, end: end, accepted: accepted}
 			key := meetingKey{kind, id}
 			if cur, exists := best[key]; !exists || meetingPickerLess(cand, cur, now) {
 				best[key] = cand
@@ -605,19 +621,22 @@ func (m *Model) meetingCandidates(now time.Time) []meetingCandidate {
 }
 
 // meetingPickerLess reports whether a should rank ahead of b for the
-// "gM" picker's default highlight: a meeting currently in progress
-// always ranks ahead of one that isn't; between two in-progress
+// "gM" picker's default highlight: a meeting currently in progress *and
+// accepted* (meetingCandidate.prioritized — a "maybe" RSVP doesn't
+// count) always ranks ahead of one that isn't; between two such
 // meetings, the one ending sooner (the shorter of the two) ranks
 // first — so a quick standup you're nominally "in" right now doesn't
 // get buried under an hours-long meeting that's also technically
-// ongoing. Neither in progress: falls back to moreRelevantOccurrence
-// (whichever starts closest to now, upcoming or recently ended alike).
+// ongoing. Otherwise (including an in-progress meeting you only RSVP'd
+// "maybe" to, or haven't responded to at all): falls back to
+// moreRelevantOccurrence (whichever starts closest to now, upcoming or
+// recently ended alike).
 func meetingPickerLess(a, b meetingCandidate, now time.Time) bool {
-	aIn, bIn := a.inProgress(now), b.inProgress(now)
-	if aIn != bIn {
-		return aIn
+	aPri, bPri := a.prioritized(now), b.prioritized(now)
+	if aPri != bPri {
+		return aPri
 	}
-	if aIn {
+	if aPri {
 		return a.end.Sub(a.when) < b.end.Sub(b.when)
 	}
 	return moreRelevantOccurrence(a.when, b.when, now)

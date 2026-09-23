@@ -75,12 +75,27 @@ func TestCapturePrefillsCreatedProperty(t *testing.T) {
 // internal/calendarsync/convert.go): a GCAL_EVENT_ID plus GCAL_START/GCAL_END
 // bracketing the instant a meeting runs from start to end, plus a
 // synthetic GCAL_HTML_LINK, the same as a real synced event.
+// GCAL_SELF_RESPONSE_STATUS defaults to "accepted" (the common case, and
+// what a real self-organized or confirmed event carries) — see
+// withResponseStatus to override it for a test that specifically needs
+// a "maybe" or not-yet-responded invite.
 func calendarEventHeadline(id string, start, end time.Time) *org.Headline {
 	h := &org.Headline{Level: 1, Title: "Meeting " + id}
 	h.SetProperty("GCAL_EVENT_ID", id)
 	h.SetProperty("GCAL_START", start.Format(time.RFC3339))
 	h.SetProperty("GCAL_END", end.Format(time.RFC3339))
 	h.SetProperty("GCAL_HTML_LINK", "https://calendar.google.com/event?eid="+id)
+	h.SetProperty("GCAL_SELF_RESPONSE_STATUS", "accepted")
+	return h
+}
+
+// withResponseStatus overrides h's GCAL_SELF_RESPONSE_STATUS (set to
+// "accepted" by calendarEventHeadline above by default) — for a test
+// that needs a meeting the picker sees as merely invited, not
+// confirmed, e.g. to verify meetingPickerLess's in-progress boost
+// requires acceptance, not just an invite.
+func withResponseStatus(h *org.Headline, status string) *org.Headline {
+	h.SetProperty("GCAL_SELF_RESPONSE_STATUS", status)
 	return h
 }
 

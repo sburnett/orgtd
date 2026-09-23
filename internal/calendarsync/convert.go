@@ -93,6 +93,10 @@ func buildHeadline(ev gcal.Event, attendeeTagDomains, attendeeIgnorePatterns []s
 	h.Tags = append(h.Tags, attendeeTags(ev, attendeeTagDomains, attendeeIgnorePatterns)...)
 	h.SetProperty("GCAL_EVENT_ID", ev.ID)
 	h.SetProperty("GCAL_CALENDAR_ID", ev.CalendarID)
+	// Read back by internal/ui's "gM" picker (meetingCandidate.accepted)
+	// to require acceptance, not just invitation, before a meeting counts
+	// as "in progress" for ranking purposes — see meetingPickerLess.
+	h.SetProperty("GCAL_SELF_RESPONSE_STATUS", ev.SelfResponseStatus)
 	if ev.RecurringEventID != "" {
 		// Stable across every occurrence of the series (unlike
 		// GCAL_EVENT_ID above, which is this one instance's own ID) —

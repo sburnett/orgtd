@@ -57,6 +57,24 @@ func TestBuildHeadlineHasNoKeywordOrScheduled(t *testing.T) {
 	}
 }
 
+// TestBuildHeadlineRecordsSelfResponseStatus covers GCAL_SELF_RESPONSE_STATUS
+// round-tripping ev.SelfResponseStatus verbatim — internal/ui's "gM"
+// picker (meetingCandidate.accepted) reads it back to require
+// acceptance, not just invitation, before treating a meeting as "in
+// progress" for ranking purposes.
+func TestBuildHeadlineRecordsSelfResponseStatus(t *testing.T) {
+	h := buildHeadline(gcal.Event{
+		ID:                 "abc123",
+		Summary:            "Standup",
+		Start:              mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:                mustParse(t, "2026-09-10T09:15:00-07:00"),
+		SelfResponseStatus: "tentative",
+	}, nil, nil)
+	if got := h.Properties["GCAL_SELF_RESPONSE_STATUS"]; got != "tentative" {
+		t.Errorf("GCAL_SELF_RESPONSE_STATUS = %q, want %q", got, "tentative")
+	}
+}
+
 func TestEventBoundsAllDayUsesLocalMidnight(t *testing.T) {
 	ev := gcal.Event{
 		AllDay: true,

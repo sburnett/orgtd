@@ -299,6 +299,71 @@ func TestGMDefaultsToNextStartTimeWhenNothingInProgress(t *testing.T) {
 	}
 }
 
+// TestGMInProgressButOnlyMaybeDoesNotOutrankAcceptedUpcoming covers the
+// amendment to the "in progress" boost: a meeting that's currently
+// running but only RSVP'd "maybe" (tentative) to no longer gets
+// meetingPickerLess's top-tier treatment — it falls back to
+// moreRelevantOccurrence like anything else not in progress, so a
+// meeting starting soon that was actually accepted isn't buried under
+// one the user merely tentatively joined.
+func TestGMInProgressButOnlyMaybeDoesNotOutrankAcceptedUpcoming(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	tentativeInProgress := withResponseStatus(
+		recurringCalendarEventHeadline("maybe-1", "series-maybe", "Cross-team Sync", now.Add(-50*time.Minute), now.Add(10*time.Minute)),
+		"tentative",
+	)
+	ws.Files = append(ws.Files, &org.File{
+		Path: filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{
+			tentativeInProgress,
+			// Starts in 5 minutes, much closer to now than the
+			// tentative meeting's own start (50m ago) — so it wins the
+			// moreRelevantOccurrence fallback both are now judged by.
+			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(5*time.Minute), now.Add(20*time.Minute)),
+		},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+		t.Errorf("default highlight = %q, want series-standup (the in-progress meeting was only a \"maybe\")", got)
+	}
+}
+
+// TestGMAcceptedInProgressStillOutranksMaybeInProgress confirms the
+// converse: when both candidates are in progress, only the accepted one
+// gets the boost, even if the "maybe" one would otherwise win on
+// duration (shorter-in-progress-wins — see TestGMDefaultsToShortestInProgressMeeting).
+func TestGMAcceptedInProgressStillOutranksMaybeInProgress(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	// Shorter, but only a "maybe" — must not win despite the
+	// shortest-in-progress-wins tiebreak.
+	tentative := withResponseStatus(
+		recurringCalendarEventHeadline("maybe-1", "series-maybe", "Cross-team Sync", now.Add(-5*time.Minute), now.Add(2*time.Minute)),
+		"tentative",
+	)
+	// Longer, but actually accepted.
+	accepted := recurringCalendarEventHeadline("offsite-1", "series-offsite", "Team Offsite", now.Add(-time.Hour), now.Add(time.Hour))
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{tentative, accepted},
+	})
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "M")
+
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-offsite" {
+		t.Errorf("default highlight = %q, want series-offsite (accepted; the shorter meeting was only a \"maybe\")", got)
+	}
+}
+
 // TestGMRecentlyEndedMeetingRanksNearTop covers the reported gap:
 // attaching an entry to a meeting that just ended (so it's no longer
 // in progress) should be easy — the just-ended meeting must outrank a

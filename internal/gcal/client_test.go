@@ -216,3 +216,62 @@ func TestListEventsCarriesAttendees(t *testing.T) {
 		}
 	}
 }
+
+// TestListEventsCarriesSelfResponseStatus covers Event.SelfResponseStatus:
+// pulled from whichever attendee has Self set, not just the first
+// attendee in the list.
+func TestListEventsCarriesSelfResponseStatus(t *testing.T) {
+	resp := fakeEventsResponse{
+		Items: []*calendar.Event{
+			{
+				Id:      "tentative-self",
+				Summary: "Planning sync",
+				Start:   &calendar.EventDateTime{DateTime: "2026-09-10T09:00:00-07:00"},
+				End:     &calendar.EventDateTime{DateTime: "2026-09-10T09:15:00-07:00"},
+				Attendees: []*calendar.EventAttendee{
+					{Email: "jane@example.com", ResponseStatus: "accepted"},
+					{Self: true, Email: "me@example.com", ResponseStatus: "tentative"},
+				},
+			},
+			{
+				Id:      "no-attendees",
+				Summary: "Focus block",
+				Start:   &calendar.EventDateTime{DateTime: "2026-09-10T10:00:00-07:00"},
+				End:     &calendar.EventDateTime{DateTime: "2026-09-10T10:30:00-07:00"},
+			},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("encoding fake response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	svc, err := calendar.NewService(context.Background(),
+		option.WithoutAuthentication(),
+		option.WithEndpoint(server.URL),
+		option.WithHTTPClient(server.Client()))
+	if err != nil {
+		t.Fatalf("calendar.NewService: %v", err)
+	}
+	c := &Client{svc: svc}
+
+	events, err := c.ListEvents(context.Background(), "primary",
+		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("len(events) = %d, want 2", len(events))
+	}
+	if got := events[0].SelfResponseStatus; got != "tentative" {
+		t.Errorf("tentative-self SelfResponseStatus = %q, want %q", got, "tentative")
+	}
+	if got := events[1].SelfResponseStatus; got != "accepted" {
+		t.Errorf("no-attendees SelfResponseStatus = %q, want %q (no Self entry implies accepted)", got, "accepted")
+	}
+}
