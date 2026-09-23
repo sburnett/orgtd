@@ -104,11 +104,16 @@ func TestCommitFromDiffViewCommitsWithStockMessage(t *testing.T) {
 	}
 }
 
-func TestCommitFailureLeavesChangesUncommittedAndSkipsPush(t *testing.T) {
-	// Nothing to commit (dirty == committed): `git commit` itself will
-	// fail with "nothing to commit", and that failure should stop before
-	// ever attempting a push.
-	ws := gitRepoFixture(t, "todo.org", "* TODO Something\n", "")
+// TestCommitRealFailureSkipsPush guards the genuine-failure half of
+// applyCommit's commitErr/isNothingToCommit split: a `git commit` that
+// fails for a real reason (here, a required GPG signature that can never
+// succeed — see gpg.program below) must still refuse to push, unlike
+// the harmless "nothing to commit" case (see
+// TestCommitWithNothingToCommitStillPushes).
+func TestCommitRealFailureSkipsPush(t *testing.T) {
+	ws := gitRepoFixtureWithRemote(t, "todo.org", "* TODO Old title\n", "* TODO New title\n")
+	runGit(t, ws.Dir, "config", "commit.gpgsign", "true")
+	runGit(t, ws.Dir, "config", "gpg.program", "false") // always exits 1, so signing (and thus the commit) always fails
 	m := New(ws)
 	m.showDiff()
 	cmd := m.startCommit()
@@ -122,8 +127,48 @@ func TestCommitFailureLeavesChangesUncommittedAndSkipsPush(t *testing.T) {
 	}
 	for _, e := range m.execLog.snapshot() {
 		if e.kind == execLogStart && strings.Contains(e.text, "push") {
-			t.Errorf("execLog = %#v, push should never run after a failed commit", m.execLog.snapshot())
+			t.Errorf("execLog = %#v, push should never run after a genuine commit failure", m.execLog.snapshot())
 		}
+	}
+}
+
+// TestCommitWithNothingToCommitStillPushes covers the fix for :commit
+// finding nothing to commit (e.g. run a second time in a row, or after
+// committing by hand outside orgtd): that alone must not stop the push,
+// since there could be earlier local commits not yet on the remote.
+func TestCommitWithNothingToCommitStillPushes(t *testing.T) {
+	ws := gitRepoFixtureWithRemote(t, "todo.org", "* TODO Something\n", "")
+	m := New(ws)
+	m.showDiff()
+	cmd := m.startCommit()
+	m = runCommitCmd(t, m, cmd)
+
+	if m.message != "Nothing to commit; pushed" {
+		t.Errorf("message = %q, want \"Nothing to commit; pushed\"", m.message)
+	}
+	if entries := m.execLog.snapshot(); !gitLogMentions(entries, "push") {
+		t.Errorf("execLog = %#v, want push to have run even though there was nothing to commit", entries)
+	}
+}
+
+// TestCommitWithNothingToCommitAndFailedPushReportsIt covers the other
+// half of the same fix: when the push attempted despite nothing to
+// commit itself fails, the message should say so distinctly from a
+// failed push after an actual commit (see
+// TestCommitPushFailureStillLeavesTheCommitInPlace).
+func TestCommitWithNothingToCommitAndFailedPushReportsIt(t *testing.T) {
+	// gitRepoFixture (no remote) means the push has nowhere to go.
+	ws := gitRepoFixture(t, "todo.org", "* TODO Something\n", "")
+	m := New(ws)
+	m.showDiff()
+	cmd := m.startCommit()
+	m = runCommitCmd(t, m, cmd)
+
+	if !strings.Contains(m.message, "Nothing to commit, but git push failed") {
+		t.Errorf("message = %q, want it to report nothing to commit but the push failing", m.message)
+	}
+	if entries := m.execLog.snapshot(); !gitLogMentions(entries, "push") {
+		t.Errorf("execLog = %#v, want push to have been attempted even though there was nothing to commit", entries)
 	}
 }
 

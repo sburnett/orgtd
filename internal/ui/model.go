@@ -2053,12 +2053,27 @@ func (m *Model) startCommit() tea.Cmd {
 
 // commitPushMsg reports that :commit's git commit + git push (see
 // applyCommit) finished running in the background. commitErr, if set,
-// means `git commit` itself failed and push never even ran; pushErr, if
-// set, means the commit succeeded but the push that followed it didn't.
-// Both nil means both succeeded.
+// means `git commit` itself failed for a real reason and push never even
+// ran; pushErr, if set, means the push that followed didn't succeed
+// (whether or not the commit itself made a new commit). nothingToCommit
+// means `git commit` found nothing to commit (e.g. :commit run twice in
+// a row, or after committing by hand outside orgtd) — not a real
+// failure, so the push still ran. All of commitErr/pushErr/nothingToCommit
+// zero/false means both the commit and push succeeded normally.
 type commitPushMsg struct {
-	commitErr error
-	pushErr   error
+	commitErr       error
+	pushErr         error
+	nothingToCommit bool
+}
+
+// isNothingToCommit reports whether stdout from a failed `git commit` is
+// just git's own "nothing to commit" message rather than a real failure.
+// applyCommit treats this as harmless and still runs the push — useful
+// on its own right after a push failure (say, a transient network
+// error): rerunning :commit should retry the push even though the
+// earlier :commit already made the commit itself.
+func isNothingToCommit(stdout string) bool {
+	return strings.Contains(stdout, "nothing to commit")
 }
 
 // applyCommit commits every file currently open in the outline except
@@ -2074,10 +2089,13 @@ type commitPushMsg struct {
 // can replace out from under it. m.gitRunning is set immediately, for
 // the same reason plus so a repeated :commit or :w can refuse right
 // away rather than racing the goroutine — finishCommitPush clears it
-// once the result comes back. A failed commit leaves the working tree
-// untouched and never attempts the push; a failed push still leaves the
-// commit in place, so the diff view is refreshed either way (in
-// finishCommitPush) to show whatever actually happened.
+// once the result comes back. A commit failing for a real reason (see
+// isNothingToCommit) leaves the working tree untouched and never
+// attempts the push; "nothing to commit" isn't treated as a failure at
+// all, so the push still runs (there may be earlier local commits not
+// yet pushed); a failed push still leaves the commit in place, so the
+// diff view is refreshed either way (in finishCommitPush) to show
+// whatever actually happened.
 func (m *Model) applyCommit() tea.Cmd {
 	m.gitRunning = true
 	m.message = "Running git commit and git push in the background..."
@@ -2091,13 +2109,17 @@ func (m *Model) applyCommit() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		if _, err := runGitCommit(elog, dir, paths, stockCommitMessage); err != nil {
-			return commitPushMsg{commitErr: err}
+		nothingToCommit := false
+		if stdout, err := runGitCommit(elog, dir, paths, stockCommitMessage); err != nil {
+			if !isNothingToCommit(stdout) {
+				return commitPushMsg{commitErr: err}
+			}
+			nothingToCommit = true
 		}
 		if _, err := runGitPush(elog, dir); err != nil {
-			return commitPushMsg{pushErr: err}
+			return commitPushMsg{pushErr: err, nothingToCommit: nothingToCommit}
 		}
-		return commitPushMsg{}
+		return commitPushMsg{nothingToCommit: nothingToCommit}
 	}
 }
 
@@ -2119,12 +2141,20 @@ func (m Model) finishCommitPush(msg commitPushMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.pushErr != nil {
-		m.message = fmt.Sprintf("Committed, but git push failed: %s", gitErrorText(msg.pushErr))
+		if msg.nothingToCommit {
+			m.message = fmt.Sprintf("Nothing to commit, but git push failed: %s", gitErrorText(msg.pushErr))
+		} else {
+			m.message = fmt.Sprintf("Committed, but git push failed: %s", gitErrorText(msg.pushErr))
+		}
 		m.refreshDiffData()
 		return m, nil
 	}
 
-	m.message = "Committed and pushed"
+	if msg.nothingToCommit {
+		m.message = "Nothing to commit; pushed"
+	} else {
+		m.message = "Committed and pushed"
+	}
 	m.refreshDiffData()
 	return m, nil
 }
