@@ -119,7 +119,7 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"Debug logging: off",
 		"Calendar sync: (not configured — see README's Calendar sync section)",
 		`Gutter icons: dirty "+" (#0087d7), mark (#ff87ff), clarify "●" (#ff87ff), lock "◆" (#ffaf00), meeting "▣" (#00afff)`,
-		"Colors: file (#00afff), todo (#d7005f), next (#ffaf00), waiting (#875fff), someday (#767676), done (#00d75f), cancelled (#585858), tag (#00d7d7), done-title (#767676), status (#767676), timestamp (#ff87ff), error (#d7005f), body (#767676), caret (#000000 on #ffffff), highlight (#585858), panel (#303030), status-bar (#000000 on #9e9e9e), cursor-row (#204060), visual-selection (#102030), search-highlight (#3a4a3a)",
+		"Colors: file (#00afff), todo (#d7005f), next (#ffaf00), waiting (#875fff), someday (#767676), done (#00d75f), cancelled (#585858), tag (#00d7d7), done-title (#767676), status (#767676), timestamp (#ff87ff), error (#d7005f), body (#a8a8a8), caret (#000000 on #ffffff), highlight (#585858), panel (#303030), status-bar (#000000 on #9e9e9e), cursor-row (#204060), visual-selection (#102030), search-highlight (#3a4a3a)",
 	} {
 		if !containsSubstring(lines, want) {
 			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)

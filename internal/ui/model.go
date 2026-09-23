@@ -63,7 +63,7 @@ const (
 	defaultStatusColor    = "#767676" // Comment grey, for muted status/info text
 	defaultTimestampColor = "#ff87ff" // Identifier/Question magenta
 	defaultErrorColor     = "#d7005f" // Error/Removed red
-	defaultBodyColor      = "#767676" // Comment grey
+	defaultBodyColor      = "#a8a8a8" // Lighter grey, for easier reading than Comment grey
 
 	// defaultCaretFg/Bg color the command-line's text-cursor caret (a
 	// lone space standing in for the terminal's own cursor block, since
