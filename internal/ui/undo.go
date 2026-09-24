@@ -304,6 +304,18 @@ type insertContext struct {
 	// doesn't need two separate keystrokes bracketing the editor
 	// round-trip. Never set for a plain o/O or gC/:capture.
 	thenPickMeeting bool
+
+	// switchToOutline is set only by :capture/gC (and gX, which is
+	// capture plus thenPickMeeting above) — never by plain o/O, whose
+	// insert position is always wherever the cursor already was, so
+	// there's nothing to jump to. Capture always targets the inbox
+	// regardless of the current view, so once the editor session
+	// commits, finishEdit switches to outline view (unless already
+	// showing outline rows — see usesOutlineRows) so the newly captured
+	// entry is right there under the cursor, ready for further edits,
+	// rather than left off-screen in whatever view (agenda, calendar,
+	// ...) capture was triggered from.
+	switchToOutline bool
 }
 
 // spliceAction is the shared machinery behind insertAction and

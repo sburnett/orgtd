@@ -193,6 +193,105 @@ func TestCaptureWorksFromClarifyView(t *testing.T) {
 	}
 }
 
+// commitCapture simulates a :capture/gC session's editor finishing with
+// body, preserving switchToOutline the way startCaptureImpl itself
+// records it (see insertContext.switchToOutline) — mirrors
+// commitCaptureAndPickMeeting (meeting_picker_test.go), which
+// additionally sets thenPickMeeting for "gX". Unlike commitTentative/
+// commitCaptureRollback, it locates the tentative headline via the
+// inbox file directly rather than m.currentHeadline(): from a view
+// whose rows aren't the outline's (agenda, calendar, ...), the cursor
+// never actually lands on the tentative placeholder — see
+// usesOutlineRows — the same as a real capture session, where nothing
+// depends on it since $EDITOR covers the screen in the meantime.
+func commitCapture(t *testing.T, m Model, body string) Model {
+	t.Helper()
+	inbox := findInboxHeadlines(t, m)
+	if len(inbox) == 0 {
+		t.Fatalf("no tentative headline in the inbox file")
+	}
+	tentative := inbox[len(inbox)-1]
+	f, parent, idx := m.insertPosition(tentative)
+	ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: true}
+	path := writeTempOrgFile(t, body)
+	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
+	return updated.(Model)
+}
+
+// TestCaptureFromAgendaViewSwitchesToOutline is a regression test for
+// capture leaving the cursor stranded on whatever agenda row it
+// happened to be on: agendaView's rows don't include the freshly
+// captured (dateless, keyword-less) inbox entry at all, so
+// commitInsert's own focusHeadline can't find it there — capture must
+// switch to outline view itself once the editor session commits (see
+// insertContext.switchToOutline/usesOutlineRows) so the new entry is
+// immediately in view, ready for further edits (scheduling, tagging,
+// promoting, ...).
+func TestCaptureFromAgendaViewSwitchesToOutline(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.switchToView(agendaView)
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "C")
+	m = commitCapture(t, m, "Buy stamps\n")
+
+	if m.view != outlineView {
+		t.Fatalf("view after capture = %v, want outlineView", m.view)
+	}
+	h := m.currentHeadline()
+	if h == nil || h.Title != "Buy stamps" {
+		t.Errorf("currentHeadline = %+v, want the just-captured entry", h)
+	}
+}
+
+// TestCaptureFromCalendarViewSwitchesToOutline is the same regression
+// as TestCaptureFromAgendaViewSwitchesToOutline above, but for
+// calendarView — whose rows are calendar.org's synced events, not the
+// outline's headlines at all.
+func TestCaptureFromCalendarViewSwitchesToOutline(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.switchToView(calendarView)
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "C")
+	m = commitCapture(t, m, "Buy stamps\n")
+
+	if m.view != outlineView {
+		t.Fatalf("view after capture = %v, want outlineView", m.view)
+	}
+	h := m.currentHeadline()
+	if h == nil || h.Title != "Buy stamps" {
+		t.Errorf("currentHeadline = %+v, want the just-captured entry", h)
+	}
+}
+
+// TestCaptureFromClarifyViewStaysInClarify checks the flip side of the
+// two tests above: clarifyView's rows are the very same full-outline
+// listing outlineView itself shows (see usesOutlineRows) — plus a
+// pinned info-buffer panel — so the newly captured entry is already
+// right there under the cursor once the editor session commits, with
+// no need (and no reason) to switch views out from under an in-progress
+// clarify session.
+func TestCaptureFromClarifyViewStaysInClarify(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.enterClarifyView()
+
+	m = sendKey(m, "g")
+	m = sendKey(m, "C")
+	m = commitCapture(t, m, "Buy stamps\n")
+
+	if m.view != clarifyView {
+		t.Fatalf("view after capture = %v, want clarifyView (unchanged)", m.view)
+	}
+	h := m.currentHeadline()
+	if h == nil || h.Title != "Buy stamps" {
+		t.Errorf("currentHeadline = %+v, want the just-captured entry", h)
+	}
+}
+
 func findInboxHeadlines(t *testing.T, m Model) []*org.Headline {
 	t.Helper()
 	for _, f := range m.ws.Files {

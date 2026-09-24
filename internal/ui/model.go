@@ -1124,6 +1124,25 @@ func (m *Model) rebuildRows() {
 	}
 }
 
+// usesOutlineRows reports whether v's rows are the same full-outline
+// listing rebuildRows falls back to in its default case (every loaded
+// file, in full) — true for outlineView itself and clarifyView (which
+// merely adds an info-buffer panel on top of the same rows), false for
+// every other view (agenda, calendar, meeting tags, config, log, diff,
+// help), whose row sets are each built from something narrower than
+// "every headline". Used by finishEdit to decide whether a freshly
+// captured entry (see insertContext.switchToOutline) is already visible
+// where the cursor is, or needs an explicit switch to outline view to
+// bring it into focus.
+func usesOutlineRows(v viewKind) bool {
+	switch v {
+	case outlineView, clarifyView:
+		return true
+	default:
+		return false
+	}
+}
+
 // jumpToSource ("Enter" on an agenda row, or on an item linked to a
 // calendar event — see linkedMeetingItems) switches to outline
 // view with the cursor on that row's real headline. A no-op outside
@@ -5186,7 +5205,7 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return m.insertHeadlineAt(f, parent, idx, level, origin, nil, false)
+	return m.insertHeadlineAt(f, parent, idx, level, origin, nil, false, false)
 }
 
 // startCapture (:capture, "gC") appends a blank top-level headline to
@@ -5194,7 +5213,12 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 // quick-add path, distinct from o/O, that always targets the inbox
 // regardless of the current cursor position or view (agenda, clarify,
 // or scrolled to some other file entirely in outline). A no-op (with a
-// status message) if the inbox file isn't loaded.
+// status message) if the inbox file isn't loaded. Once the editor
+// session commits, the outline view is focused on the newly captured
+// entry (switching to it first if the current view's rows don't
+// already include it — see insertContext.switchToOutline and
+// usesOutlineRows), ready for further edits (promote/demote, tag,
+// schedule, ...) right away.
 func (m *Model) startCapture() tea.Cmd {
 	return m.startCaptureImpl(false)
 }
@@ -5224,7 +5248,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 	// originFile covers the file-row case (origin nil): without it,
 	// rollback would fall back to insertContext.f, which for capture is
 	// always the inbox, not necessarily wherever the cursor actually was.
-	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), thenPickMeeting)
+	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), thenPickMeeting, true)
 }
 
 func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
@@ -5465,7 +5489,7 @@ func (m *Model) currentRowFile() *org.File {
 // thenPickMeeting (set only by startCaptureAndPickMeeting, "gX") queues
 // it up to run automatically right after the editor session commits —
 // see insertContext.thenPickMeeting and finishEdit.
-func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting bool) tea.Cmd {
+func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
 	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
 	if parent != nil {
@@ -5476,7 +5500,7 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	m.rebuildRows()
 	m.focusHeadline(tentative)
 
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile, thenPickMeeting: thenPickMeeting}
+	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile, thenPickMeeting: thenPickMeeting, switchToOutline: switchToOutline}
 	cmd := m.launchEditor(tentative, &ctx, cursorAtEntryStart)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank
@@ -6237,10 +6261,20 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.commitInsert(*msg.insert, msg.target, file.Headlines)
+		if msg.insert.switchToOutline && !usesOutlineRows(m.view) {
+			// commitInsert's own focusHeadline couldn't find the new
+			// entry's row, since the current view's rows don't include
+			// it at all (e.g. captured from agenda or calendar) — bring
+			// it into view explicitly rather than leaving the cursor
+			// wherever it happened to be in that other view.
+			m.switchToView(outlineView)
+			m.focusHeadline(file.Headlines[0])
+		}
 		if msg.insert.thenPickMeeting {
-			// commitInsert already focused file.Headlines[0], so the
-			// picker (see startMeetingPicker) targets the just-captured
-			// entry — see startCaptureAndPickMeeting ("gX").
+			// commitInsert (and the switch above, if it ran) already
+			// focused file.Headlines[0], so the picker (see
+			// startMeetingPicker) targets the just-captured entry — see
+			// startCaptureAndPickMeeting ("gX").
 			m.startMeetingPicker()
 		}
 		return m, nil
