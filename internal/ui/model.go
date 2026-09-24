@@ -2545,6 +2545,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchForward = true
 		m.searchOrigin = m.cursor
 		m.searchQuery = ""
+		m.message = ""
 		return m, nil
 
 	case "?":
@@ -2552,6 +2553,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchForward = false
 		m.searchOrigin = m.cursor
 		m.searchQuery = ""
+		m.message = ""
 		return m, nil
 
 	case "n":
@@ -3205,6 +3207,7 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = normalMode
 		m.cursor = m.searchOrigin
 		m.searchQuery = ""
+		m.message = ""
 		m.ensureVisible()
 		return m, nil
 
@@ -3232,6 +3235,7 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(r) == 0 {
 			m.mode = normalMode
 			m.cursor = m.searchOrigin
+			m.message = ""
 			m.ensureVisible()
 			return m, nil
 		}
@@ -3263,6 +3267,7 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // incremental search, and for Esc/backspace-to-empty reverting to it.
 func (m *Model) performIncrementalSearch() {
 	m.cursor = m.searchOrigin
+	m.message = ""
 	if m.searchQuery != "" && m.searchOrigin >= 0 && m.searchOrigin < len(m.rows) {
 		origin := m.rows[m.searchOrigin]
 		if target, ok := m.findMatch(origin, m.searchQuery, m.searchForward); ok {
@@ -3273,6 +3278,8 @@ func (m *Model) performIncrementalSearch() {
 			if idx := indexOfRow(m.rows, target); idx >= 0 {
 				m.cursor = idx
 			}
+		} else {
+			m.message = fmt.Sprintf("No match for %q", m.searchQuery)
 		}
 	}
 	m.ensureVisible()
@@ -3286,12 +3293,15 @@ func (m *Model) repeatSearch(forward bool) {
 	if m.lastSearchQuery == "" || m.cursor < 0 || m.cursor >= len(m.rows) {
 		return
 	}
+	m.message = ""
 	from := m.rows[m.cursor]
 	if target, ok := m.findMatch(from, m.lastSearchQuery, forward); ok {
 		m.revealRow(target)
 		if idx := indexOfRow(m.rows, target); idx >= 0 {
 			m.cursor = idx
 		}
+	} else {
+		m.message = fmt.Sprintf("No match for %q", m.lastSearchQuery)
 	}
 }
 
@@ -7063,6 +7073,12 @@ func (m Model) View() string {
 		}
 		b.WriteString(prefix + m.searchQuery)
 		b.WriteString(m.caretStyle().Render(" "))
+		// m.message can be set without leaving searchMode (a no-match
+		// incremental search) — shown here too, not just in the
+		// mode-less case below, or it'd be set but never actually visible.
+		if m.message != "" {
+			b.WriteString("  " + m.errorStyle().Render(m.message))
+		}
 	case m.mode == confirmMode:
 		b.WriteString(m.errorStyle().Render(m.confirmMessage))
 	case m.mode == visualMode:
