@@ -3278,6 +3278,8 @@ func (m *Model) performIncrementalSearch() {
 			if idx := indexOfRow(m.rows, target); idx >= 0 {
 				m.cursor = idx
 			}
+			index, total := m.searchMatchStats(m.searchQuery, target)
+			m.message = fmt.Sprintf("[%d/%d]", index, total)
 		} else {
 			m.message = fmt.Sprintf("No match for %q", m.searchQuery)
 		}
@@ -3300,6 +3302,8 @@ func (m *Model) repeatSearch(forward bool) {
 		if idx := indexOfRow(m.rows, target); idx >= 0 {
 			m.cursor = idx
 		}
+		index, total := m.searchMatchStats(m.lastSearchQuery, target)
+		m.message = fmt.Sprintf("[%d/%d]", index, total)
 	} else {
 		m.message = fmt.Sprintf("No match for %q", m.lastSearchQuery)
 	}
@@ -3433,6 +3437,24 @@ func (m *Model) revealRow(target row) {
 	if changed {
 		m.rebuildRows()
 	}
+}
+
+// searchMatchStats reports target's 1-based ordinal position among every
+// row matching query in searchRows(), in that slice's own (top-to-bottom,
+// direction-independent) order, plus the total number of matches — shown
+// alongside a confirmed search or "n"/"N" repeat as "[index/total]",
+// mirroring vim's own search-count indicator.
+func (m *Model) searchMatchStats(query string, target row) (index, total int) {
+	q := strings.ToLower(query)
+	for _, r := range m.searchRows() {
+		if strings.Contains(strings.ToLower(rowSearchText(r)), q) {
+			total++
+			if sameRow(r, target) {
+				index = total
+			}
+		}
+	}
+	return index, total
 }
 
 // findMatch searches the full outline (see searchRows) for the nearest

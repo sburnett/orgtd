@@ -512,8 +512,8 @@ empties it (and its pinned display) without needing another `dd`/`yy`.
 
 | Key | Action |
 |---|---|
-| `/` / `?` | Incremental forward / backward search — jumps as you type, wraps around the ends, case-insensitive. `Enter` confirms and stays at the match; `Esc` (or backspacing past an empty query) reverts to where you started. A query matching nothing shows "No match for ..." on the command line, and the cursor stays put |
-| `n` / `N` | Repeat the last search forward / backward — "No match for ..." the same way if it finds nothing |
+| `/` / `?` | Incremental forward / backward search — jumps as you type, wraps around the ends, case-insensitive. `Enter` confirms and stays at the match; `Esc` (or backspacing past an empty query) reverts to where you started. A query matching nothing shows "No match for ..." on the command line, and the cursor stays put; a query with at least one match instead shows `[index/total]` — the current match's 1-based position (top-to-bottom, regardless of search direction) among every match — right there on the command line |
+| `n` / `N` | Repeat the last search forward / backward — same "No match for ..." or `[index/total]` feedback as above |
 | `:noh` | Clear search-match highlighting |
 
 Matches highlight everywhere they occur (title, tags, file names, body
