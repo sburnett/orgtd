@@ -5199,13 +5199,66 @@ func (m *Model) resolveInsertPosition(before bool) (f *org.File, parent *org.Hea
 // where) and opens it in $EDITOR. The insert isn't recorded in undo
 // history until the editor session finishes successfully (see
 // commitInsert), so the whole "open a headline, type into it" session is
-// one undo step, matching vim's o/O.
+// one undo step, matching vim's o/O. In calendarView, a row associated
+// with a meeting (the event's own row/body, or an item already linked to
+// it) is special-cased to insertCalendarCapture instead — see there for
+// why "before" doesn't apply to that path.
 func (m *Model) insertHeadline(before bool) tea.Cmd {
+	if m.view == calendarView {
+		if cmd, handled := m.insertCalendarCapture(); handled {
+			return cmd
+		}
+	}
 	f, parent, idx, level, origin, ok := m.resolveInsertPosition(before)
 	if !ok {
 		return nil
 	}
-	return m.insertHeadlineAt(f, parent, idx, level, origin, nil, false, false)
+	return m.insertHeadlineAt(f, parent, idx, level, origin, nil, false, false, nil)
+}
+
+// insertCalendarCapture is o/O's calendarView-specific behavior: rather
+// than inserting a sibling relative to the cursor (resolveInsertPosition,
+// insertHeadline's default) — which for a calendar event's own row would
+// mean editing calendar.org itself, lost on the next :sync-calendar, and
+// for an already-linked item would mean a sibling in whatever unrelated
+// file that item happens to live in — o/O here instead appends a new
+// headline to the end of the inbox, the same target as "gC"/":capture"
+// (see startCaptureImpl), and attaches it outright to the same meeting
+// the cursor's row belongs to (same properties "gM"/buildMeetingAttachAction
+// would set, chosen automatically rather than through the picker, since
+// the meeting is already unambiguous from the cursor's row).
+//
+// o and O behave identically here: once the insert always targets the
+// end of one shared file rather than a position relative to the cursor,
+// there's no "before" vs "after" left to distinguish (this mirrors gC/gX,
+// which also ignore cursor position entirely). Their relative order under
+// the event in calendarView (see linkedMeetingItems) is instead governed
+// by CREATED, so repeated o/O presses still show up in the order they
+// were actually inserted, regardless of which file each one is later
+// filed into.
+//
+// handled is false (cmd always nil then) for a calendarView row that
+// isn't associated with any meeting at all (a day's section-header row)
+// — insertHeadline falls back to its ordinary resolveInsertPosition path,
+// which already no-ops on those.
+func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return nil, false
+	}
+	eventH, ok := calendarEventForRow(m.rows[m.cursor])
+	if !ok {
+		return nil, false
+	}
+	cand, ok := meetingCandidateFromEvent(eventH)
+	if !ok {
+		return nil, false
+	}
+	f := m.findInboxFile()
+	if f == nil {
+		m.message = fmt.Sprintf("No %s file in this org directory", m.inboxFile)
+		return nil, true
+	}
+	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), false, true, &cand), true
 }
 
 // startCapture (:capture, "gC") appends a blank top-level headline to
@@ -5248,7 +5301,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 	// originFile covers the file-row case (origin nil): without it,
 	// rollback would fall back to insertContext.f, which for capture is
 	// always the inbox, not necessarily wherever the cursor actually was.
-	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), thenPickMeeting, true)
+	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), thenPickMeeting, true, nil)
 }
 
 func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
@@ -5488,8 +5541,11 @@ func (m *Model) currentRowFile() *org.File {
 // meeting instead — nothing here does it for you, though
 // thenPickMeeting (set only by startCaptureAndPickMeeting, "gX") queues
 // it up to run automatically right after the editor session commits —
-// see insertContext.thenPickMeeting and finishEdit.
-func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool) tea.Cmd {
+// see insertContext.thenPickMeeting and finishEdit. attachMeeting (set
+// only by insertCalendarCapture, o/O from calendarView) instead attaches
+// a specific, already-known meeting outright, with no picker — see
+// insertContext.attachMeeting.
+func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool, attachMeeting *meetingCandidate) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
 	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
 	if parent != nil {
@@ -5500,7 +5556,7 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	m.rebuildRows()
 	m.focusHeadline(tentative)
 
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile, thenPickMeeting: thenPickMeeting, switchToOutline: switchToOutline}
+	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile, thenPickMeeting: thenPickMeeting, switchToOutline: switchToOutline, attachMeeting: attachMeeting}
 	cmd := m.launchEditor(tentative, &ctx, cursorAtEntryStart)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank
@@ -6276,6 +6332,13 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 			// startMeetingPicker) targets the just-captured entry — see
 			// startCaptureAndPickMeeting ("gX").
 			m.startMeetingPicker()
+		}
+		if msg.insert.attachMeeting != nil {
+			// insertCalendarCapture's non-interactive counterpart to
+			// thenPickMeeting above: the meeting is already known, so
+			// attach it directly as its own undo step (same as a "gM"
+			// pick would), rather than opening a picker over it.
+			m.pushUndo(m.buildMeetingAttachAction(file.Headlines[0], *msg.insert.attachMeeting))
 		}
 		return m, nil
 	}

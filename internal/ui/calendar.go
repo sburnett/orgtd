@@ -2,6 +2,7 @@ package ui
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
@@ -135,10 +136,80 @@ func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
 // appendCalendarHeadlines), rather than only for a meeting starting
 // today or within the next 24 hours. nil if h isn't itself a synced
 // calendar event (no GCAL_EVENT_ID) or has nothing linked.
+//
+// Reordered from entriesForMeeting's own file/tree order into ascending
+// CREATED order (items with no parseable CREATED keep their relative
+// tree-order position — see headlineCreatedTime), so that entries
+// insertCalendarCapture (o/O from this view — see model.go) adds to the
+// end of the inbox still show up here in the order they were actually
+// captured, even after being filed away into some other file whose
+// position in file/tree order no longer reflects when it happened.
 func (m *Model) linkedMeetingItems(h *org.Headline) []*org.Headline {
 	kind, id, ok := meetingIdentity(h)
 	if !ok {
 		return nil
 	}
-	return m.entriesForMeeting(kind, id)
+	items := m.entriesForMeeting(kind, id)
+	sort.SliceStable(items, func(i, j int) bool {
+		ti, iok := headlineCreatedTime(items[i])
+		tj, jok := headlineCreatedTime(items[j])
+		if !iok || !jok {
+			return false
+		}
+		return ti.Before(tj)
+	})
+	return items
+}
+
+// headlineCreatedTime parses h's CREATED property (set by insertHeadlineAt
+// on every new entry, e.g. "[2026-09-24 Thu 14:32]") back into a
+// time.Time, for ordering entries by when they were actually created
+// (see linkedMeetingItems) rather than by their position in the outline.
+// ok is false if CREATED is missing, or set to something parseFlexibleDate
+// can't read (e.g. hand-edited).
+func headlineCreatedTime(h *org.Headline) (time.Time, bool) {
+	raw := strings.Trim(h.Properties["CREATED"], "[]")
+	if raw == "" {
+		return time.Time{}, false
+	}
+	t, _, err := parseFlexibleDate(raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// calendarEventForRow resolves the calendar event a calendarView row r is
+// associated with, for insertCalendarCapture (o/O — see model.go): r's
+// own headline if it's itself a synced calendar event (covers both the
+// event's own row, isCalendarItem, and one of its folded-open body-line
+// rows, which share the same headline — see appendCalendarHeadlines), or
+// linkedFromEvent if r is an isCalendarLinkedItem row instead. ok is
+// false for anything else (a day's section-header row), or if
+// linkedFromEvent is unset on a linked-item row (shouldn't happen in
+// practice, but leaves nothing to resolve either way).
+func calendarEventForRow(r row) (*org.Headline, bool) {
+	if r.isCalendarLinkedItem {
+		return r.linkedFromEvent, r.linkedFromEvent != nil
+	}
+	if r.headline != nil {
+		if _, _, ok := meetingIdentity(r.headline); ok {
+			return r.headline, true
+		}
+	}
+	return nil, false
+}
+
+// meetingCandidateFromEvent builds the meetingCandidate identifying event
+// h itself (kind/id/title/link only — the fields buildMeetingAttachAction
+// actually uses), for insertCalendarCapture to attach a freshly captured
+// entry to h directly, without going through the interactive "gM" picker
+// (see meetingCandidates for the picker's own, fuller construction). ok is
+// false if h isn't itself a synced calendar event.
+func meetingCandidateFromEvent(h *org.Headline) (meetingCandidate, bool) {
+	kind, id, ok := meetingIdentity(h)
+	if !ok {
+		return meetingCandidate{}, false
+	}
+	return meetingCandidate{id: id, kind: kind, title: h.Title, link: h.Properties["GCAL_HTML_LINK"]}, true
 }

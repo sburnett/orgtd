@@ -302,19 +302,31 @@ type insertContext struct {
 	// the new headline, finishEdit also opens the "gM" picker on it —
 	// chaining the two so attaching a meeting to a freshly captured item
 	// doesn't need two separate keystrokes bracketing the editor
-	// round-trip. Never set for a plain o/O or gC/:capture.
+	// round-trip. Never set for a plain o/O (outside calendarView) or
+	// gC/:capture.
 	thenPickMeeting bool
 
-	// switchToOutline is set only by :capture/gC (and gX, which is
-	// capture plus thenPickMeeting above) — never by plain o/O, whose
-	// insert position is always wherever the cursor already was, so
-	// there's nothing to jump to. Capture always targets the inbox
+	// attachMeeting is set only by insertCalendarCapture (o/O from
+	// calendarView, on a row associated with a meeting): once the
+	// capture's editor session finishes and commitInsert lands the new
+	// headline, finishEdit attaches it to this specific meeting outright
+	// (see buildMeetingAttachAction) — the calendarView equivalent of
+	// thenPickMeeting above, except the meeting is already unambiguous
+	// from the row o/O was pressed on, so there's no picker to open.
+	// Never set anywhere else.
+	attachMeeting *meetingCandidate
+
+	// switchToOutline is set only by :capture/gC, gX (capture plus
+	// thenPickMeeting above), and insertCalendarCapture (capture plus
+	// attachMeeting above) — never by a plain o/O elsewhere, whose insert
+	// position is always wherever the cursor already was, so there's
+	// nothing to jump to. Each of these always targets the inbox
 	// regardless of the current view, so once the editor session
 	// commits, finishEdit switches to outline view (unless already
 	// showing outline rows — see usesOutlineRows) so the newly captured
 	// entry is right there under the cursor, ready for further edits,
 	// rather than left off-screen in whatever view (agenda, calendar,
-	// ...) capture was triggered from.
+	// ...) the capture was triggered from.
 	switchToOutline bool
 }
 
