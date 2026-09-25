@@ -308,25 +308,31 @@ type insertContext struct {
 
 	// attachMeeting is set only by insertCalendarCapture (o/O from
 	// calendarView, on a row associated with a meeting): once the
-	// capture's editor session finishes and commitInsert lands the new
-	// headline, finishEdit attaches it to this specific meeting outright
-	// (see buildMeetingAttachAction) — the calendarView equivalent of
-	// thenPickMeeting above, except the meeting is already unambiguous
-	// from the row o/O was pressed on, so there's no picker to open.
-	// Never set anywhere else.
+	// capture's editor session finishes, commitInsert attaches the new
+	// headline to this specific meeting outright (see
+	// buildMeetingAttachAction), folded into the same undo step as the
+	// insert itself — the calendarView equivalent of thenPickMeeting
+	// above, except the meeting is already unambiguous from the row o/O
+	// was pressed on, so there's no picker to open, and no separate
+	// asynchronous step to attach it in. Never set anywhere else.
 	attachMeeting *meetingCandidate
 
-	// switchToOutline is set only by :capture/gC, gX (capture plus
-	// thenPickMeeting above), and insertCalendarCapture (capture plus
-	// attachMeeting above) — never by a plain o/O elsewhere, whose insert
-	// position is always wherever the cursor already was, so there's
-	// nothing to jump to. Each of these always targets the inbox
+	// switchToOutline is set only by :capture/gC and gX (capture plus
+	// thenPickMeeting above) — never by insertCalendarCapture (capture
+	// plus attachMeeting above), and never by a plain o/O elsewhere,
+	// whose insert position is always wherever the cursor already was,
+	// so there's nothing to jump to. gC/gX always target the inbox
 	// regardless of the current view, so once the editor session
 	// commits, finishEdit switches to outline view (unless already
 	// showing outline rows — see usesOutlineRows) so the newly captured
 	// entry is right there under the cursor, ready for further edits,
 	// rather than left off-screen in whatever view (agenda, calendar,
-	// ...) the capture was triggered from.
+	// ...) the capture was triggered from. insertCalendarCapture instead
+	// stays in calendarView: since attachMeeting's property write lands
+	// before commitInsert's own rebuildRows/focusHeadline, the new entry
+	// already qualifies as a linked item nested under its meeting by the
+	// time the cursor moves, so there's somewhere sensible to land
+	// without leaving calendar view at all.
 	switchToOutline bool
 }
 
@@ -513,12 +519,30 @@ func (m *Model) insertPosition(h *org.Headline) (f *org.File, parent *org.Headli
 // commitInsert finalizes an o/O insert session: it swaps the tentative
 // placeholder headline for the final edited content in a single tree
 // mutation, then records the whole session (open + edit) as one undo
-// step — matching vim treating "o, type, Esc" as a single undo unit.
+// step — matching vim treating "o, type, Esc" as a single undo unit. If
+// ctx.attachMeeting is set (o/O from calendarView on a meeting-linked
+// row — see insertCalendarCapture), the meeting attachment is folded
+// into that very same undo step (a batchAction wrapping the insert and
+// the attach together) rather than pushed separately, so a single undo
+// removes the captured entry and its meeting link as one action —
+// unlike "gX"'s thenPickMeeting, which attaches interactively, well
+// after commitInsert has already returned and recorded its own step, so
+// it stays a separate undo entry (see startMeetingPicker/
+// applySelectedMeeting). Tagging a meeting via "gt" elsewhere is
+// likewise unaffected — this grouping only applies to this one
+// capture-and-attach session.
 func (m *Model) commitInsert(ctx insertContext, tentative *org.Headline, final []*org.Headline) {
 	m.spliceReplace([]*org.Headline{tentative}, final)
-	m.undoStack = append(m.undoStack[:m.undoPos], &insertAction{spliceAction{
+	insert := &insertAction{spliceAction{
 		f: ctx.f, parent: ctx.parent, index: ctx.index, headlines: final, inTree: true,
-	}})
+	}}
+	var action undoAction = insert
+	if ctx.attachMeeting != nil {
+		attach := m.buildMeetingAttachAction(final[0], *ctx.attachMeeting)
+		attach.apply(m)
+		action = &batchAction{actions: []undoAction{insert, attach}}
+	}
+	m.undoStack = append(m.undoStack[:m.undoPos], action)
 	m.undoPos = len(m.undoStack)
 	m.rebuildRows()
 	m.focusHeadline(final[0])

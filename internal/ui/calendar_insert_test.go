@@ -24,7 +24,7 @@ func commitCalendarCapture(t *testing.T, m Model, body string, cand meetingCandi
 	}
 	tentative := inbox[len(inbox)-1]
 	f, parent, idx := m.insertPosition(tentative)
-	ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: true, attachMeeting: &cand}
+	ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: false, attachMeeting: &cand}
 	path := writeTempOrgFile(t, body)
 	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
 	return updated.(Model)
@@ -78,6 +78,90 @@ func TestCalendarOOnEventRowCapturesToInboxAndAttaches(t *testing.T) {
 		if links := final.Properties["GCAL_EVENT_LINKS"]; links == "" {
 			t.Errorf("key %q: GCAL_EVENT_LINKS unset, want the event's link snapshot", key)
 		}
+	}
+}
+
+// TestCalendarOOCapturePlusAttachIsOneUndoStep is the undo-grouping half
+// of the reported behavior change: the capture and the meeting attach it
+// triggers must land as a single undo step, unlike "gM"/"gX" (which
+// attach interactively, as their own separate step) — a single "u" after
+// o/O in calendarView should remove the captured entry entirely, not
+// merely detach it from the meeting and leave it stranded in the inbox.
+func TestCalendarOOCapturePlusAttachIsOneUndoStep(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{event},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, event.Title)
+	before := len(findInboxHeadlines(t, m))
+	undoPosBefore := m.undoPos
+
+	m = sendKey(m, "o")
+	cand, ok := meetingCandidateFromEvent(event)
+	if !ok {
+		t.Fatalf("meetingCandidateFromEvent: event not recognized as a synced meeting")
+	}
+	m = commitCalendarCapture(t, m, "Follow up on budget numbers\n", cand)
+
+	if got := m.undoPos - undoPosBefore; got != 1 {
+		t.Fatalf("undo steps pushed = %d, want 1 (insert and attach folded together)", got)
+	}
+
+	m = sendKey(m, "u")
+
+	if got := len(findInboxHeadlines(t, m)); got != before {
+		t.Errorf("after a single undo, inbox headline count = %d, want %d (the whole capture removed, not just detached)", got, before)
+	}
+
+	m = sendKey(m, "ctrl+r")
+
+	inbox := findInboxHeadlines(t, m)
+	if len(inbox) != before+1 {
+		t.Fatalf("after redo, inbox headline count = %d, want %d", len(inbox), before+1)
+	}
+	final := inbox[len(inbox)-1]
+	if got := final.Properties["GCAL_EVENT_IDS"]; got != "abc123" {
+		t.Errorf("after redo, GCAL_EVENT_IDS = %q, want %q (attach restored along with the entry)", got, "abc123")
+	}
+}
+
+// TestCalendarOOStaysInCalendarViewFocusedOnNewEntry is the focus half of
+// the reported behavior change: unlike gC/gX, o/O from calendarView
+// should leave the cursor in calendar view, on the newly captured entry
+// nested under its meeting — not jump to outline view.
+func TestCalendarOOStaysInCalendarViewFocusedOnNewEntry(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{event},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, event.Title)
+
+	m = sendKey(m, "O")
+	cand, ok := meetingCandidateFromEvent(event)
+	if !ok {
+		t.Fatalf("meetingCandidateFromEvent: event not recognized as a synced meeting")
+	}
+	m = commitCalendarCapture(t, m, "Follow up on budget numbers\n", cand)
+
+	if m.view != calendarView {
+		t.Fatalf("view = %v, want calendarView (o/O in calendar shouldn't switch to outline)", m.view)
+	}
+	current := m.currentHeadline()
+	if current == nil || current.Title != "Follow up on budget numbers" {
+		t.Fatalf("cursor headline = %v, want the newly captured entry", current)
+	}
+	if !m.rows[m.cursor].isCalendarLinkedItem {
+		t.Errorf("cursor row isn't marked isCalendarLinkedItem, want it nested under its meeting")
 	}
 }
 

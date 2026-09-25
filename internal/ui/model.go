@@ -5258,7 +5258,9 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 // (see startCaptureImpl), and attaches it outright to the same meeting
 // the cursor's row belongs to (same properties "gM"/buildMeetingAttachAction
 // would set, chosen automatically rather than through the picker, since
-// the meeting is already unambiguous from the cursor's row).
+// the meeting is already unambiguous from the cursor's row) — the insert
+// and the attach are folded into one undo step by commitInsert (see
+// insertContext.attachMeeting), so a single "u" removes both together.
 //
 // o and O behave identically here: once the insert always targets the
 // end of one shared file rather than a position relative to the cursor,
@@ -5268,6 +5270,11 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 // by CREATED, so repeated o/O presses still show up in the order they
 // were actually inserted, regardless of which file each one is later
 // filed into.
+//
+// switchToOutline is false here (unlike gC/gX): once the meeting attach
+// commits alongside the insert, the new entry already shows up nested
+// under its meeting in calendarView's own rows, so the cursor stays
+// right there rather than jumping to outline view.
 //
 // handled is false (cmd always nil then) for a calendarView row that
 // isn't associated with any meeting at all (a day's section-header row)
@@ -5290,7 +5297,7 @@ func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 		m.message = fmt.Sprintf("No %s file in this org directory", m.inboxFile)
 		return nil, true
 	}
-	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), false, true, &cand), true
+	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), false, false, &cand), true
 }
 
 // startCapture (:capture, "gC") appends a blank top-level headline to
@@ -6365,13 +6372,9 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 			// startCaptureAndPickMeeting ("gX").
 			m.startMeetingPicker()
 		}
-		if msg.insert.attachMeeting != nil {
-			// insertCalendarCapture's non-interactive counterpart to
-			// thenPickMeeting above: the meeting is already known, so
-			// attach it directly as its own undo step (same as a "gM"
-			// pick would), rather than opening a picker over it.
-			m.pushUndo(m.buildMeetingAttachAction(file.Headlines[0], *msg.insert.attachMeeting))
-		}
+		// insertCalendarCapture's attachMeeting, if set, was already
+		// folded into commitInsert's own undo step above — nothing left
+		// to do here (see insertContext.attachMeeting).
 		return m, nil
 	}
 
