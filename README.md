@@ -240,6 +240,27 @@ logging is on.
   one — its ID(s) no longer match
   anything currently synced (a deleted/recreated series, or a one-off
   event that's aged out of the sync window).
+- **Tags** (`:tags`) — every entry, across every file (`calendar_file` and
+  `meeting_tags_file` excluded, same as the outline view above — a synced
+  calendar event's own attendee/`recurring` tags, and a meeting-tags.org
+  record's own tag, aren't outline entries to catalog here), grouped
+  under one flush-left header row per tag, tags listed alphabetically.
+  Within each tag, entries are ordered by `CREATED` (oldest first) rather
+  than by file/tree position — the same ordering `:calendar` uses for the
+  items nested under each meeting (see above) — so where something's
+  eventually filed away doesn't reshuffle the order it was actually
+  captured in. An entry with more than one tag appears once under each,
+  and a `DONE`/`CANCELLED` entry stale enough to be hidden from the
+  outline (see `hide_done_after_hours`, above) is hidden here too,
+  subject to the same `:toggledone`. Each row is flat — title, tags, and
+  a `[file › parent]` place tag, same shape as an agenda item or one of
+  `:calendar`'s linked items — rather than a foldable subtree, since the
+  same entry can legitimately appear more than once across the whole
+  listing; `Enter` jumps to its real place in the outline, same as from
+  agenda view. Otherwise an ordinary listing — `i`, `dd`, `r`, `gd`,
+  marks, and every other per-entry command all work exactly as they do
+  in the outline, operating on the entry's real place in its own file
+  regardless of where it's shown here.
 - **Agenda** (`:agenda`) — a flat, date-driven view across every file:
   **Overdue**, **Due Today**, and **Upcoming** sections built from
   `SCHEDULED`/`DEADLINE` timestamps, plus a **Next Actions** section
@@ -539,7 +560,7 @@ History doesn't persist between sessions.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` | Switch views |
+| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |

@@ -548,6 +548,15 @@ type row struct {
 	// reason meetingItemTitle/meetingItemStart exist above.
 	linkedFromEvent *org.Headline
 
+	// isTagsItem marks a row in tagsView (see appendTagsRows): a flat,
+	// single-line row for an entry carrying tagsItemTag, shown under that
+	// tag's section header — same rendering shape as isCalendarLinkedItem
+	// (no fold/body/children of its own, a "[file › parent]" place tag
+	// instead), since an entry with several tags legitimately gets one row
+	// per tag, all sharing the same headline pointer.
+	isTagsItem  bool
+	tagsItemTag string
+
 	// isTextLine marks a plain read-only informational row (:config/:log/
 	// :diff/:help), rendered flush left and never interactive; text is
 	// that line's own text (which may itself be empty — a blank line, as
@@ -820,6 +829,7 @@ const (
 	helpView
 	calendarView
 	meetingTagsView
+	tagsView
 )
 
 // Option customizes a Model at construction time. See New.
@@ -1107,6 +1117,8 @@ func (m *Model) rebuildRows() {
 		m.appendCalendarRows(&m.rows, false)
 	case meetingTagsView:
 		m.appendMeetingTagsRows(&m.rows, false)
+	case tagsView:
+		m.appendTagsRows()
 	default:
 		for _, f := range m.ws.Files {
 			if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
@@ -1143,16 +1155,17 @@ func usesOutlineRows(v viewKind) bool {
 	}
 }
 
-// jumpToSource ("Enter" on an agenda row, or on an item linked to a
-// calendar event — see linkedMeetingItems) switches to outline
-// view with the cursor on that row's real headline. A no-op outside
-// those two cases: agenda view's own section-header rows, and — in
-// calendarView — a calendar event's own row, since calendar_file is
-// excluded from the outline entirely (see appendCalendarRows), so
-// there'd be nowhere to jump to.
+// jumpToSource ("Enter" on an agenda row, a tagsView row, or an item
+// linked to a calendar event — see linkedMeetingItems) switches to
+// outline view with the cursor on that row's real headline. A no-op
+// outside those cases: agenda/tagsView's own section-header rows (no
+// headline to jump to), and — in calendarView — a calendar event's own
+// row, since calendar_file is excluded from the outline entirely (see
+// appendCalendarRows), so there'd be nowhere to jump to.
 func (m *Model) jumpToSource() {
 	switch {
 	case m.view == agendaView:
+	case m.view == tagsView:
 	case m.view == calendarView && m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].isCalendarLinkedItem:
 	default:
 		return
@@ -3360,16 +3373,20 @@ func sameRow(a, b row) bool {
 	case a.headline != nil || b.headline != nil:
 		// Covers plain headline rows and the isCalendarItem variant
 		// alike — that flag doesn't change what row a headline points
-		// at. isCalendarLinkedItem and the Meetings-section isAgendaItem
-		// case are different: the same headline can legitimately appear
-		// in more than one such row (an entry linked to several
-		// meetings/events), so those need their extra fields compared
-		// too, or every row past the first would look identical to it.
+		// at. isCalendarLinkedItem, isTagsItem, and the Meetings-section
+		// isAgendaItem case are different: the same headline can
+		// legitimately appear in more than one such row (an entry linked
+		// to several meetings/events, or carrying several tags), so those
+		// need their extra fields compared too, or every row past the
+		// first would look identical to it.
 		if a.headline != b.headline {
 			return false
 		}
 		if a.isCalendarLinkedItem || b.isCalendarLinkedItem {
 			return a.isCalendarLinkedItem == b.isCalendarLinkedItem && a.linkedFromEvent == b.linkedFromEvent
+		}
+		if a.isTagsItem || b.isTagsItem {
+			return a.isTagsItem == b.isTagsItem && a.tagsItemTag == b.tagsItemTag
 		}
 		if a.isAgendaItem || b.isAgendaItem {
 			return a.isAgendaItem == b.isAgendaItem &&
@@ -3604,7 +3621,7 @@ func (m *Model) recallCommandHistory(dir int) {
 // type and want completed.
 var commandNames = []string{
 	"w", "write", "wq", "q", "quit", "q!", "quit!",
-	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar", "meeting-tags",
+	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar", "meeting-tags", "tags",
 	"delmarks", "delmarks!", "clear-registers", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
 	"sync-calendar", "sync-calendar!",
 }
@@ -3731,6 +3748,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 
 	case "meeting-tags":
 		m.switchToView(meetingTagsView)
+
+	case "tags":
+		m.switchToView(tagsView)
 
 	case "capture":
 		return m, m.startCapture()
@@ -6968,6 +6988,8 @@ func (m Model) View() string {
 			msg = "No calendar events found. :outline to go back."
 		} else if m.view == meetingTagsView {
 			msg = "No meeting tags yet. :outline to go back."
+		} else if m.view == tagsView {
+			msg = "No tags found. :outline to go back."
 		}
 		b.WriteString(msg)
 		b.WriteString("\n")
@@ -7140,6 +7162,8 @@ func (m *Model) normalStatusLine() string {
 		place = "calendar"
 	case meetingTagsView:
 		place = "meeting-tags"
+	case tagsView:
+		place = "tags"
 	}
 	return fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 }
@@ -7607,6 +7631,8 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		return m.renderCalendarItemRowWithBg(r, bg)
 	case r.isCalendarLinkedItem:
 		return m.renderCalendarLinkedItemRowWithBg(r, bg)
+	case r.isTagsItem:
+		return m.renderTagsItemRowWithBg(r, bg)
 	case r.isMeetingTagsRecordRow:
 		return m.renderMeetingTagsRecordRowWithBg(r, bg)
 	case r.isBodyLine:
