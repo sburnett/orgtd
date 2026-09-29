@@ -343,27 +343,15 @@ layout.
 
 Above both, an info buffer holds whatever might need more than one
 line, grouped into labeled sections — collapsed entirely (zero height)
-when none of them apply, so it never costs a permanent row on screen:
+when none of them apply, so it never costs a permanent row on screen.
+Sections are ordered so that the longer one tends to stay open, the
+closer to the bottom (i.e. the closer to the always-visible status/
+command lines below) it sits — keeping whatever's actually on screen
+from shifting position any more than it has to:
 
-- **Clarifying** — in `:clarify` view (see below), the inbox item
-  currently pinned for clarification, alongside its `CREATED` property
-  and any `SCHEDULED`/`DEADLINE` it already has (or a message when the
-  inbox is empty) — kept a fixed two lines so the layout doesn't jump
-  around as the inbox empties out.
-- **Active marks** — every active mark (see Marks, below), sorted by
-  letter, one row each — visible in every view until cleared.
-- **Register** — whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put
-  in the paste register (see Marks, below), one row per entry.
-- **Links** — every org-mode link literally in the current entry's
-  title.
-- **Meeting** — one line per calendar meeting the current entry is
-  linked to (see below for how a link is established), each showing the
-  meeting's name, start time (when still resolvable), and link.
 - **Tags** — while `gt` (see Keybindings, below) is prompting for a tag
   and more than one existing tag matches what's typed so far, the
   matches themselves, one per line.
-- **Matches** — the same, for command-mode (`:`) `Tab` completion (see
-  Command mode, below) when more than one command name matches.
 - **Status** — while the `r`/`R` status picker (see Keybindings, below)
   is open, every selectable state, one per line, with its bracketed
   shortcut and the currently highlighted one in reverse video.
@@ -373,6 +361,23 @@ when none of them apply, so it never costs a permanent row on screen:
   column and are easy to compare down the list), then title, then
   `(attached)` for one already attached to the target entry — with the
   currently highlighted one in reverse video.
+- **Links** — every org-mode link literally in the current entry's
+  title.
+- **Meeting** — one line per calendar meeting the current entry is
+  linked to (see below for how a link is established), each showing the
+  meeting's name, start time (when still resolvable), and link.
+- **Register** — whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put
+  in the paste register (see Marks, below), one row per entry.
+- **Active marks** — every active mark (see Marks, below), sorted by
+  letter, one row each — visible in every view until cleared.
+- **Clarifying** — in `:clarify` view (see below), the inbox item
+  currently pinned for clarification, alongside its `CREATED` property
+  and any `SCHEDULED`/`DEADLINE` it already has (or a message when the
+  inbox is empty) — kept a fixed two lines so the layout doesn't jump
+  around as the inbox empties out.
+- **Matches** — the same idea as **Tags** above, for command-mode (`:`)
+  `Tab` completion (see Command mode, below) when more than one command
+  name matches.
 
 Any section past 20 lines collapses the rest into a trailing "...and N
 more" summary rather than pushing the outline listing off-screen.

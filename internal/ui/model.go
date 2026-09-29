@@ -7214,42 +7214,16 @@ func (m *Model) infoBufferHeight() int {
 // status line — the multi-line counterpart of the single-line status
 // area, for whatever might need more than one line to show. Each
 // applicable kind gets its own labeled section (already backgrounded/
-// padded, ready to write straight to the screen):
-//
-//   - "Clarifying:" — in clarifyView, the current clarify target
-//     (rendered exactly as it appears in the listing below, via
-//     renderPinnedRow) or an empty-inbox message — kept a fixed 2 lines
-//     (label + item-or-empty-message) so the layout doesn't jump around
-//     as the inbox empties out.
-//
-//   - "Active marks:" — every active vim-style mark (see setMark),
-//     sorted by letter (sortedMarkLetters), one row each.
-//
-//   - "Register:" — whatever's queued in the paste register (see
-//     registerPinnedLines), one row per entry up to
-//     maxRegisterPinnedLines.
-//
-//     These three sit first, ahead of everything below, since they're
-//     always-relevant triage/navigation state rather than detail tied
-//     to whatever the cursor happens to be on right now.
-//
-//   - "Links:" — every org-mode link literally in the current entry's
-//     title (linksInTitle). Shown in every mode, not just when it
-//     wouldn't otherwise fit on the status line — unlike the old
-//     normalStatusLines, this doesn't depend on terminal width at all.
-//
-//   - "Meeting:" — one line per calendar meeting the current entry is
-//     linked to (see calendarEventEntries), each "<title>  <time>  <url>"
-//     (or just "<title>  <url>" if no time could be resolved — see
-//     calendarEventEntry.hasWhen).
+// padded, ready to write straight to the screen), ordered so that the
+// longer a section tends to stay open, the closer to the bottom (i.e.
+// the closer to the always-visible status/command lines) it sits —
+// keeping whatever's actually on screen from shifting position any more
+// than it has to:
 //
 //   - "Tags:" — while "gt" is prompting for a tag (tagMode) and there's
 //     more than one completion match (see completeTagInput), the
 //     matches themselves, one per line, instead of the old single
 //     space-joined line appended to the prompt.
-//
-//   - "Matches:" — the same idea for command-mode ":<Tab>" completions
-//     (see completeCommand).
 //
 //   - "Status:" — while the "R"/"r" status picker (selectMode) is open,
 //     every status candidate (see statusCandidates), one per line, the
@@ -7264,11 +7238,58 @@ func (m *Model) infoBufferHeight() int {
 //     The structured counterpart of the old single-candidate
 //     renderMeetingPicker, which only showed the highlighted one.
 //
+//   - "Links:" — every org-mode link literally in the current entry's
+//     title (linksInTitle). Shown in every mode, not just when it
+//     wouldn't otherwise fit on the status line — unlike the old
+//     normalStatusLines, this doesn't depend on terminal width at all.
+//
+//   - "Meeting:" — one line per calendar meeting the current entry is
+//     linked to (see calendarEventEntries), each "<title>  <time>  <url>"
+//     (or just "<title>  <url>" if no time could be resolved — see
+//     calendarEventEntry.hasWhen).
+//
+//   - "Register:" — whatever's queued in the paste register (see
+//     registerPinnedLines), one row per entry up to
+//     maxRegisterPinnedLines.
+//
+//   - "Active marks:" — every active vim-style mark (see setMark),
+//     sorted by letter (sortedMarkLetters), one row each.
+//
+//   - "Clarifying:" — in clarifyView, the current clarify target
+//     (rendered exactly as it appears in the listing below, via
+//     renderPinnedRow) or an empty-inbox message — kept a fixed 2 lines
+//     (label + item-or-empty-message) so the layout doesn't jump around
+//     as the inbox empties out.
+//
+//   - "Matches:" — the same idea as "Tags:" above, for command-mode
+//     ":<Tab>" completions (see completeCommand).
+//
 // A section that doesn't apply is simply omitted; nil (zero height) if
 // none of them do at all.
 func (m *Model) infoBufferLines() []string {
 	var lines []string
 
+	if m.mode == tagMode && m.tagCompletions != "" {
+		lines = m.appendInfoSection(lines, "Tags:", strings.Fields(m.tagCompletions))
+	}
+	if m.mode == selectMode {
+		lines = m.appendInfoSectionRendered(lines, "Status:", m.statusSelectorLines())
+	}
+	if m.mode == meetingPickerMode {
+		lines = m.appendInfoSectionRendered(lines, "Attach meeting:", m.meetingPickerLines())
+	}
+	if h := m.currentHeadline(); h != nil {
+		lines = m.appendInfoSection(lines, "Links:", linksInTitle(h.Title))
+		lines = m.appendInfoSection(lines, "Meeting:", m.calendarEventDisplayLines(h))
+	}
+	lines = append(lines, m.registerPinnedLines()...)
+
+	if letters := m.sortedMarkLetters(); len(letters) > 0 {
+		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Active marks:"), m.overlayBg()))
+		for _, letter := range letters {
+			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
+		}
+	}
 	if m.view == clarifyView {
 		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Clarifying:"), m.overlayBg()))
 		if m.clarifyTarget == nil {
@@ -7277,29 +7298,8 @@ func (m *Model) infoBufferLines() []string {
 			lines = append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
 		}
 	}
-	if letters := m.sortedMarkLetters(); len(letters) > 0 {
-		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Active marks:"), m.overlayBg()))
-		for _, letter := range letters {
-			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
-		}
-	}
-	lines = append(lines, m.registerPinnedLines()...)
-
-	if h := m.currentHeadline(); h != nil {
-		lines = m.appendInfoSection(lines, "Links:", linksInTitle(h.Title))
-		lines = m.appendInfoSection(lines, "Meeting:", m.calendarEventDisplayLines(h))
-	}
-	if m.mode == tagMode && m.tagCompletions != "" {
-		lines = m.appendInfoSection(lines, "Tags:", strings.Fields(m.tagCompletions))
-	}
 	if m.mode == commandMode && m.commandCompletions != "" {
 		lines = m.appendInfoSection(lines, "Matches:", strings.Fields(m.commandCompletions))
-	}
-	if m.mode == selectMode {
-		lines = m.appendInfoSectionRendered(lines, "Status:", m.statusSelectorLines())
-	}
-	if m.mode == meetingPickerMode {
-		lines = m.appendInfoSectionRendered(lines, "Attach meeting:", m.meetingPickerLines())
 	}
 
 	if len(lines) == 0 {
