@@ -66,7 +66,12 @@ func TestNoWithColorsUsesWildcharmDefaults(t *testing.T) {
 func TestWithColorsOverridesPanelAndStatusBarBackgrounds(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws, WithColors(ColorOverrides{PanelBg: "#123456", StatusBarBg: "#abcdef"}))
-	m.width, m.height = 100, 30
+	// Wide enough that the status line (which includes the org dir's own
+	// path — long when loadFixture's scratch copy lives deep under the
+	// OS temp dir) still leaves padding, which is where the plain
+	// background-only escape code below actually comes from (see
+	// padLineToWidth).
+	m.width, m.height = 300, 30
 	m = sendKey(m, "j")
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")

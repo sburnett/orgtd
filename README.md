@@ -499,6 +499,22 @@ stop), and so on.
 | `gt` | Prompt for a tag and toggle it on the current entry: typing one already on the entry removes it, anything else is added. `Tab` completes against every tag already used anywhere in the workspace (extending to the longest common prefix and listing the matches, same as command-mode `:<Tab>`); an empty prompt's `Tab` lists all of them. Enter with nothing typed, or `Esc`, cancels without changes. Tags can also be added/removed by hand in `i`/edit mode (a trailing `:tag1:tag2:` on the title line) — `gt` is just the faster path for one at a time. A tag matching one on a synced calendar event automatically links the two — see Tag-based meeting links, above. On a `:calendar` entry's own row, `gt` instead records the tag in `meeting_tags_file` so it survives `:sync-calendar` (see Tag-based meeting links, above); `"recurring"` is refused there as a reserved name |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
+Every `$EDITOR` session above (`i`/`A`, `o`/`O`, `gC`/`gX`) writes its
+buffer to a file under a `scratch/` directory inside `--dir`, in a
+dated subdirectory per day (e.g. `scratch/2026/10/02/`) and named after
+the moment the session started, down to the nanosecond (so two sessions
+started in the same second never collide) rather than a random name.
+Unlike a plain temp file, it's never deleted — once written, it stays
+there indefinitely as a failsafe, so whatever came back from the editor
+is still recoverable by hand even if it's ever lost some other way
+(an editor crash, accidentally discarding the buffer unsaved, or any
+other reason a round-trip through the outline doesn't end up reflecting
+it). Since `scratch/` is a subdirectory, it's never scanned as one of
+`--dir`'s own `.org` files (see above) and never shows up in the
+outline; it's also outside anything `:diff`/`:commit` touch, so it
+never gets committed automatically — it's just there on disk if you
+need to go looking.
+
 ### Visual selection
 
 | Key | Action |

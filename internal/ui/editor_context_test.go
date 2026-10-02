@@ -339,14 +339,15 @@ func TestLaunchEditorTempFileHasContextTrailerThatDoesNotLeak(t *testing.T) {
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
-	before, _ := filepath.Glob(filepath.Join(os.TempDir(), "orgtd-edit-*.org"))
+	scratchGlob := filepath.Join(ws.Dir, "scratch", "*", "*", "*", "*.org")
+	before, _ := filepath.Glob(scratchGlob)
 
 	_, cmd := sendKeyCmd(m, "i")
 	if cmd == nil {
 		t.Fatalf("expected a non-nil edit command")
 	}
 
-	after, _ := filepath.Glob(filepath.Join(os.TempDir(), "orgtd-edit-*.org"))
+	after, _ := filepath.Glob(scratchGlob)
 	newPath := ""
 	for _, p := range after {
 		found := false
@@ -361,9 +362,8 @@ func TestLaunchEditorTempFileHasContextTrailerThatDoesNotLeak(t *testing.T) {
 		}
 	}
 	if newPath == "" {
-		t.Fatalf("could not find the newly created temp file among %v", after)
+		t.Fatalf("could not find the newly created scratch file among %v", after)
 	}
-	defer os.Remove(newPath)
 
 	data, err := os.ReadFile(newPath)
 	if err != nil {

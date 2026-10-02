@@ -56,18 +56,19 @@ func TestMain(m *testing.M) {
 func cursorStyleSGR() string { return ansiEscapeRe.FindString((Model{}).cursorStyle().Render("x")) }
 func caretStyleSGR() string  { return ansiEscapeRe.FindString((Model{}).caretStyle().Render("x")) }
 
+// loadFixture loads a workspace over a scratch copy of testdata/orgdir,
+// so that no test — including one that only opens `$EDITOR` (which now
+// writes a scratch/ file under the org dir itself; see
+// Model.scratchFilePath) or runs `:w` — ever touches the checked-in
+// fixtures.
 func loadFixture(t *testing.T) *workspace.Workspace {
 	t.Helper()
-	ws, err := workspace.Load("../../testdata/orgdir")
-	if err != nil {
-		t.Fatalf("workspace.Load: %v", err)
-	}
-	return ws
+	return loadFixtureCopy(t)
 }
 
-// loadFixtureCopy loads a workspace over a scratch copy of testdata/orgdir,
-// so tests that actually write to disk (:w) never touch the checked-in
-// fixtures.
+// loadFixtureCopy is the same as loadFixture; kept as a separate name at
+// call sites that want to call out *why* a scratch copy matters there
+// (e.g. a test that writes to disk).
 func loadFixtureCopy(t *testing.T) *workspace.Workspace {
 	t.Helper()
 	src := "../../testdata/orgdir"

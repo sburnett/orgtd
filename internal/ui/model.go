@@ -5012,8 +5012,27 @@ func buildEditorCommand(editorEnv, path, before string, placement editorCursorPl
 	return exec.Command(fields[0], args...)
 }
 
-// launchEditor writes h to a temp file and opens it in $EDITOR (vim by
-// default), suspending the TUI for the duration. ctx tags the resulting
+// scratchFilePath returns a path for a new editor buffer under a
+// scratch/ directory inside the org dir, in a dated subdirectory
+// (scratch/2026/10/02) and named after the current time down to the
+// nanosecond (so two buffers opened in the same second never collide)
+// rather than randomly — so a buffer is easy to find by when it was
+// made if it's ever needed after the fact, e.g. because its content was
+// accidentally discarded instead of saved. The file itself isn't
+// created here; only its directory is, so the caller still controls
+// how (and whether) the file gets written.
+func (m *Model) scratchFilePath() (string, error) {
+	now := time.Now()
+	dir := filepath.Join(m.ws.Dir, "scratch", now.Format("2006"), now.Format("01"), now.Format("02"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, now.Format("15-04-05.000000000")+".org"), nil
+}
+
+// launchEditor writes h to a scratch file (see scratchFilePath) and
+// opens it in $EDITOR (vim by default), suspending the TUI for the
+// duration. ctx tags the resulting
 // editFinishedMsg so finishEdit knows whether this is an o/O insert
 // session or a plain `i`/`A` edit, and also which buffer format to
 // expect back: both an o/O (or "gC"/"gX" capture) insert session and a
@@ -5029,26 +5048,23 @@ func buildEditorCommand(editorEnv, path, before string, placement editorCursorPl
 // "Editing this entry.").
 // placement (see editorCursorPlacement) controls where a vim-family
 // editor lands the cursor and whether it starts in insert mode already.
-// Returns nil if the temp file couldn't be created or the editor
+// Returns nil if the scratch file couldn't be created or the editor
 // couldn't be started, in which case the error is left in m.message.
 func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement editorCursorPlacement) tea.Cmd {
-	tmp, err := os.CreateTemp("", "orgtd-edit-*.org")
+	path, err := m.scratchFilePath()
 	if err != nil {
-		m.message = fmt.Sprintf("Could not create temp file: %v", err)
+		m.message = fmt.Sprintf("Could not create scratch file: %v", err)
 		return nil
 	}
-	path := tmp.Name()
 
 	entry := dedentEntry(org.RenderEntry(h), h.Level)
 	if !strings.HasSuffix(entry, "\n") {
 		entry += "\n"
 	}
 	content := entry + "\n" + m.editEntryContext(h, ctx != nil)
-	_, err = tmp.WriteString(content)
-	tmp.Close()
-	if err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		os.Remove(path)
-		m.message = fmt.Sprintf("Could not write temp file: %v", err)
+		m.message = fmt.Sprintf("Could not write scratch file: %v", err)
 		return nil
 	}
 
@@ -6313,9 +6329,10 @@ func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
 // an o/O insert session, a successful result is committed as a single
 // undo step; any failure (editor error, unreadable file, unparseable or
 // emptied-out result) rolls back the tentative placeholder entirely,
-// leaving no trace.
+// leaving no trace. msg.path (see scratchFilePath) is deliberately never
+// deleted here — it stays behind as a failsafe in case what comes back
+// from the editor is ever lost or discarded by mistake.
 func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
-	defer os.Remove(msg.path)
 	logCompletedProcess(m.execLog, msg.cmd, msg.err)
 
 	if msg.err != nil {
