@@ -5251,15 +5251,21 @@ func (m *Model) resolveInsertPosition(before bool) (f *org.File, parent *org.Hea
 // where) and opens it in $EDITOR. The insert isn't recorded in undo
 // history until the editor session finishes successfully (see
 // commitInsert), so the whole "open a headline, type into it" session is
-// one undo step, matching vim's o/O. In calendarView, a row associated
-// with a meeting (the event's own row/body, or an item already linked to
-// it) is special-cased to insertCalendarCapture instead — see there for
-// why "before" doesn't apply to that path.
+// one undo step, matching vim's o/O. A row associated with a meeting —
+// the event's own row/body, or (in calendarView) an item already linked
+// to it — is special-cased to insertCalendarCapture instead, regardless
+// of which view surfaces that row (calendarView's own rows, or a synced
+// event nested under a record in meetingTagsView — see
+// appendMeetingTagsHeadlines) — see insertCalendarCapture for why
+// "before" doesn't apply to that path. This has to be a property of the
+// row's own headline (via calendarEventForRow), not of m.view: any other
+// view-scoped check would miss meetingTagsView's own nested event rows,
+// falling back to resolveInsertPosition's default sibling-insert and
+// splicing the new entry directly into calendar.org, where it would
+// silently vanish on the next :sync-calendar.
 func (m *Model) insertHeadline(before bool) tea.Cmd {
-	if m.view == calendarView {
-		if cmd, handled := m.insertCalendarCapture(); handled {
-			return cmd
-		}
+	if cmd, handled := m.insertCalendarCapture(); handled {
+		return cmd
 	}
 	f, parent, idx, level, origin, ok := m.resolveInsertPosition(before)
 	if !ok {
@@ -5268,15 +5274,19 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 	return m.insertHeadlineAt(f, parent, idx, level, origin, nil, false, false, nil)
 }
 
-// insertCalendarCapture is o/O's calendarView-specific behavior: rather
-// than inserting a sibling relative to the cursor (resolveInsertPosition,
-// insertHeadline's default) — which for a calendar event's own row would
-// mean editing calendar.org itself, lost on the next :sync-calendar, and
-// for an already-linked item would mean a sibling in whatever unrelated
-// file that item happens to live in — o/O here instead appends a new
-// headline to the end of the inbox, the same target as "gC"/":capture"
-// (see startCaptureImpl), and attaches it outright to the same meeting
-// the cursor's row belongs to (same properties "gM"/buildMeetingAttachAction
+// insertCalendarCapture is o/O's behavior on a row associated with a
+// meeting — recognized by calendarEventForRow regardless of which view
+// is showing it (calendarView's own rows, or a synced event nested under
+// a record in meetingTagsView) — rather than inserting a sibling
+// relative to the cursor (resolveInsertPosition, insertHeadline's
+// default) — which for a calendar event's own row would mean editing
+// calendar.org itself, lost on the next :sync-calendar, and for an
+// already-linked item (calendarView only — meetingTagsView never shows
+// those) would mean a sibling in whatever unrelated file that item
+// happens to live in — o/O here instead appends a new headline to the
+// end of the inbox, the same target as "gC"/":capture" (see
+// startCaptureImpl), and attaches it outright to the same meeting the
+// cursor's row belongs to (same properties "gM"/buildMeetingAttachAction
 // would set, chosen automatically rather than through the picker, since
 // the meeting is already unambiguous from the cursor's row) — the insert
 // and the attach are folded into one undo step by commitInsert (see
@@ -5291,15 +5301,20 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 // were actually inserted, regardless of which file each one is later
 // filed into.
 //
-// switchToOutline is false here (unlike gC/gX): once the meeting attach
-// commits alongside the insert, the new entry already shows up nested
-// under its meeting in calendarView's own rows, so the cursor stays
-// right there rather than jumping to outline view.
+// switchToOutline is false only from calendarView itself (unlike
+// gC/gX): once the meeting attach commits alongside the insert, the new
+// entry already shows up nested under its meeting in calendarView's own
+// rows, so the cursor stays right there rather than jumping to outline
+// view. Any other view that can surface a meeting row (meetingTagsView)
+// has no such nested listing of its own to land on, so there switching
+// to outline view is what actually gets the cursor onto the new entry —
+// same as gC/gX.
 //
-// handled is false (cmd always nil then) for a calendarView row that
-// isn't associated with any meeting at all (a day's section-header row)
-// — insertHeadline falls back to its ordinary resolveInsertPosition path,
-// which already no-ops on those.
+// handled is false (cmd always nil then) for a row that isn't associated
+// with any meeting at all (a calendar day's section-header row, a plain
+// meeting-tags record row, or anything in some other view entirely) —
+// insertHeadline falls back to its ordinary resolveInsertPosition path,
+// which already no-ops on rows with no headline or file of their own.
 func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil, false
@@ -5317,7 +5332,7 @@ func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 		m.message = fmt.Sprintf("No %s file in this org directory", m.inboxFile)
 		return nil, true
 	}
-	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), false, false, &cand), true
+	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), false, m.view != calendarView, &cand), true
 }
 
 // startCapture (:capture, "gC") appends a blank top-level headline to

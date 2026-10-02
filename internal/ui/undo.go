@@ -302,37 +302,42 @@ type insertContext struct {
 	// the new headline, finishEdit also opens the "gM" picker on it —
 	// chaining the two so attaching a meeting to a freshly captured item
 	// doesn't need two separate keystrokes bracketing the editor
-	// round-trip. Never set for a plain o/O (outside calendarView) or
-	// gC/:capture.
+	// round-trip. Never set for a plain o/O (including insertCalendarCapture)
+	// or gC/:capture.
 	thenPickMeeting bool
 
-	// attachMeeting is set only by insertCalendarCapture (o/O from
-	// calendarView, on a row associated with a meeting): once the
+	// attachMeeting is set only by insertCalendarCapture (o/O on a row
+	// associated with a meeting — recognized by calendarEventForRow
+	// regardless of which view is showing it, calendarView's own rows or
+	// a synced event nested under a record in meetingTagsView): once the
 	// capture's editor session finishes, commitInsert attaches the new
 	// headline to this specific meeting outright (see
 	// buildMeetingAttachAction), folded into the same undo step as the
-	// insert itself — the calendarView equivalent of thenPickMeeting
-	// above, except the meeting is already unambiguous from the row o/O
-	// was pressed on, so there's no picker to open, and no separate
+	// insert itself — the meeting equivalent of thenPickMeeting above,
+	// except the meeting is already unambiguous from the row o/O was
+	// pressed on, so there's no picker to open, and no separate
 	// asynchronous step to attach it in. Never set anywhere else.
 	attachMeeting *meetingCandidate
 
-	// switchToOutline is set only by :capture/gC and gX (capture plus
-	// thenPickMeeting above) — never by insertCalendarCapture (capture
-	// plus attachMeeting above), and never by a plain o/O elsewhere,
-	// whose insert position is always wherever the cursor already was,
-	// so there's nothing to jump to. gC/gX always target the inbox
-	// regardless of the current view, so once the editor session
-	// commits, finishEdit switches to outline view (unless already
-	// showing outline rows — see usesOutlineRows) so the newly captured
-	// entry is right there under the cursor, ready for further edits,
-	// rather than left off-screen in whatever view (agenda, calendar,
-	// ...) the capture was triggered from. insertCalendarCapture instead
-	// stays in calendarView: since attachMeeting's property write lands
-	// before commitInsert's own rebuildRows/focusHeadline, the new entry
-	// already qualifies as a linked item nested under its meeting by the
-	// time the cursor moves, so there's somewhere sensible to land
-	// without leaving calendar view at all.
+	// switchToOutline is set by :capture/gC and gX (capture plus
+	// thenPickMeeting above) unconditionally, and by insertCalendarCapture
+	// (capture plus attachMeeting above) everywhere except calendarView
+	// itself — never by a plain o/O elsewhere, whose insert position is
+	// always wherever the cursor already was, so there's nothing to jump
+	// to. gC/gX always target the inbox regardless of the current view,
+	// so once the editor session commits, finishEdit switches to outline
+	// view (unless already showing outline rows — see usesOutlineRows) so
+	// the newly captured entry is right there under the cursor, ready for
+	// further edits, rather than left off-screen in whatever view (agenda,
+	// calendar, ...) the capture was triggered from. insertCalendarCapture
+	// stays put only when triggered from calendarView itself: since
+	// attachMeeting's property write lands before commitInsert's own
+	// rebuildRows/focusHeadline, the new entry already qualifies as a
+	// linked item nested under its meeting by the time the cursor moves,
+	// so there's somewhere sensible to land without leaving calendar view
+	// at all. Triggered from any other view (meetingTagsView) there's no
+	// such nested listing to land on, so it switches to outline instead,
+	// same as gC/gX.
 	switchToOutline bool
 }
 
@@ -520,8 +525,9 @@ func (m *Model) insertPosition(h *org.Headline) (f *org.File, parent *org.Headli
 // placeholder headline for the final edited content in a single tree
 // mutation, then records the whole session (open + edit) as one undo
 // step — matching vim treating "o, type, Esc" as a single undo unit. If
-// ctx.attachMeeting is set (o/O from calendarView on a meeting-linked
-// row — see insertCalendarCapture), the meeting attachment is folded
+// ctx.attachMeeting is set (o/O on a meeting-linked row, in calendarView
+// or meetingTagsView — see insertCalendarCapture), the meeting attachment
+// is folded
 // into that very same undo step (a batchAction wrapping the insert and
 // the attach together) rather than pushed separately, so a single undo
 // removes the captured entry and its meeting link as one action —

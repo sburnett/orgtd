@@ -615,3 +615,77 @@ func contentStartColumn(s string) int {
 	}
 	return -1
 }
+
+// TestMeetingTagsOOnNestedEventCapturesToInboxAndAttaches is the
+// meetingTagsView counterpart of calendar_insert_test.go's
+// TestCalendarOOnEventRowCapturesToInboxAndAttaches: o/O on a synced
+// event nested under a meeting-tags record (same real headline as
+// calendarView's own row — see appendMeetingTagsHeadlines) must be
+// recognized the same way calendarView recognizes it, via
+// calendarEventForRow, rather than insertHeadline's old m.view ==
+// calendarView check, which missed this view entirely and fell back to
+// splicing a sibling directly into calendar.org — silently destroyed on
+// the next :sync-calendar. It should instead append to the inbox and
+// attach to the event, exactly as it would from calendarView, then land
+// the cursor on outline view (unlike calendarView, meetingTagsView has
+// no nested-linked-item listing of its own to land on).
+func TestMeetingTagsOOnNestedEventCapturesToInboxAndAttaches(t *testing.T) {
+	for _, key := range []string{"o", "O"} {
+		ws := loadFixture(t)
+		now := time.Now()
+		event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+		record := &org.Headline{Level: 1, Title: "Meeting abc123", Tags: []string{"bob_project"}}
+		record.SetProperty("MEETING_TAG_EVENT_IDS", "abc123")
+		ws.Files = append(ws.Files,
+			&org.File{Path: filepath.Join(ws.Dir, "calendar.org"), Headlines: []*org.Headline{event}},
+			&org.File{Path: filepath.Join(ws.Dir, "meeting-tags.org"), Headlines: []*org.Headline{record}},
+		)
+		m := New(ws)
+		m.switchToView(meetingTagsView)
+		m.cursor = findRow(t, m, "Meeting abc123") // the record's own row, listed first
+		m = sendKey(m, "l")
+		if m.currentHeadline() != event {
+			t.Fatalf("key %q: currentHeadline after l = %v, want the nested event %v", key, m.currentHeadline(), event)
+		}
+		before := len(findInboxHeadlines(t, m))
+
+		m = sendKey(m, key)
+
+		inbox := findInboxHeadlines(t, m)
+		if len(inbox) != before+1 {
+			t.Fatalf("key %q: inbox headline count = %d, want %d (should capture to the inbox, not calendar.org)", key, len(inbox), before+1)
+		}
+		tentative := inbox[len(inbox)-1]
+
+		cand, ok := meetingCandidateFromEvent(event)
+		if !ok {
+			t.Fatalf("key %q: meetingCandidateFromEvent: event not recognized as a synced meeting", key)
+		}
+		f, parent, idx := m.insertPosition(tentative)
+		ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: true, attachMeeting: &cand}
+		path := writeTempOrgFile(t, "Follow up on budget numbers\n")
+		updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
+		m = updated.(Model)
+
+		final := findInboxHeadlines(t, m)
+		got := final[len(final)-1]
+		if got.Title != "Follow up on budget numbers" {
+			t.Fatalf("key %q: captured title = %q, want %q", key, got.Title, "Follow up on budget numbers")
+		}
+		if ids := got.Properties["GCAL_EVENT_IDS"]; ids != "abc123" {
+			t.Errorf("key %q: GCAL_EVENT_IDS = %q, want %q (should attach, same as from calendarView)", key, ids, "abc123")
+		}
+
+		calendarFile := m.findCalendarFile()
+		if calendarFile == nil || len(calendarFile.Headlines) != 1 || calendarFile.Headlines[0] != event {
+			t.Errorf("key %q: calendar.org headlines = %v, want untouched (just the original event)", key, calendarFile.Headlines)
+		}
+
+		if m.view != outlineView {
+			t.Errorf("key %q: view = %v, want outlineView (meetingTagsView has no nested listing to land the cursor on)", key, m.view)
+		}
+		if current := m.currentHeadline(); current == nil || current.Title != "Follow up on budget numbers" {
+			t.Errorf("key %q: cursor headline = %v, want the newly captured entry", key, current)
+		}
+	}
+}
