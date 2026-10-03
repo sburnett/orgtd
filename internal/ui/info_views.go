@@ -9,7 +9,7 @@ import (
 	"github.com/sburnett/orgtd/internal/execlog"
 )
 
-// appendHelpRows populates m.rows for :help: README.md's embedded
+// appendHelpRows appends the rows for :help: README.md's embedded
 // content (see WithReadme), rendered through glamour into ANSI-styled
 // terminal markdown — headers, emphasis, code blocks, and (the original
 // motivation for using glamour at all) properly aligned tables — one
@@ -20,9 +20,9 @@ import (
 // codebase is handled defensively too). A binary built without a
 // readme wired up (WithReadme never called, e.g. a bare Model{} in a
 // test) shows a placeholder instead of an empty view.
-func (m *Model) appendHelpRows() {
+func (m *Model) appendHelpRows(dst *[]row) {
 	if m.readme == "" {
-		m.rows = append(m.rows, row{kind: rowText, text: "No help available."})
+		*dst = append(*dst, row{kind: rowText, text: "No help available."})
 		return
 	}
 	rendered, err := renderMarkdown(m.readme, m.helpWrapWidth())
@@ -30,7 +30,7 @@ func (m *Model) appendHelpRows() {
 		rendered = m.readme
 	}
 	for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
-		m.rows = append(m.rows, row{kind: rowText, text: line})
+		*dst = append(*dst, row{kind: rowText, text: line})
 	}
 }
 
@@ -68,14 +68,14 @@ func renderMarkdown(src string, width int) (string, error) {
 	return r.Render(src)
 }
 
-// appendConfigRows populates m.rows for config view: one read-only line
+// appendConfigRows appends the rows for config view: one read-only line
 // per configurable setting, showing its effective current value (after
 // flags/config-file/built-in-default resolution has already happened in
 // main.go — this view has no idea which of those a value came from,
 // only what it ended up as).
-func (m *Model) appendConfigRows() {
+func (m *Model) appendConfigRows(dst *[]row) {
 	line := func(format string, args ...any) {
-		m.rows = append(m.rows, row{kind: rowText, text: fmt.Sprintf(format, args...)})
+		*dst = append(*dst, row{kind: rowText, text: fmt.Sprintf(format, args...)})
 	}
 
 	line("Org directory: %s", m.ws.Dir)
@@ -156,7 +156,7 @@ func (m *Model) appendConfigRows() {
 		orDefault(m.colors.SearchHighlightBg, defaultSearchHighlightBg))
 }
 
-// appendLogRows populates m.rows for :log — every external command
+// appendLogRows appends the rows for :log — every external command
 // orgtd has run since startup (see execLog), oldest first, each entry
 // (a command starting — with its arguments — one line fed to its stdin,
 // one of its output lines, or its exit code) stamped with its own
@@ -166,13 +166,13 @@ func (m *Model) appendConfigRows() {
 // taken right now — if a :format-links batch (or anything else) logs
 // more while this view is already open, re-run :log to see it; the view
 // itself doesn't live-update.
-func (m *Model) appendLogRows() {
+func (m *Model) appendLogRows(dst *[]row) {
 	entries := m.execLog.Snapshot()
 	if len(entries) == 0 {
-		m.rows = append(m.rows, row{kind: rowText, text: "No external commands have been run yet."})
+		*dst = append(*dst, row{kind: rowText, text: "No external commands have been run yet."})
 		return
 	}
 	for _, e := range entries {
-		m.rows = append(m.rows, row{kind: rowText, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.Time.Format("15:04:05.000"), e.Kind.Label(), execlog.PIDLabel(e.PID), e.Text)})
+		*dst = append(*dst, row{kind: rowText, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.Time.Format("15:04:05.000"), e.Kind.Label(), execlog.PIDLabel(e.PID), e.Text)})
 	}
 }

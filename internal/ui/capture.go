@@ -169,7 +169,7 @@ func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 // session commits, the outline view is focused on the newly captured
 // entry (switching to it first if the current view's rows don't
 // already include it — see insertContext.switchToOutline and
-// usesOutlineRows), ready for further edits (promote/demote, tag,
+// viewSpec.outlineRows), ready for further edits (promote/demote, tag,
 // schedule, ...) right away.
 func (m *Model) startCapture() tea.Cmd {
 	return m.startCaptureImpl(false)

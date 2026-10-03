@@ -172,6 +172,7 @@ including its known weak points, so changes can be made deliberately.
 |---|---|
 | `model.go` | The `Model` struct, `New`, `Update` (mode dispatch), the `mode`/`viewKind` enums, confirm-mode handling, workspace file lookups |
 | `options.go` | `With…` construction options (config → `Model` fields) |
+| `views.go` | The `viewKind`s and the `viewSpecs` registry — everything that varies per view |
 | `row.go` | The `row` type and its `rowKind`s, `sameRow`, `rowSearchText` |
 | `rows.go` | `rebuildRows` and the outline's row building (fold, hide-done, body lines) |
 | `nav.go`, `fold.go` | Cursor motions, viewport/scrolling; fold commands |
@@ -205,9 +206,14 @@ organizational, not enforced: any file can reach any `Model` field. See
 ### Rows and views
 
 `Model.rows` is the flat, visible listing; the cursor is an index into
-it. `rebuildRows` repopulates it for the current `viewKind`
-(outline, agenda, clarify, config, log, diff, help, calendar,
-meetingTags, tags). A `row` (`row.go`) carries a `kind`
+it. `rebuildRows` repopulates it by calling the current view's `build`
+function. **Everything that varies per view lives in one `viewSpec`** in
+`views.go`'s `viewSpecs` table — its `:command`, status-line label, row
+builder, whether its rows fold, the empty-state message, what Enter does,
+any `open` preparation (clarify, calendar, diff), and info-buffer lines —
+and the rest of the package asks the spec instead of switching on
+`m.view`. The views are outline, agenda, clarify, config, log, diff, help,
+calendar, meetingTags and tags. A `row` (`row.go`) carries a `kind`
 (`rowHeadline`, `rowFile`, `rowBody`, `rowSection`, `rowText`,
 `rowAgendaItem`, `rowMeetingHeader`, `rowCalendarEvent`,
 `rowMeetingTagsRecord`, `rowCalendarLinked`, `rowTagsItem`) that says
@@ -236,7 +242,9 @@ meetingPicker, tag). Multi-key chords (`gg`, `dd`, `zo`, `m<letter>`,
 counts like `3dd`) are tracked by individual `pending*` booleans and a
 `pendingCount`, reset at the top of `updateNormalMode`. Colon commands
 are a `switch` in `runCommand`, and `Tab` completion has its own
-separate `commandNames` list — **adding a command means editing both**.
+separate `commandNames()` list — **adding a non-view command means
+editing both**. View commands (`:agenda`, `:tags`, ...) come from
+`viewSpecs`, so they need neither.
 
 ### Rendering
 
@@ -262,18 +270,14 @@ These are recorded here so contributors don't mistake them for design:
    editor and URL-formatter programs (`internal/extprog`), and org link
    parsing (`internal/org`) — but the remaining ~30 files still share the
    one `Model`.
-2. **View-specific behavior is scattered.** `row` is now properly tagged,
-   but what a *view* does is still spread across `m.view ==` checks,
-   `rebuildRows`, `View`'s empty-state text, `jumpToSource`, search, the
-   status line and `runCommand`.
-3. **Settings are threaded through ~8 layers** (config struct, flag,
+2. **Settings are threaded through ~8 layers** (config struct, flag,
    `flagValues`, `settings`, `resolveSettings`, `With…` option, `Model`
    field, `:config` view, README, `config.example.toml`).
-4. **Some org-level logic still lives in `ui`.** Date and repeater logic
+3. **Some org-level logic still lives in `ui`.** Date and repeater logic
    moved to `internal/orgdate`, but `headlineCreatedTime`, and tree
    operations like `shiftHeadlineLevel`, `siblingHeadlines` and the
    splice helpers in `undo.go`, belong with `org`.
-5. **`time.Now()` is called directly** in render and command paths.
+4. **`time.Now()` is called directly** in render and command paths.
 
 ## 7. Data conventions (properties and tags)
 
@@ -321,8 +325,9 @@ as `gM`.
 
 ## 9. Recipes for common changes
 
-**Add a colon command.** Add a `case` in `runCommand` *and* the name in
-`commandNames`; document it in README's command table and the
+**Add a colon command.** (A command that just opens a view is a `viewSpec`
+— see below.) Add a `case` in `runCommand` *and* the name in
+`commandNames()`; document it in README's command table and the
 `:help`-visible text (README is embedded). Add a key-driven test.
 
 **Add a normal-mode key or chord.** Edit `updateNormalMode`; if it's a
@@ -334,15 +339,19 @@ in the README's keybinding tables.
 place; record old and new values), build it where the edit happens and
 call `pushUndo`. Never set `m.dirty` directly.
 
-**Add a view.** Add a `viewKind`; handle it in `rebuildRows`, `View`'s
-empty-state message, `jumpToSource` if rows can jump to the outline,
-`usesOutlineRows`, and add its `:name` command. Render new row flavors in
-`renderRowWithBg`. Decide how `sameRow` distinguishes duplicate rows.
+**Add a view.** Add a `viewKind` constant (before `numViews`) and an
+entry in `viewSpecs` (`views.go`): its `command`, `label`, a `build`
+function that appends rows to `dst`, and any of the optional fields
+(`folds`, `empty`, `enter`, `open`, ...). Render any new row flavor by
+adding a `rowKind` and a case in `renderRowWithBg`, and decide how
+`sameRow` distinguishes duplicate rows. The `:command`, Tab completion,
+status label, empty message and Enter behavior need no other edits;
+`TestEveryViewHasACompleteSpec` fails if the spec is incomplete.
 
 **Add a config setting.** Add it to `config.Config`, the flag in
 `main.go`, `flagValues`/`settings`/`resolveSettings`, a `With…` option and
 `Model` field, the `:config` listing (`appendConfigRows`),
-`config.example.toml`, and the README tables. (Debt item 3.)
+`config.example.toml`, and the README tables. (Debt item 2.)
 
 **Run an external program.** Use `runLoggedCommand` so it appears in
 `:log`; run it from a `tea.Cmd` unless it is guaranteed fast.

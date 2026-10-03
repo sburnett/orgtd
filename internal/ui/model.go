@@ -288,22 +288,6 @@ type Model struct {
 	readme string // README.md's content, embedded into the binary by the caller (see WithReadme); :help shows it verbatim
 }
 
-// viewKind selects what rebuildRows populates m.rows with.
-type viewKind int
-
-const (
-	outlineView viewKind = iota
-	agendaView
-	clarifyView
-	configView
-	logView
-	diffView
-	helpView
-	calendarView
-	meetingTagsView
-	tagsView
-)
-
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
@@ -367,7 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if m.view == helpView {
+		if m.spec().rebuildOnResize {
 			// Unlike every other view, help view's rows are pre-wrapped
 			// to a specific width by glamour (see appendHelpRows) rather
 			// than wrapped at render time — so a resize while it's open

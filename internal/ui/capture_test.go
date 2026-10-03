@@ -202,7 +202,7 @@ func TestCaptureWorksFromClarifyView(t *testing.T) {
 // inbox file directly rather than m.currentHeadline(): from a view
 // whose rows aren't the outline's (agenda, calendar, ...), the cursor
 // never actually lands on the tentative placeholder — see
-// usesOutlineRows — the same as a real capture session, where nothing
+// viewSpec.outlineRows — the same as a real capture session, where nothing
 // depends on it since $EDITOR covers the screen in the meantime.
 func commitCapture(t *testing.T, m Model, body string) Model {
 	t.Helper()
@@ -224,7 +224,7 @@ func commitCapture(t *testing.T, m Model, body string) Model {
 // captured (dateless, keyword-less) inbox entry at all, so
 // commitInsert's own focusHeadline can't find it there — capture must
 // switch to outline view itself once the editor session commits (see
-// insertContext.switchToOutline/usesOutlineRows) so the new entry is
+// insertContext.switchToOutline/viewSpec.outlineRows) so the new entry is
 // immediately in view, ready for further edits (scheduling, tagging,
 // promoting, ...).
 func TestCaptureFromAgendaViewSwitchesToOutline(t *testing.T) {
@@ -269,7 +269,7 @@ func TestCaptureFromCalendarViewSwitchesToOutline(t *testing.T) {
 
 // TestCaptureFromClarifyViewStaysInClarify checks the flip side of the
 // two tests above: clarifyView's rows are the very same full-outline
-// listing outlineView itself shows (see usesOutlineRows) — plus a
+// listing outlineView itself shows (see viewSpec.outlineRows) — plus a
 // pinned info-buffer panel — so the newly captured entry is already
 // right there under the cursor once the editor session commits, with
 // no need (and no reason) to switch views out from under an in-progress

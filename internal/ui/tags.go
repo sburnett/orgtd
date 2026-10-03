@@ -11,7 +11,7 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
-// appendTagsRows populates m.rows for tagsView: one flush-left
+// appendTagsRows appends the rows for tagsView: one flush-left
 // section-header row per distinct tag used anywhere in the workspace
 // (excluding calendar_file/meeting_tags_file — see WithCalendarFile/
 // WithMeetingTagsFile — the same two files the outline view itself
@@ -23,7 +23,7 @@ import (
 // position. An entry with more than one tag legitimately appears once
 // under each. Subject to the same stale-DONE hiding as the outline (see
 // hiddenAsStaleDone) — :toggledone affects this view the same way.
-func (m *Model) appendTagsRows() {
+func (m *Model) appendTagsRows(dst *[]row) {
 	byTag := make(map[string][]*org.Headline)
 	for _, f := range m.ws.Files {
 		if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
@@ -58,9 +58,9 @@ func (m *Model) appendTagsRows() {
 			}
 			return ti.Before(tj)
 		})
-		m.rows = append(m.rows, row{kind: rowSection, text: tag})
+		*dst = append(*dst, row{kind: rowSection, text: tag})
 		for _, h := range entries {
-			m.rows = append(m.rows, row{headline: h, level: 1, kind: rowTagsItem, tagsItemTag: tag})
+			*dst = append(*dst, row{headline: h, level: 1, kind: rowTagsItem, tagsItemTag: tag})
 		}
 	}
 }

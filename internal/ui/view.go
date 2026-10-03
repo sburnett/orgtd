@@ -15,14 +15,8 @@ func (m Model) View() string {
 		// area below, same as every other case, rather than returning a
 		// bare message and skipping it entirely.
 		msg := "No org files found."
-		if m.view == agendaView {
-			msg = fmt.Sprintf("Nothing due in the next %d days. :outline to go back.", m.agendaDays)
-		} else if m.view == calendarView {
-			msg = "No calendar events found. :outline to go back."
-		} else if m.view == meetingTagsView {
-			msg = "No meeting tags yet. :outline to go back."
-		} else if m.view == tagsView {
-			msg = "No tags found. :outline to go back."
+		if empty := m.spec().empty; empty != nil {
+			msg = empty(&m)
 		}
 		b.WriteString(msg)
 		b.WriteString("\n")
@@ -180,23 +174,8 @@ func (m Model) View() string {
 // squeezed onto this line only when there's room for them.
 func (m *Model) normalStatusLine() string {
 	place := m.ws.Dir
-	switch m.view {
-	case agendaView:
-		place = "agenda"
-	case configView:
-		place = "config"
-	case logView:
-		place = "log"
-	case diffView:
-		place = "diff"
-	case helpView:
-		place = "help"
-	case calendarView:
-		place = "calendar"
-	case meetingTagsView:
-		place = "meeting-tags"
-	case tagsView:
-		place = "tags"
+	if label := m.spec().label; label != "" {
+		place = label
 	}
 	return fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
 }

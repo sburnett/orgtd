@@ -485,7 +485,7 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.commitInsert(*msg.insert, msg.target, file.Headlines)
-		if msg.insert.switchToOutline && !usesOutlineRows(m.view) {
+		if msg.insert.switchToOutline && !m.spec().outlineRows {
 			// commitInsert's own focusHeadline couldn't find the new
 			// entry's row, since the current view's rows don't include
 			// it at all (e.g. captured from agenda or calendar) — bring

@@ -222,13 +222,8 @@ func (m *Model) infoBufferLines() []string {
 			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
 		}
 	}
-	if m.view == clarifyView {
-		lines = append(lines, m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Clarifying:"), m.overlayBg()))
-		if m.clarifyTarget == nil {
-			lines = append(lines, m.padLineToWidth(m.statusStyle().Background(m.overlayBg()).Render("  Inbox is empty."), m.overlayBg()))
-		} else {
-			lines = append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
-		}
+	if info := m.spec().info; info != nil {
+		lines = append(lines, info(m)...)
 	}
 	if m.mode == commandMode && m.commandCompletions != "" {
 		lines = m.appendInfoSection(lines, "Matches:", strings.Fields(m.commandCompletions))

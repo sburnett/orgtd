@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,56 +14,12 @@ func (m *Model) rebuildRows() {
 	// is where the meeting index (see meetingCache) goes stale.
 	m.invalidateMeetingIndex()
 	m.rows = m.rows[:0]
-	switch m.view {
-	case agendaView:
-		m.appendAgendaRows()
-	case configView:
-		m.appendConfigRows()
-	case logView:
-		m.appendLogRows()
-	case diffView:
-		m.appendDiffRows()
-	case helpView:
-		m.appendHelpRows()
-	case calendarView:
-		m.appendCalendarRows(&m.rows, false)
-	case meetingTagsView:
-		m.appendMeetingTagsRows(&m.rows, false)
-	case tagsView:
-		m.appendTagsRows()
-	default:
-		for _, f := range m.ws.Files {
-			if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
-				continue
-			}
-			m.rows = append(m.rows, row{kind: rowFile, file: f})
-			m.appendHeadlines(&m.rows, f.Headlines, false)
-		}
-	}
+	m.spec().build(m, &m.rows, false)
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
-	}
-}
-
-// usesOutlineRows reports whether v's rows are the same full-outline
-// listing rebuildRows falls back to in its default case (every loaded
-// file, in full) — true for outlineView itself and clarifyView (which
-// merely adds an info-buffer panel on top of the same rows), false for
-// every other view (agenda, calendar, meeting tags, config, log, diff,
-// help), whose row sets are each built from something narrower than
-// "every headline". Used by finishEdit to decide whether a freshly
-// captured entry (see insertContext.switchToOutline) is already visible
-// where the cursor is, or needs an explicit switch to outline view to
-// bring it into focus.
-func usesOutlineRows(v viewKind) bool {
-	switch v {
-	case outlineView, clarifyView:
-		return true
-	default:
-		return false
 	}
 }
 

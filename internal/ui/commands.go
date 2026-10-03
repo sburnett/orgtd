@@ -100,14 +100,20 @@ func (m *Model) recallCommandHistory(dir int) {
 // runCommand executes the typed command line and always returns to
 // normal mode.
 // commandNames lists every command-mode word tab completion knows
-// about. Both short and long forms of the same command (e.g. "q" and
+// about: the commands below plus every view's own (see viewSpecs). Both short and long forms of the same command (e.g. "q" and
 // "quit") are listed individually, since either is something you might
 // type and want completed.
-var commandNames = []string{
-	"w", "write", "wq", "q", "quit", "q!", "quit!",
-	"undo", "redo", "agenda", "clarify", "outline", "config", "capture", "calendar", "meeting-tags", "tags",
-	"delmarks", "delmarks!", "clear-registers", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "log", "diff", "commit", "help",
-	"sync-calendar", "sync-calendar!",
+func commandNames() []string {
+	names := []string{
+		"w", "write", "wq", "q", "quit", "q!", "quit!",
+		"undo", "redo", "capture",
+		"delmarks", "delmarks!", "clear-registers", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "commit",
+		"sync-calendar", "sync-calendar!",
+	}
+	for k := range viewSpecs {
+		names = append(names, viewSpecs[k].command)
+	}
+	return names
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
@@ -124,7 +130,7 @@ func (m *Model) completeCommand() {
 	word := m.commandInput
 
 	var matches []string
-	for _, name := range commandNames {
+	for _, name := range commandNames() {
 		if strings.HasPrefix(name, word) {
 			matches = append(matches, name)
 		}
@@ -172,6 +178,11 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	m.commandHistoryPos = len(m.commandHistory)
 	m.commandHistoryDraft = ""
 
+	if k, v := viewForCommand(cmd); v != nil {
+		m.openView(k)
+		return m, nil
+	}
+
 	if cmd == "delmarks!" {
 		m.marks = nil
 		m.message = "All marks deleted"
@@ -215,27 +226,6 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	case "noh", "nohlsearch":
 		m.lastSearchQuery = ""
 
-	case "agenda":
-		m.switchToView(agendaView)
-
-	case "clarify":
-		m.enterClarifyView()
-
-	case "outline":
-		m.switchToView(outlineView)
-
-	case "config":
-		m.switchToView(configView)
-
-	case "calendar":
-		m.enterCalendarView()
-
-	case "meeting-tags":
-		m.switchToView(meetingTagsView)
-
-	case "tags":
-		m.switchToView(tagsView)
-
 	case "capture":
 		return m, m.startCapture()
 
@@ -272,17 +262,8 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	case "sync-calendar!":
 		return m, m.startSyncCalendar(true)
 
-	case "log":
-		m.switchToView(logView)
-
-	case "diff":
-		m.showDiff()
-
 	case "commit":
 		return m, m.startCommit()
-
-	case "help":
-		m.switchToView(helpView)
 
 	default:
 		m.message = fmt.Sprintf("Unknown command: %s", cmd)

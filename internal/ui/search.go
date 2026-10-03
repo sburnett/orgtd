@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -143,28 +142,13 @@ func (m *Model) repeatSearch(forward bool) {
 // revealRow (below) then unfolds just enough of the real outline to
 // bring whatever's found here onto the actual screen.
 func (m *Model) searchRows() []row {
-	switch m.view {
-	case outlineView, clarifyView:
-		var rows []row
-		for _, f := range m.ws.Files {
-			if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
-				continue
-			}
-			rows = append(rows, row{kind: rowFile, file: f})
-			m.appendHeadlines(&rows, f.Headlines, true)
-		}
-		return rows
-	case calendarView:
-		var rows []row
-		m.appendCalendarRows(&rows, true)
-		return rows
-	case meetingTagsView:
-		var rows []row
-		m.appendMeetingTagsRows(&rows, true)
-		return rows
-	default:
+	spec := m.spec()
+	if !spec.folds {
 		return m.rows
 	}
+	var rows []row
+	spec.build(m, &rows, true)
+	return rows
 }
 
 // indexOfRow returns the index of the first row in rows identical to
@@ -190,9 +174,7 @@ func indexOfRow(rows []row, target row) int {
 // search is later cancelled (Esc) — same as vim, which leaves a fold
 // opened by search open rather than closing it back up.
 func (m *Model) revealRow(target row) {
-	switch m.view {
-	case outlineView, clarifyView, calendarView, meetingTagsView:
-	default:
+	if !m.spec().folds {
 		return
 	}
 	h := target.headline

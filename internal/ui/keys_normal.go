@@ -138,7 +138,9 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.jumpToSubtreeBottom()
 
 	case "enter":
-		m.jumpToSource()
+		if enter := m.spec().enter; enter != nil {
+			enter(&m)
+		}
 
 	case "tab":
 		m.toggleFold()

@@ -83,13 +83,13 @@ func (m *Model) nextActionHeadlines() []*org.Headline {
 	return next
 }
 
-// appendAgendaRows populates m.rows for agenda view: one section-header
+// appendAgendaRows appends the rows for agenda view: one section-header
 // row per non-empty section (Overdue, Due Today, Upcoming, Next
 // Actions, in that order). The three date-based sections' item rows are
 // sorted by date, ties broken by original file/tree order; Next
 // Actions' are left in plain file/tree order, since most NEXT items
 // have no date to sort by.
-func (m *Model) appendAgendaRows() {
+func (m *Model) appendAgendaRows(dst *[]row) {
 	today := orgdate.TruncateToDate(time.Now())
 	entries := m.agendaEntries(today, m.agendaDays)
 
@@ -102,10 +102,10 @@ func (m *Model) appendAgendaRows() {
 	for _, section := range agendaSections {
 		switch section {
 		case "Next Actions":
-			m.appendNextActionsSection()
+			m.appendNextActionsSection(dst)
 			continue
 		case "Meetings":
-			m.appendMeetingsSection()
+			m.appendMeetingsSection(dst)
 			continue
 		}
 		es := bySection[section]
@@ -113,25 +113,25 @@ func (m *Model) appendAgendaRows() {
 			continue
 		}
 		sort.SliceStable(es, func(i, j int) bool { return es[i].date.Before(es[j].date) })
-		m.rows = append(m.rows, row{kind: rowSection, text: section})
+		*dst = append(*dst, row{kind: rowSection, text: section})
 		for _, e := range es {
 			missed := 0
 			if section == "Overdue" {
 				missed = e.missed
 			}
-			m.rows = append(m.rows, row{headline: e.h, level: 1, kind: rowAgendaItem, agendaLabel: e.label, agendaDate: e.date, agendaRepeater: e.repeater, agendaMissed: missed})
+			*dst = append(*dst, row{headline: e.h, level: 1, kind: rowAgendaItem, agendaLabel: e.label, agendaDate: e.date, agendaRepeater: e.repeater, agendaMissed: missed})
 		}
 	}
 }
 
-func (m *Model) appendNextActionsSection() {
+func (m *Model) appendNextActionsSection(dst *[]row) {
 	next := m.nextActionHeadlines()
 	if len(next) == 0 {
 		return
 	}
-	m.rows = append(m.rows, row{kind: rowSection, text: "Next Actions"})
+	*dst = append(*dst, row{kind: rowSection, text: "Next Actions"})
 	for _, h := range next {
-		m.rows = append(m.rows, row{headline: h, level: 1, kind: rowAgendaItem})
+		*dst = append(*dst, row{headline: h, level: 1, kind: rowAgendaItem})
 	}
 }
 
@@ -188,16 +188,16 @@ func (m *Model) upcomingMeetingEntries(now time.Time) []meetingAgendaEntry {
 // which is itself one level deeper than the section header — so the
 // outline's generic level-aware navigation (moveDeeper, jumpToSubtreeTop/
 // Bottom, etc.) already groups them correctly with no special-casing.
-func (m *Model) appendMeetingsSection() {
+func (m *Model) appendMeetingsSection(dst *[]row) {
 	meetings := m.upcomingMeetingEntries(time.Now())
 	if len(meetings) == 0 {
 		return
 	}
-	m.rows = append(m.rows, row{kind: rowSection, text: "Meetings"})
+	*dst = append(*dst, row{kind: rowSection, text: "Meetings"})
 	for _, mt := range meetings {
-		m.rows = append(m.rows, row{level: 1, kind: rowMeetingHeader, meetingTitle: mt.title, meetingStart: mt.start, meetingEnd: mt.end})
+		*dst = append(*dst, row{level: 1, kind: rowMeetingHeader, meetingTitle: mt.title, meetingStart: mt.start, meetingEnd: mt.end})
 		for _, h := range mt.items {
-			m.rows = append(m.rows, row{headline: h, level: 2, kind: rowAgendaItem, meetingItemTitle: mt.title, meetingItemStart: mt.start})
+			*dst = append(*dst, row{headline: h, level: 2, kind: rowAgendaItem, meetingItemTitle: mt.title, meetingItemStart: mt.start})
 		}
 	}
 }

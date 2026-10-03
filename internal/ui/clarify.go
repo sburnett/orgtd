@@ -106,3 +106,14 @@ func (m *Model) jumpToClarifyTarget() {
 	m.pushJump()
 	m.focusHeadline(m.clarifyTarget)
 }
+
+// clarifyInfoLines is clarifyView's info-buffer section: the inbox item
+// currently pinned for clarification (or a note that the inbox is empty),
+// under a "Clarifying:" label.
+func (m *Model) clarifyInfoLines() []string {
+	lines := []string{m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Clarifying:"), m.overlayBg())}
+	if m.clarifyTarget == nil {
+		return append(lines, m.padLineToWidth(m.statusStyle().Background(m.overlayBg()).Render("  Inbox is empty."), m.overlayBg()))
+	}
+	return append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
+}

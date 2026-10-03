@@ -4,27 +4,27 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
-// jumpToSource ("Enter" on an agenda row, a tagsView row, or an item
-// linked to a calendar event — see linkedMeetingItems) switches to
-// outline view with the cursor on that row's real headline. A no-op
-// outside those cases: agenda/tagsView's own section-header rows (no
-// headline to jump to), and — in calendarView — a calendar event's own
-// row, since calendar_file is excluded from the outline entirely (see
-// appendCalendarRows), so there'd be nowhere to jump to.
+// jumpToSource ("Enter" on an agenda row or a tagsView row) switches to
+// outline view with the cursor on that row's real headline. A no-op on a
+// row with no headline of its own (a section header).
 func (m *Model) jumpToSource() {
-	switch {
-	case m.view == agendaView:
-	case m.view == tagsView:
-	case m.view == calendarView && m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowCalendarLinked:
-	default:
-		return
-	}
 	h := m.currentHeadline()
 	if h == nil {
 		return
 	}
 	m.switchToView(outlineView)
 	m.focusHeadline(h)
+}
+
+// jumpToLinkedSource is Enter in calendarView: on an item linked to a
+// calendar event (see linkedMeetingItems) it jumps to that item's real
+// place in the outline, like jumpToSource. A no-op on a calendar event's
+// own row, since calendar_file is excluded from the outline entirely (see
+// appendCalendarRows), so there'd be nowhere to jump to.
+func (m *Model) jumpToLinkedSource() {
+	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowCalendarLinked {
+		m.jumpToSource()
+	}
 }
 
 // switchToView changes which view rebuildRows populates m.rows with,

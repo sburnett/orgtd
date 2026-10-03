@@ -48,7 +48,7 @@ func (m *Model) repo() gitrepo.Repo {
 	return gitrepo.Repo{Dir: m.ws.Dir, Log: m.execLog}
 }
 
-// appendDiffRows populates m.rows for :diff: the working-tree diff (see
+// appendDiffRows appends the rows for :diff: the working-tree diff (see
 // showDiff/refreshDiffData) for every file currently open in the outline
 // (excluding the calendar file — see gitFiles), one row per line, verbatim (like :log's output lines, no further parsing
 // or styling) — or a placeholder if there's nothing to show, no files
@@ -56,21 +56,21 @@ func (m *Model) repo() gitrepo.Repo {
 // proper git repository root (showDiff already refuses before this is
 // ever reached otherwise) — e.g. a repository with no commits yet at
 // all, so there's no HEAD to diff against.
-func (m *Model) appendDiffRows() {
+func (m *Model) appendDiffRows(dst *[]row) {
 	if m.diffErr != "" {
-		m.rows = append(m.rows, row{kind: rowText, text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
+		*dst = append(*dst, row{kind: rowText, text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
 		return
 	}
 	if len(m.ws.Files) == 0 {
-		m.rows = append(m.rows, row{kind: rowText, text: "No files open in the outline."})
+		*dst = append(*dst, row{kind: rowText, text: "No files open in the outline."})
 		return
 	}
 	if strings.TrimSpace(m.diffOutput) == "" {
-		m.rows = append(m.rows, row{kind: rowText, text: "No changes."})
+		*dst = append(*dst, row{kind: rowText, text: "No changes."})
 		return
 	}
 	for _, line := range strings.Split(m.diffOutput, "\n") {
-		m.rows = append(m.rows, row{kind: rowText, text: line})
+		*dst = append(*dst, row{kind: rowText, text: line})
 	}
 }
 

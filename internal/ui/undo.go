@@ -329,7 +329,7 @@ type insertContext struct {
 	// always wherever the cursor already was, so there's nothing to jump
 	// to. gC/gX always target the inbox regardless of the current view,
 	// so once the editor session commits, finishEdit switches to outline
-	// view (unless already showing outline rows — see usesOutlineRows) so
+	// view (unless already showing outline rows — see viewSpec.outlineRows) so
 	// the newly captured entry is right there under the cursor, ready for
 	// further edits, rather than left off-screen in whatever view (agenda,
 	// calendar, ...) the capture was triggered from. insertCalendarCapture
