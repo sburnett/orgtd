@@ -83,7 +83,7 @@ func (m Model) applyDeadlineInput() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	ts, err := orgdate.ParseDeadlineInput(input)
+	ts, err := orgdate.ParseDeadlineInput(input, m.now())
 	if err != nil {
 		m.message = err.Error()
 		return m, nil

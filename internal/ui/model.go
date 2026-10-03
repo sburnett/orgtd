@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -199,6 +200,12 @@ type Model struct {
 	// extprog.BareURLRegexp).
 	bareURLRe *regexp.Regexp
 
+	// clock, if set, replaces time.Now as the source of "now" (see now): for
+	// everything time-dependent — the agenda's buckets, CREATED/CLOSED
+	// stamps, relative deadline phrases, which meeting is in progress.
+	// Nil, the default, means the real clock.
+	clock func() time.Time
+
 	view          viewKind
 	clarifyTarget *org.Headline // the inbox item currently pinned for clarification, in clarifyView; nil if the inbox is empty
 
@@ -227,6 +234,16 @@ type Model struct {
 	gitRunning bool
 
 	readme string // README.md's content, embedded into the binary by the caller (see WithReadme); :help shows it verbatim
+}
+
+// now returns the current time: the Model's clock if one was set (see
+// WithClock), else the real one. Everything in this package that needs
+// "now" asks here rather than calling time.Now, so tests can pin it.
+func (m *Model) now() time.Time {
+	if m.clock != nil {
+		return m.clock()
+	}
+	return time.Now()
 }
 
 // New builds a viewer model over ws. Every headline starts expanded.

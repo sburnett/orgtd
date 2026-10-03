@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -31,7 +30,7 @@ func (m *Model) startMeetingPicker() {
 	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
-	now := time.Now()
+	now := m.now()
 	candidates := m.meetingIndex().Candidates(now)
 	if len(candidates) == 0 {
 		m.message = "No calendar meetings synced yet (see :sync-calendar)"

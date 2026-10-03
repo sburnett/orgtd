@@ -4,9 +4,8 @@
 // text of org timestamps including their repeater ("+1w", "++1w", ".+1w")
 // and warning ("-3d") cookies, and the arithmetic for completing a
 // repeating item. Everything here is pure and has no UI dependency;
-// functions that depend on the date take "now" or "today" explicitly,
-// except typed-input parsing (ParseDeadlineInput), which anchors relative
-// phrases to the local current date.
+// functions that depend on the date take "now" or "today" explicitly, so
+// callers (and tests) control the clock.
 package orgdate
 
 import (
@@ -82,14 +81,14 @@ func TruncateToDate(t time.Time) time.Time {
 // via fuzzyDate/when.EN. Only the first form can produce a time of day —
 // the other two always resolve to a plain date, since "in 3 days" or
 // "sep 30" don't imply a specific hour.
-func resolveDeadlineDate(input string) (t time.Time, hasTime bool, err error) {
+func resolveDeadlineDate(input string, now time.Time) (t time.Time, hasTime bool, err error) {
 	input = strings.TrimSpace(input)
 
 	if t, hasTime, err := ParseFlexible(input); err == nil {
 		return t, hasTime, nil
 	}
 
-	today := TruncateToDate(time.Now())
+	today := TruncateToDate(now)
 
 	if t, ok := parseRelativeOffset(input, today); ok {
 		return t, false, nil
@@ -145,8 +144,8 @@ func fuzzyDate(input string, today time.Time) (time.Time, bool) {
 
 // ParseDeadlineInput parses a typed date into an active org timestamp
 // suitable for DEADLINE.
-func ParseDeadlineInput(input string) (*org.Timestamp, error) {
-	t, hasTime, err := resolveDeadlineDate(input)
+func ParseDeadlineInput(input string, now time.Time) (*org.Timestamp, error) {
+	t, hasTime, err := resolveDeadlineDate(input, now)
 	if err != nil {
 		return nil, err
 	}

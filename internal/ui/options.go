@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/sburnett/orgtd/internal/config"
+import (
+	"time"
+
+	"github.com/sburnett/orgtd/internal/config"
+)
 
 // Option customizes a Model at construction time. See New.
 type Option func(*Model)
@@ -213,4 +217,11 @@ func WithMeetingIcon(icon, color string) Option {
 			m.cfg.Icons.MeetingColor = color
 		}
 	}
+}
+
+// WithClock replaces the real clock with now, for everything
+// time-dependent in the UI (see Model.now) — what lets a test run at a
+// fixed moment instead of building every fixture relative to the real one.
+func WithClock(now func() time.Time) Option {
+	return func(m *Model) { m.clock = now }
 }

@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"time"
-
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
@@ -18,7 +16,7 @@ import (
 // recurring item shows up as its next Upcoming occurrence rather than
 // vanishing into a DONE state it never really enters.
 func (m *Model) repeatAdvanceForCompletion(h *org.Headline) undoAction {
-	now := time.Now()
+	now := m.now()
 	newScheduled, schedOK := orgdate.AdvanceRepeating(h.Scheduled, now)
 	newDeadline, deadOK := orgdate.AdvanceRepeating(h.Deadline, now)
 	if !schedOK && !deadOK {

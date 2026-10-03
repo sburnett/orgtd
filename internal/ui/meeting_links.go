@@ -51,7 +51,7 @@ func (m *Model) calendarEventEntries(h *org.Headline) []calendarEventEntry {
 			attached[meetings.Key{Kind: kind, ID: id}] = true
 		}
 	}
-	for _, c := range m.meetingIndex().TagLinked(h, time.Now()) {
+	for _, c := range m.meetingIndex().TagLinked(h, m.now()) {
 		if attached[c.Key] || c.Link == "" {
 			continue
 		}

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -221,7 +220,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 // insertContext.attachMeeting.
 func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool, attachMeeting *meetings.Meeting) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
-	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
+	tentative.SetProperty("CREATED", "["+m.now().Format("2006-01-02 Mon 15:04")+"]")
 	org.Siblings{File: f, Parent: parent}.Splice(idx, 0, []*org.Headline{tentative})
 	m.rebuildRows()
 	m.focusHeadline(tentative)

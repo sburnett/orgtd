@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -174,7 +173,7 @@ func (m Model) editorCommand() string {
 // created here; only its directory is, so the caller still controls
 // how (and whether) the file gets written.
 func (m *Model) scratchFilePath() (string, error) {
-	now := time.Now()
+	now := m.now()
 	dir := filepath.Join(m.ws.Dir, "scratch", now.Format("2006"), now.Format("01"), now.Format("02"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err

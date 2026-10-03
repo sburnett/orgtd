@@ -128,7 +128,7 @@ func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 func (m Model) meetingColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	linked := h.Properties["GCAL_RECURRING_EVENT_IDS"] != "" || h.Properties["GCAL_EVENT_IDS"] != ""
 	if !linked && len(h.Tags) > 0 {
-		linked = len(m.meetingIndex().TagLinked(h, time.Now())) > 0
+		linked = len(m.meetingIndex().TagLinked(h, m.now())) > 0
 	}
 	if linked {
 		icon := orDefault(m.cfg.Icons.MeetingIcon, defaultMeetingIcon)

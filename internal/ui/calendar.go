@@ -84,7 +84,7 @@ func (m *Model) enterCalendarView() {
 	if f == nil {
 		return
 	}
-	if h := meetings.CursorTarget(f.Headlines, time.Now()); h != nil {
+	if h := meetings.CursorTarget(f.Headlines, m.now()); h != nil {
 		for i, r := range m.rows {
 			if r.headline == h {
 				m.cursor = i

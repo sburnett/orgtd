@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -109,7 +108,7 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 	newClosed := h.Closed
 	switch {
 	case org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword):
-		newClosed = &org.Timestamp{Raw: time.Now().Format("2006-01-02 Mon 15:04")}
+		newClosed = &org.Timestamp{Raw: m.now().Format("2006-01-02 Mon 15:04")}
 	case !org.IsDoneKeyword(keyword) && org.IsDoneKeyword(h.Keyword):
 		newClosed = nil
 	}

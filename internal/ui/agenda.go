@@ -90,7 +90,7 @@ func (m *Model) nextActionHeadlines() []*org.Headline {
 // Actions' are left in plain file/tree order, since most NEXT items
 // have no date to sort by.
 func (m *Model) appendAgendaRows(dst *[]row) {
-	today := orgdate.TruncateToDate(time.Now())
+	today := orgdate.TruncateToDate(m.now())
 	entries := m.agendaEntries(today, m.cfg.AgendaWindowDays)
 
 	bySection := make(map[string][]agendaEntry, len(agendaSections))
@@ -189,7 +189,7 @@ func (m *Model) upcomingMeetingEntries(now time.Time) []meetingAgendaEntry {
 // outline's generic level-aware navigation (moveDeeper, jumpToSubtreeTop/
 // Bottom, etc.) already groups them correctly with no special-casing.
 func (m *Model) appendMeetingsSection(dst *[]row) {
-	meetings := m.upcomingMeetingEntries(time.Now())
+	meetings := m.upcomingMeetingEntries(m.now())
 	if len(meetings) == 0 {
 		return
 	}

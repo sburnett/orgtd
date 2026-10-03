@@ -143,6 +143,12 @@ Bubble Tea: `Model`, `Update`, `View`.
   its `savedPos` (the count at last write). So undoing back to the saved
   point makes a file clean again. Any new edit *must* go through
   `pushUndo` (or a variant) to be undoable and to mark the file dirty.
+- **"Now" comes from `m.now()`, never `time.Now()`.** `Model.now` returns
+  the injected clock (`WithClock`) or the real one, and everything
+  time-dependent in `ui` — agenda buckets, `CREATED`/`CLOSED` stamps,
+  relative deadline phrases, which meeting is in progress — asks it, so a
+  test can run at a fixed moment. Packages below `ui` take `now` as a
+  parameter. (`execlog` stamping its own entries is the one exception.)
 - **Derived indexes are invalidated in `rebuildRows`.** The meetings
   index (`internal/meetings`, held in `m.meetings`) is a snapshot of every
   loaded file, built lazily and dropped by `rebuildRows`. The invariant
@@ -284,7 +290,6 @@ These are recorded here so contributors don't mistake them for design:
    (`internal/meetings`), and org link parsing and tree operations
    (`internal/org`) — but the remaining ~30 files still share the
    one `Model`.
-2. **`time.Now()` is called directly** in render and command paths.
 
 ## 7. Data conventions (properties and tags)
 
