@@ -150,15 +150,37 @@ including its known weak points, so changes can be made deliberately.
 
 | File | Responsibility |
 |---|---|
-| `model.go` | The `Model` struct, option funcs, key handling for every mode, commands, navigation, folding, search, editing/capture, URL formatting, git diff/commit, and all rendering. **~8,000 lines; see "Known structural debt".** |
+| `model.go` | The `Model` struct, `New`, `Update` (mode dispatch), the `mode`/`viewKind` enums, confirm-mode handling, workspace file lookups |
+| `options.go` | `With…` construction options (config → `Model` fields) |
+| `rows.go` | The `row` type, `rebuildRows`, and the outline's row building (fold, hide-done, body lines) |
+| `nav.go`, `fold.go` | Cursor motions, viewport/scrolling; fold commands |
+| `keys_normal.go`, `keys_visual.go` | Normal-mode and visual-mode key handling (chords, counts) |
+| `commands.go` | `:` command line: input, history, completion, `runCommand`, `:w`/`:wq` |
+| `search.go` | `/` `?` `n` `N` incremental search and the search row space |
+| `edit_ops.go` | Delete/yank/paste/promote/demote and bulk status changes |
+| `status_picker.go`, `deadline.go`, `tag_prompt.go`, `meeting_picker.go` | The `r`/`R`, `gd`, `gt`, `gM` prompts |
+| `dates.go` | Pure date/deadline parsing (`parseFlexibleDate`, `fuzzyDate`, ...) |
+| `editor.go` | `$EDITOR` round trip: command building, scratch files, entry context, `finishEdit` |
+| `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
+| `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch |
+| `gitops.go` | `:diff`/`:commit` and the git helpers they use |
+| `clarify.go`, `marks.go`, `jumplist.go` | `:clarify` target, vim-style marks, ctrl-o/`gi` jump list and view switching |
+| `style.go` | Color/icon resolution, text-width and highlight helpers |
+| `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |
+| `view.go`, `info_buffer.go` | `View`, status line; the info buffer's sections and pinned register/marks |
+| `info_views.go` | Rows for the read-only `:help`/`:config`/`:log` views |
+| `meeting_links.go` | Resolving an entry's calendar-meeting links for display |
 | `undo.go` | `undoAction` types, undo/redo, dirty derivation, structural-edit helpers (`insertContext`, splice/reparent actions) |
 | `agenda.go` | Agenda computation and rows, repeater math, **and** the meeting-linking domain (`meetingIDKind`, `meetingCandidate`, tag matching, `entriesForMeeting`) |
-| `calendar.go` | `:calendar` rows, linked-items ordering |
-| `meeting_tags.go` | `meeting-tags.org` records and the `:meeting-tags` view |
-| `tags.go` | `:tags` view |
+| `calendar.go`, `meeting_tags.go`, `tags.go` | The `:calendar`, `:meeting-tags` and `:tags` views |
 | `repeat.go` | Completing a repeating item (`+1w`, `++1w`, `.+1w`) |
 | `sync_calendar.go` | `:sync-calendar` command and result application |
 | `exec_log.go` | Subprocess logging for `:log` |
+| `util.go` | Tiny shared helpers |
+
+All of these are one package and share `Model`, so the file boundaries are
+organizational, not enforced: any file can reach any `Model` field. See
+"Known structural debt".
 
 ### Rows and views
 
@@ -207,10 +229,12 @@ built-in defaults overridden by `ColorOverrides`/`With…Icon` options.
 
 These are recorded here so contributors don't mistake them for design:
 
-1. **`model.go` is too large** and mixes unrelated concerns. Pure helpers
-   that don't need `Model` (git operations, date parsing, URL detection
-   and formatting, editor-command construction) are good candidates to
-   become their own files, then packages.
+1. **One `Model` struct, one package.** The files above split the code by
+   topic, but they still all share a ~100-field `Model`, so nothing stops
+   a file from touching state that isn't its own. Pure helpers that don't
+   need `Model` (git operations, date parsing in `dates.go`, URL detection
+   and formatting, editor-command construction) are candidates to become
+   their own packages with narrow interfaces.
 2. **Meeting linking is recomputed live and is expensive.** The gutter's
    `meetingColumn` calls `tagLinkedMeetingCandidates` for each visible
    tagged row on every render, which walks the whole workspace

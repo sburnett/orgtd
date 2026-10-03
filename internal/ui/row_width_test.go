@@ -57,7 +57,7 @@ func TestFitRowLineDegenerateSuffixAloneExceedsWidth(t *testing.T) {
 // TestFitRowLinePreservesANSIStyling is the reason fitRowLine uses
 // ansi.Truncate rather than plain rune slicing: prefix here carries
 // SGR escape codes (as every real row does — see bgSpan/lipgloss.Render
-// throughout model.go), and naively slicing runes would either count
+// throughout the ui package), and naively slicing runes would either count
 // invisible escape bytes toward the width budget or risk cutting an
 // escape sequence in half, corrupting every subsequent row's colors.
 func TestFitRowLinePreservesANSIStyling(t *testing.T) {

@@ -518,7 +518,7 @@ func meetingIdentity(h *org.Headline) (kind meetingIDKind, id string, ok bool) {
 }
 
 // meetingCandidate is one distinct meeting offered by the "gM" picker
-// (see startMeetingPicker in model.go): one per unique
+// (see startMeetingPicker in meeting_picker.go): one per unique
 // GCAL_RECURRING_EVENT_ID for a recurring series (not one per
 // individual synced occurrence), or one per unique GCAL_EVENT_ID for a
 // one-off event — see meetingCandidates.
@@ -574,7 +574,7 @@ type meetingKey struct {
 // so the picker's candidate list (see meetingPickerLines) reads
 // top-to-bottom in time order, making it easy to compare times across
 // entries — the picker's default highlight (see
-// meetingPickerDefaultIndex, in model.go) is computed separately, from
+// meetingPickerDefaultIndex, below) is computed separately, from
 // this same slice, rather than by relying on its ordering. Picking the
 // representative occurrence with meetingPickerLess rather than a
 // start-only comparison matters for a series with more than one instance

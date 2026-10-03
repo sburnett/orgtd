@@ -26,7 +26,7 @@ import (
 // one Tab away rather than showing by default; the link is also always
 // reachable straight from the status line (see calendarEventLinks).
 // ignoreFold, when true, descends into every event's body/children
-// regardless of fold state — used by searchRows (see model.go) to build
+// regardless of fold state — used by searchRows (see search.go) to build
 // the full calendar text search scans, so a match inside a folded
 // event's Location/description body isn't skipped.
 func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
@@ -140,7 +140,7 @@ func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
 // Reordered from entriesForMeeting's own file/tree order into ascending
 // CREATED order (items with no parseable CREATED keep their relative
 // tree-order position — see headlineCreatedTime), so that entries
-// insertCalendarCapture (o/O from this view — see model.go) adds to the
+// insertCalendarCapture (o/O from this view — see capture.go) adds to the
 // end of the inbox still show up here in the order they were actually
 // captured, even after being filed away into some other file whose
 // position in file/tree order no longer reflects when it happened.
@@ -180,7 +180,7 @@ func headlineCreatedTime(h *org.Headline) (time.Time, bool) {
 }
 
 // calendarEventForRow resolves the calendar event a calendarView row r is
-// associated with, for insertCalendarCapture (o/O — see model.go): r's
+// associated with, for insertCalendarCapture (o/O — see capture.go): r's
 // own headline if it's itself a synced calendar event (covers both the
 // event's own row, isCalendarItem, and one of its folded-open body-line
 // rows, which share the same headline — see appendCalendarHeadlines), or

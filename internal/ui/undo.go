@@ -171,7 +171,7 @@ func (a *tagChangeAction) affected() []*org.Headline { return []*org.Headline{a.
 // entry's ids/links property pair together — idsProp/linksProp name
 // which pair (GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS or
 // GCAL_EVENT_IDS/GCAL_EVENT_LINKS), fixed at construction (see
-// buildMeetingAttachAction/applySelectedMeeting in model.go), since
+// buildMeetingAttachAction/applySelectedMeeting in meeting_picker.go), since
 // apply/revert alone have no other way to know which kind of meeting
 // this action was for. hadIDsProperty/hadLinksProperty distinguish
 // "restore the old value" from "the property didn't exist before this
