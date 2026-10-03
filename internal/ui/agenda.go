@@ -1,139 +1,16 @@
 package ui
 
 import (
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // agendaSections lists the agenda's sections, in display order.
 var agendaSections = []string{"Overdue", "Due Today", "Upcoming", "Next Actions", "Meetings"}
-
-// repeaterRe matches an org repeater cookie trailing a timestamp's date,
-// e.g. "+1w" (simple recur), "++2w" (catch up to the next occurrence
-// after today when marked done), or ".+3d" (recur from the completion
-// date rather than the original one) — the three marks org-mode
-// supports. orgtd treats all three identically for agenda display (see
-// repeaterNextDate): the distinction only matters when a completed
-// occurrence's date is rewritten in the file, which orgtd doesn't do.
-// Only day/week/month/year units are recognized, consistent with
-// parseRelativeOffset — orgtd's dates are day-grained, not hour-grained.
-var repeaterRe = regexp.MustCompile(`(\+\+|\.\+|\+)(\d+)([dwmy])`)
-
-// warningRe matches a DEADLINE warning-period cookie, e.g. "-3d". orgtd
-// doesn't act on it (the agenda's window already surfaces near-term
-// deadlines), but it must still be stripped before the remaining text is
-// parsed as a date.
-var warningRe = regexp.MustCompile(`-\d+[dwmy]`)
-
-// repeaterCookie returns ts's repeater cookie (e.g. "+1w"), if any, for
-// display alongside the computed date — so a recurring item's row shows
-// its interval instead of looking identical to a one-off date.
-func repeaterCookie(ts *org.Timestamp) string {
-	if ts == nil {
-		return ""
-	}
-	return repeaterRe.FindString(ts.Raw)
-}
-
-// parseTimestampDate returns ts's date, with any time-of-day dropped, if
-// it can be parsed as one of dateInputLayouts — the same layouts
-// accepted when typing a date into the deadline prompt, which covers
-// every format orgtd itself writes (see applyDeadlineInput) plus a
-// weekday-less fallback for hand-edited files. A repeater cookie
-// (e.g. "+1w") and/or a warning-period cookie (e.g. "-3d") are stripped
-// before that match is attempted, and — for a repeater — the parsed date
-// is advanced to its current occurrence (see repeaterCurrentOccurrence),
-// which mirrors org-mode: a repeating item's date only ever moves when
-// the item is completed, so a stale, un-advanced date correctly shows as
-// Overdue rather than being hidden by rolling it into the future. missed
-// reports how many earlier occurrences have already elapsed since that
-// date without the item being completed (0 for a non-repeating
-// timestamp, or one whose repeater hasn't reached its first occurrence
-// yet). A Raw value in some other shape (a range, or anything else
-// emacs/org-mode might produce that orgtd doesn't write itself) is
-// simply excluded from the agenda rather than guessed at.
-func parseTimestampDate(ts *org.Timestamp, today time.Time) (date time.Time, missed int, ok bool) {
-	if ts == nil {
-		return time.Time{}, 0, false
-	}
-	raw := ts.Raw
-	repeat := repeaterRe.FindStringSubmatch(raw)
-	if repeat != nil {
-		raw = repeaterRe.ReplaceAllString(raw, "")
-	}
-	raw = warningRe.ReplaceAllString(raw, "")
-	raw = strings.Join(strings.Fields(raw), " ")
-
-	for _, layout := range dateInputLayouts {
-		// ParseInLocation (not Parse, which defaults to UTC) so the
-		// result is comparable against truncateToDate(time.Now()), which
-		// is anchored to the local zone — otherwise a date that's
-		// "today" locally could parse as a different instant and get
-		// bucketed into the wrong section near a timezone's UTC offset.
-		t, err := time.ParseInLocation(layout, raw, time.Local)
-		if err != nil {
-			continue
-		}
-		base := truncateToDate(t)
-		if repeat == nil {
-			return base, 0, true
-		}
-		n, err := strconv.Atoi(repeat[2])
-		if err != nil {
-			return base, 0, true
-		}
-		current, missed := repeaterCurrentOccurrence(base, n, repeat[3][0], today)
-		return current, missed, true
-	}
-	return time.Time{}, 0, false
-}
-
-// repeaterCurrentOccurrence advances base by n-unit steps as long as the
-// result doesn't pass today, returning the most recent due occurrence —
-// the "floor", not the next future occurrence. Stopping at today rather
-// than rolling past it is what makes a skipped recurring item visibly
-// Overdue (org-mode only advances a repeating SCHEDULED/DEADLINE when the
-// item is actually marked done, so a stale date genuinely means it's
-// still pending). missed counts how many earlier occurrences have
-// already elapsed since base without the item being completed — 0 if
-// base itself hasn't arrived yet (nothing to advance past) or this is
-// still that first pending occurrence.
-func repeaterCurrentOccurrence(base time.Time, n int, unit byte, today time.Time) (current time.Time, missed int) {
-	if n <= 0 || !base.Before(today) {
-		return base, 0
-	}
-	for {
-		next := repeaterStep(base, n, unit)
-		if !next.After(base) || next.After(today) {
-			return base, missed
-		}
-		base = next
-		missed++
-	}
-}
-
-// repeaterStep advances t by one repeater interval (n units), per
-// repeaterRe's recognized units. An unrecognized unit (which repeaterRe
-// itself never produces) returns t unchanged, letting the caller's
-// !next.After(base) check break out rather than loop forever.
-func repeaterStep(t time.Time, n int, unit byte) time.Time {
-	switch unit {
-	case 'd':
-		return t.AddDate(0, 0, n)
-	case 'w':
-		return t.AddDate(0, 0, n*7)
-	case 'm':
-		return t.AddDate(0, n, 0)
-	case 'y':
-		return t.AddDate(n, 0, 0)
-	}
-	return t
-}
 
 // agendaEntry is one (headline, relevant date) pair destined for the
 // agenda — a headline with both SCHEDULED and DEADLINE produces two.
@@ -156,11 +33,11 @@ func (m *Model) agendaEntries(today time.Time, windowDays int) []agendaEntry {
 	var entries []agendaEntry
 	horizon := today.AddDate(0, 0, windowDays)
 	consider := func(ts *org.Timestamp, label string, h *org.Headline) {
-		date, missed, ok := parseTimestampDate(ts, today)
+		date, missed, ok := orgdate.ParseTimestampDate(ts, today)
 		if !ok || date.After(horizon) {
 			return
 		}
-		entries = append(entries, agendaEntry{h: h, label: label, date: date, repeater: repeaterCookie(ts), missed: missed})
+		entries = append(entries, agendaEntry{h: h, label: label, date: date, repeater: orgdate.RepeaterCookie(ts), missed: missed})
 	}
 	for _, f := range m.ws.Files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
@@ -214,7 +91,7 @@ func (m *Model) nextActionHeadlines() []*org.Headline {
 // Actions' are left in plain file/tree order, since most NEXT items
 // have no date to sort by.
 func (m *Model) appendAgendaRows() {
-	today := truncateToDate(time.Now())
+	today := orgdate.TruncateToDate(time.Now())
 	entries := m.agendaEntries(today, m.agendaDays)
 
 	bySection := make(map[string][]agendaEntry, len(agendaSections))
@@ -285,7 +162,7 @@ type meetingAgendaEntry struct {
 // series within the window (today's occurrence and tomorrow's, say),
 // each with its own date/time but the same linked items.
 func (m *Model) upcomingMeetingEntries(now time.Time) []meetingAgendaEntry {
-	windowStart := truncateToDate(now)
+	windowStart := orgdate.TruncateToDate(now)
 	windowEnd := now.Add(24 * time.Hour)
 
 	var meetings []meetingAgendaEntry

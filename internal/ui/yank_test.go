@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 func TestYankLeavesOriginalInPlace(t *testing.T) {
@@ -150,7 +151,7 @@ func TestYankShowsConfirmationMessage(t *testing.T) {
 }
 
 func TestYankWorksOnAgendaItem(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* TODO Agenda item\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)

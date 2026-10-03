@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 func TestGdOpensDeadlinePrefilled(t *testing.T) {
@@ -346,87 +348,6 @@ func TestDeadlineErrorClearsAfterSubsequentSuccess(t *testing.T) {
 	}
 }
 
-func TestFuzzyDateRollsSameMonthDayForwardOnlyPastToday(t *testing.T) {
-	today := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC) // a Monday
-
-	cases := []struct {
-		input string
-		want  time.Time
-	}{
-		// "sep 30" hasn't happened yet this year: stays in 2026, not
-		// pushed a year out just because today is also in September
-		// (see fuzzyDate's doc comment — that was the actual bug in the
-		// date library this replaced).
-		{"sep 30", time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)},
-		// "sep 1" already passed this year: rolls forward to 2027.
-		{"sep 1", time.Date(2027, 9, 1, 0, 0, 0, 0, time.UTC)},
-		// An explicit year (here, D/M/Y — the one when.EN date shape
-		// that actually carries a year) is trusted as-is, even in the
-		// past — never rolled forward like the year-less cases above.
-		{"31/3/2014", time.Date(2014, 3, 31, 0, 0, 0, 0, time.UTC)},
-		{"thu", time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC)},
-	}
-	for _, c := range cases {
-		got, ok := fuzzyDate(c.input, today)
-		if !ok {
-			t.Errorf("fuzzyDate(%q) did not match", c.input)
-			continue
-		}
-		if !got.Equal(c.want) {
-			t.Errorf("fuzzyDate(%q) = %v, want %v", c.input, got, c.want)
-		}
-	}
-}
-
-func TestFuzzyDateRejectsPartialMatchesAndGarbage(t *testing.T) {
-	today := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
-	for _, input := range []string{"not-a-date", "last thursday in august, 202", "", "3d"} {
-		if _, ok := fuzzyDate(input, today); ok {
-			t.Errorf("fuzzyDate(%q) unexpectedly matched", input)
-		}
-	}
-}
-
-func TestParseRelativeOffsetShorthandAndSpelledOut(t *testing.T) {
-	base := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC) // a Sunday
-
-	cases := []struct {
-		input string
-		want  time.Time
-	}{
-		{"3d", base.AddDate(0, 0, 3)},
-		{"3 days", base.AddDate(0, 0, 3)},
-		{"2w", base.AddDate(0, 0, 14)},
-		{"2 weeks", base.AddDate(0, 0, 14)},
-		{"1m", base.AddDate(0, 1, 0)},
-		{"1 month", base.AddDate(0, 1, 0)},
-		{"1y", base.AddDate(1, 0, 0)},
-		{"1 year", base.AddDate(1, 0, 0)},
-		{"-5d", base.AddDate(0, 0, -5)},
-		{"+5d", base.AddDate(0, 0, 5)},
-		{"3D", base.AddDate(0, 0, 3)}, // case-insensitive
-	}
-	for _, c := range cases {
-		got, ok := parseRelativeOffset(c.input, base)
-		if !ok {
-			t.Errorf("parseRelativeOffset(%q) did not match", c.input)
-			continue
-		}
-		if !got.Equal(c.want) {
-			t.Errorf("parseRelativeOffset(%q) = %v, want %v", c.input, got, c.want)
-		}
-	}
-}
-
-func TestParseRelativeOffsetRejectsNonMatches(t *testing.T) {
-	base := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
-	for _, input := range []string{"next tuesday", "2026-12-25", "", "abc", "3 hours", "d3"} {
-		if _, ok := parseRelativeOffset(input, base); ok {
-			t.Errorf("parseRelativeOffset(%q) unexpectedly matched", input)
-		}
-	}
-}
-
 func TestDeadlineAcceptsCompactShorthandThroughTheUI(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
@@ -441,7 +362,7 @@ func TestDeadlineAcceptsCompactShorthandThroughTheUI(t *testing.T) {
 	if m.mode != normalMode {
 		t.Fatalf("mode after enter = %v, want normalMode (input should have been accepted)", m.mode)
 	}
-	want := truncateToDate(time.Now()).AddDate(0, 0, 3).Format("2006-01-02 Mon")
+	want := orgdate.TruncateToDate(time.Now()).AddDate(0, 0, 3).Format("2006-01-02 Mon")
 	if h.Deadline == nil || h.Deadline.Raw != want {
 		t.Errorf("deadline = %v, want %q", h.Deadline, want)
 	}
@@ -461,7 +382,7 @@ func TestDeadlineAcceptsFuzzyPhraseThroughTheUI(t *testing.T) {
 	if m.mode != normalMode {
 		t.Fatalf("mode after enter = %v, want normalMode (\"tomorrow\" should have been accepted)", m.mode)
 	}
-	want := truncateToDate(time.Now()).AddDate(0, 0, 1).Format("2006-01-02 Mon")
+	want := orgdate.TruncateToDate(time.Now()).AddDate(0, 0, 1).Format("2006-01-02 Mon")
 	if h.Deadline == nil || h.Deadline.Raw != want {
 		t.Errorf("deadline = %v, want %q", h.Deadline, want)
 	}
@@ -498,7 +419,7 @@ func TestDeadlineAcceptsAbbreviatedMonthAndDayThroughTheUI(t *testing.T) {
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
-	today := truncateToDate(time.Now())
+	today := orgdate.TruncateToDate(time.Now())
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "d")
@@ -525,7 +446,7 @@ func TestDeadlineAcceptsAbbreviatedWeekdayThroughTheUI(t *testing.T) {
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
-	today := truncateToDate(time.Now())
+	today := orgdate.TruncateToDate(time.Now())
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "d")

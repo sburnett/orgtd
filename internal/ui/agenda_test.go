@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -29,144 +30,8 @@ func agendaFixture(t *testing.T, orgText string) *workspace.Workspace {
 	return &workspace.Workspace{Dir: "agenda-fixture", Files: []*org.File{f}}
 }
 
-func TestParseTimestampDateAcceptsKnownFormats(t *testing.T) {
-	now := truncateToDate(time.Now())
-	cases := []*org.Timestamp{
-		{Raw: ts(now)},
-		{Raw: now.Format("2006-01-02 Mon 15:04")},
-		{Raw: now.Format("2006-01-02")}, // weekday-less fallback
-	}
-	for _, c := range cases {
-		got, missed, ok := parseTimestampDate(c, now)
-		if !ok {
-			t.Errorf("parseTimestampDate(%q) did not match", c.Raw)
-			continue
-		}
-		if !got.Equal(now) {
-			t.Errorf("parseTimestampDate(%q) = %v, want %v", c.Raw, got, now)
-		}
-		if missed != 0 {
-			t.Errorf("parseTimestampDate(%q) missed = %d, want 0 (non-repeating)", c.Raw, missed)
-		}
-	}
-}
-
-func TestParseTimestampDateRejectsGarbageAndNil(t *testing.T) {
-	now := truncateToDate(time.Now())
-	if _, _, ok := parseTimestampDate(nil, now); ok {
-		t.Errorf("parseTimestampDate(nil) matched")
-	}
-	if _, _, ok := parseTimestampDate(&org.Timestamp{Raw: "not a date"}, now); ok {
-		t.Errorf("parseTimestampDate(garbage) matched")
-	}
-}
-
-// TestParseTimestampDateRepeaterStaysOverdueUntilCaughtUp verifies the
-// org-mode-matching behavior: a repeating timestamp's date only ever
-// advances when the item is completed, so a stale date (one the user
-// skipped without marking done) is reported at its most recent due
-// occurrence — still in the past — rather than being rolled forward past
-// today and hidden. missed reports how many earlier occurrences already
-// elapsed on top of that.
-func TestParseTimestampDateRepeaterStaysOverdueUntilCaughtUp(t *testing.T) {
-	now := truncateToDate(time.Now())
-
-	// 17 days ago, weekly: occurrences at -17, -10, -3 (all <= today), and
-	// +4 (> today, not reached) — so the current occurrence is 3 days ago,
-	// with 2 earlier occurrences (-17, -10) already elapsed on top of it.
-	weekly := ts(now.AddDate(0, 0, -17)) + " +1w"
-	wantDate := now.AddDate(0, 0, -3)
-	if got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: weekly}, now); !ok || !got.Equal(wantDate) || missed != 2 {
-		t.Errorf("parseTimestampDate(%q) = %v, missed=%d, ok=%v, want %v missed=2", weekly, got, missed, ok, wantDate)
-	}
-
-	// Scheduled yesterday, daily: today is itself a valid occurrence (one
-	// interval past base), so the current occurrence is today — Due
-	// Today, not Overdue — with yesterday's skipped occurrence counted
-	// as 1 missed.
-	daily := ts(now.AddDate(0, 0, -1)) + " +1d"
-	if got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: daily}, now); !ok || !got.Equal(now) || missed != 1 {
-		t.Errorf("parseTimestampDate(%q) = %v, missed=%d, ok=%v, want %v missed=1", daily, got, missed, ok, now)
-	}
-
-	// Monthly/yearly land on an irregular day count (calendar month/year
-	// lengths vary), so just check the result stays on-or-before today
-	// (never rolled into the future) with a positive missed count.
-	for _, c := range []struct{ name, raw string }{
-		{"monthly, well overdue", ts(now.AddDate(0, -2, -3)) + " +1m"},
-		{"yearly, overdue", ts(now.AddDate(-1, 0, -1)) + " +1y"},
-	} {
-		got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: c.raw}, now)
-		if !ok {
-			t.Errorf("%s: parseTimestampDate(%q) did not match", c.name, c.raw)
-			continue
-		}
-		if got.After(now) {
-			t.Errorf("%s: parseTimestampDate(%q) = %v, rolled past today %v", c.name, c.raw, got, now)
-		}
-		if missed < 1 {
-			t.Errorf("%s: parseTimestampDate(%q) missed = %d, want at least 1", c.name, c.raw, missed)
-		}
-	}
-}
-
-func TestParseTimestampDateRepeaterLeavesFutureDateUnchanged(t *testing.T) {
-	now := truncateToDate(time.Now())
-	future := now.AddDate(0, 0, 5)
-	raw := ts(future) + " +1w"
-	got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: raw}, now)
-	if !ok {
-		t.Fatalf("parseTimestampDate(%q) did not match", raw)
-	}
-	if !got.Equal(future) {
-		t.Errorf("parseTimestampDate(%q) = %v, want unchanged future date %v", raw, got, future)
-	}
-	if missed != 0 {
-		t.Errorf("parseTimestampDate(%q) missed = %d, want 0 (not due yet)", raw, missed)
-	}
-}
-
-func TestParseTimestampDateRepeaterExactlyTodayUnchanged(t *testing.T) {
-	now := truncateToDate(time.Now())
-	raw := ts(now) + " +1w"
-	got, missed, ok := parseTimestampDate(&org.Timestamp{Raw: raw}, now)
-	if !ok {
-		t.Fatalf("parseTimestampDate(%q) did not match", raw)
-	}
-	if !got.Equal(now) {
-		t.Errorf("parseTimestampDate(%q) = %v, want today %v unchanged", raw, got, now)
-	}
-	if missed != 0 {
-		t.Errorf("parseTimestampDate(%q) missed = %d, want 0", raw, missed)
-	}
-}
-
-func TestParseTimestampDateStripsWarningPeriodCookie(t *testing.T) {
-	now := truncateToDate(time.Now())
-	raw := ts(now) + " +1w -3d"
-	got, _, ok := parseTimestampDate(&org.Timestamp{Raw: raw}, now)
-	if !ok {
-		t.Fatalf("parseTimestampDate(%q) did not match", raw)
-	}
-	if !got.Equal(now) {
-		t.Errorf("parseTimestampDate(%q) = %v, want %v", raw, got, now)
-	}
-}
-
-func TestRepeaterCookie(t *testing.T) {
-	if got := repeaterCookie(&org.Timestamp{Raw: "2026-08-10 Mon +1w"}); got != "+1w" {
-		t.Errorf("repeaterCookie = %q, want %q", got, "+1w")
-	}
-	if got := repeaterCookie(&org.Timestamp{Raw: "2026-08-10 Mon"}); got != "" {
-		t.Errorf("repeaterCookie = %q, want empty", got)
-	}
-	if got := repeaterCookie(nil); got != "" {
-		t.Errorf("repeaterCookie(nil) = %q, want empty", got)
-	}
-}
-
 func TestAgendaSectionBucketing(t *testing.T) {
-	today := truncateToDate(time.Now())
+	today := orgdate.TruncateToDate(time.Now())
 	cases := []struct {
 		date time.Time
 		want string
@@ -183,7 +48,7 @@ func TestAgendaSectionBucketing(t *testing.T) {
 }
 
 func TestAgendaEntriesExcludesDoneCancelledAndSomeday(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	org := fmt.Sprintf(`* DONE Finished task
   DEADLINE: <%[1]s>
 * CANCELLED Abandoned task
@@ -206,7 +71,7 @@ func TestAgendaEntriesExcludesDoneCancelledAndSomeday(t *testing.T) {
 }
 
 func TestAgendaEntriesSomedayExcludedEvenWithinWindow(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* SOMEDAY Not committed\n  SCHEDULED: <%s>\n", ts(now.AddDate(0, 0, 2)))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -217,7 +82,7 @@ func TestAgendaEntriesSomedayExcludedEvenWithinWindow(t *testing.T) {
 }
 
 func TestAgendaEntriesDualDateProducesTwoEntries(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	scheduled := now.AddDate(0, 0, 3)
 	deadline := now.AddDate(0, 0, 5)
 	orgText := fmt.Sprintf("* NEXT Both dates\n  SCHEDULED: <%s> DEADLINE: <%s>\n", ts(scheduled), ts(deadline))
@@ -238,7 +103,7 @@ func TestAgendaEntriesDualDateProducesTwoEntries(t *testing.T) {
 }
 
 func TestAgendaEntriesExcludesBeyondWindow(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* TODO Just inside\n  DEADLINE: <%s>\n* TODO Just outside\n  DEADLINE: <%s>\n",
 		ts(now.AddDate(0, 0, 14)), ts(now.AddDate(0, 0, 15)))
 	ws := agendaFixture(t, orgText)
@@ -251,7 +116,7 @@ func TestAgendaEntriesExcludesBeyondWindow(t *testing.T) {
 }
 
 func TestAgendaEntriesRecurringPastDueShowsAsOverdueWithMissedCount(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	// Scheduled 17 days ago, weekly: current occurrence is 3 days ago
 	// (occurrences at -17, -10, -3; +4 hasn't arrived), 2 missed on top.
 	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now.AddDate(0, 0, -17)))
@@ -278,7 +143,7 @@ func TestAgendaEntriesRecurringPastDueShowsAsOverdueWithMissedCount(t *testing.T
 }
 
 func TestAgendaItemRowShowsRepeaterCookie(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -291,7 +156,7 @@ func TestAgendaItemRowShowsRepeaterCookie(t *testing.T) {
 }
 
 func TestAgendaItemRowShowsMissedCountWhenOverdue(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now.AddDate(0, 0, -17)))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -304,7 +169,7 @@ func TestAgendaItemRowShowsMissedCountWhenOverdue(t *testing.T) {
 }
 
 func TestAgendaItemRowOmitsMissedCountWhenNotOverdue(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	// Due today exactly (no slip) and a not-yet-due future occurrence:
 	// neither should show a missed-count marker.
 	orgText := fmt.Sprintf("* TODO Due today, on schedule\n  SCHEDULED: <%s +1w>\n* TODO Not due yet\n  SCHEDULED: <%s +1w>\n",
@@ -328,13 +193,13 @@ func TestAgendaEntriesExcludesUnparseableDate(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Weird date\n  DEADLINE: <not-a-real-date>\n")
 	m := New(ws)
 
-	if entries := m.agendaEntries(truncateToDate(time.Now()), 14); len(entries) != 0 {
+	if entries := m.agendaEntries(orgdate.TruncateToDate(time.Now()), 14); len(entries) != 0 {
 		t.Errorf("agendaEntries = %+v, want none (unparseable date)", entries)
 	}
 }
 
 func TestAppendAgendaRowsSkipsEmptySectionsAndSortsByDate(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf(`* TODO Later this week
   DEADLINE: <%s>
 * TODO Sooner this week
@@ -394,7 +259,7 @@ func TestNextActionsSectionOmittedWhenNoNextItems(t *testing.T) {
 }
 
 func TestNextActionsSectionComesAfterDateBasedSections(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* TODO Overdue item\n  DEADLINE: <%s>\n* NEXT Undated next action\n", ts(now.AddDate(0, 0, -1)))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -418,7 +283,7 @@ func TestNextActionsSectionComesAfterDateBasedSections(t *testing.T) {
 }
 
 func TestNextActionWithADateAppearsInBothSections(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Due today and next\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -450,7 +315,7 @@ func TestNextActionsRowRenderingHasNoDateLabel(t *testing.T) {
 }
 
 func TestAgendaItemRowRendering(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -468,7 +333,7 @@ func TestAgendaItemRowRendering(t *testing.T) {
 }
 
 func TestAgendaItemRowShowsImmediateParentTitle(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* Q3 Planning\n** NEXT Draft the doc\n   DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -481,7 +346,7 @@ func TestAgendaItemRowShowsImmediateParentTitle(t *testing.T) {
 }
 
 func TestAgendaItemRowOmitsParentTagForATopLevelHeadline(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -494,7 +359,7 @@ func TestAgendaItemRowOmitsParentTagForATopLevelHeadline(t *testing.T) {
 }
 
 func TestAgendaItemRowShowsMarkLetterInGutter(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -511,7 +376,7 @@ func TestAgendaItemRowShowsMarkLetterInGutter(t *testing.T) {
 }
 
 func TestPinnedMarksVisibleInAgendaView(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -528,7 +393,7 @@ func TestPinnedMarksVisibleInAgendaView(t *testing.T) {
 }
 
 func TestAgendaSectionHeaderIsFlushLeftUnlikeItems(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Draft the doc\n  DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -546,7 +411,7 @@ func TestAgendaSectionHeaderIsFlushLeftUnlikeItems(t *testing.T) {
 }
 
 func TestAgendaViewInsertsBlankLineBetweenSectionsButNotBeforeTheFirst(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf(`* TODO Overdue item
   DEADLINE: <%s>
 * TODO Upcoming item
@@ -591,7 +456,7 @@ func TestSectionSeparatorBudgetZeroInOutlineView(t *testing.T) {
 }
 
 func TestSectionSeparatorBudgetMatchesSectionCountMinusOne(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf(`* TODO Overdue item
   DEADLINE: <%s>
 * TODO Upcoming item
@@ -632,7 +497,7 @@ func TestSwitchToAgendaAndBackViaCommands(t *testing.T) {
 }
 
 func TestAgendaNavigationBraceJumpsBetweenSections(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf(`* TODO Overdue item
   DEADLINE: <%s>
 * TODO Upcoming item
@@ -656,7 +521,7 @@ func TestAgendaNavigationBraceJumpsBetweenSections(t *testing.T) {
 }
 
 func TestAgendaCaretAndDollarStayWithinSection(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf(`* TODO First upcoming
   DEADLINE: <%s>
 * TODO Second upcoming
@@ -710,7 +575,7 @@ func TestEnterJumpsToSourceFromAgenda(t *testing.T) {
 }
 
 func TestEnterNoopOnAgendaSectionHeaderRow(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	ws := agendaFixture(t, fmt.Sprintf("* TODO Item\n  DEADLINE: <%s>\n", ts(now)))
 	m := New(ws)
 	m.switchToView(agendaView)
@@ -995,7 +860,7 @@ func TestMeetingsSectionOmitsRecurringMeetingWithNoLinkedItems(t *testing.T) {
 func TestMeetingsSectionExcludesMeetingsOutsideWindow(t *testing.T) {
 	now := time.Now()
 	tooLate := recurringCalendarEventHeadline("far-future", "series-far", "Far future meeting", now.Add(25*time.Hour), now.Add(26*time.Hour))
-	tooEarly := recurringCalendarEventHeadline("yesterday", "series-early", "Yesterday's meeting", truncateToDate(now).Add(-time.Hour), truncateToDate(now).Add(-30*time.Minute))
+	tooEarly := recurringCalendarEventHeadline("yesterday", "series-early", "Yesterday's meeting", orgdate.TruncateToDate(now).Add(-time.Hour), orgdate.TruncateToDate(now).Add(-30*time.Minute))
 	linkedFar := linkedToRecurringMeetings("Item for far-future series", "series-far")
 	linkedEarly := linkedToRecurringMeetings("Item for early series", "series-early")
 	ws := meetingsFixture(
@@ -1014,7 +879,7 @@ func TestMeetingsSectionExcludesMeetingsOutsideWindow(t *testing.T) {
 
 func TestMeetingsSectionIncludesMeetingAlreadyInProgressToday(t *testing.T) {
 	now := time.Now()
-	startOfToday := truncateToDate(now)
+	startOfToday := orgdate.TruncateToDate(now)
 	earlierToday := startOfToday.Add(time.Since(startOfToday) / 2) // safely between midnight and now
 	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Morning Sync", earlierToday, earlierToday.Add(30*time.Minute))
 	item := linkedToRecurringMeetings("Old business", "series-abc")

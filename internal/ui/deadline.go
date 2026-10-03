@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // startSetDeadline opens the deadline-entry prompt ("gd") for the
@@ -15,7 +16,7 @@ func (m *Model) startSetDeadline() {
 		return
 	}
 	m.mode = deadlineMode
-	m.deadlineInput = prefillDateInput(h.Deadline)
+	m.deadlineInput = orgdate.PrefillInput(h.Deadline)
 }
 
 // updateDeadlineMode handles key presses while the deadline prompt is
@@ -82,7 +83,7 @@ func (m Model) applyDeadlineInput() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	ts, err := parseDeadlineInput(input)
+	ts, err := orgdate.ParseDeadlineInput(input)
 	if err != nil {
 		m.message = err.Error()
 		return m, nil

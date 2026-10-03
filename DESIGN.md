@@ -41,6 +41,7 @@ readme.go             embeds README.md for :help (package orgtd)
 cmd/orgtd/            main: flags + config + env → settings → ui.New. Wiring only.
 internal/config/      TOML config file schema and loading (no precedence logic)
 internal/org/         org data model, parser, renderer, atomic writer, deep clone
+internal/orgdate/     pure date logic: typed-date parsing, timestamp/repeater parsing and math
 internal/workspace/   loads a directory of .org files; advisory directory lock
 internal/ui/          the Bubble Tea application (nearly all behavior; see §5)
 internal/calendarsync/ turns Google Calendar events into an *org.File
@@ -54,6 +55,7 @@ Dependency direction (no cycles, keep it this way):
 ```
 cmd/orgtd → ui → calendarsync → gcal
               ↘ workspace → org
+              ↘ orgdate → org
               ↘ org
 cmd/orgtd → config, workspace
 ```
@@ -159,7 +161,6 @@ including its known weak points, so changes can be made deliberately.
 | `search.go` | `/` `?` `n` `N` incremental search and the search row space |
 | `edit_ops.go` | Delete/yank/paste/promote/demote and bulk status changes |
 | `status_picker.go`, `deadline.go`, `tag_prompt.go`, `meeting_picker.go` | The `r`/`R`, `gd`, `gt`, `gM` prompts |
-| `dates.go` | Pure date/deadline parsing (`parseFlexibleDate`, `fuzzyDate`, ...) |
 | `editor.go` | `$EDITOR` round trip: command building, scratch files, entry context, `finishEdit` |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch |
@@ -232,9 +233,10 @@ These are recorded here so contributors don't mistake them for design:
 1. **One `Model` struct, one package.** The files above split the code by
    topic, but they still all share a ~100-field `Model`, so nothing stops
    a file from touching state that isn't its own. Pure helpers that don't
-   need `Model` (git operations, date parsing in `dates.go`, URL detection
-   and formatting, editor-command construction) are candidates to become
-   their own packages with narrow interfaces.
+   need `Model` (git operations, URL detection and formatting,
+   editor-command construction) are candidates to become their own
+   packages with narrow interfaces, as date logic already did
+   (`internal/orgdate`).
 2. **Meeting linking is recomputed live and is expensive.** The gutter's
    `meetingColumn` calls `tagLinkedMeetingCandidates` for each visible
    tagged row on every render, which walks the whole workspace
@@ -246,9 +248,10 @@ These are recorded here so contributors don't mistake them for design:
 4. **Settings are threaded through ~8 layers** (config struct, flag,
    `flagValues`, `settings`, `resolveSettings`, `With…` option, `Model`
    field, `:config` view, README, `config.example.toml`).
-5. **Domain logic that belongs in `org`** lives in `ui`: timestamp
-   parsing (`parseTimestampDate`, repeater math, `headlineCreatedTime`),
-   and tree operations like `shiftHeadlineLevel`.
+5. **Some org-level logic still lives in `ui`.** Date and repeater logic
+   moved to `internal/orgdate`, but `headlineCreatedTime`, and tree
+   operations like `shiftHeadlineLevel`, `siblingHeadlines` and the
+   splice helpers in `undo.go`, belong with `org`.
 6. **`time.Now()` is called directly** in render and command paths.
 
 ## 7. Data conventions (properties and tags)

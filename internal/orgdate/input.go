@@ -1,4 +1,13 @@
-package ui
+// Package orgdate parses and computes with the dates orgtd reads and
+// writes: the date strings typed into the deadline prompt (exact dates,
+// "3d"-style offsets, and fuzzy phrases like "next tuesday"), the raw
+// text of org timestamps including their repeater ("+1w", "++1w", ".+1w")
+// and warning ("-3d") cookies, and the arithmetic for completing a
+// repeating item. Everything here is pure and has no UI dependency;
+// functions that depend on the date take "now" or "today" explicitly,
+// except typed-input parsing (ParseDeadlineInput), which anchors relative
+// phrases to the local current date.
+package orgdate
 
 import (
 	"fmt"
@@ -13,17 +22,17 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
-// dateInputLayouts are the formats accepted when typing a date, tried in
+// Layouts are the formats accepted when typing a date, tried in
 // order. A weekday name may or may not be present (it's not required,
 // and is regenerated from the actual date on output regardless of what
 // was typed, so a stale one left over from editing an existing date
 // doesn't matter).
-var dateInputLayouts = []string{"2006-01-02 Mon 15:04", "2006-01-02 Mon", "2006-01-02 15:04", "2006-01-02"}
+var Layouts = []string{"2006-01-02 Mon 15:04", "2006-01-02 Mon", "2006-01-02 15:04", "2006-01-02"}
 
-// parseFlexibleDate tries each of dateInputLayouts against input,
+// ParseFlexible tries each of Layouts against input,
 // reporting whether the matched layout included a time of day.
-func parseFlexibleDate(input string) (t time.Time, hasTime bool, err error) {
-	for _, layout := range dateInputLayouts {
+func ParseFlexible(input string) (t time.Time, hasTime bool, err error) {
+	for _, layout := range Layouts {
 		if t, err = time.ParseInLocation(layout, input, time.Local); err == nil {
 			return t, strings.Contains(layout, "15:04"), nil
 		}
@@ -61,13 +70,13 @@ func parseRelativeOffset(input string, base time.Time) (t time.Time, ok bool) {
 	return time.Time{}, false
 }
 
-// truncateToDate drops t's time-of-day component.
-func truncateToDate(t time.Time) time.Time {
+// TruncateToDate drops t's time-of-day component.
+func TruncateToDate(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 // resolveDeadlineDate parses input as, in order: an exact date (with
-// optional time of day, per parseFlexibleDate); a compact or
+// optional time of day, per ParseFlexible); a compact or
 // spelled-out relative offset ("3d", "2 weeks", "-1y"); or a fuzzy
 // natural-language phrase ("next tuesday", "tomorrow", "sep 30", "thu"),
 // via fuzzyDate/when.EN. Only the first form can produce a time of day —
@@ -76,11 +85,11 @@ func truncateToDate(t time.Time) time.Time {
 func resolveDeadlineDate(input string) (t time.Time, hasTime bool, err error) {
 	input = strings.TrimSpace(input)
 
-	if t, hasTime, err := parseFlexibleDate(input); err == nil {
+	if t, hasTime, err := ParseFlexible(input); err == nil {
 		return t, hasTime, nil
 	}
 
-	today := truncateToDate(time.Now())
+	today := TruncateToDate(time.Now())
 
 	if t, ok := parseRelativeOffset(input, today); ok {
 		return t, false, nil
@@ -127,16 +136,16 @@ func fuzzyDate(input string, today time.Time) (time.Time, bool) {
 	if err != nil || r == nil || strings.TrimSpace(r.Text) != input {
 		return time.Time{}, false
 	}
-	t := truncateToDate(r.Time)
+	t := TruncateToDate(r.Time)
 	if t.Before(today) && !explicitYearRe.MatchString(input) {
 		t = t.AddDate(1, 0, 0)
 	}
 	return t, true
 }
 
-// parseDeadlineInput parses a typed date into an active org timestamp
+// ParseDeadlineInput parses a typed date into an active org timestamp
 // suitable for DEADLINE.
-func parseDeadlineInput(input string) (*org.Timestamp, error) {
+func ParseDeadlineInput(input string) (*org.Timestamp, error) {
 	t, hasTime, err := resolveDeadlineDate(input)
 	if err != nil {
 		return nil, err
@@ -148,13 +157,13 @@ func parseDeadlineInput(input string) (*org.Timestamp, error) {
 	return &org.Timestamp{Active: true, Raw: t.Format(format)}, nil
 }
 
-// prefillDateInput renders ts without its weekday, as a starting point
+// PrefillInput renders ts without its weekday, as a starting point
 // for editing (empty if ts is nil).
-func prefillDateInput(ts *org.Timestamp) string {
+func PrefillInput(ts *org.Timestamp) string {
 	if ts == nil {
 		return ""
 	}
-	t, hasTime, err := parseFlexibleDate(ts.Raw)
+	t, hasTime, err := ParseFlexible(ts.Raw)
 	if err != nil {
 		return ts.Raw
 	}

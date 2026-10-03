@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -136,7 +137,7 @@ func TestOutlineRowCapsLongTagListKeepingTitleVisible(t *testing.T) {
 // parent]  Label: date tag is exactly the "other information" the user
 // reported losing.
 func TestAgendaItemRowTruncatesLongTitleKeepingPlaceAndDateVisible(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT %s\n  DEADLINE: <%s>\n", strings.Repeat("a very long title indeed ", 10), ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -168,7 +169,7 @@ func TestAgendaItemRowTruncatesLongTitleKeepingPlaceAndDateVisible(t *testing.T)
 // would push the item's own title, and even the date/label next to the
 // tag, off the edge.
 func TestAgendaItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* Project %s\n** NEXT Do the thing\n   DEADLINE: <%s>\n", strings.Repeat("a very long parent title ", 10), ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -201,7 +202,7 @@ func TestAgendaItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
 // TestAgendaItemRowTruncatesLongParentTitleInPlaceTag for the case
 // where it does).
 func TestAgendaItemRowShowsFullParentTitleWhenRowFits(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* A moderately long project name for planning\n** NEXT Do the thing\n   DEADLINE: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)

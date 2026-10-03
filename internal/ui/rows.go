@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // row is one visible line in the outline: either a file header or a
@@ -267,7 +268,7 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 	if !m.hideDoneEnabled || !org.IsDoneKeyword(h.Keyword) || h.Closed == nil {
 		return false
 	}
-	closed, _, err := parseFlexibleDate(h.Closed.Raw)
+	closed, _, err := orgdate.ParseFlexible(h.Closed.Raw)
 	if err != nil {
 		return false
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 func TestCalendarFileExcludedFromOutlineView(t *testing.T) {
@@ -35,7 +36,7 @@ func TestCalendarFileExcludedFromOutlineView(t *testing.T) {
 
 func TestCalendarViewGroupsEventsByDayChronologically(t *testing.T) {
 	ws := loadFixture(t)
-	now := truncateToDate(time.Now()).Add(9 * time.Hour) // 09:00 today, safely mid-day
+	now := orgdate.TruncateToDate(time.Now()).Add(9 * time.Hour) // 09:00 today, safely mid-day
 	dayAfter := now.Add(48 * time.Hour)
 	tomorrow := now.Add(24 * time.Hour)
 	ws.Files = append(ws.Files, &org.File{
@@ -62,9 +63,9 @@ func TestCalendarViewGroupsEventsByDayChronologically(t *testing.T) {
 	}
 
 	wantSections := []string{
-		truncateToDate(now).Format("2006-01-02 Mon"),
-		truncateToDate(tomorrow).Format("2006-01-02 Mon"),
-		truncateToDate(dayAfter).Format("2006-01-02 Mon"),
+		orgdate.TruncateToDate(now).Format("2006-01-02 Mon"),
+		orgdate.TruncateToDate(tomorrow).Format("2006-01-02 Mon"),
+		orgdate.TruncateToDate(dayAfter).Format("2006-01-02 Mon"),
 	}
 	if len(sections) != len(wantSections) {
 		t.Fatalf("day sections = %v, want %v", sections, wantSections)
@@ -88,7 +89,7 @@ func TestCalendarViewGroupsEventsByDayChronologically(t *testing.T) {
 
 func TestCalendarViewOrdersEventsWithinADayByStartTime(t *testing.T) {
 	ws := loadFixture(t)
-	base := truncateToDate(time.Now()).Add(9 * time.Hour)
+	base := orgdate.TruncateToDate(time.Now()).Add(9 * time.Hour)
 	ws.Files = append(ws.Files, &org.File{
 		Path: filepath.Join(ws.Dir, "calendar.org"),
 		Headlines: []*org.Headline{
@@ -268,7 +269,7 @@ func TestWithCalendarFileOptionUsesCustomName(t *testing.T) {
 // one event each, for exercising pagination in calendarView (10 days ->
 // 20 rows: 10 day-header sections + 10 events).
 func manyDaysCalendarFile(dir string, n int) *org.File {
-	base := truncateToDate(time.Now()).Add(9 * time.Hour)
+	base := orgdate.TruncateToDate(time.Now()).Add(9 * time.Hour)
 	var headlines []*org.Headline
 	for i := 0; i < n; i++ {
 		day := base.Add(time.Duration(i) * 24 * time.Hour)
@@ -394,7 +395,7 @@ func TestCalendarViewSupportsOrdinaryHeadlineCommands(t *testing.T) {
 
 func TestCalendarViewShowsTimeBeforeTitle(t *testing.T) {
 	ws := loadFixture(t)
-	base := truncateToDate(time.Now()).Add(14 * time.Hour)
+	base := orgdate.TruncateToDate(time.Now()).Add(14 * time.Hour)
 	ws.Files = append(ws.Files, &org.File{
 		Path: filepath.Join(ws.Dir, "calendar.org"),
 		Headlines: []*org.Headline{
@@ -421,7 +422,7 @@ func TestCalendarViewShowsTimeBeforeTitle(t *testing.T) {
 
 func TestCalendarViewAllDayEventShowsAllDayInsteadOfTime(t *testing.T) {
 	ws := loadFixture(t)
-	day := truncateToDate(time.Now())
+	day := orgdate.TruncateToDate(time.Now())
 	h := &org.Headline{Level: 1, Title: "Offsite"}
 	h.SetProperty("GCAL_EVENT_ID", "allday1")
 	h.SetProperty("GCAL_START", day.Format(time.RFC3339))
@@ -562,7 +563,7 @@ func TestCalendarLinkedItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
 // title stays visible.
 func TestCalendarViewCapsLongAttendeeTagListKeepingTitleVisible(t *testing.T) {
 	ws := loadFixture(t)
-	base := truncateToDate(time.Now()).Add(9 * time.Hour)
+	base := orgdate.TruncateToDate(time.Now()).Add(9 * time.Hour)
 	h := calendarEventHeadline("abc123", base, base.Add(30*time.Minute))
 	h.Title = "Standup"
 	var tags []string

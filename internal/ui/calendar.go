@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // appendCalendarRows populates m.rows for calendarView: every headline
@@ -46,7 +47,7 @@ func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 		if !ok {
 			continue
 		}
-		day := truncateToDate(start.Local())
+		day := orgdate.TruncateToDate(start.Local())
 		g, exists := groups[day]
 		if !exists {
 			g = &dayGroup{day: day}
@@ -165,14 +166,14 @@ func (m *Model) linkedMeetingItems(h *org.Headline) []*org.Headline {
 // on every new entry, e.g. "[2026-09-24 Thu 14:32]") back into a
 // time.Time, for ordering entries by when they were actually created
 // (see linkedMeetingItems) rather than by their position in the outline.
-// ok is false if CREATED is missing, or set to something parseFlexibleDate
+// ok is false if CREATED is missing, or set to something orgdate.ParseFlexible
 // can't read (e.g. hand-edited).
 func headlineCreatedTime(h *org.Headline) (time.Time, bool) {
 	raw := strings.Trim(h.Properties["CREATED"], "[]")
 	if raw == "" {
 		return time.Time{}, false
 	}
-	t, _, err := parseFlexibleDate(raw)
+	t, _, err := orgdate.ParseFlexible(raw)
 	if err != nil {
 		return time.Time{}, false
 	}

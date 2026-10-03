@@ -2,26 +2,26 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // rawOccurrenceDate extracts the literal date a Timestamp's Raw text
-// names, ignoring any repeater — unlike parseTimestampDate, which rolls
-// a repeating timestamp forward/floors it relative to "today" for
-// agenda display. Tests that want to check advanceRepeatingTimestamp's
-// output directly (a Timestamp that itself still carries a repeater
-// cookie) need this instead, since running it back through
-// parseTimestampDate would apply that unrelated floor logic on top and
-// obscure what advanceRepeatingTimestamp actually computed.
+// names, ignoring any repeater or warning cookie — unlike
+// orgdate.ParseTimestampDate, which rolls a repeating timestamp
+// forward/floors it relative to "today" for agenda display. Tests that
+// check what completing a repeating item wrote back need the literal
+// date, not that display-time floor.
 func rawOccurrenceDate(t *testing.T, ts *org.Timestamp) time.Time {
 	t.Helper()
-	raw := repeaterRe.ReplaceAllString(ts.Raw, "")
-	raw = strings.Join(strings.Fields(warningRe.ReplaceAllString(raw, "")), " ")
-	for _, layout := range dateInputLayouts {
+	raw := cookieRe.ReplaceAllString(ts.Raw, "")
+	raw = strings.Join(strings.Fields(raw), " ")
+	for _, layout := range orgdate.Layouts {
 		if parsed, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
 			return parsed
 		}
@@ -30,119 +30,10 @@ func rawOccurrenceDate(t *testing.T, ts *org.Timestamp) time.Time {
 	return time.Time{}
 }
 
-func TestAdvanceRepeatingTimestampSimpleMarkStepsOnceFromOldDate(t *testing.T) {
-	now := truncateToDate(time.Now())
-	// Very overdue (5 weeks late): "+" is the naive mark — it advances
-	// exactly one interval from the *old* date, however overdue that
-	// still leaves it, matching org-mode's own "+"  semantics.
-	old := now.AddDate(0, 0, -35)
-	ts := &org.Timestamp{Active: true, Raw: ts(old) + " +1w"}
-
-	got, ok := advanceRepeatingTimestamp(ts, time.Now())
-	if !ok {
-		t.Fatal("advanceRepeatingTimestamp: ok = false")
-	}
-	want := old.AddDate(0, 0, 7)
-	if gotDate := rawOccurrenceDate(t, got); !gotDate.Equal(want) {
-		t.Errorf("advanced date = %v, want %v (still overdue — raw=%q)", gotDate, want, got.Raw)
-	}
-	if !strings.HasSuffix(got.Raw, "+1w") {
-		t.Errorf("raw = %q, want the repeater cookie preserved", got.Raw)
-	}
-	if got.Active != ts.Active {
-		t.Errorf("Active = %v, want unchanged (%v)", got.Active, ts.Active)
-	}
-}
-
-func TestAdvanceRepeatingTimestampCatchUpMarkNeverLandsInThePast(t *testing.T) {
-	now := truncateToDate(time.Now())
-	old := now.AddDate(0, 0, -35) // 5 weeks late
-	ts := &org.Timestamp{Active: true, Raw: fmt.Sprintf("%s ++1w", ts(old))}
-
-	got, ok := advanceRepeatingTimestamp(ts, time.Now())
-	if !ok {
-		t.Fatal("advanceRepeatingTimestamp: ok = false")
-	}
-	gotDate := rawOccurrenceDate(t, got)
-	if gotDate.Before(now) {
-		t.Errorf("++ mark left the date in the past: %v (today=%v)", gotDate, now)
-	}
-	// old + 5*7 = old+35 = now, which is on-or-after today, so ++ should
-	// land exactly on today (not skip an extra week further).
-	if !gotDate.Equal(now) {
-		t.Errorf("advanced date = %v, want exactly today %v", gotDate, now)
-	}
-}
-
-func TestAdvanceRepeatingTimestampFromNowMarkIgnoresOldDate(t *testing.T) {
-	now := truncateToDate(time.Now())
-	old := now.AddDate(0, 0, -100) // very stale
-	ts := &org.Timestamp{Active: true, Raw: fmt.Sprintf("%s .+1w", ts(old))}
-
-	got, ok := advanceRepeatingTimestamp(ts, time.Now())
-	if !ok {
-		t.Fatal("advanceRepeatingTimestamp: ok = false")
-	}
-	want := now.AddDate(0, 0, 7)
-	if gotDate := rawOccurrenceDate(t, got); !gotDate.Equal(want) {
-		t.Errorf("advanced date = %v, want one week from today %v (old date should be ignored)", gotDate, want)
-	}
-}
-
-func TestAdvanceRepeatingTimestampPreservesTimeOfDay(t *testing.T) {
-	now := truncateToDate(time.Now())
-	old := now.AddDate(0, 0, -7)
-	raw := fmt.Sprintf("%s 09:30 +1w", ts(old))
-	tsVal := &org.Timestamp{Active: true, Raw: raw}
-
-	got, ok := advanceRepeatingTimestamp(tsVal, time.Now())
-	if !ok {
-		t.Fatal("advanceRepeatingTimestamp: ok = false")
-	}
-	if !strings.Contains(got.Raw, "09:30") {
-		t.Errorf("raw = %q, want the original time of day (09:30) preserved", got.Raw)
-	}
-}
-
-func TestAdvanceRepeatingTimestampPreservesWarningCookie(t *testing.T) {
-	now := truncateToDate(time.Now())
-	old := now.AddDate(0, 0, -7)
-	raw := ts(old) + " +1w -3d"
-	tsVal := &org.Timestamp{Active: true, Raw: raw}
-
-	got, ok := advanceRepeatingTimestamp(tsVal, time.Now())
-	if !ok {
-		t.Fatal("advanceRepeatingTimestamp: ok = false")
-	}
-	if !strings.HasSuffix(got.Raw, "-3d") {
-		t.Errorf("raw = %q, want the warning-period cookie (-3d) preserved", got.Raw)
-	}
-	if !strings.Contains(got.Raw, "+1w") {
-		t.Errorf("raw = %q, want the repeater cookie (+1w) preserved", got.Raw)
-	}
-}
-
-func TestAdvanceRepeatingTimestampNonRepeatingReturnsUnchanged(t *testing.T) {
-	now := truncateToDate(time.Now())
-	orig := &org.Timestamp{Active: true, Raw: ts(now)}
-	got, ok := advanceRepeatingTimestamp(orig, time.Now())
-	if ok {
-		t.Error("advanceRepeatingTimestamp on a non-repeating timestamp: ok = true, want false")
-	}
-	if got != orig {
-		t.Errorf("got = %v, want the original pointer unchanged", got)
-	}
-}
-
-func TestAdvanceRepeatingTimestampNilReturnsUnchanged(t *testing.T) {
-	got, ok := advanceRepeatingTimestamp(nil, time.Now())
-	if ok || got != nil {
-		t.Errorf("advanceRepeatingTimestamp(nil) = (%v, %v), want (nil, false)", got, ok)
-	}
-}
+var cookieRe = regexp.MustCompile(`(\+\+|\.\+|\+|-)\d+[dwmy]`)
 
 func TestCompletingRecurringScheduledItemAdvancesInsteadOfClosing(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	// 2 weeks overdue, so a single naive "+1w" advance leaves it still 1
 	// week overdue — proving this really is a one-interval step, not a
 	// catch-up-to-today jump.
@@ -177,7 +68,7 @@ func TestCompletingRecurringScheduledItemAdvancesInsteadOfClosing(t *testing.T) 
 }
 
 func TestCompletingRecurringItemShowsUpcomingInAgenda(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	overdue := now.AddDate(0, 0, -3) // advancing by +1w lands 4 days in the future
 	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(overdue))
 	ws := agendaFixture(t, orgText)
@@ -208,7 +99,7 @@ func TestCompletingRecurringItemShowsUpcomingInAgenda(t *testing.T) {
 }
 
 func TestCompletingItemWithOnlyDeadlineRepeatingAdvancesJustThat(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	overdue := now.AddDate(0, 0, -7)
 	orgText := fmt.Sprintf("* TODO Pay rent\n  DEADLINE: <%s +1m>\n", ts(overdue))
 	ws := agendaFixture(t, orgText)
@@ -232,7 +123,7 @@ func TestCompletingItemWithOnlyDeadlineRepeatingAdvancesJustThat(t *testing.T) {
 }
 
 func TestCompletingNonRepeatingItemStillClosesNormally(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* TODO One-off task\n  SCHEDULED: <%s>\n", ts(now))
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
@@ -255,7 +146,7 @@ func TestCompletingNonRepeatingItemStillClosesNormally(t *testing.T) {
 }
 
 func TestUndoRestoresPreCompletionScheduleAndKeyword(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	overdue := now.AddDate(0, 0, -7)
 	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(overdue))
 	ws := agendaFixture(t, orgText)
@@ -293,7 +184,7 @@ func TestUndoRestoresPreCompletionScheduleAndKeyword(t *testing.T) {
 }
 
 func TestUndoRestoresPreexistingLastRepeatValue(t *testing.T) {
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	overdue := now.AddDate(0, 0, -7)
 	orgText := fmt.Sprintf(`* TODO Weekly standup
   SCHEDULED: <%s +1w>
@@ -324,7 +215,7 @@ func TestCancellingRecurringItemAlsoAdvances(t *testing.T) {
 	// literally the DONE keyword — jumping straight to CANCELLED (orgtd's
 	// other done-class state, via the R picker) triggers the same
 	// advance-and-revert as DONE would.
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	overdue := now.AddDate(0, 0, -7)
 	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(overdue))
 	ws := agendaFixture(t, orgText)
@@ -351,7 +242,7 @@ func TestRepeatedCompletionKeepsReAdvancingSchedule(t *testing.T) {
 	// again later just re-triggers the repeat-advance again rather than
 	// having any further effect — matching org's own well-known behavior
 	// here.
-	now := truncateToDate(time.Now())
+	now := orgdate.TruncateToDate(time.Now())
 	overdue := now.AddDate(0, 0, -7)
 	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(overdue))
 	ws := agendaFixture(t, orgText)
