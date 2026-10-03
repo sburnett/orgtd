@@ -115,13 +115,13 @@ func (m *Model) sectionSeparatorBudget() int {
 
 // linksInTitle returns the URL of every org-mode link in title, in order.
 func linksInTitle(title string) []string {
-	matches := orgLinkRe.FindAllStringSubmatch(title, -1)
-	if len(matches) == 0 {
+	links := org.ParseLinks(title)
+	if len(links) == 0 {
 		return nil
 	}
-	urls := make([]string, len(matches))
-	for i, mm := range matches {
-		urls[i] = mm[1]
+	urls := make([]string, len(links))
+	for i, l := range links {
+		urls[i] = l.URL
 	}
 	return urls
 }

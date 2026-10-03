@@ -22,7 +22,7 @@ import (
 // (rather than a free function) purely so it can pass m's own
 // searchHighlightBg through to highlightMatches.
 func (m Model) renderTitleForDisplay(title string, base lipgloss.Style, query string) string {
-	matches := orgLinkRe.FindAllStringSubmatchIndex(title, -1)
+	matches := org.LinkIndexes(title)
 	if len(matches) == 0 {
 		return m.highlightMatches(title, query, base)
 	}

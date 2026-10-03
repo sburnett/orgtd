@@ -253,7 +253,7 @@ func TestFormatURLsLeavesExistingLinkWithDescriptionAlone(t *testing.T) {
 // TestFormatURLsLeavesLinkWithBracketedDescriptionAlone is the actual
 // bug report: a link whose description contains a bracket (e.g. a page
 // titled "Bracket [disambiguation]") is valid org-mode syntax, but used
-// to fail our own orgLinkRe match entirely, leaving its url looking
+// to fail our own org.ParseLinks match entirely, leaving its url looking
 // bare — sending it through the formatter again and double-wrapping it
 // (e.g. "[[url][[[url][Formatted]]]]") on every subsequent pass.
 func TestFormatURLsLeavesLinkWithBracketedDescriptionAlone(t *testing.T) {

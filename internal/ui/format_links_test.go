@@ -42,7 +42,7 @@ func TestCollectFormatLinksTargetsFindsBareURLsAndSkipsFormattedOnes(t *testing.
 // the actual bug report: a link whose description contains a bracket
 // (e.g. a formatter's own earlier output for a page titled "Bracket
 // [disambiguation]") is valid org-mode syntax, but used to fail our own
-// orgLinkRe match entirely — so :format-links would treat its url as
+// org.ParseLinks match entirely — so :format-links would treat its url as
 // still bare and re-run it through the formatter every time, expanding
 // it again on top of itself.
 func TestCollectFormatLinksTargetsSkipsLinkWithBracketedDescription(t *testing.T) {

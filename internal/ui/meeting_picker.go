@@ -141,7 +141,7 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) un
 	oldLinksRaw, hadLinks := h.Properties[linksProp]
 
 	ids := strings.Fields(oldIDsRaw)
-	links := parseOrgLinks(oldLinksRaw)
+	links := org.ParseLinks(oldLinksRaw)
 
 	if idx := indexOfString(ids, c.id); idx >= 0 {
 		ids = append(ids[:idx], ids[idx+1:]...)
@@ -151,7 +151,7 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) un
 	} else {
 		ids = append(ids, c.id)
 		if c.link != "" {
-			links = append(links, orgLink{url: c.link, description: c.title})
+			links = append(links, org.Link{URL: c.link, Description: c.title})
 		}
 	}
 
@@ -165,19 +165,8 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) un
 		newIDs:           strings.Join(ids, " "),
 		hadLinksProperty: hadLinks,
 		oldLinks:         oldLinksRaw,
-		newLinks:         joinOrgLinks(links),
+		newLinks:         org.FormatLinks(links),
 	}
-}
-
-// joinOrgLinks is the inverse of parseOrgLinks: renders links back into
-// a GCAL_RECURRING_EVENT_LINKS- or GCAL_EVENT_LINKS-shaped property
-// value.
-func joinOrgLinks(links []orgLink) string {
-	parts := make([]string, len(links))
-	for i, l := range links {
-		parts[i] = "[[" + l.url + "][" + l.description + "]]"
-	}
-	return strings.Join(parts, " ")
 }
 
 // meetingPickerLines renders one line per meeting candidate matching the

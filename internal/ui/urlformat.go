@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sburnett/orgtd/internal/execlog"
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // debugLogHint returns a parenthesized suffix pointing a failure message
@@ -99,7 +100,7 @@ func bareURLSpansOutsideLinks(re *regexp.Regexp, text string) [][2]int {
 	if len(matches) == 0 {
 		return nil
 	}
-	linkSpans := orgLinkRe.FindAllStringIndex(text, -1)
+	linkSpans := org.LinkIndexes(text)
 	withinLink := func(pos int) bool {
 		for _, s := range linkSpans {
 			if pos >= s[0] && pos < s[1] {

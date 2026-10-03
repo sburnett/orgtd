@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"regexp"
 	"strings"
 	"time"
 
@@ -113,13 +112,13 @@ func (m *Model) calendarEventLinks(h *org.Headline) []string {
 func (m *Model) resolveMeetingEntries(h *org.Headline, linksProp, idProp, idsProp string) []calendarEventEntry {
 	if raw := h.Properties[linksProp]; raw != "" {
 		var entries []calendarEventEntry
-		for _, l := range parseOrgLinks(raw) {
-			title := l.description
+		for _, l := range org.ParseLinks(raw) {
+			title := l.Description
 			if title == "" {
-				title = l.url
+				title = l.URL
 			}
-			e := calendarEventEntry{title: title, url: l.url}
-			e.when, e.hasWhen = m.findEventTimeByLink(l.url)
+			e := calendarEventEntry{title: title, url: l.URL}
+			e.when, e.hasWhen = m.findEventTimeByLink(l.URL)
 			entries = append(entries, e)
 		}
 		return entries
@@ -138,25 +137,6 @@ func (m *Model) resolveMeetingEntries(h *org.Headline, linksProp, idProp, idsPro
 		entries = append(entries, calendarEventEntry{title: title, url: url, when: when, hasWhen: hasWhen})
 	}
 	return entries
-}
-
-// orgLink is one org-mode "[[url][description]]" (or bare "[[url]]")
-// link, as parsed out of a property value like GCAL_EVENT_LINKS.
-type orgLink struct {
-	url, description string
-}
-
-// parseOrgLinks extracts every org-mode link in text, in order.
-func parseOrgLinks(text string) []orgLink {
-	matches := orgLinkRe.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	links := make([]orgLink, len(matches))
-	for i, mm := range matches {
-		links[i] = orgLink{url: mm[1], description: mm[2]}
-	}
-	return links
 }
 
 // findHeadlineByProperty searches every loaded org file for a headline
@@ -201,25 +181,6 @@ func (m *Model) findEventTimeByLink(url string) (when time.Time, ok bool) {
 	}
 	return time.Time{}, false
 }
-
-// orgLinkRe matches an existing org-mode link, "[[url]]" or
-// "[[url][description]]" — group 1 is the url, group 2 the description
-// (absent for the no-description form). Used both to make formatURLs
-// (and :format-links) leave existing links alone, and to render a
-// link's display text (the description if present, else the url) in
-// the row list.
-//
-// The description is matched non-greedily against *any* character, up
-// to the nearest following "]]" — deliberately not excluding "[" and
-// "]" the way the url group does, matching real org-mode's own lenient
-// link grammar (it finds the closest "]]", rather than forbidding
-// brackets in a description outright). Without this, a formatter output
-// like "[[https://example.com][Some [bracketed] title]]" — a
-// perfectly valid org-mode link — would fail to match here at all: the
-// url inside it would then still look "bare" on the next :format-links
-// or in-editor pass, sending it through the formatter again and
-// double-wrapping it.
-var orgLinkRe = regexp.MustCompile(`\[\[([^\]\[]+)\](?:\[(.*?)\])?\]`)
 
 // formatCalendarEventEntry formats one calendarEventEntry for the info
 // buffer's "Meeting:" section: "<title>  <time>  <url>", using the
