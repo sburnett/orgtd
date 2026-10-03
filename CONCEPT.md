@@ -1,5 +1,9 @@
 # orgtd
 
+> **Status:** this is the original vision document. Parts of it were built
+> differently or not at all — README.md describes what orgtd does today and
+> DESIGN.md (§10) lists which ideas below were not built.
+
 orgtd is a portmanteau of "org-mode" and "getting things done". It's a TUI application written in Go for implementing a "getting things done" workflow using org files as the backend. It doesn't attempt to be a full-fledged org file editor; it just implements a subset useful for the GTD method.
 
 ## Why not just use org-mode?

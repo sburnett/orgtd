@@ -1,6 +1,8 @@
-// Package workspace loads a directory of org files into memory. This
-// initial version is read-only: it just discovers and parses files for
-// the viewer. File watching and mutation (per DESIGN.md) come later.
+// Package workspace loads a directory of org files into memory, and
+// provides the advisory lock that keeps two orgtd instances from racing
+// over the same directory (see AcquireLock). It does not watch the
+// directory for changes or write files itself: the UI mutates the loaded
+// trees and saves them with org.WriteFile on :w. See DESIGN.md §3.
 package workspace
 
 import (
@@ -18,9 +20,9 @@ type Workspace struct {
 	Files []*org.File // sorted by Path
 }
 
-// Load discovers *.org files directly inside dir (non-recursive; the
-// .orgtd/ subdirectory for tool-managed files is skipped, since it
-// doesn't exist yet in this version) and parses each of them.
+// Load discovers *.org files directly inside dir and parses each of them.
+// It is non-recursive: subdirectories, including the UI's scratch/ buffer
+// directory, are never scanned.
 func Load(dir string) (*Workspace, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

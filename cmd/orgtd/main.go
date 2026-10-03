@@ -1,6 +1,7 @@
 // Command orgtd is a terminal GTD workflow tool backed by org-mode files.
-// This initial version only loads, renders, and lets you navigate the org
-// files in a directory.
+// This package is wiring only: it resolves flags, $ORGTD_DIR and the config
+// file into settings (see settings.go), takes the directory lock, loads the
+// workspace, and hands everything to internal/ui. See DESIGN.md §3.
 package main
 
 import (

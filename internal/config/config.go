@@ -1,5 +1,5 @@
-// Package config loads orgtd's optional TOML config file (DESIGN.md
-// §10). Every field is optional and defaults to its zero value when
+// Package config loads orgtd's optional TOML config file (see README.md's
+// "Config file" section for the schema and precedence rules). Every field is optional and defaults to its zero value when
 // absent, so the tool works fully with no config file present at all —
 // callers treat a zero value as "no override" and fall back to their own
 // built-in default.
@@ -288,7 +288,7 @@ func Load(path string) (*Config, error) {
 
 // expandHome expands a leading "~" or "~/..." in path to the user's home
 // directory, the way a shell would — TOML string values get no such
-// treatment on their own, but DESIGN.md's own config example
+// treatment on their own, but the documented config example
 // (org_dir = "~/org") relies on it.
 func expandHome(path string) string {
 	if path != "~" && !strings.HasPrefix(path, "~/") {

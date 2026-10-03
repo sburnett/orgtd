@@ -1,7 +1,9 @@
-// Package ui implements the Bubble Tea viewer: a scrollable, foldable
-// outline over every org file in a workspace, with in-memory editing of
-// item status. Changes are not yet written back to disk — no agenda, no
-// Google integration either.
+// Package ui implements orgtd's Bubble Tea application: a scrollable,
+// foldable outline over every org file in a workspace, with in-memory
+// editing (written to disk only on :w), derived views (agenda, calendar,
+// tags, clarify, ...), and background commands (calendar sync, link
+// formatting, git commit). Nearly all behavior lives here, centered on
+// Model; see DESIGN.md §4-§5 for the runtime model and file layout.
 package ui
 
 import (
@@ -4903,8 +4905,7 @@ func resolveEntryCursorPlacement(entry string, placement editorCursorPlacement) 
 }
 
 // editorCommand returns the external editor to launch: m.editorOverride
-// (see WithEditor) if set, else $EDITOR — matching DESIGN.md's config
-// file semantics ("editor... falls back to $EDITOR if unset").
+// (see WithEditor) if set, else $EDITOR (README's --editor row).
 func (m Model) editorCommand() string {
 	if m.editorOverride != "" {
 		return m.editorOverride

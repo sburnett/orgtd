@@ -1,371 +1,332 @@
 # orgtd Design Document
 
-Status: draft, based on `CONCEPT.md` plus decisions made 2026-09-06.
+This document describes how orgtd is **actually built**: its packages, its
+data flow, and the invariants the code relies on. For what the program
+*does* from a user's point of view (keys, commands, views, config), the
+source of truth is [README.md](README.md). For the original vision, see
+[CONCEPT.md](CONCEPT.md) — some of it was never built (see §10).
+
+Keep this file current: when you move code between packages or change an
+invariant listed here, update it in the same commit.
 
 ## 1. Overview
 
-orgtd is a Go TUI that implements a GTD workflow on top of plain `.org`
-files, readable and editable by real org-mode. It captures inbox items,
-guides the user through processing them into tasks/projects, computes an
-agenda across all org files, and supports a "snippets" review mode over
-completed items. It integrates with Google Calendar/Docs read-only, to
-link tasks to meetings and to import meeting action items.
-
-This document fixes the architecture and the decisions needed to start
-implementation. Section 15 lists what's still open.
+orgtd is a Go terminal UI (Bubble Tea) for a GTD workflow over plain
+`.org` files. It loads every `.org` file in one directory into memory,
+lets you navigate/edit/reorganize the outline with vim-flavored keys,
+computes several derived views (agenda, calendar, tags, clarify), and can
+sync Google Calendar events into one of the org files.
 
 ## 2. Goals & Non-Goals
 
 **Goals**
 - A single, opinionated GTD workflow, not a general org-mode client.
-- Files remain fully valid org-mode; emacs must be able to open, edit, and
-  re-save them without orgtd choking on the result.
-- The UI never blocks on disk or network I/O.
-- Vim-flavored modal keybindings, operating on outline items rather than
-  characters/lines.
+- Files stay valid org-mode; Emacs can open and edit them at any time.
+- The UI never blocks on slow work (network, `git push`, external
+  formatters) — those run as `tea.Cmd`s and report back by message.
+- Vim-flavored modal keys operating on whole outline entries, not
+  characters or lines.
 
 **Non-goals**
-- Arbitrary org syntax (tables, footnotes, babel blocks, LaTeX, etc.) —
-  these are preserved untouched if present, but orgtd never generates or
-  edits them.
-- Write access to Google services.
-- Multi-user / networked sync of the org directory itself (it's a local
-  directory, sync is the user's problem — e.g. Dropbox/Syncthing/git).
+- Arbitrary org syntax (tables, babel, LaTeX...). It is preserved as
+  opaque body text but never generated or interpreted.
+- Write access to Google services (the integration is read-only).
+- Syncing the org directory itself between machines, or watching it for
+  external changes (see §6).
 
-## 3. File Layout
+## 3. Package map
 
 ```
-~/org/                          (configurable "org directory")
-├── inbox.org                   user-edited: capture target
-├── projects.org                user-edited: all projects + their tasks
-└── .orgtd/                     tool-managed, not meant for hand-editing
-    ├── agenda.org              regenerated view, org-mode-readable
-    └── calendar.org            cached Google Calendar snapshot
+readme.go             embeds README.md for :help (package orgtd)
+cmd/orgtd/            main: flags + config + env → settings → ui.New. Wiring only.
+internal/config/      TOML config file schema and loading (no precedence logic)
+internal/org/         org data model, parser, renderer, atomic writer, deep clone
+internal/workspace/   loads a directory of .org files; advisory directory lock
+internal/ui/          the Bubble Tea application (nearly all behavior; see §5)
+internal/calendarsync/ turns Google Calendar events into an *org.File
+internal/gcal/        thin Google Calendar API client + OAuth installed-app flow
+scripts/              example URL-formatter script
+testdata/orgdir/      fixture workspace used by ui tests
 ```
 
-- **Single `projects.org`**: each top-level headline is a project, each
-  child headline is a task belonging to it. Freestanding tasks (no
-  project) live in `projects.org` too, as top-level headlines with no
-  children — there's no separate "tasks.org". This keeps agenda
-  computation to "scan these two user files plus whatever else is in the
-  directory."
-- Any other `.org` file the user drops into the org directory is included
-  in agenda scanning (so existing org-mode files aren't invisible) but is
-  never a target for orgtd-initiated writes (capture/processing only ever
-  write to `inbox.org` and `projects.org`).
-- `.orgtd/` holds files orgtd fully owns and regenerates. They're valid
-  org-mode so the user *can* open them for reference, but orgtd overwrites
-  them wholesale on every refresh — never hand-edit them. `.orgtd/` should
-  be added to the user's `.gitignore` if the org directory is under git
-  (orgtd can offer to do this on first run).
+Dependency direction (no cycles, keep it this way):
 
-## 4. Data Model
-
-### Headline anatomy
-
-Standard org headline, e.g.:
-
-```org
-** NEXT Write Q3 planning doc
-   SCHEDULED: <2026-09-10 Thu>
-   :PROPERTIES:
-   :ID:              8f3a1e2c-...
-   :CAPTURED_AT:     [2026-09-06 Sun 14:32]
-   :GCAL_EVENT_IDS:  abc123 def456
-   :END:
-   Some free-text body, preserved as-is.
+```
+cmd/orgtd → ui → calendarsync → gcal
+              ↘ workspace → org
+              ↘ org
+cmd/orgtd → config, workspace
 ```
 
-- `:ID:` — standard org UUID property, generated by orgtd on creation of
-  any headline it manages. Used for stable cross-references (e.g. agenda
-  entries link back to the source headline).
-- `:CAPTURED_AT:` — inactive timestamp, set once at inbox capture time,
-  carried forward when an inbox item becomes a task.
-- `:GCAL_EVENT_IDS:` — space-separated list of Google Calendar event IDs
-  a task or project is associated with (a project may recur across many
-  meeting instances, hence multiple IDs / a recurring-event ID).
-- `SCHEDULED` / `DEADLINE` / `CLOSED` — standard org timestamps, used
-  exactly as org-mode uses them (`CLOSED` is stamped automatically when a
-  headline transitions to a DONE-class state).
+`org` and `gcal` know nothing about the UI. `calendarsync` knows org and
+gcal but not the UI. Only `ui` knows about everything.
 
-### TODO state machine
+### internal/org
 
-Keyword set (fixed, not user-configurable, per the "one opinionated
-workflow" goal — see open question in §15 about whether to revisit this):
+- `Headline` is a tree node: `Level`, `Keyword`, `Priority`, `Title`,
+  `Tags`, `Scheduled`/`Deadline`/`Closed` (`*Timestamp`, which keeps only
+  the raw text between brackets), `Properties` + `PropertyOrder`, `Body`
+  (raw lines), `Parent`, `Children`.
+- `File` is `Path`, `Preamble` (raw lines before the first headline) and
+  top-level `Headlines`.
+- `Parse`/`ParseFile` build the tree; `RenderFile`/`RenderHeadline`/
+  `RenderEntry` serialize it; `WriteFile` writes atomically (temp file in
+  the same directory, then rename).
+- TODO keywords are fixed (`ActiveKeywords`, `DoneKeywords`).
 
-| State | Class | Meaning |
+**Round-tripping is format-*preserving*, not byte-exact.** Body text and
+preamble are stored as raw lines and survive untouched. Headline lines,
+planning lines and property drawers are regenerated from parsed fields,
+so incidental spacing on a changed line may shift. (The original design
+wanted byte-exact output via raw spans; that was not built.)
+
+### internal/workspace
+
+`Load(dir)` parses every `*.org` directly inside `dir` (non-recursive,
+sorted by path). `AcquireLock(dir)` takes an OS-level advisory lock
+(`.orgtd.lock`) so two instances can't race to overwrite the same files.
+There is no file watching: the directory is read once at startup, plus
+explicit reloads (see `finishEditFile` and `finishSyncCalendar` in ui).
+
+### internal/calendarsync and internal/gcal
+
+`calendarsync.Sync` authenticates (`gcal.HTTPClient`: token cached in the
+OS keychain via go-keyring, browser consent flow if absent), lists events
+in a window, and returns a freshly built `*org.File` (`BuildFile`). It
+**never touches disk** — the UI writes the file and swaps it into the
+workspace. Each event becomes a headline carrying `GCAL_*` properties
+(§7). `gcal` is org-agnostic.
+
+### cmd/orgtd and internal/config
+
+`main.go` parses flags, loads the config file (`config.Load`), and
+`resolveSettings` (settings.go) merges flag > `$ORGTD_DIR` (for `dir`
+only) > config file > default into one `settings` struct, which main
+passes to `ui.New` as `With…` options. Precedence rules are documented in
+README ("Config file"). `config` only declares and parses the schema.
+
+## 4. Runtime model
+
+Bubble Tea: `Model`, `Update`, `View`.
+
+- **The org tree in `Workspace` is the single in-memory source of truth.**
+  Every edit mutates it immediately; nothing touches disk until `:w`
+  (`writeAll` → `org.WriteFile` per dirty file). This is deliberately
+  *not* the "flush every mutation" model the original design proposed.
+- **Undo** is one global stack of `undoAction`s (`undo.go`). Each action
+  knows how to `apply`/`revert` itself, which `file()` it touches, and
+  which headlines are `affected()`. **Dirty state is derived**, never set
+  by hand: `recomputeDirty` compares each file's applied-action count to
+  its `savedPos` (the count at last write). So undoing back to the saved
+  point makes a file clean again. Any new edit *must* go through
+  `pushUndo` (or a variant) to be undoable and to mark the file dirty.
+- **Headlines are identified by pointer.** `collapsed`, `marks`,
+  `register`, `immutable`, `clarifyTarget`, jump-list entries and
+  undo actions all hold `*org.Headline`. Anything that replaces a file's
+  tree wholesale (editing a whole file in `$EDITOR`, `:sync-calendar`)
+  must call `clearRefsForFile` so no stale pointers survive. Undo/redo
+  of structural edits relies on the same pointers being re-inserted.
+- **Slow work runs as a `tea.Cmd`** that returns a message handled in
+  `Update`: `:sync-calendar` (`syncCalendarMsg`), `:format-links`
+  (`formatLinksMsg`), `:commit` (`commitPushMsg`), and the `$EDITOR`
+  round trip (`editFinishedMsg`, `fileEditFinishedMsg`). While
+  `:format-links` is in flight, affected entries are in `m.immutable` and
+  every mutating command checks `refuseIfImmutable`/`filterImmutable`.
+- **Not everything is async.** `:w`, `:diff` (a `git diff`), scratch-file
+  writes and the live in-editor URL formatter run synchronously inside
+  `Update`. They are fast in practice; if one ever isn't, convert it to a
+  `tea.Cmd` following the `:commit` pattern.
+- **All external commands go through `execLog`** (`exec_log.go`:
+  `runLoggedCommand`), which is what `:log` displays. New subprocess code
+  should use it.
+
+## 5. The UI package
+
+`internal/ui` is where nearly all behavior lives, and it is structured
+around one big `Model`. This section describes the structure as it is,
+including its known weak points, so changes can be made deliberately.
+
+### Files
+
+| File | Responsibility |
+|---|---|
+| `model.go` | The `Model` struct, option funcs, key handling for every mode, commands, navigation, folding, search, editing/capture, URL formatting, git diff/commit, and all rendering. **~8,000 lines; see "Known structural debt".** |
+| `undo.go` | `undoAction` types, undo/redo, dirty derivation, structural-edit helpers (`insertContext`, splice/reparent actions) |
+| `agenda.go` | Agenda computation and rows, repeater math, **and** the meeting-linking domain (`meetingIDKind`, `meetingCandidate`, tag matching, `entriesForMeeting`) |
+| `calendar.go` | `:calendar` rows, linked-items ordering |
+| `meeting_tags.go` | `meeting-tags.org` records and the `:meeting-tags` view |
+| `tags.go` | `:tags` view |
+| `repeat.go` | Completing a repeating item (`+1w`, `++1w`, `.+1w`) |
+| `sync_calendar.go` | `:sync-calendar` command and result application |
+| `exec_log.go` | Subprocess logging for `:log` |
+
+### Rows and views
+
+`Model.rows` is the flat, visible listing; the cursor is an index into
+it. `rebuildRows` repopulates it for the current `viewKind`
+(outline, agenda, clarify, config, log, diff, help, calendar,
+meetingTags, tags). A `row` is a single struct with a flag per row
+flavor (`isAgendaItem`, `isMeetingHeader`, `isCalendarItem`,
+`isTagsItem`, `isTextLine`, `isBodyLine`, ...). Most per-entry commands
+(`i`, `dd`, `r`, `gd`, marks) work in every headline-backed view because
+they resolve the cursor row to its real `*org.Headline` via
+`currentHeadline()` and operate on that, not on the row.
+
+Views that are derived (agenda, tags, calendar's linked items) show the
+same headline pointer in more than one row; `sameRow` exists to tell
+those rows apart (search `n`/`N` depends on it), which is why `row`
+carries fields such as `meetingItemTitle` and `linkedFromEvent`.
+
+Special files, by base name from config: the **inbox** file (capture
+target, `:clarify` source), the **calendar** file (excluded from the
+outline and `:diff`/`:commit`; shown only in `:calendar`; wholesale
+regenerated by sync), and the **meeting-tags** file (excluded from the
+outline; shown in `:meeting-tags`; durable and committed like any other).
+
+### Modes and input
+
+`Model.mode` selects which `update*Mode` function interprets a key
+(normal, command, select, deadline, search, confirm, visual,
+meetingPicker, tag). Multi-key chords (`gg`, `dd`, `zo`, `m<letter>`,
+counts like `3dd`) are tracked by individual `pending*` booleans and a
+`pendingCount`, reset at the top of `updateNormalMode`. Colon commands
+are a `switch` in `runCommand`, and `Tab` completion has its own
+separate `commandNames` list — **adding a command means editing both**.
+
+### Rendering
+
+`View` draws `rows[offset:]` that fit, then the info buffer, status line
+and command line. The info buffer (`infoBufferLines`) is a stack of
+labeled sections whose content depends on mode, view and the current
+headline. Colors/icons resolve through small `…Style`/`…Bg` methods with
+built-in defaults overridden by `ColorOverrides`/`With…Icon` options.
+**`View` runs on every keypress, so nothing it calls may be expensive**
+(see debt item 2).
+
+### Known structural debt
+
+These are recorded here so contributors don't mistake them for design:
+
+1. **`model.go` is too large** and mixes unrelated concerns. Pure helpers
+   that don't need `Model` (git operations, date parsing, URL detection
+   and formatting, editor-command construction) are good candidates to
+   become their own files, then packages.
+2. **Meeting linking is recomputed live and is expensive.** The gutter's
+   `meetingColumn` calls `tagLinkedMeetingCandidates` for each visible
+   tagged row on every render, which walks the whole workspace
+   (`meetingCandidates` → `meetingTags` per candidate). It wants a cached
+   index invalidated on edit/sync/undo.
+3. **`row` is a tagged union without a tag**, and view-specific behavior
+   is spread across `m.view ==` checks, `rebuildRows`, `View`'s
+   empty-state text, `jumpToSource`, and per-view render functions.
+4. **Settings are threaded through ~8 layers** (config struct, flag,
+   `flagValues`, `settings`, `resolveSettings`, `With…` option, `Model`
+   field, `:config` view, README, `config.example.toml`).
+5. **Domain logic that belongs in `org`** lives in `ui`: timestamp
+   parsing (`parseTimestampDate`, repeater math, `headlineCreatedTime`),
+   and tree operations like `shiftHeadlineLevel`.
+6. **`time.Now()` is called directly** in render and command paths.
+
+## 7. Data conventions (properties and tags)
+
+orgtd stores its own metadata as org properties, so it round-trips
+through Emacs:
+
+| Property | Set by | Meaning |
 |---|---|---|
-| `TODO` | active | Not yet started |
-| `NEXT` | active | The immediately-actionable step |
-| `WAITING` | active | Blocked on someone/something else |
-| `SOMEDAY` | active | Someday/maybe, excluded from the agenda's due/overdue sections |
-| `DONE` | done | Completed — stamps `CLOSED` |
-| `CANCELLED` | done | Abandoned — stamps `CLOSED` |
+| `CREATED` | every new entry | Inactive timestamp of creation; orders items linked to a meeting |
+| `LAST_REPEAT` | completing a repeating item | When it was last completed (instead of `CLOSED`) |
+| `GCAL_EVENT_ID`, `GCAL_RECURRING_EVENT_ID`, `GCAL_CALENDAR_ID`, `GCAL_START`, `GCAL_END`, `GCAL_HTML_LINK`, `GCAL_SELF_RESPONSE_STATUS` | `:sync-calendar`, in the calendar file only | Identify and describe a synced event |
+| `GCAL_EVENT_IDS` / `GCAL_RECURRING_EVENT_IDS` | `gM` | Attach an entry to one-off events / recurring series |
+| `GCAL_EVENT_LINKS` / `GCAL_RECURRING_EVENT_LINKS` | `gM` | Title+URL snapshot taken at attach time, so the meeting still displays after it ages out of the sync window |
+| `MEETING_TAG_EVENT_IDS` / `MEETING_TAG_RECURRING_EVENT_IDS` | `gt` on a calendar entry | In `meeting-tags.org`: which meetings a durable tag record applies to |
 
-orgtd does not enforce transition rules (org-mode itself doesn't either);
-any active state can move to any other state via the state-change key
-(§7). Projects (top-level headlines in `projects.org`) use the same
-keyword set as tasks — a project is DONE when its goal is achieved,
-independent of its children's states.
+Tags matter semantically: an entry is **linked to a meeting** if it is
+attached via `gM`, *or* shares a tag with the event (the event's own
+tags, e.g. `@alice`, plus any `meeting-tags.org` tag for it). The
+`recurring` tag is reserved and never counts as a match.
 
-## 5. Org File Engine
+### Project↔meeting association
 
-Format preservation is a hard requirement (§2), so orgtd uses a
-**hand-rolled, format-preserving parser/writer** rather than an existing
-org library:
+The product idea (CONCEPT.md): associate tasks and projects with Google
+Calendar meetings so the agenda can surface them around the meeting. A
+*recurring* series is identified by `GCAL_RECURRING_EVENT_ID` (stable
+across occurrences); a *one-off* event by `GCAL_EVENT_ID`. Attaching to
+the series ID, not an occurrence, is what lets something raised in last
+week's standup show up before this week's. Hand-writing
+`GCAL_EVENT_IDS`/`GCAL_RECURRING_EVENT_IDS` on any entry works the same
+as `gM`.
 
-- The parser produces a tree of headline nodes, but each node retains a
-  reference to its exact original byte span (text, whitespace, comments,
-  drawers it doesn't understand, tables, etc.) alongside the structured
-  fields orgtd cares about (keyword, priority, title text, tags,
-  timestamps, properties).
-- Writing a file re-serializes only the nodes orgtd actually changed,
-  reusing the stored raw bytes for everything else, so a file with zero
-  orgtd-relevant edits round-trips byte-for-byte.
-- Syntax orgtd doesn't understand (tables, babel blocks, footnotes, etc.)
-  is treated as opaque body content of the nearest headline and passed
-  through unchanged.
-- `internal/org` package: `Parse(io.Reader) (*File, error)`,
-  `(*File) Write(io.Writer) error`, plus a mutation API
-  (`AddHeadline`, `SetState`, `Promote`/`Demote`, `Delete`, `Move`) that
-  updates both the structured fields and the raw-span bookkeeping.
-- Golden-file tests: for every fixture org file, `Parse` → `Write` with no
-  mutations must reproduce the input exactly. Every parser feature gets a
-  fixture.
+## 8. Testing
 
-## 6. Application Architecture
+- `internal/org`, `internal/config`, `internal/calendarsync`,
+  `internal/gcal`, `internal/workspace`, `cmd/orgtd` have conventional
+  unit tests.
+- `internal/ui` tests construct a real `Model` over a workspace loaded
+  from `testdata/orgdir` and drive it with simulated key presses
+  (`sendKey`, `typeKeys`, helpers in `model_test.go`), asserting on
+  `m.rows`, tree state, and rendered output. Tests that write to disk
+  first copy the fixtures into a temp dir (`loadFixtureCopy`) — never
+  write to the checked-in fixtures.
+- There is no golden byte-for-byte round-trip suite (see §3, org).
+- Run everything with `go build ./... && go vet ./... && go test ./...`.
 
-Built on **Bubble Tea** (Elm architecture: `Model`, `Update`, `View`).
-This maps directly onto the "never block" requirement — anything slow
-(disk I/O beyond a stat, all Google API calls) runs as a `tea.Cmd`,
-executed off the UI goroutine, and reports back via a message the `Update`
-function handles. `Update` and `View` themselves never touch disk or
-network.
+## 9. Recipes for common changes
 
-```
-cmd/orgtd/            main package, wiring only
-internal/org/         parser/writer + mutation API (§5)
-internal/model/       headline/project/task domain types built on internal/org
-internal/gcal/        Google Calendar + Docs client (read-only), OAuth flow
-internal/sync/        background poller, .orgtd/calendar.org writer
-internal/agenda/      agenda computation, .orgtd/agenda.org writer
-internal/workspace/   loads the org directory into memory, watches for
-                       external changes (fsnotify), indexes headlines by ID,
-                       owns all mutating operations (atomic writes)
-internal/ui/          Bubble Tea models: normal/insert/command modes,
-                       inbox view, agenda view, review view, capture flow,
-                       processing flow, meeting picker
-internal/config/      config file loading (TOML)
-```
+**Add a colon command.** Add a `case` in `runCommand` *and* the name in
+`commandNames`; document it in README's command table and the
+`:help`-visible text (README is embedded). Add a key-driven test.
 
-**Persistence model**: there is no explicit save step. Every mutation
-(state change, new headline, promote/demote, delete, edit) is applied to
-the in-memory tree and immediately flushed to the owning file via
-atomic write (write to a temp file in the same directory, `fsync`,
-rename over the original). This matches "org files are the only storage
-medium" — the in-memory model is a cache of the files, never a separate
-buffer the user must remember to persist.
+**Add a normal-mode key or chord.** Edit `updateNormalMode`; if it's a
+chord prefix add a `pending*` flag, reset it with the others, and if it
+should extend a selection also handle it in `updateVisualMode`. Document
+in the README's keybinding tables.
 
-**External edits**: `internal/workspace` watches the org directory with
-`fsnotify`. On a change to a file orgtd didn't just write itself, it
-reloads that file. If the in-memory tree has unflushed... — it never does,
-per above — so external edits (e.g. the user tweaking `projects.org` in
-emacs while orgtd is open) are simply picked up on next redraw. If an
-external write races with an orgtd-initiated write to the *same* file
-(rare — single local user), last-write-wins at the filesystem level;
-this is acceptable for a single-user local tool and not engineered around
-further (see §15).
+**Add an undoable edit.** Implement `undoAction` in `undo.go` (mutate in
+place; record old and new values), build it where the edit happens and
+call `pushUndo`. Never set `m.dirty` directly.
 
-## 7. Modal TUI & Keybindings
+**Add a view.** Add a `viewKind`; handle it in `rebuildRows`, `View`'s
+empty-state message, `jumpToSource` if rows can jump to the outline,
+`usesOutlineRows`, and add its `:name` command. Render new row flavors in
+`renderRowWithBg`. Decide how `sameRow` distinguishes duplicate rows.
 
-Three modes: **Normal**, **Insert** (editing one headline's text),
-**Command** (`:`). A given view (inbox, agenda, review, project outline)
-is always in one of these.
+**Add a config setting.** Add it to `config.Config`, the flag in
+`main.go`, `flagValues`/`settings`/`resolveSettings`, a `With…` option and
+`Model` field, the `:config` listing (`appendConfigRows`),
+`config.example.toml`, and the README tables. (Debt item 4.)
 
-| Key | Mode | Action |
-|---|---|---|
-| `j` / `k` | Normal | Move to next/previous item |
-| `gg` / `G` | Normal | Jump to first/last item |
-| `Tab` | Normal | Fold/unfold subtree under cursor |
-| `<<` / `>>` | Normal | Promote / demote item (outdent/indent) |
-| `dd` | Normal | Delete item + subtree (undoable, see below) |
-| `o` / `O` | Normal→Insert | New sibling after/before current, enter Insert |
-| `i` / `a` | Normal→Insert | Edit current item's text, cursor at start/end |
-| `t`/`n`/`w`/`s`/`d`/`c` | Normal | Set state: TODO/NEXT/WAITING/SOMEDAY/DONE/CANCELLED |
-| `Ss` / `Sd` | Normal | Set SCHEDULED / DEADLINE via a date-entry prompt |
-| `M` | Normal | Open meeting picker, attach/detach a calendar event ID |
-| `p` | Normal (inbox) | Process the item under cursor (§8.3) |
-| `C` | Normal (any) | Jump to capture prompt (§8.1) |
-| `R` | Normal | Force-refresh Google data |
-| `Esc` | Insert/Command | Return to Normal |
-| `Enter` | Insert | Commit edit, return to Normal |
-| `E` | Normal | Open item's text in `$EDITOR` (§7.1) |
-| `:` | Normal | Enter Command mode |
+**Run an external program.** Use `runLoggedCommand` so it appears in
+`:log`; run it from a `tea.Cmd` unless it is guaranteed fast.
 
-Command-mode commands: `:inbox`, `:agenda`, `:review`, `:projects`,
-`:refresh`, `:q`. (No `:w` — nothing to save, per §6.)
+## 10. Original ideas that were not built
 
-### 7.1 External editor
+CONCEPT.md's vision still describes the direction, but these pieces do
+not exist, so don't look for them in the code:
 
-`E` writes the current headline's raw text (title line + body, not
-properties/timestamps) to a temp file, opens `$EDITOR` on it, and on exit
-reparses that fragment back into the headline. If `$EDITOR` is unset, the
-built-in Insert mode is the only option for that session — orgtd doesn't
-guess an editor.
+- **Guided inbox processing** (a `p` key walking an item into a
+  project). `:clarify` is the implemented workflow instead: it pins the
+  inbox's next item while you navigate and re-file it by hand.
+- **Meeting capture from Google Docs action items.** Only Calendar is
+  integrated; there is no Docs/Drive/Meet client. Capture-time meeting
+  attachment is `gX`/`gM`, and `o`/`O` in `:calendar`.
+- **Review ("snippets") mode** over completed items by day/week/month.
+  Done items are only hidden after `hide_done_after_hours`
+  (`:toggledone`).
+- **Background calendar polling and `R`/`:refresh`.** Sync is manual
+  (`:sync-calendar`).
+- **`.orgtd/` tool-managed directory, `agenda.org` output, `:ID:` and
+  `CAPTURED_AT` properties, `projects.org` as a special file.** Agenda
+  is computed in memory only; the only special files are inbox, calendar
+  and meeting-tags (by configurable base name).
+- **File watching / auto-reload of external edits** and
+  **flush-on-every-mutation.**
 
-## 8. Workflows
+## 11. Open questions
 
-### 8.1 Inbox capture
-
-`C` from anywhere opens a single-line prompt. On submit, orgtd appends a
-new `TODO` headline to the end of `inbox.org` with `:CAPTURED_AT:` set to
-now and `:ID:` freshly generated. An optional due-date field in the same
-prompt sets `DEADLINE`.
-
-### 8.2 Meeting capture
-
-From the capture prompt (or `:capture-meeting`), orgtd shows a list of
-calendar events at or near the current time (from `.orgtd/calendar.org` /
-the in-memory calendar cache, so it's instant). Selecting one:
-
-1. Resolves the event's attached notes doc (Calendar event attachment, or
-   the auto-generated Meet notes doc referenced on the event) via the
-   Docs API — this one call is live, not cached, since notes may have
-   just been added.
-2. Reads the doc's paragraphs, filters to native Google Docs **checklist**
-   items (Docs API `paragraphStyle` checklist glyph type), and imports
-   each as a `TODO` headline in `inbox.org`.
-3. Each imported item gets `:CAPTURED_AT:` = now and `:GCAL_EVENT_IDS:` =
-   that event's ID, and a body line linking back to the doc.
-
-Checked checklist items in the doc are skipped (already done). Unicode
-checkbox text (`☐`/`☑`) or markdown-style `- [ ]` text that isn't an
-actual Docs checklist item is *not* treated as an action item in v1 (see
-§15 if this proves too narrow in practice).
-
-### 8.3 Inbox processing
-
-`p` on an inbox item launches a guided sequence (a small Bubble Tea
-sub-model that takes over the view):
-
-1. **Is this actionable?** No → offer "someday" (state `SOMEDAY`, moved to
-   `projects.org` as a standalone item) or "delete" (reference material
-   isn't orgtd's job — it's not a filing system).
-2. **Single task or project?** Single → pick/create a project to attach
-   it to, or leave it standalone.
-3. **Pick or create project**: fuzzy-searchable list of existing
-   top-level headlines in `projects.org`, or type a new name to create
-   one.
-4. On confirmation, the headline (with its `:ID:`/`:CAPTURED_AT:`
-   preserved) is moved from `inbox.org` into `projects.org` under the
-   chosen project (or as a new top-level item), state set to `TODO` (or
-   `NEXT` if the user marks it as the immediate next action).
-
-### 8.4 Agenda view
-
-Computed by `internal/agenda` from: every headline with `SCHEDULED` or
-`DEADLINE` across all org files in the directory, plus
-`.orgtd/calendar.org`'s event list, plus project↔meeting associations via
-`:GCAL_EVENT_IDS:`. Sections, in display order:
-
-1. Overdue (`DEADLINE`/`SCHEDULED` in the past, not DONE/CANCELLED)
-2. Due today
-3. Items whose associated meeting is in progress right now
-4. `NEXT` items whose project has an upcoming meeting instance
-5. Upcoming (next 7 days, configurable)
-
-The computed view is also written to `.orgtd/agenda.org` on every
-refresh, so it's inspectable from emacs too, but the live TUI view is
-driven from the in-memory computation, not by re-reading that file.
-
-### 8.5 Review ("snippets mode")
-
-`:review` shows DONE/CANCELLED headlines grouped by `CLOSED` date
-(day/week/month toggle). The default agenda/project views hide
-DONE/CANCELLED items with `CLOSED` older than `done_retention_days`
-(config, default 3) — review mode is the only place older completed
-items are visible.
-
-## 9. Google Integration
-
-**Scopes** (all read-only): `calendar.readonly`, `documents.readonly`,
-plus `drive.readonly` if needed to resolve a Doc's metadata/permissions
-before fetching it by ID.
-
-**Auth**: standard OAuth2 "installed application" flow — orgtd opens the
-system browser to Google's consent screen, a short-lived local HTTP
-server on `localhost` catches the redirect with the auth code, exchanges
-it for tokens. The refresh token is stored in the OS keychain (via
-`zalando/go-keyring`, which covers macOS Keychain / Linux Secret
-Service / Windows Credential Manager) — never written to the config file.
-Re-run the flow if the stored token is revoked or missing.
-
-**Sync**: `internal/sync` runs a background poller (default interval 5
-min, configurable) that fetches events in a rolling window (default -1
-day / +14 days) from the configured calendar ID(s) and rewrites
-`.orgtd/calendar.org` wholesale (it's a cache, not something to diff/
-merge). `R` / `:refresh` triggers an immediate out-of-band poll. All of
-this runs as `tea.Cmd`s reporting completion via messages — a slow or
-failing network call never stalls keystrokes.
-
-**Failure handling**: network errors surface as a dismissible status-line
-message; orgtd keeps operating on the last-known-good
-`.orgtd/calendar.org` (or with no calendar data at all on first run
-before auth completes). Google integration is additive — every core
-workflow (capture, processing, agenda from `SCHEDULED`/`DEADLINE`) works
-with it fully absent.
-
-## 10. Configuration
-
-TOML file at `$XDG_CONFIG_HOME/orgtd/config.toml` (`~/.config/orgtd/` on
-macOS/Linux):
-
-```toml
-org_dir = "~/org"
-done_retention_days = 3
-editor = ""              # falls back to $EDITOR if unset
-
-[gcal]
-calendar_ids = ["primary"]
-poll_interval_minutes = 5
-agenda_window_days = 14
-```
-
-## 11. Testing Strategy
-
-- `internal/org`: golden-file round-trip tests (parse→write must be
-  byte-identical when nothing changed), plus targeted mutation tests
-  (promote/demote/delete/state-change produce the expected diff).
-- `internal/gcal`: fake HTTP transport / recorded fixtures, no live
-  network in tests.
-- `internal/agenda`, `internal/workspace`: table-driven tests over
-  synthetic org trees.
-- `internal/ui`: `teatest` (Bubble Tea's test harness) for key workflows
-  (capture, processing a single inbox item, state cycling).
-
-## 12. Open Questions / Future Work
-
-Decisions deliberately deferred — flag if any of these should actually be
-settled now:
-
-1. **Fixed vs. configurable TODO keywords**: §4 fixes the set. If you
-   want per-installation customization later, the state machine and every
-   keybinding in §7 need to become data-driven rather than hardcoded.
-2. **Undo**: `dd` needs *some* undo story before it's safe to use daily.
-   Options: an in-memory undo stack for the session, or relying on the
-   org directory being under git and telling users to commit periodically.
-3. **Archiving finished projects**: `projects.org` will grow forever.
-   org-mode's own convention is `C-c C-x C-a` (archive to
-   `projects.org_archive`) — worth adopting the same convention, but not
-   designed here yet.
-4. **Concurrent external edits to the same file orgtd is about to write**:
-   §6 accepts last-write-wins as adequate for a single local user; revisit
-   if multi-device same-directory usage (e.g. over Syncthing) turns out to
-   be a real usage pattern.
-5. **Action-item formats beyond native Docs checklists** (§8.2): plain
-   `- [ ]` text, or a Meet-generated notes doc with a different structure
-   than expected — may need a fallback heuristic once real meeting notes
-   are tested against this.
-6. **Meet integration beyond linked Docs**: the concept mentions Google
-   Meet; this design only reaches Meet notes via the Doc the event/meeting
-   attaches, not any separate Meet API.
+- Whether TODO keywords should become configurable (everything from the
+  state picker to the agenda hardcodes the current six).
+- Archiving finished items; `DONE` entries currently just hide.
+- External edits to a file while orgtd holds unsaved changes to it: the
+  directory lock only prevents a second orgtd, not Emacs. `:w` is
+  last-write-wins.

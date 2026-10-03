@@ -2,9 +2,11 @@
 // file format orgtd cares about: headlines, TODO keywords, tags, planning
 // lines (SCHEDULED/DEADLINE/CLOSED), property drawers, and body text.
 //
-// This initial version is read-only: it builds a tree in memory for
-// rendering and navigation. Writing files back out (format-preserving,
-// per DESIGN.md) is not implemented yet.
+// Parse builds an in-memory tree; RenderFile/RenderHeadline/RenderEntry
+// serialize it and WriteFile writes it atomically. Round-tripping is
+// format-preserving rather than byte-exact (see RenderFile): body text and
+// file preamble pass through untouched, while headline, planning and
+// property lines are regenerated from their parsed fields. See DESIGN.md §3.
 package org
 
 import (
@@ -44,9 +46,9 @@ func IsDoneKeyword(keyword string) bool {
 }
 
 // Timestamp is a parsed org timestamp, e.g. "<2026-09-10 Thu>" or
-// "[2026-09-06 Sun 14:32]". Only the raw text inside the brackets is kept
-// at this stage; date/time parsing will be added when the agenda view
-// needs it.
+// "[2026-09-06 Sun 14:32]". Only the raw text inside the brackets is kept;
+// callers that need a date parse Raw themselves (see parseTimestampDate
+// in internal/ui/agenda.go).
 type Timestamp struct {
 	Active bool   // true for <...>, false for [...]
 	Raw    string // text between the brackets, e.g. "2026-09-10 Thu"
