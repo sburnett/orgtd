@@ -58,13 +58,13 @@ func (m Model) registerPinnedLines() []string {
 }
 
 // renderPinnedRow renders one line of the info buffer's clarify/marks/
-// register sections: marker (the clarify target's m.clarifyIcon, or a
+// register sections: marker (the clarify target's m.cfg.Icons.ClarifyIcon, or a
 // mark's letter — the register's own callers pass a literal quote mark
 // instead) in place of the gutter/indent/fold a normal listing row would
 // have, then h's keyword and title — the same format regardless of which
 // pinned section it's in, and regardless of h's actual level in its
-// file's tree. The marker is colored with m.clarifyColor when
-// forClarify, m.markColor otherwise (see WithClarifyIcon/WithMarkColor),
+// file's tree. The marker is colored with m.cfg.Icons.ClarifyColor when
+// forClarify, m.cfg.Icons.MarkColor otherwise (see WithClarifyIcon/WithMarkColor),
 // so it matches whichever gutter column (markColumn) it echoes. The
 // whole line carries the overlay background, padded to fill the
 // terminal width. forClarify appends h's CREATED property (if it has
@@ -75,9 +75,9 @@ func (m Model) registerPinnedLines() []string {
 // off for marks, which can point at any headline in the outline and
 // aren't about triage.
 func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) string {
-	markerColor := orDefault(m.markColor, defaultMarkColor)
+	markerColor := orDefault(m.cfg.Icons.MarkColor, defaultMarkColor)
 	if forClarify {
-		markerColor = orDefault(m.clarifyColor, defaultClarifyColor)
+		markerColor = orDefault(m.cfg.Icons.ClarifyColor, defaultClarifyColor)
 	}
 	prefix := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(markerColor)).Background(m.overlayBg()).Render(marker) +
 		bgSpan(m.overlayBg(), "  ") +

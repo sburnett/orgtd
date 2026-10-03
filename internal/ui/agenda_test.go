@@ -681,16 +681,16 @@ func TestNoOrgFilesStillShowsStatusAndCommandLines(t *testing.T) {
 func TestWithAgendaDaysOption(t *testing.T) {
 	ws := agendaFixture(t, "* TODO x\n")
 	m := New(ws, WithAgendaDays(30))
-	if m.agendaDays != 30 {
-		t.Errorf("agendaDays = %d, want 30", m.agendaDays)
+	if m.cfg.AgendaWindowDays != 30 {
+		t.Errorf("agendaDays = %d, want 30", m.cfg.AgendaWindowDays)
 	}
 }
 
 func TestWithAgendaDaysZeroOrNegativeKeepsDefault(t *testing.T) {
 	ws := agendaFixture(t, "* TODO x\n")
 	m := New(ws, WithAgendaDays(0))
-	if m.agendaDays != 14 {
-		t.Errorf("agendaDays = %d, want the default 14", m.agendaDays)
+	if m.cfg.AgendaWindowDays != 14 {
+		t.Errorf("agendaDays = %d, want the default 14", m.cfg.AgendaWindowDays)
 	}
 }
 

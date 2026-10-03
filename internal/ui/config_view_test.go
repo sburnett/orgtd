@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/sburnett/orgtd/internal/config"
 )
 
 // configLines returns the text of every row in m.rows (assumed to be
@@ -168,7 +170,7 @@ func TestConfigViewReportsCustomIcons(t *testing.T) {
 
 func TestConfigViewReportsCustomColors(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
-	m := New(ws, WithColors(ColorOverrides{TODO: "9", PanelBg: "233"}))
+	m := New(ws, WithColors(config.ColorsConfig{TODO: "9", PanelBg: "233"}))
 	m.switchToView(configView)
 
 	if !containsSubstring(configLines(m), "Colors: file (#00afff), todo (9)") {

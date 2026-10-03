@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sburnett/orgtd/internal/config"
 )
 
 // TestWithColorsOverridesKeywordColor covers WithColors actually
@@ -13,7 +14,7 @@ import (
 // WithMeetingIcon.
 func TestWithColorsOverridesKeywordColor(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
-	m := New(ws, WithColors(ColorOverrides{TODO: "#123456"}))
+	m := New(ws, WithColors(config.ColorsConfig{TODO: "#123456"}))
 
 	style, ok := m.keywordStyle("TODO")
 	if !ok {
@@ -30,7 +31,7 @@ func TestWithColorsOverridesKeywordColor(t *testing.T) {
 // (still built-in) default.
 func TestWithColorsLeavesOtherKeywordsAtTheirDefault(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
-	m := New(ws, WithColors(ColorOverrides{TODO: "#123456"}))
+	m := New(ws, WithColors(config.ColorsConfig{TODO: "#123456"}))
 
 	style, ok := m.keywordStyle("NEXT")
 	if !ok {
@@ -65,7 +66,7 @@ func TestNoWithColorsUsesWildcharmDefaults(t *testing.T) {
 // reaching the rendered view, not just the keyword-color styles above.
 func TestWithColorsOverridesPanelAndStatusBarBackgrounds(t *testing.T) {
 	ws := loadFixture(t)
-	m := New(ws, WithColors(ColorOverrides{PanelBg: "#123456", StatusBarBg: "#abcdef"}))
+	m := New(ws, WithColors(config.ColorsConfig{PanelBg: "#123456", StatusBarBg: "#abcdef"}))
 	// Wide enough that the status line (which includes the org dir's own
 	// path — long when loadFixture's scratch copy lives deep under the
 	// OS temp dir) still leaves padding, which is where the plain

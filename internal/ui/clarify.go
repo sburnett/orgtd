@@ -10,7 +10,7 @@ import (
 // inbox (see WithInboxFile), or nil if it isn't loaded.
 func (m *Model) findInboxFile() *org.File {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.inboxFile {
+		if filepath.Base(f.Path) == m.cfg.InboxFile {
 			return f
 		}
 	}
@@ -115,5 +115,5 @@ func (m *Model) clarifyInfoLines() []string {
 	if m.clarifyTarget == nil {
 		return append(lines, m.padLineToWidth(m.statusStyle().Background(m.overlayBg()).Render("  Inbox is empty."), m.overlayBg()))
 	}
-	return append(lines, m.renderPinnedRow(orDefault(m.clarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
+	return append(lines, m.renderPinnedRow(orDefault(m.cfg.Icons.ClarifyIcon, defaultClarifyIcon), m.clarifyTarget, true))
 }

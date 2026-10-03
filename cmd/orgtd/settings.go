@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,74 +9,52 @@ import (
 	"github.com/sburnett/orgtd/internal/config"
 )
 
-// settings is the fully-resolved set of values main passes to the UI,
-// after merging command-line flags, $ORGTD_DIR, the config file, and
-// built-in defaults per resolveSettings' precedence rules.
-type settings struct {
-	dir                     string
-	urlFormatter            string
-	urlFormatterPrefixes    []string
-	formatLinksURLFormatter string
-	agendaDays              int
-	inboxFile               string
-	calendarFile            string
-	meetingTagsFile         string
-	hideDoneAfterHours      int
-	editor                  string
-	debug                   bool
-
-	// gcal* back :sync-calendar (see internal/ui and
-	// internal/calendarsync) — config-file only, unlike everything else
-	// above: there's no command-line flag for any of them, since
-	// :sync-calendar is only ever triggered interactively from inside
-	// the TUI, never scripted. Resolved straight from the config file's
-	// [gcalsync] section, falling back to the same built-in defaults the
-	// old standalone gcalsync binary used.
-	gcalOAuthClientID, gcalOAuthClientSecret string
-	gcalCalendarIDs                          []string
-	gcalSyncPastDays, gcalSyncFutureDays     int
-	gcalAttendeeTagDomains                   []string
-	gcalAttendeeIgnorePatterns               []string
-
-	// icon* customize the outline's gutter markers (see internal/ui) —
-	// config-file only, like the gcal* fields above: there's no
-	// command-line flag for any of them. Resolved straight from the
-	// config file's [icons] section; an empty string leaves internal/ui's
-	// own built-in default in place (see ui.WithDirtyIcon and its
-	// siblings), so this struct doesn't need its own defaults.
-	iconDirtyIcon, iconDirtyColor     string
-	iconMarkColor                     string
-	iconClarifyIcon, iconClarifyColor string
-	iconLockIcon, iconLockColor       string
-	iconMeetingIcon, iconMeetingColor string
-
-	// colors is the rest of orgtd's color scheme (see internal/ui's
-	// ColorOverrides, which this converts directly to — see main.go) —
-	// config-file only, like the icon* fields above. Resolved straight
-	// from the config file's [colors] section; an empty field leaves
-	// internal/ui's own built-in wildcharm-dark default in place.
-	colors config.ColorsConfig
-}
-
 // flagValues is the raw output of flag parsing: each flag's value
 // (whatever it holds, default or user-supplied) plus which flags the
-// user actually passed on the command line (via flag.Visit) — needed to
-// tell "the user explicitly asked for this" apart from "this just
-// happens to equal the flag's zero-value default", which resolveSettings
-// must treat differently (an explicit flag always wins; an
-// unset-and-still-zero one falls through to the config file).
+// user actually passed on the command line (see recordExplicit) — needed
+// to tell "the user explicitly asked for this" apart from "this just
+// happens to equal the flag's zero-value default", which resolveConfig
+// must treat differently (an explicit flag always wins; an unset one
+// leaves whatever the config file said).
 type flagValues struct {
 	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor string
 	formatLinksURLFormatter                                             string
-	urlFormatterPrefixes                                                []string
+	urlFormatterPrefixes                                                string // comma-separated; see splitPrefixes
 	agendaDays                                                          int
 	hideDoneAfterHours                                                  int
 	debug                                                               bool
+	configPath                                                          string
 	explicit                                                            map[string]bool
 }
 
-// resolveSettings merges f, $ORGTD_DIR (orgtdDirEnv), and cfg into the
-// final settings, in precedence order:
+// defineFlags registers every command-line flag on fs, bound to the
+// returned flagValues. Call recordExplicit after fs.Parse.
+func defineFlags(fs *flag.FlagSet) *flagValues {
+	f := &flagValues{explicit: map[string]bool{}}
+	fs.StringVar(&f.dir, "dir", "", "directory containing org files (default: $ORGTD_DIR, then the config file's org_dir, then ~/org)")
+	fs.StringVar(&f.urlFormatter, "url-formatter", "", "external program invoked as `<prog> <url>` to convert a bare URL, found while editing an entry, into an org-mode link (its stdout replaces the URL); disabled if empty (default: the config file's url_formatter, else disabled)")
+	fs.StringVar(&f.urlFormatterPrefixes, "url-formatter-prefixes", "", "comma-separated extra bare-URL prefixes beyond http:// and https://, e.g. \"bit.ly/,go/\" (default: the config file's url_formatter_prefixes, else none)")
+	fs.StringVar(&f.formatLinksURLFormatter, "format-links-url-formatter", "", "external program :format-links invokes in batch mode (no url argument; reads urls one per line from stdin, prints the same number of formatted lines to stdout) (default: the config file's format_links_url_formatter, else the same as -url-formatter)")
+	fs.IntVar(&f.agendaDays, "agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
+	fs.StringVar(&f.inboxFile, "inbox-file", "", "base name of the file :clarify treats as the inbox (default: the config file's inbox_file, else inbox.org)")
+	fs.StringVar(&f.calendarFile, "calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
+	fs.StringVar(&f.meetingTagsFile, "meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
+	fs.IntVar(&f.hideDoneAfterHours, "hide-done-after-hours", 0, "how many hours after a DONE/CANCELLED item's CLOSED timestamp it's hidden from the outline view; :toggledone shows everything again (default: the config file's hide_done_after_hours, else 24)")
+	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
+	fs.BoolVar(&f.debug, "debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
+	fs.StringVar(&f.configPath, "config", "", "path to the TOML config file (default: "+config.DefaultPath()+")")
+	return f
+}
+
+// recordExplicit notes which flags were actually passed on the command
+// line, after fs.Parse.
+func (f *flagValues) recordExplicit(fs *flag.FlagSet) {
+	fs.Visit(func(fl *flag.Flag) { f.explicit[fl.Name] = true })
+}
+
+// resolveConfig merges the command line (f), $ORGTD_DIR (orgtdDirEnv),
+// the config file (cfg) and the built-in defaults into the one fully
+// resolved Config the rest of the program uses, in precedence order:
 //
 //  1. An explicitly-passed flag always wins.
 //  2. For -dir specifically, $ORGTD_DIR comes next (it predates the
@@ -83,101 +62,57 @@ type flagValues struct {
 //     ad hoc, per-shell-session overrides, which should beat a
 //     persistent config file).
 //  3. The config file's value, if set.
-//  4. defaultOrgDir() for -dir; the flags' own zero-value defaults
-//     (disabled/14/"inbox.org"/"", meaning $EDITOR) for everything else.
+//  4. The built-in default (config.ApplyDefaults); defaultOrgDir() for
+//     the org directory.
 //
-// The gcal* fields (see settings, above) sit outside this precedence
-// entirely — there's no flag for them, so they're always just the config
-// file's [gcalsync] values, falling back to their own built-in defaults.
-func resolveSettings(f flagValues, orgtdDirEnv string, cfg *config.Config) settings {
-	s := settings{
-		dir:                     f.dir,
-		urlFormatter:            f.urlFormatter,
-		urlFormatterPrefixes:    f.urlFormatterPrefixes,
-		formatLinksURLFormatter: f.formatLinksURLFormatter,
-		agendaDays:              f.agendaDays,
-		inboxFile:               f.inboxFile,
-		calendarFile:            f.calendarFile,
-		meetingTagsFile:         f.meetingTagsFile,
-		hideDoneAfterHours:      f.hideDoneAfterHours,
-		editor:                  f.editor,
-		debug:                   f.debug,
-	}
+// The settings that have no flag (the gcalsync, icons and colors
+// sections) are simply the config file's, plus defaults. cfg itself is
+// not modified.
+func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.Config {
+	out := *cfg
 
 	switch {
 	case f.explicit["dir"]:
+		out.OrgDir = f.dir
 	case orgtdDirEnv != "":
-		s.dir = orgtdDirEnv
-	case cfg.OrgDir != "":
-		s.dir = cfg.OrgDir
-	default:
-		s.dir = defaultOrgDir()
+		out.OrgDir = orgtdDirEnv
+	case out.OrgDir == "":
+		out.OrgDir = defaultOrgDir()
 	}
 
-	if !f.explicit["url-formatter"] && cfg.URLFormatter != "" {
-		s.urlFormatter = cfg.URLFormatter
+	if f.explicit["url-formatter"] {
+		out.URLFormatter = f.urlFormatter
 	}
-	if !f.explicit["url-formatter-prefixes"] && len(cfg.URLFormatterPrefixes) > 0 {
-		s.urlFormatterPrefixes = cfg.URLFormatterPrefixes
+	if f.explicit["url-formatter-prefixes"] {
+		out.URLFormatterPrefixes = splitPrefixes(f.urlFormatterPrefixes)
 	}
-	if !f.explicit["format-links-url-formatter"] && cfg.FormatLinksURLFormatter != "" {
-		s.formatLinksURLFormatter = cfg.FormatLinksURLFormatter
+	if f.explicit["format-links-url-formatter"] {
+		out.FormatLinksURLFormatter = f.formatLinksURLFormatter
 	}
-	if !f.explicit["agenda-days"] && cfg.AgendaWindowDays != 0 {
-		s.agendaDays = cfg.AgendaWindowDays
+	if f.explicit["agenda-days"] {
+		out.AgendaWindowDays = f.agendaDays
 	}
-	if !f.explicit["inbox-file"] && cfg.InboxFile != "" {
-		s.inboxFile = cfg.InboxFile
+	if f.explicit["inbox-file"] {
+		out.InboxFile = f.inboxFile
 	}
-	if !f.explicit["calendar-file"] && cfg.CalendarFile != "" {
-		s.calendarFile = cfg.CalendarFile
+	if f.explicit["calendar-file"] {
+		out.CalendarFile = f.calendarFile
 	}
-	if !f.explicit["meeting-tags-file"] && cfg.MeetingTagsFile != "" {
-		s.meetingTagsFile = cfg.MeetingTagsFile
+	if f.explicit["meeting-tags-file"] {
+		out.MeetingTagsFile = f.meetingTagsFile
 	}
-	if !f.explicit["hide-done-after-hours"] && cfg.HideDoneAfterHours != 0 {
-		s.hideDoneAfterHours = cfg.HideDoneAfterHours
+	if f.explicit["hide-done-after-hours"] {
+		out.HideDoneAfterHours = f.hideDoneAfterHours
 	}
-	if !f.explicit["editor"] && cfg.Editor != "" {
-		s.editor = cfg.Editor
+	if f.explicit["editor"] {
+		out.Editor = f.editor
 	}
-	if !f.explicit["debug"] && cfg.Debug {
-		s.debug = true
+	if f.explicit["debug"] {
+		out.Debug = f.debug
 	}
 
-	s.gcalOAuthClientID = cfg.Gcalsync.OAuthClientID
-	s.gcalOAuthClientSecret = cfg.Gcalsync.OAuthClientSecret
-	if len(cfg.Gcalsync.CalendarIDs) > 0 {
-		s.gcalCalendarIDs = cfg.Gcalsync.CalendarIDs
-	} else {
-		s.gcalCalendarIDs = []string{"primary"}
-	}
-	if cfg.Gcalsync.SyncPastDays != 0 {
-		s.gcalSyncPastDays = cfg.Gcalsync.SyncPastDays
-	} else {
-		s.gcalSyncPastDays = 1
-	}
-	if cfg.Gcalsync.SyncFutureDays != 0 {
-		s.gcalSyncFutureDays = cfg.Gcalsync.SyncFutureDays
-	} else {
-		s.gcalSyncFutureDays = 14
-	}
-	s.gcalAttendeeTagDomains = cfg.Gcalsync.AttendeeTagDomains
-	s.gcalAttendeeIgnorePatterns = cfg.Gcalsync.AttendeeIgnorePatterns
-
-	s.iconDirtyIcon = cfg.Icons.DirtyIcon
-	s.iconDirtyColor = cfg.Icons.DirtyColor
-	s.iconMarkColor = cfg.Icons.MarkColor
-	s.iconClarifyIcon = cfg.Icons.ClarifyIcon
-	s.iconClarifyColor = cfg.Icons.ClarifyColor
-	s.iconLockIcon = cfg.Icons.LockIcon
-	s.iconLockColor = cfg.Icons.LockColor
-	s.iconMeetingIcon = cfg.Icons.MeetingIcon
-	s.iconMeetingColor = cfg.Icons.MeetingColor
-
-	s.colors = cfg.Colors
-
-	return s
+	out.ApplyDefaults()
+	return out
 }
 
 // defaultOrgDir is the last-resort fallback used when nothing more

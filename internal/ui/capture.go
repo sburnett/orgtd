@@ -154,7 +154,7 @@ func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 	}
 	f := m.findInboxFile()
 	if f == nil {
-		m.message = fmt.Sprintf("No %s file in this org directory", m.inboxFile)
+		m.message = fmt.Sprintf("No %s file in this org directory", m.cfg.InboxFile)
 		return nil, true
 	}
 	return m.insertHeadlineAt(f, nil, len(f.Headlines), 1, m.currentHeadline(), m.currentRowFile(), false, m.view != calendarView, &cand), true
@@ -191,7 +191,7 @@ func (m *Model) startCaptureAndPickMeeting() tea.Cmd {
 func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 	f := m.findInboxFile()
 	if f == nil {
-		m.message = fmt.Sprintf("No %s file in this org directory", m.inboxFile)
+		m.message = fmt.Sprintf("No %s file in this org directory", m.cfg.InboxFile)
 		return nil
 	}
 	// origin is the headline the cursor is currently on, if any, so

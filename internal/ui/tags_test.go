@@ -139,7 +139,7 @@ func TestTagsViewHidesStaleDoneEntriesWhenToggled(t *testing.T) {
 	})
 	m := New(ws)
 	m.hideDoneEnabled = true
-	m.hideDoneAfterHours = 24
+	m.cfg.HideDoneAfterHours = 24
 	m.switchToView(tagsView)
 
 	for _, r := range m.rows {

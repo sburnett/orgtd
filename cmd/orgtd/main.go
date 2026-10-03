@@ -1,7 +1,7 @@
 // Command orgtd is a terminal GTD workflow tool backed by org-mode files.
 // This package is wiring only: it resolves flags, $ORGTD_DIR and the config
-// file into settings (see settings.go), takes the directory lock, loads the
-// workspace, and hands everything to internal/ui. See DESIGN.md §3.
+// file into one config.Config (see settings.go), takes the directory lock,
+// loads the workspace, and hands everything to internal/ui. See DESIGN.md §3.
 package main
 
 import (
@@ -20,65 +20,40 @@ import (
 )
 
 func main() {
-	dir := flag.String("dir", "", "directory containing org files (default: $ORGTD_DIR, then the config file's org_dir, then ~/org)")
-	urlFormatter := flag.String("url-formatter", "", "external program invoked as `<prog> <url>` to convert a bare URL, found while editing an entry, into an org-mode link (its stdout replaces the URL); disabled if empty (default: the config file's url_formatter, else disabled)")
-	urlFormatterPrefixes := flag.String("url-formatter-prefixes", "", "comma-separated extra bare-URL prefixes beyond http:// and https://, e.g. \"bit.ly/,go/\" (default: the config file's url_formatter_prefixes, else none)")
-	formatLinksURLFormatter := flag.String("format-links-url-formatter", "", "external program :format-links invokes in batch mode (no url argument; reads urls one per line from stdin, prints the same number of formatted lines to stdout) (default: the config file's format_links_url_formatter, else the same as -url-formatter)")
-	agendaDays := flag.Int("agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
-	inboxFile := flag.String("inbox-file", "", "base name of the file :clarify treats as the inbox (default: the config file's inbox_file, else inbox.org)")
-	calendarFile := flag.String("calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
-	meetingTagsFile := flag.String("meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
-	hideDoneAfterHours := flag.Int("hide-done-after-hours", 0, "how many hours after a DONE/CANCELLED item's CLOSED timestamp it's hidden from the outline view; :toggledone shows everything again (default: the config file's hide_done_after_hours, else 24)")
-	editor := flag.String("editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
-	debug := flag.Bool("debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
-	configPath := flag.String("config", "", "path to the TOML config file (default: "+config.DefaultPath()+")")
+	flags := defineFlags(flag.CommandLine)
 	flag.Parse()
+	flags.recordExplicit(flag.CommandLine)
 
-	explicit := make(map[string]bool)
-	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
-
-	path := *configPath
+	path := flags.configPath
 	if path == "" {
 		path = config.DefaultPath()
 	}
-	cfg, err := config.Load(path)
+	fileCfg, err := config.Load(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)
 	}
-
-	s := resolveSettings(flagValues{
-		dir:                     *dir,
-		urlFormatter:            *urlFormatter,
-		urlFormatterPrefixes:    splitPrefixes(*urlFormatterPrefixes),
-		formatLinksURLFormatter: *formatLinksURLFormatter,
-		agendaDays:              *agendaDays,
-		inboxFile:               *inboxFile,
-		calendarFile:            *calendarFile,
-		meetingTagsFile:         *meetingTagsFile,
-		hideDoneAfterHours:      *hideDoneAfterHours,
-		editor:                  *editor,
-		debug:                   *debug,
-		explicit:                explicit,
-	}, os.Getenv("ORGTD_DIR"), cfg)
+	cfg := resolveConfig(*flags, os.Getenv("ORGTD_DIR"), fileCfg)
 
 	// The TUI owns the terminal once it starts, so plain log output
 	// can't share it — redirect to a file instead of leaving it on
-	// stderr. Off entirely unless debug logging is on (see settings.debug):
+	// stderr. Off entirely unless debug logging is on (see Config.Debug):
 	// most runs have nothing worth logging, and the file would otherwise
 	// grow forever with no way to know it's there. Discarding (rather
 	// than falling back to stderr) if the file can't be opened keeps the
 	// "never touches the TUI's terminal" guarantee even then, at the cost
 	// of losing the log entirely in that rare case.
-	if s.debug {
+	if cfg.Debug {
 		if logFile, err := os.OpenFile(debugLogPath(path), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 			defer logFile.Close()
 			log.SetOutput(logFile)
 		} else {
 			log.SetOutput(io.Discard)
 		}
+		// Deliberately not the whole config: it holds the Google OAuth
+		// client secret.
 		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q hide_done_after_hours=%d",
-			s.dir, s.editor, s.urlFormatter, s.urlFormatterPrefixes, s.formatLinksURLFormatter, s.agendaDays, s.inboxFile, s.calendarFile, s.meetingTagsFile, s.hideDoneAfterHours)
+			cfg.OrgDir, cfg.Editor, cfg.URLFormatter, cfg.URLFormatterPrefixes, cfg.FormatLinksURLFormatter, cfg.AgendaWindowDays, cfg.InboxFile, cfg.CalendarFile, cfg.MeetingTagsFile, cfg.HideDoneAfterHours)
 	} else {
 		log.SetOutput(io.Discard)
 	}
@@ -89,50 +64,24 @@ func main() {
 	// automatically by the OS on exit either way, crash included, so
 	// there's no cleanup to defer for correctness; the explicit Release
 	// just gives it up a little sooner than process exit would.
-	lock, ok, err := workspace.AcquireLock(s.dir)
+	lock, ok, err := workspace.AcquireLock(cfg.OrgDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)
 	}
 	if !ok {
-		fmt.Fprintf(os.Stderr, "orgtd: another orgtd instance already has %s open\n", s.dir)
+		fmt.Fprintf(os.Stderr, "orgtd: another orgtd instance already has %s open\n", cfg.OrgDir)
 		os.Exit(1)
 	}
 	defer lock.Release()
 
-	ws, err := workspace.Load(s.dir)
+	ws, err := workspace.Load(cfg.OrgDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(
-		ui.New(ws,
-			ui.WithURLFormatter(s.urlFormatter),
-			ui.WithURLFormatterPrefixes(s.urlFormatterPrefixes),
-			ui.WithFormatLinksURLFormatter(s.formatLinksURLFormatter),
-			ui.WithAgendaDays(s.agendaDays),
-			ui.WithInboxFile(s.inboxFile),
-			ui.WithCalendarFile(s.calendarFile),
-			ui.WithMeetingTagsFile(s.meetingTagsFile),
-			ui.WithHideDoneAfterHours(s.hideDoneAfterHours),
-			ui.WithEditor(s.editor),
-			ui.WithDebug(s.debug),
-			ui.WithReadme(orgtd.Readme),
-			ui.WithGcalOAuthClient(s.gcalOAuthClientID, s.gcalOAuthClientSecret),
-			ui.WithGcalCalendarIDs(s.gcalCalendarIDs),
-			ui.WithGcalSyncWindow(s.gcalSyncPastDays, s.gcalSyncFutureDays),
-			ui.WithGcalAttendeeTagDomains(s.gcalAttendeeTagDomains),
-			ui.WithGcalAttendeeIgnorePatterns(s.gcalAttendeeIgnorePatterns),
-			ui.WithDirtyIcon(s.iconDirtyIcon, s.iconDirtyColor),
-			ui.WithMarkColor(s.iconMarkColor),
-			ui.WithClarifyIcon(s.iconClarifyIcon, s.iconClarifyColor),
-			ui.WithLockIcon(s.iconLockIcon, s.iconLockColor),
-			ui.WithMeetingIcon(s.iconMeetingIcon, s.iconMeetingColor),
-			ui.WithColors(ui.ColorOverrides(s.colors)),
-		),
-		tea.WithAltScreen(),
-	)
+	p := tea.NewProgram(ui.New(ws, ui.WithConfig(cfg), ui.WithReadme(orgtd.Readme)), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)

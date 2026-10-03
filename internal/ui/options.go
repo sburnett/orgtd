@@ -1,7 +1,23 @@
 package ui
 
+import "github.com/sburnett/orgtd/internal/config"
+
 // Option customizes a Model at construction time. See New.
 type Option func(*Model)
+
+// WithConfig installs a fully resolved set of settings — what cmd/orgtd
+// builds from flags, the config file and the built-in defaults (see
+// internal/config) — in one step, replacing the defaults New starts with.
+// It also turns on hiding of stale DONE/CANCELLED items, as running the
+// real program always does. The other With... options below override
+// individual settings on top of New's defaults, which is mostly what
+// tests want.
+func WithConfig(cfg config.Config) Option {
+	return func(m *Model) {
+		m.cfg = cfg
+		m.hideDoneEnabled = true
+	}
+}
 
 // WithURLFormatter enables passing bare URLs, found in text edited via the
 // external editor, through cmd — an external program invoked as
@@ -10,7 +26,7 @@ type Option func(*Model)
 // org-mode link are left alone. A blank cmd disables the feature (the
 // default).
 func WithURLFormatter(cmd string) Option {
-	return func(m *Model) { m.urlFormatterCmd = cmd }
+	return func(m *Model) { m.cfg.URLFormatter = cmd }
 }
 
 // WithFormatLinksURLFormatter sets the external program :format-links
@@ -20,7 +36,7 @@ func WithURLFormatter(cmd string) Option {
 // blank cmd (the default) means :format-links uses urlFormatterCmd
 // instead, same as everything else — see formatLinksFormatterCmd.
 func WithFormatLinksURLFormatter(cmd string) Option {
-	return func(m *Model) { m.formatLinksURLFormatterCmd = cmd }
+	return func(m *Model) { m.cfg.FormatLinksURLFormatter = cmd }
 }
 
 // WithURLFormatterPrefixes adds extra bare-URL prefixes formatURLs
@@ -31,14 +47,14 @@ func WithFormatLinksURLFormatter(cmd string) Option {
 // unless WithURLFormatter is also set, since there'd be nothing to
 // format a bare URL into otherwise.
 func WithURLFormatterPrefixes(prefixes []string) Option {
-	return func(m *Model) { m.urlFormatterPrefixes = prefixes }
+	return func(m *Model) { m.cfg.URLFormatterPrefixes = prefixes }
 }
 
 // WithEditor overrides $EDITOR as the external editor orgtd launches for
 // `i` and file edits (see editorCommand). cmd == "" leaves $EDITOR as the
 // source (the default).
 func WithEditor(cmd string) Option {
-	return func(m *Model) { m.editorOverride = cmd }
+	return func(m *Model) { m.cfg.Editor = cmd }
 }
 
 // WithAgendaDays sets how many days ahead of today the agenda view's
@@ -46,7 +62,7 @@ func WithEditor(cmd string) Option {
 func WithAgendaDays(days int) Option {
 	return func(m *Model) {
 		if days > 0 {
-			m.agendaDays = days
+			m.cfg.AgendaWindowDays = days
 		}
 	}
 }
@@ -57,7 +73,7 @@ func WithAgendaDays(days int) Option {
 func WithInboxFile(name string) Option {
 	return func(m *Model) {
 		if name != "" {
-			m.inboxFile = name
+			m.cfg.InboxFile = name
 		}
 	}
 }
@@ -69,20 +85,7 @@ func WithInboxFile(name string) Option {
 func WithCalendarFile(name string) Option {
 	return func(m *Model) {
 		if name != "" {
-			m.calendarFile = name
-		}
-	}
-}
-
-// WithMeetingTagsFile sets the base file name excluded from the outline
-// view and shown instead (as an editable outline of its own) in
-// meetingTagsView — the file "gt" on a calendar entry writes durable
-// meeting-tag records to (e.g. "meeting-tags.org", the default). name ==
-// "" is treated as the default.
-func WithMeetingTagsFile(name string) Option {
-	return func(m *Model) {
-		if name != "" {
-			m.meetingTagsFile = name
+			m.cfg.CalendarFile = name
 		}
 	}
 }
@@ -100,7 +103,7 @@ func WithMeetingTagsFile(name string) Option {
 func WithHideDoneAfterHours(hours int) Option {
 	return func(m *Model) {
 		if hours > 0 {
-			m.hideDoneAfterHours = hours
+			m.cfg.HideDoneAfterHours = hours
 		}
 		m.hideDoneEnabled = true
 	}
@@ -111,7 +114,7 @@ func WithHideDoneAfterHours(hours int) Option {
 // this for anything else, since logging itself is set up once, globally,
 // before the Model even exists (see main.go).
 func WithDebug(enabled bool) Option {
-	return func(m *Model) { m.debug = enabled }
+	return func(m *Model) { m.cfg.Debug = enabled }
 }
 
 // WithReadme supplies README.md's content for :help to show — the UI
@@ -127,22 +130,9 @@ func WithReadme(text string) Option {
 // :sync-calendar authenticates with. Either being empty (the default)
 // means :sync-calendar isn't configured — see startSyncCalendar.
 func WithGcalOAuthClient(clientID, clientSecret string) Option {
-	return func(m *Model) { m.gcalOAuthClientID, m.gcalOAuthClientSecret = clientID, clientSecret }
-}
-
-// WithGcalCalendarIDs sets which Google Calendar IDs :sync-calendar
-// syncs, e.g. "primary" or an email address for a secondary/shared
-// calendar. Default (if this option is never applied): ["primary"] —
-// see New.
-func WithGcalCalendarIDs(ids []string) Option {
-	return func(m *Model) { m.gcalCalendarIDs = ids }
-}
-
-// WithGcalSyncWindow sets how many days into the past/future
-// :sync-calendar's sync window extends around now. Defaults (if this
-// option is never applied): 1/14 — see New.
-func WithGcalSyncWindow(pastDays, futureDays int) Option {
-	return func(m *Model) { m.gcalSyncPastDays, m.gcalSyncFutureDays = pastDays, futureDays }
+	return func(m *Model) {
+		m.cfg.Gcalsync.OAuthClientID, m.cfg.Gcalsync.OAuthClientSecret = clientID, clientSecret
+	}
 }
 
 // WithGcalAttendeeTagDomains restricts the "@username" attendee tags
@@ -151,19 +141,7 @@ func WithGcalSyncWindow(pastDays, futureDays int) Option {
 // (if this option is never applied, or domains is empty): no
 // restriction — every confirmed attendee is tagged.
 func WithGcalAttendeeTagDomains(domains []string) Option {
-	return func(m *Model) { m.gcalAttendeeTagDomains = domains }
-}
-
-// WithGcalAttendeeIgnorePatterns excludes any attendee whose email
-// matches one of patterns — each a filepath.Match-style glob ("*"
-// matches any run of characters, "?" a single one), compared
-// case-insensitively against the whole address — from consideration
-// entirely, before WithGcalAttendeeTagDomains is even checked, e.g.
-// ["c_*@*"] to drop the synthetic "c_...@..." attendees Google Calendar
-// attaches to represent a resource/room booking. Default (if this
-// option is never applied, or patterns is empty): no exclusions.
-func WithGcalAttendeeIgnorePatterns(patterns []string) Option {
-	return func(m *Model) { m.gcalAttendeeIgnorePatterns = patterns }
+	return func(m *Model) { m.cfg.Gcalsync.AttendeeTagDomains = domains }
 }
 
 // WithDirtyIcon sets the character and color of the gutter marker shown
@@ -173,10 +151,10 @@ func WithGcalAttendeeIgnorePatterns(patterns []string) Option {
 func WithDirtyIcon(icon, color string) Option {
 	return func(m *Model) {
 		if icon != "" {
-			m.dirtyIcon = icon
+			m.cfg.Icons.DirtyIcon = icon
 		}
 		if color != "" {
-			m.dirtyColor = color
+			m.cfg.Icons.DirtyColor = color
 		}
 	}
 }
@@ -188,7 +166,7 @@ func WithDirtyIcon(icon, color string) Option {
 func WithMarkColor(color string) Option {
 	return func(m *Model) {
 		if color != "" {
-			m.markColor = color
+			m.cfg.Icons.MarkColor = color
 		}
 	}
 }
@@ -200,10 +178,10 @@ func WithMarkColor(color string) Option {
 func WithClarifyIcon(icon, color string) Option {
 	return func(m *Model) {
 		if icon != "" {
-			m.clarifyIcon = icon
+			m.cfg.Icons.ClarifyIcon = icon
 		}
 		if color != "" {
-			m.clarifyColor = color
+			m.cfg.Icons.ClarifyColor = color
 		}
 	}
 }
@@ -215,10 +193,10 @@ func WithClarifyIcon(icon, color string) Option {
 func WithLockIcon(icon, color string) Option {
 	return func(m *Model) {
 		if icon != "" {
-			m.lockIcon = icon
+			m.cfg.Icons.LockIcon = icon
 		}
 		if color != "" {
-			m.lockColor = color
+			m.cfg.Icons.LockColor = color
 		}
 	}
 }
@@ -229,10 +207,10 @@ func WithLockIcon(icon, color string) Option {
 func WithMeetingIcon(icon, color string) Option {
 	return func(m *Model) {
 		if icon != "" {
-			m.meetingIcon = icon
+			m.cfg.Icons.MeetingIcon = icon
 		}
 		if color != "" {
-			m.meetingColor = color
+			m.cfg.Icons.MeetingColor = color
 		}
 	}
 }

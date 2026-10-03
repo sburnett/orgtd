@@ -86,74 +86,74 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	}
 	line("Editor: %s", editor)
 
-	if m.urlFormatterCmd == "" {
+	if m.cfg.URLFormatter == "" {
 		line("URL formatter: (disabled)")
 	} else {
-		line("URL formatter: %s", m.urlFormatterCmd)
+		line("URL formatter: %s", m.cfg.URLFormatter)
 	}
 	prefixes := "(none)"
-	if len(m.urlFormatterPrefixes) > 0 {
-		prefixes = strings.Join(m.urlFormatterPrefixes, ", ")
+	if len(m.cfg.URLFormatterPrefixes) > 0 {
+		prefixes = strings.Join(m.cfg.URLFormatterPrefixes, ", ")
 	}
 	line("URL formatter prefixes: %s", prefixes)
 
 	if formatLinksCmd := m.formatLinksFormatterCmd(); formatLinksCmd == "" {
 		line("Format-links URL formatter: (disabled)")
-	} else if m.formatLinksURLFormatterCmd != "" {
+	} else if m.cfg.FormatLinksURLFormatter != "" {
 		line("Format-links URL formatter: %s", formatLinksCmd)
 	} else {
 		line("Format-links URL formatter: %s (same as URL formatter)", formatLinksCmd)
 	}
 
-	line("Agenda window: %d days", m.agendaDays)
-	line("Inbox file: %s", m.inboxFile)
-	line("Calendar file: %s", m.calendarFile)
-	line("Meeting tags file: %s", m.meetingTagsFile)
-	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.hideDoneAfterHours, onOff(m.hideDoneEnabled))
-	line("Debug logging: %s", onOff(m.debug))
+	line("Agenda window: %d days", m.cfg.AgendaWindowDays)
+	line("Inbox file: %s", m.cfg.InboxFile)
+	line("Calendar file: %s", m.cfg.CalendarFile)
+	line("Meeting tags file: %s", m.cfg.MeetingTagsFile)
+	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.cfg.HideDoneAfterHours, onOff(m.hideDoneEnabled))
+	line("Debug logging: %s", onOff(m.cfg.Debug))
 
-	if m.gcalOAuthClientID == "" || m.gcalOAuthClientSecret == "" {
+	if m.cfg.Gcalsync.OAuthClientID == "" || m.cfg.Gcalsync.OAuthClientSecret == "" {
 		line("Calendar sync: (not configured — see README's Calendar sync section)")
 	} else {
-		line("Calendar sync: %s, -%dd/+%dd window", strings.Join(m.gcalCalendarIDs, ", "), m.gcalSyncPastDays, m.gcalSyncFutureDays)
-		if len(m.gcalAttendeeTagDomains) > 0 {
-			line("Attendee tag domains: %s", strings.Join(m.gcalAttendeeTagDomains, ", "))
+		line("Calendar sync: %s, -%dd/+%dd window", strings.Join(m.cfg.Gcalsync.CalendarIDs, ", "), m.cfg.Gcalsync.SyncPastDays, m.cfg.Gcalsync.SyncFutureDays)
+		if len(m.cfg.Gcalsync.AttendeeTagDomains) > 0 {
+			line("Attendee tag domains: %s", strings.Join(m.cfg.Gcalsync.AttendeeTagDomains, ", "))
 		} else {
 			line("Attendee tag domains: (none — every confirmed attendee is tagged)")
 		}
-		if len(m.gcalAttendeeIgnorePatterns) > 0 {
-			line("Attendee ignore patterns: %s", strings.Join(m.gcalAttendeeIgnorePatterns, ", "))
+		if len(m.cfg.Gcalsync.AttendeeIgnorePatterns) > 0 {
+			line("Attendee ignore patterns: %s", strings.Join(m.cfg.Gcalsync.AttendeeIgnorePatterns, ", "))
 		}
 	}
 
 	line("Gutter icons: dirty %q (%s), mark (%s), clarify %q (%s), lock %q (%s), meeting %q (%s)",
-		orDefault(m.dirtyIcon, defaultDirtyIcon), orDefault(m.dirtyColor, defaultDirtyColor),
-		orDefault(m.markColor, defaultMarkColor),
-		orDefault(m.clarifyIcon, defaultClarifyIcon), orDefault(m.clarifyColor, defaultClarifyColor),
-		orDefault(m.lockIcon, defaultLockIcon), orDefault(m.lockColor, defaultLockColor),
-		orDefault(m.meetingIcon, defaultMeetingIcon), orDefault(m.meetingColor, defaultMeetingColor))
+		orDefault(m.cfg.Icons.DirtyIcon, defaultDirtyIcon), orDefault(m.cfg.Icons.DirtyColor, defaultDirtyColor),
+		orDefault(m.cfg.Icons.MarkColor, defaultMarkColor),
+		orDefault(m.cfg.Icons.ClarifyIcon, defaultClarifyIcon), orDefault(m.cfg.Icons.ClarifyColor, defaultClarifyColor),
+		orDefault(m.cfg.Icons.LockIcon, defaultLockIcon), orDefault(m.cfg.Icons.LockColor, defaultLockColor),
+		orDefault(m.cfg.Icons.MeetingIcon, defaultMeetingIcon), orDefault(m.cfg.Icons.MeetingColor, defaultMeetingColor))
 
 	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), status-bar (%s on %s), cursor-row (%s), visual-selection (%s), search-highlight (%s)",
-		orDefault(m.colors.File, defaultFileColor),
-		orDefault(m.colors.TODO, defaultTODOColor),
-		orDefault(m.colors.Next, defaultNextColor),
-		orDefault(m.colors.Waiting, defaultWaitingColor),
-		orDefault(m.colors.Someday, defaultSomedayColor),
-		orDefault(m.colors.Done, defaultDoneColor),
-		orDefault(m.colors.Cancelled, defaultCancelledColor),
-		orDefault(m.colors.Tag, defaultTagColor),
-		orDefault(m.colors.DoneTitle, defaultDoneTitleColor),
-		orDefault(m.colors.Status, defaultStatusColor),
-		orDefault(m.colors.Timestamp, defaultTimestampColor),
-		orDefault(m.colors.Error, defaultErrorColor),
-		orDefault(m.colors.Body, defaultBodyColor),
-		orDefault(m.colors.CaretFg, defaultCaretFg), orDefault(m.colors.CaretBg, defaultCaretBg),
-		orDefault(m.colors.HighlightBg, defaultHighlightBg),
-		orDefault(m.colors.PanelBg, defaultPanelBg),
-		orDefault(m.colors.StatusBarFg, defaultStatusBarFg), orDefault(m.colors.StatusBarBg, defaultStatusBarBg),
-		orDefault(m.colors.CursorRowBg, defaultCursorRowBg),
-		orDefault(m.colors.VisualSelectionBg, defaultVisualSelectionBg),
-		orDefault(m.colors.SearchHighlightBg, defaultSearchHighlightBg))
+		orDefault(m.cfg.Colors.File, defaultFileColor),
+		orDefault(m.cfg.Colors.TODO, defaultTODOColor),
+		orDefault(m.cfg.Colors.Next, defaultNextColor),
+		orDefault(m.cfg.Colors.Waiting, defaultWaitingColor),
+		orDefault(m.cfg.Colors.Someday, defaultSomedayColor),
+		orDefault(m.cfg.Colors.Done, defaultDoneColor),
+		orDefault(m.cfg.Colors.Cancelled, defaultCancelledColor),
+		orDefault(m.cfg.Colors.Tag, defaultTagColor),
+		orDefault(m.cfg.Colors.DoneTitle, defaultDoneTitleColor),
+		orDefault(m.cfg.Colors.Status, defaultStatusColor),
+		orDefault(m.cfg.Colors.Timestamp, defaultTimestampColor),
+		orDefault(m.cfg.Colors.Error, defaultErrorColor),
+		orDefault(m.cfg.Colors.Body, defaultBodyColor),
+		orDefault(m.cfg.Colors.CaretFg, defaultCaretFg), orDefault(m.cfg.Colors.CaretBg, defaultCaretBg),
+		orDefault(m.cfg.Colors.HighlightBg, defaultHighlightBg),
+		orDefault(m.cfg.Colors.PanelBg, defaultPanelBg),
+		orDefault(m.cfg.Colors.StatusBarFg, defaultStatusBarFg), orDefault(m.cfg.Colors.StatusBarBg, defaultStatusBarBg),
+		orDefault(m.cfg.Colors.CursorRowBg, defaultCursorRowBg),
+		orDefault(m.cfg.Colors.VisualSelectionBg, defaultVisualSelectionBg),
+		orDefault(m.cfg.Colors.SearchHighlightBg, defaultSearchHighlightBg))
 }
 
 // appendLogRows appends the rows for :log — every external command

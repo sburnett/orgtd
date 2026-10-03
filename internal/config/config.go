@@ -14,9 +14,13 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// Config is the config file's contents. Every field mirrors a
-// command-line flag of the same purpose; an explicitly-passed flag
-// always overrides the corresponding config value (see cmd/orgtd/main.go).
+// Config is the config file's contents, and also the shape of orgtd's
+// fully resolved settings: cmd/orgtd overlays command-line flags and
+// $ORGTD_DIR onto a loaded Config and applies the built-in defaults (see
+// ApplyDefaults), and the result is what internal/ui runs on. Most
+// top-level fields mirror a command-line flag of the same purpose; an
+// explicitly-passed flag always overrides the config value (see
+// cmd/orgtd/settings.go).
 type Config struct {
 	OrgDir           string `toml:"org_dir"`
 	Editor           string `toml:"editor"`
@@ -81,7 +85,7 @@ type Config struct {
 	Icons IconsConfig `toml:"icons"`
 
 	// Colors customizes the rest of orgtd's built-in color scheme (see
-	// internal/ui's ColorOverrides) — every keyword/tag/timestamp color,
+	// internal/ui's m.cfg.Colors) — every keyword/tag/timestamp color,
 	// the info buffer panel, the status bar, the current-row and
 	// visual-selection highlights, and search highlighting. Kept under
 	// its own section, like Icons, since it's an optional block of
@@ -248,6 +252,58 @@ type GcalsyncConfig struct {
 	// attendees Google Calendar attaches to represent a resource/room
 	// booking. Empty (the default) means no exclusions.
 	AttendeeIgnorePatterns []string `toml:"attendee_ignore_patterns"`
+}
+
+// Default returns a Config with every setting that has a built-in default
+// set to it, and everything else zero. It is the single source of those
+// defaults: ui.New starts from it, and ApplyDefaults fills from it.
+func Default() Config {
+	return Config{
+		AgendaWindowDays:   14,
+		InboxFile:          "inbox.org",
+		CalendarFile:       "calendar.org",
+		MeetingTagsFile:    "meeting-tags.org",
+		HideDoneAfterHours: 24,
+		Gcalsync: GcalsyncConfig{
+			CalendarIDs:    []string{"primary"},
+			SyncPastDays:   1,
+			SyncFutureDays: 14,
+		},
+	}
+}
+
+// ApplyDefaults replaces every unset setting that has a built-in default
+// (see Default) with it, in place: a zero string, a non-positive agenda
+// window or hide-done delay, an empty calendar-ID list, or a zero sync
+// window. Zero is how this package says "not set" (see Load), so a
+// settings value that's gone through flag/config merging only needs this
+// once at the end to be fully resolved.
+func (c *Config) ApplyDefaults() {
+	d := Default()
+	if c.AgendaWindowDays <= 0 {
+		c.AgendaWindowDays = d.AgendaWindowDays
+	}
+	if c.InboxFile == "" {
+		c.InboxFile = d.InboxFile
+	}
+	if c.CalendarFile == "" {
+		c.CalendarFile = d.CalendarFile
+	}
+	if c.MeetingTagsFile == "" {
+		c.MeetingTagsFile = d.MeetingTagsFile
+	}
+	if c.HideDoneAfterHours <= 0 {
+		c.HideDoneAfterHours = d.HideDoneAfterHours
+	}
+	if len(c.Gcalsync.CalendarIDs) == 0 {
+		c.Gcalsync.CalendarIDs = d.Gcalsync.CalendarIDs
+	}
+	if c.Gcalsync.SyncPastDays == 0 {
+		c.Gcalsync.SyncPastDays = d.Gcalsync.SyncPastDays
+	}
+	if c.Gcalsync.SyncFutureDays == 0 {
+		c.Gcalsync.SyncFutureDays = d.Gcalsync.SyncFutureDays
+	}
 }
 
 // DefaultPath returns the config file location orgtd reads unless

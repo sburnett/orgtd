@@ -46,12 +46,12 @@ type formatLinksTarget struct {
 // rewritten yet would just queue the same URLs a second time.
 func (m *Model) collectFormatLinksTargets() ([]*formatLinksTarget, []string) {
 	if m.bareURLRe == nil {
-		m.bareURLRe = extprog.BareURLRegexp(m.urlFormatterPrefixes)
+		m.bareURLRe = extprog.BareURLRegexp(m.cfg.URLFormatterPrefixes)
 	}
 	var targets []*formatLinksTarget
 	var urls []string
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.calendarFile {
+		if filepath.Base(f.Path) == m.cfg.CalendarFile {
 			continue
 		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
@@ -94,10 +94,10 @@ type formatLinksMsg struct {
 // used for live in-editor formatting, so configuring only url_formatter
 // (as before this option existed) still works for :format-links too.
 func (m *Model) formatLinksFormatterCmd() string {
-	if m.formatLinksURLFormatterCmd != "" {
-		return m.formatLinksURLFormatterCmd
+	if m.cfg.FormatLinksURLFormatter != "" {
+		return m.cfg.FormatLinksURLFormatter
 	}
-	return m.urlFormatterCmd
+	return m.cfg.URLFormatter
 }
 
 // startFormatLinks (":format-links") locks every entry with an

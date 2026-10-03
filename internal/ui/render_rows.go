@@ -57,14 +57,14 @@ func (m Model) renderTitleForDisplay(title string, base lipgloss.Style, query st
 // gutter renders the leftmost column of a row: a single-character dirty
 // marker, always present (blank when clean) so every row lines up the
 // same way vim's line-number column does, regardless of indentation. Its
-// character and color come from m.dirtyIcon/dirtyColor (default "+",
+// character and color come from m.cfg.Icons.DirtyIcon/dirtyColor (default "+",
 // "9"; see WithDirtyIcon and the config file's [icons] section). bg is
 // the background it's rendered with — lipgloss.NoColor{} normally, or
 // the cursor row's highlight (see renderRowWithBg).
 func (m Model) gutter(dirty bool, bg lipgloss.TerminalColor) string {
 	if dirty {
-		icon := orDefault(m.dirtyIcon, defaultDirtyIcon)
-		color := orDefault(m.dirtyColor, defaultDirtyColor)
+		icon := orDefault(m.cfg.Icons.DirtyIcon, defaultDirtyIcon)
+		color := orDefault(m.cfg.Icons.DirtyColor, defaultDirtyColor)
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	return bgSpan(bg, " ")
@@ -74,20 +74,20 @@ func (m Model) gutter(dirty bool, bg lipgloss.TerminalColor) string {
 // or agenda view alike — a column of its own, separate from gutter's
 // dirty marker, so a row that's both marked (or the clarify target) and
 // dirty shows both indicators at once instead of one hiding the other:
-// the clarify target's marker (clarify view only, m.clarifyIcon/
+// the clarify target's marker (clarify view only, m.cfg.Icons.ClarifyIcon/
 // clarifyColor — default "●", "212") takes priority over a mark's
-// letter (m.markColor — default "212"; there's no configurable icon for
+// letter (m.cfg.Icons.MarkColor — default "212"; there's no configurable icon for
 // a mark, since its glyph is always the letter it was set with), since a
 // row can't be both; blank if neither applies. bg is the background it's
 // rendered with (see gutter).
 func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	if m.view == clarifyView && h == m.clarifyTarget {
-		icon := orDefault(m.clarifyIcon, defaultClarifyIcon)
-		color := orDefault(m.clarifyColor, defaultClarifyColor)
+		icon := orDefault(m.cfg.Icons.ClarifyIcon, defaultClarifyIcon)
+		color := orDefault(m.cfg.Icons.ClarifyColor, defaultClarifyColor)
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	if letter, ok := m.markLetterFor(h); ok {
-		color := orDefault(m.markColor, defaultMarkColor)
+		color := orDefault(m.cfg.Icons.MarkColor, defaultMarkColor)
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(string(letter))
 	}
 	return bgSpan(bg, " ")
@@ -96,14 +96,14 @@ func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 // lockColumn is a headline row's :format-links gutter column — a column
 // of its own (see gutter, markColumn), so it shows up alongside the
 // dirty marker and any mark/clarify pin rather than hiding them. Its
-// character and color come from m.lockIcon/lockColor (default "◆", the
+// character and color come from m.cfg.Icons.LockIcon/lockColor (default "◆", the
 // U+25C6 BLACK DIAMOND, "208"; see WithLockIcon and the config file's
 // [icons] section) while h is locked (see m.immutable), blank otherwise.
 // bg is the background it's rendered with (see gutter).
 func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	if m.immutable[h] {
-		icon := orDefault(m.lockIcon, defaultLockIcon)
-		color := orDefault(m.lockColor, defaultLockColor)
+		icon := orDefault(m.cfg.Icons.LockIcon, defaultLockIcon)
+		color := orDefault(m.cfg.Icons.LockColor, defaultLockColor)
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	return bgSpan(bg, " ")
@@ -112,7 +112,7 @@ func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 // meetingColumn is a headline row's "linked to a meeting" gutter
 // column — a column of its own (see gutter, markColumn, lockColumn),
 // so it shows up alongside any of those rather than hiding them. Its
-// character and color come from m.meetingIcon/meetingColor (default
+// character and color come from m.cfg.Icons.MeetingIcon/meetingColor (default
 // "▣", the U+25A3 WHITE SQUARE CONTAINING BLACK SMALL SQUARE, "39"; see
 // WithMeetingIcon and the config file's [icons] section) while h is
 // linked to a recurring series or a one-off event, either explicitly —
@@ -131,8 +131,8 @@ func (m Model) meetingColumn(h *org.Headline, bg lipgloss.TerminalColor) string 
 		linked = len(m.meetingIndex().TagLinked(h, time.Now())) > 0
 	}
 	if linked {
-		icon := orDefault(m.meetingIcon, defaultMeetingIcon)
-		color := orDefault(m.meetingColor, defaultMeetingColor)
+		icon := orDefault(m.cfg.Icons.MeetingIcon, defaultMeetingIcon)
+		color := orDefault(m.cfg.Icons.MeetingColor, defaultMeetingColor)
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	return bgSpan(bg, " ")

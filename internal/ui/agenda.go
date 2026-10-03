@@ -91,7 +91,7 @@ func (m *Model) nextActionHeadlines() []*org.Headline {
 // have no date to sort by.
 func (m *Model) appendAgendaRows(dst *[]row) {
 	today := orgdate.TruncateToDate(time.Now())
-	entries := m.agendaEntries(today, m.agendaDays)
+	entries := m.agendaEntries(today, m.cfg.AgendaWindowDays)
 
 	bySection := make(map[string][]agendaEntry, len(agendaSections))
 	for _, e := range entries {

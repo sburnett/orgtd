@@ -110,7 +110,7 @@ func init() {
 			label:   "agenda",
 			build:   flat((*Model).appendAgendaRows),
 			empty: func(m *Model) string {
-				return fmt.Sprintf("Nothing due in the next %d days. :outline to go back.", m.agendaDays)
+				return fmt.Sprintf("Nothing due in the next %d days. :outline to go back.", m.cfg.AgendaWindowDays)
 			},
 			enter: (*Model).jumpToSource,
 		},
@@ -200,7 +200,7 @@ func (m *Model) openView(k viewKind) {
 // by search's fully expanded copy of either (ignoreFold).
 func (m *Model) appendOutlineRows(dst *[]row, ignoreFold bool) {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
+		if filepath.Base(f.Path) == m.cfg.CalendarFile || filepath.Base(f.Path) == m.cfg.MeetingTagsFile {
 			continue
 		}
 		*dst = append(*dst, row{kind: rowFile, file: f})

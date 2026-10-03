@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -17,11 +18,11 @@ import (
 // dark theme is the whole point, these are plain (non-adaptive) colors
 // rather than light/dark pairs — they always render as wildcharm-dark by
 // default, regardless of the terminal's own background, unless
-// overridden (see ColorOverrides/WithColors and the config file's
+// overridden (see config.ColorsConfig/WithColors and the config file's
 // "[colors]" section, README.md).
 //
 // Every one of these is a Model method rather than a package-level
-// value, resolving m.colors' matching field (falling back to the
+// value, resolving m.cfg.Colors' matching field (falling back to the
 // default* constant below when unset — see orDefault) fresh on each
 // call, so a Model built with WithColors renders with its own overrides
 // while a zero-value Model (as most tests construct directly) still gets
@@ -109,40 +110,17 @@ const (
 // shortcut ("[t]").
 var shortcutStyle = lipgloss.NewStyle().Bold(true)
 
-// ColorOverrides customizes every configurable color in orgtd's built-in
-// scheme (see WithColors and the fields' matching Model-method
-// resolvers, e.g. fileStyle/cursorBg/overlayBg below) beyond the gutter
-// markers WithDirtyIcon and its siblings already cover. Every field is a
-// color string (an ANSI code "0"-"255" or a hex RGB string) — an empty
-// one leaves that color at its built-in wildcharm-dark default. Mirrors
-// internal/config's ColorsConfig field-for-field (see cmd/orgtd/main.go,
-// which converts one directly to the other), but defined here too so the
-// ui package doesn't have to import internal/config just for this type.
-type ColorOverrides struct {
-	File                                          string
-	TODO, Next, Waiting, Someday, Done, Cancelled string
-	Tag, DoneTitle, Status, Timestamp, Error      string
-	Body                                          string
-	CaretFg, CaretBg                              string
-	HighlightBg                                   string
-	PanelBg                                       string
-	StatusBarBg, StatusBarFg                      string
-	CursorRowBg                                   string
-	VisualSelectionBg                             string
-	SearchHighlightBg                             string
-}
-
 // WithColors overrides orgtd's built-in wildcharm-dark color scheme —
-// see ColorOverrides for what each field controls. Fields left at ""
+// see config.ColorsConfig for what each field controls. Fields left at ""
 // (the zero value, including every field when this option is never
 // applied at all) keep their built-in default.
-func WithColors(c ColorOverrides) Option {
-	return func(m *Model) { m.colors = c }
+func WithColors(c config.ColorsConfig) Option {
+	return func(m *Model) { m.cfg.Colors = c }
 }
 
 // fileStyle marks a file's own header row.
 func (m Model) fileStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.File, defaultFileColor)))
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.File, defaultFileColor)))
 }
 
 // keywordStyle returns the style for a headline's TODO keyword, and
@@ -153,77 +131,77 @@ func (m Model) fileStyle() lipgloss.Style {
 func (m Model) keywordStyle(keyword string) (lipgloss.Style, bool) {
 	switch keyword {
 	case "TODO":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.TODO, defaultTODOColor))), true
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.TODO, defaultTODOColor))), true
 	case "NEXT":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.Next, defaultNextColor))), true
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Next, defaultNextColor))), true
 	case "WAITING":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.colors.Waiting, defaultWaitingColor))), true
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Waiting, defaultWaitingColor))), true
 	case "SOMEDAY":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Someday, defaultSomedayColor))), true
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Someday, defaultSomedayColor))), true
 	case "DONE":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Done, defaultDoneColor))), true
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Done, defaultDoneColor))), true
 	case "CANCELLED":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Cancelled, defaultCancelledColor))), true
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Cancelled, defaultCancelledColor))), true
 	default:
 		return lipgloss.Style{}, false
 	}
 }
 
 func (m Model) tagStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Tag, defaultTagColor)))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Tag, defaultTagColor)))
 }
 
 func (m Model) doneTitleStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color(orDefault(m.colors.DoneTitle, defaultDoneTitleColor)))
+	return lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.DoneTitle, defaultDoneTitleColor)))
 }
 
 // statusStyle is for muted status/info text: the directory path on the
 // status line, register/overflow summaries, and the visual-mode banner.
 func (m Model) statusStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Status, defaultStatusColor)))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Status, defaultStatusColor)))
 }
 
 func (m Model) timestampStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Timestamp, defaultTimestampColor)))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Timestamp, defaultTimestampColor)))
 }
 
 func (m Model) errorStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.colors.Error, defaultErrorColor)))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Error, defaultErrorColor)))
 }
 
 func (m Model) bodyStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color(orDefault(m.colors.Body, defaultBodyColor)))
+	return lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Body, defaultBodyColor)))
 }
 
 // caretStyle renders the command-line's text-cursor caret.
 func (m Model) caretStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(orDefault(m.colors.CaretFg, defaultCaretFg))).
-		Background(lipgloss.Color(orDefault(m.colors.CaretBg, defaultCaretBg)))
+		Foreground(lipgloss.Color(orDefault(m.cfg.Colors.CaretFg, defaultCaretFg))).
+		Background(lipgloss.Color(orDefault(m.cfg.Colors.CaretBg, defaultCaretBg)))
 }
 
 // cursorStyle highlights the selected line within an overlay list — the
 // "R"/status picker and "gM" meeting picker's highlighted candidate (see
 // statusSelectorLines/meetingPickerLines).
 func (m Model) cursorStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(lipgloss.Color(orDefault(m.colors.HighlightBg, defaultHighlightBg)))
+	return lipgloss.NewStyle().Background(lipgloss.Color(orDefault(m.cfg.Colors.HighlightBg, defaultHighlightBg)))
 }
 
 // overlayBg is the background tint for the info buffer (clarify/marks/
 // register, links, meeting detail, tag/command-completion matches, the
 // status and "gM" meeting pickers).
 func (m Model) overlayBg() lipgloss.TerminalColor {
-	return lipgloss.Color(orDefault(m.colors.PanelBg, defaultPanelBg))
+	return lipgloss.Color(orDefault(m.cfg.Colors.PanelBg, defaultPanelBg))
 }
 
 // statusBarBg/statusBarFg tint the one-line status bar at the bottom of
 // the screen (see normalStatusLine).
 func (m Model) statusBarBg() lipgloss.TerminalColor {
-	return lipgloss.Color(orDefault(m.colors.StatusBarBg, defaultStatusBarBg))
+	return lipgloss.Color(orDefault(m.cfg.Colors.StatusBarBg, defaultStatusBarBg))
 }
 
 func (m Model) statusBarFg() lipgloss.TerminalColor {
-	return lipgloss.Color(orDefault(m.colors.StatusBarFg, defaultStatusBarFg))
+	return lipgloss.Color(orDefault(m.cfg.Colors.StatusBarFg, defaultStatusBarFg))
 }
 
 // cursorBg highlights the row under the cursor, filling the whole
@@ -232,20 +210,20 @@ func (m Model) statusBarFg() lipgloss.TerminalColor {
 // end of a multi-entry selection is the actual cursor is always
 // unambiguous.
 func (m Model) cursorBg() lipgloss.TerminalColor {
-	return lipgloss.Color(orDefault(m.colors.CursorRowBg, defaultCursorRowBg))
+	return lipgloss.Color(orDefault(m.cfg.Colors.CursorRowBg, defaultCursorRowBg))
 }
 
 // visualSelectionBg highlights the part of a visual-mode selection that
 // isn't the cursor's own entry.
 func (m Model) visualSelectionBg() lipgloss.TerminalColor {
-	return lipgloss.Color(orDefault(m.colors.VisualSelectionBg, defaultVisualSelectionBg))
+	return lipgloss.Color(orDefault(m.cfg.Colors.VisualSelectionBg, defaultVisualSelectionBg))
 }
 
 // searchHighlightBg marks every occurrence of the active search term
 // (see activeSearchQuery) — vim's 'hlsearch' — layered on top of
 // whatever background (if any) a segment already carries.
 func (m Model) searchHighlightBg() lipgloss.TerminalColor {
-	return lipgloss.Color(orDefault(m.colors.SearchHighlightBg, defaultSearchHighlightBg))
+	return lipgloss.Color(orDefault(m.cfg.Colors.SearchHighlightBg, defaultSearchHighlightBg))
 }
 
 // bgSpan renders s with only a background color — no other styling —
@@ -263,7 +241,7 @@ func bgSpan(bg lipgloss.TerminalColor, s string) string {
 // regardless of what background base itself already carries. A blank
 // query renders s with base unchanged. A method (rather than a free
 // function) purely so it can resolve m's own searchHighlightBg (see
-// ColorOverrides) — it doesn't otherwise depend on any Model state.
+// config.ColorsConfig) — it doesn't otherwise depend on any Model state.
 func (m Model) highlightMatches(s, query string, base lipgloss.Style) string {
 	if query == "" {
 		return base.Render(s)

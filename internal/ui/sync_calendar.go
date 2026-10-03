@@ -30,7 +30,7 @@ type syncCalendarMsg struct {
 // message, if no OAuth client is configured at all (see
 // WithGcalOAuthClient) or a sync is already running.
 func (m *Model) startSyncCalendar(reauth bool) tea.Cmd {
-	if m.gcalOAuthClientID == "" || m.gcalOAuthClientSecret == "" {
+	if m.cfg.Gcalsync.OAuthClientID == "" || m.cfg.Gcalsync.OAuthClientSecret == "" {
 		m.message = "Calendar sync isn't configured — see README's Calendar sync section"
 		return nil
 	}
@@ -42,14 +42,14 @@ func (m *Model) startSyncCalendar(reauth bool) tea.Cmd {
 	m.message = "Syncing calendar in the background..."
 
 	settings := calendarsync.Settings{
-		OutputPath:             filepath.Join(m.ws.Dir, m.calendarFile),
-		CalendarIDs:            m.gcalCalendarIDs,
-		SyncPastDays:           m.gcalSyncPastDays,
-		SyncFutureDays:         m.gcalSyncFutureDays,
-		OAuthClientID:          m.gcalOAuthClientID,
-		OAuthClientSecret:      m.gcalOAuthClientSecret,
-		AttendeeTagDomains:     m.gcalAttendeeTagDomains,
-		AttendeeIgnorePatterns: m.gcalAttendeeIgnorePatterns,
+		OutputPath:             filepath.Join(m.ws.Dir, m.cfg.CalendarFile),
+		CalendarIDs:            m.cfg.Gcalsync.CalendarIDs,
+		SyncPastDays:           m.cfg.Gcalsync.SyncPastDays,
+		SyncFutureDays:         m.cfg.Gcalsync.SyncFutureDays,
+		OAuthClientID:          m.cfg.Gcalsync.OAuthClientID,
+		OAuthClientSecret:      m.cfg.Gcalsync.OAuthClientSecret,
+		AttendeeTagDomains:     m.cfg.Gcalsync.AttendeeTagDomains,
+		AttendeeIgnorePatterns: m.cfg.Gcalsync.AttendeeIgnorePatterns,
 	}
 	elog := m.execLog
 	return func() tea.Msg {
@@ -96,7 +96,7 @@ func (m Model) finishSyncCalendar(msg syncCalendarMsg) (tea.Model, tea.Cmd) {
 
 	replaced := false
 	for i, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.calendarFile {
+		if filepath.Base(f.Path) == m.cfg.CalendarFile {
 			m.clearRefsForFile(f)
 			m.ws.Files[i] = msg.result.File
 			replaced = true
@@ -109,6 +109,6 @@ func (m Model) finishSyncCalendar(msg syncCalendarMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.rebuildRows()
-	m.message = fmt.Sprintf("Synced %d event(s) from %d calendar(s) to %s", msg.result.EventCount, msg.result.CalendarCount, m.calendarFile)
+	m.message = fmt.Sprintf("Synced %d event(s) from %d calendar(s) to %s", msg.result.EventCount, msg.result.CalendarCount, m.cfg.CalendarFile)
 	return m, nil
 }

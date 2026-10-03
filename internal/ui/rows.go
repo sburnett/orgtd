@@ -53,7 +53,7 @@ func (m *Model) toggleHideDone() {
 		m.focusHeadline(h)
 	}
 	if m.hideDoneEnabled {
-		m.message = fmt.Sprintf("Hiding DONE/CANCELLED items closed more than %dh ago", m.hideDoneAfterHours)
+		m.message = fmt.Sprintf("Hiding DONE/CANCELLED items closed more than %dh ago", m.cfg.HideDoneAfterHours)
 	} else {
 		m.message = "Showing all DONE/CANCELLED items"
 	}
@@ -132,7 +132,7 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 	if err != nil {
 		return false
 	}
-	return time.Since(closed) > time.Duration(m.hideDoneAfterHours)*time.Hour
+	return time.Since(closed) > time.Duration(m.cfg.HideDoneAfterHours)*time.Hour
 }
 
 // appendBodyLines appends one row per line of h's free-text body,

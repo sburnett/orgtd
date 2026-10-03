@@ -13,7 +13,7 @@ import (
 // it's off, nothing was written there, so this instead points at how to
 // turn it on rather than sending the user to a file that doesn't exist.
 func (m Model) debugLogHint() string {
-	if m.debug {
+	if m.cfg.Debug {
 		return " (see debug.log)"
 	}
 	return " (rerun with --debug for details)"
@@ -23,14 +23,14 @@ func (m Model) debugLogHint() string {
 // org-mode link) through the configured urlFormatterCmd, replacing it
 // with that program's output. It's a no-op if no formatter is configured.
 func (m *Model) formatURLs(text string) string {
-	if m.urlFormatterCmd == "" {
+	if m.cfg.URLFormatter == "" {
 		return text
 	}
 	if m.bareURLRe == nil {
 		// New() normally builds this from urlFormatterPrefixes; fall
 		// back to building it here too, so a Model constructed as a
 		// literal (as several tests do) never panics on a nil regexp.
-		m.bareURLRe = extprog.BareURLRegexp(m.urlFormatterPrefixes)
+		m.bareURLRe = extprog.BareURLRegexp(m.cfg.URLFormatterPrefixes)
 	}
 	spans := extprog.BareURLSpans(m.bareURLRe, text)
 	if len(spans) == 0 {
@@ -63,7 +63,7 @@ func (m *Model) formatURLs(text string) string {
 // failure also sets m.message so it's visible without leaving the app or
 // checking the log.
 func (m *Model) runURLFormatter(url string) string {
-	formatted, err := extprog.RunFormatter(m.execLog, m.urlFormatterCmd, url)
+	formatted, err := extprog.RunFormatter(m.execLog, m.cfg.URLFormatter, url)
 	switch {
 	case err == nil:
 		return formatted

@@ -14,7 +14,7 @@ import (
 // appendTagsRows appends the rows for tagsView: one flush-left
 // section-header row per distinct tag used anywhere in the workspace
 // (excluding calendar_file/meeting_tags_file — see WithCalendarFile/
-// WithMeetingTagsFile — the same two files the outline view itself
+// Config.MeetingTagsFile — the same two files the outline view itself
 // excludes, since a synced calendar event's attendee/"recurring" tags,
 // and a meeting-tags.org record's own tag, aren't outline entries to
 // catalog here), tags sorted alphabetically, each followed by every
@@ -26,7 +26,7 @@ import (
 func (m *Model) appendTagsRows(dst *[]row) {
 	byTag := make(map[string][]*org.Headline)
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
+		if filepath.Base(f.Path) == m.cfg.CalendarFile || filepath.Base(f.Path) == m.cfg.MeetingTagsFile {
 			continue
 		}
 		org.Walk(f.Headlines, func(h *org.Headline) {

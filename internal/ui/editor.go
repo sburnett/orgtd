@@ -155,11 +155,11 @@ func (m *Model) clearRefsForFile(f *org.File) {
 	delete(m.savedPos, f)
 }
 
-// editorCommand returns the external editor to launch: m.editorOverride
+// editorCommand returns the external editor to launch: m.cfg.Editor
 // (see WithEditor) if set, else $EDITOR (README's --editor row).
 func (m Model) editorCommand() string {
-	if m.editorOverride != "" {
-		return m.editorOverride
+	if m.cfg.Editor != "" {
+		return m.cfg.Editor
 	}
 	return os.Getenv("EDITOR")
 }
@@ -335,7 +335,7 @@ func (m *Model) editEntryContext(h *org.Headline, isInsert bool) string {
 	fmt.Fprintf(&b, "#\n# %s Lines starting with '#' are ignored. Save and\n", action)
 	fmt.Fprintln(&b, "# exit to apply your changes, or delete the entry's content (leaving")
 	fmt.Fprintln(&b, "# only these comments, or nothing) to cancel.")
-	if m.urlFormatterCmd != "" {
+	if m.cfg.URLFormatter != "" {
 		fmt.Fprintln(&b, "#")
 		fmt.Fprintln(&b, "# Bare URLs will be formatted into org-mode links automatically. To")
 		fmt.Fprintln(&b, "# format one yourself instead, write it as [[http://...]] directly.")

@@ -109,11 +109,14 @@ workspace. Each event becomes a headline carrying `GCAL_*` properties
 
 ### cmd/orgtd and internal/config
 
-`main.go` parses flags, loads the config file (`config.Load`), and
-`resolveSettings` (settings.go) merges flag > `$ORGTD_DIR` (for `dir`
-only) > config file > default into one `settings` struct, which main
-passes to `ui.New` as `With…` options. Precedence rules are documented in
-README ("Config file"). `config` only declares and parses the schema.
+**There is one settings value: `config.Config`.** `config` declares the
+schema (it's also the TOML file's shape), loads it (`config.Load`), and
+owns the built-in defaults (`config.Default`, `Config.ApplyDefaults`).
+`main.go` registers the flags (`defineFlags`), loads the file, and
+`resolveConfig` (settings.go) overlays — flag > `$ORGTD_DIR` (for `dir`
+only) > config file > default — into one fully resolved `Config`, which
+goes to `ui.New` as `ui.WithConfig(cfg)` and lives on the model as
+`m.cfg`. Precedence rules are documented in README ("Config file").
 
 ## 4. Runtime model
 
@@ -171,7 +174,7 @@ including its known weak points, so changes can be made deliberately.
 | File | Responsibility |
 |---|---|
 | `model.go` | The `Model` struct, `New`, `Update` (mode dispatch), the `mode`/`viewKind` enums, confirm-mode handling, workspace file lookups |
-| `options.go` | `With…` construction options (config → `Model` fields) |
+| `options.go` | `WithConfig` (what `main` uses) and a few single-setting `With…` options, mostly for tests |
 | `views.go` | The `viewKind`s and the `viewSpecs` registry — everything that varies per view |
 | `row.go` | The `row` type and its `rowKind`s, `sameRow`, `rowSearchText` |
 | `rows.go` | `rebuildRows` and the outline's row building (fold, hide-done, body lines) |
@@ -252,7 +255,7 @@ editing both**. View commands (`:agenda`, `:tags`, ...) come from
 and command line. The info buffer (`infoBufferLines`) is a stack of
 labeled sections whose content depends on mode, view and the current
 headline. Colors/icons resolve through small `…Style`/`…Bg` methods with
-built-in defaults overridden by `ColorOverrides`/`With…Icon` options.
+built-in defaults overridden by `m.cfg.Colors`/`m.cfg.Icons`.
 **`View` runs on every keypress, so nothing it calls may be expensive**:
 anything that needs workspace-wide knowledge (the gutter's ▣ marker asks
 it for every visible row) must go through a cached index like
@@ -270,14 +273,11 @@ These are recorded here so contributors don't mistake them for design:
    editor and URL-formatter programs (`internal/extprog`), and org link
    parsing (`internal/org`) — but the remaining ~30 files still share the
    one `Model`.
-2. **Settings are threaded through ~8 layers** (config struct, flag,
-   `flagValues`, `settings`, `resolveSettings`, `With…` option, `Model`
-   field, `:config` view, README, `config.example.toml`).
-3. **Some org-level logic still lives in `ui`.** Date and repeater logic
+2. **Some org-level logic still lives in `ui`.** Date and repeater logic
    moved to `internal/orgdate`, but `headlineCreatedTime`, and tree
    operations like `shiftHeadlineLevel`, `siblingHeadlines` and the
    splice helpers in `undo.go`, belong with `org`.
-4. **`time.Now()` is called directly** in render and command paths.
+3. **`time.Now()` is called directly** in render and command paths.
 
 ## 7. Data conventions (properties and tags)
 
@@ -348,12 +348,15 @@ adding a `rowKind` and a case in `renderRowWithBg`, and decide how
 status label, empty message and Enter behavior need no other edits;
 `TestEveryViewHasACompleteSpec` fails if the spec is incomplete.
 
-**Add a config setting.** Add it to `config.Config`, the flag in
-`main.go`, `flagValues`/`settings`/`resolveSettings`, a `With…` option and
-`Model` field, the `:config` listing (`appendConfigRows`),
-`config.example.toml`, and the README tables. (Debt item 2.)
+**Add a config setting.** Add the field (with its `toml` tag) to
+`config.Config` — or one of its sections — and, if it has a built-in
+default, to `config.Default` and `ApplyDefaults`. If it needs a flag, add
+it in `defineFlags` and an `if f.explicit[...]` line in `resolveConfig`.
+Read it in `ui` as `m.cfg.<Field>`. Add a line to the `:config` listing
+(`appendConfigRows`), `config.example.toml`, and the README.
+`TestReadmeDocumentsEveryFlagAndConfigKey` fails if the README misses it.
 
-**Run an external program.** Use `runLoggedCommand` so it appears in
+**Run an external program.** Use `execlog.Run` so it appears in
 `:log`; run it from a `tea.Cmd` unless it is guaranteed fast.
 
 ## 10. Original ideas that were not built

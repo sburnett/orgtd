@@ -102,8 +102,8 @@ func TestHideDoneAfterHoursZeroOrNegativeUsesBuiltInDefault(t *testing.T) {
 	if rowIndex(m, "Finished twelve hours ago") < 0 {
 		t.Error("hours <= 0 should fall back to the 24h default, not hide immediately")
 	}
-	if m.hideDoneAfterHours != 24 {
-		t.Errorf("hideDoneAfterHours = %d, want 24 (built-in default)", m.hideDoneAfterHours)
+	if m.cfg.HideDoneAfterHours != 24 {
+		t.Errorf("hideDoneAfterHours = %d, want 24 (built-in default)", m.cfg.HideDoneAfterHours)
 	}
 }
 
@@ -200,7 +200,7 @@ func TestHideDoneIgnoresUnparseableClosedTimestamp(t *testing.T) {
 	h := &org.Headline{Keyword: "DONE", Closed: &org.Timestamp{Raw: "not a date"}}
 	var m Model
 	m.hideDoneEnabled = true
-	m.hideDoneAfterHours = 24
+	m.cfg.HideDoneAfterHours = 24
 	if m.hiddenAsStaleDone(h) {
 		t.Error("an unparseable CLOSED timestamp should not be treated as stale")
 	}

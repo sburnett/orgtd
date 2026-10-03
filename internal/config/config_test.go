@@ -210,3 +210,38 @@ func writeConfig(t *testing.T, content string) string {
 	}
 	return path
 }
+
+func TestApplyDefaultsFillsOnlyUnsetSettings(t *testing.T) {
+	c := Config{
+		AgendaWindowDays: 3,
+		InboxFile:        "mine.org",
+		Gcalsync:         GcalsyncConfig{CalendarIDs: []string{"work"}, SyncFutureDays: 30},
+	}
+	c.ApplyDefaults()
+	d := Default()
+
+	if c.AgendaWindowDays != 3 || c.InboxFile != "mine.org" || c.Gcalsync.SyncFutureDays != 30 || c.Gcalsync.CalendarIDs[0] != "work" {
+		t.Errorf("ApplyDefaults overwrote explicitly set values: %+v", c)
+	}
+	if c.CalendarFile != d.CalendarFile || c.MeetingTagsFile != d.MeetingTagsFile ||
+		c.HideDoneAfterHours != d.HideDoneAfterHours || c.Gcalsync.SyncPastDays != d.Gcalsync.SyncPastDays {
+		t.Errorf("ApplyDefaults left unset values unset: %+v", c)
+	}
+}
+
+func TestApplyDefaultsTreatsNonPositiveWindowsAsUnset(t *testing.T) {
+	c := Config{AgendaWindowDays: -2, HideDoneAfterHours: -1}
+	c.ApplyDefaults()
+	if c.AgendaWindowDays != 14 || c.HideDoneAfterHours != 24 {
+		t.Errorf("non-positive settings = %d/%d, want the defaults 14/24", c.AgendaWindowDays, c.HideDoneAfterHours)
+	}
+}
+
+func TestDefaultIsFullyResolved(t *testing.T) {
+	d := Default()
+	before := d
+	d.ApplyDefaults()
+	if d.AgendaWindowDays != before.AgendaWindowDays || d.InboxFile != before.InboxFile || len(d.Gcalsync.CalendarIDs) != 1 {
+		t.Errorf("ApplyDefaults changed Default(): %+v -> %+v", before, d)
+	}
+}

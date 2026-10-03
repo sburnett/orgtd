@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sburnett/orgtd/internal/config"
 )
 
 // writeFakeFormatter writes a shell script to serve as urlFormatterCmd,
@@ -49,7 +51,7 @@ func TestFormatURLsNoopWhenDisabled(t *testing.T) {
 }
 
 func TestFormatURLsReplacesBareURL(t *testing.T) {
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}}
 	text := "See https://example.com/page for details."
 	want := "See [[https://example.com/page][Formatted]] for details."
 	if got := m.formatURLs(text); got != want {
@@ -60,7 +62,7 @@ func TestFormatURLsReplacesBareURL(t *testing.T) {
 func TestRunURLFormatterLogsSuccessfulAttempt(t *testing.T) {
 	logBuf := captureLog(t)
 	script := writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)
-	m := Model{urlFormatterCmd: script}
+	m := Model{cfg: config.Config{URLFormatter: script}}
 
 	m.runURLFormatter("https://example.com")
 
@@ -76,7 +78,7 @@ func TestRunURLFormatterLogsSuccessfulAttempt(t *testing.T) {
 func TestRunURLFormatterLogsFailureWithStderr(t *testing.T) {
 	logBuf := captureLog(t)
 	script := writeFakeFormatter(t, `echo "boom: no such template" >&2; exit 1`)
-	m := Model{urlFormatterCmd: script, debug: true}
+	m := Model{cfg: config.Config{URLFormatter: script, Debug: true}}
 
 	got := m.runURLFormatter("https://example.com")
 
@@ -98,7 +100,7 @@ func TestRunURLFormatterLogsFailureWithStderr(t *testing.T) {
 func TestRunURLFormatterFailureHintsAtEnablingDebugWhenOff(t *testing.T) {
 	captureLog(t)
 	script := writeFakeFormatter(t, `exit 1`)
-	m := Model{urlFormatterCmd: script} // debug left false (the default)
+	m := Model{cfg: config.Config{URLFormatter: script}} // debug left false (the default)
 
 	m.runURLFormatter("https://example.com")
 
@@ -110,7 +112,7 @@ func TestRunURLFormatterFailureHintsAtEnablingDebugWhenOff(t *testing.T) {
 func TestRunURLFormatterLogsEmptyOutput(t *testing.T) {
 	logBuf := captureLog(t)
 	script := writeFakeFormatter(t, `true`) // exits 0, prints nothing
-	m := Model{urlFormatterCmd: script}
+	m := Model{cfg: config.Config{URLFormatter: script}}
 
 	got := m.runURLFormatter("https://example.com")
 
@@ -127,7 +129,7 @@ func TestRunURLFormatterLogsEmptyOutput(t *testing.T) {
 
 func TestRunURLFormatterLogsCommandNotFound(t *testing.T) {
 	logBuf := captureLog(t)
-	m := Model{urlFormatterCmd: "/no/such/program/anywhere"}
+	m := Model{cfg: config.Config{URLFormatter: "/no/such/program/anywhere"}}
 
 	got := m.runURLFormatter("https://example.com")
 
@@ -149,7 +151,7 @@ func TestRunURLFormatterLogsCommandNotFound(t *testing.T) {
 // error.
 func TestRunURLFormatterSplitsCommandAndArguments(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "$1-$2"`)
-	m := Model{urlFormatterCmd: script + " an-argument"}
+	m := Model{cfg: config.Config{URLFormatter: script + " an-argument"}}
 
 	got := m.runURLFormatter("https://example.com")
 	want := "an-argument-https://example.com"
@@ -160,7 +162,7 @@ func TestRunURLFormatterSplitsCommandAndArguments(t *testing.T) {
 
 func TestRunURLFormatterHandlesMultipleExtraArguments(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "$1|$2|$3"`)
-	m := Model{urlFormatterCmd: script + " first second"}
+	m := Model{cfg: config.Config{URLFormatter: script + " first second"}}
 
 	got := m.runURLFormatter("https://example.com")
 	want := "first|second|https://example.com"
@@ -190,7 +192,7 @@ func TestRunURLFormatterExpandsHomeInConfiguredPath(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	m := Model{urlFormatterCmd: "~/scripts/url_formatter.py"}
+	m := Model{cfg: config.Config{URLFormatter: "~/scripts/url_formatter.py"}}
 	got := m.runURLFormatter("https://example.com")
 	want := "[[https://example.com][Formatted]]"
 	if got != want {
@@ -207,7 +209,7 @@ func TestRunURLFormatterExpandsHomeInConfiguredPath(t *testing.T) {
 // argument ("an argument").
 func TestRunURLFormatterHandlesQuotedArgumentWithSpaces(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "1=[$1] 2=[$2]"`)
-	m := Model{urlFormatterCmd: script + ` "an argument"`}
+	m := Model{cfg: config.Config{URLFormatter: script + ` "an argument"`}}
 
 	got := m.runURLFormatter("https://example.com")
 	want := "1=[an argument] 2=[https://example.com]"
@@ -218,7 +220,7 @@ func TestRunURLFormatterHandlesQuotedArgumentWithSpaces(t *testing.T) {
 
 func TestFormatURLsCommandWithExtraArguments(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "[[$2][arg=$1]]"`)
-	m := Model{urlFormatterCmd: script + " an-argument"}
+	m := Model{cfg: config.Config{URLFormatter: script + " an-argument"}}
 	text := "See https://example.com/page for details."
 
 	want := "See [[https://example.com/page][arg=an-argument]] for details."
@@ -228,7 +230,7 @@ func TestFormatURLsCommandWithExtraArguments(t *testing.T) {
 }
 
 func TestRunURLFormatterEmptyCommandReturnsURLUnchanged(t *testing.T) {
-	m := Model{urlFormatterCmd: "   "}
+	m := Model{cfg: config.Config{URLFormatter: "   "}}
 	url := "https://example.com"
 	if got := m.runURLFormatter(url); got != url {
 		t.Errorf("runURLFormatter with a blank command = %q, want the url unchanged", got)
@@ -237,7 +239,7 @@ func TestRunURLFormatterEmptyCommandReturnsURLUnchanged(t *testing.T) {
 
 func TestFormatURLsLeavesExistingLinkWithDescriptionAlone(t *testing.T) {
 	calls := filepath.Join(t.TempDir(), "calls.log")
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo called >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `echo called >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}}
 	text := "Already a link: [[https://example.com/page][Existing Title]]"
 
 	got := m.formatURLs(text)
@@ -258,7 +260,7 @@ func TestFormatURLsLeavesExistingLinkWithDescriptionAlone(t *testing.T) {
 // (e.g. "[[url][[[url][Formatted]]]]") on every subsequent pass.
 func TestFormatURLsLeavesLinkWithBracketedDescriptionAlone(t *testing.T) {
 	calls := filepath.Join(t.TempDir(), "calls.log")
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo called >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `echo called >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}}
 	text := "Already a link: [[https://example.com/page][Bracket [disambiguation] title]]"
 
 	got := m.formatURLs(text)
@@ -272,7 +274,7 @@ func TestFormatURLsLeavesLinkWithBracketedDescriptionAlone(t *testing.T) {
 }
 
 func TestFormatURLsLeavesBareLinkWithoutDescriptionAlone(t *testing.T) {
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}}
 	text := "See [[https://example.com/page]] for details."
 
 	if got := m.formatURLs(text); got != text {
@@ -282,7 +284,7 @@ func TestFormatURLsLeavesBareLinkWithoutDescriptionAlone(t *testing.T) {
 
 func TestFormatURLsCachesRepeatedURLs(t *testing.T) {
 	calls := filepath.Join(t.TempDir(), "calls.log")
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo x >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `echo x >> `+calls+"\n"+`echo "[[$1][Formatted]]"`)}}
 	text := "https://example.com/page and again https://example.com/page"
 
 	got := m.formatURLs(text)
@@ -298,7 +300,7 @@ func TestFormatURLsCachesRepeatedURLs(t *testing.T) {
 }
 
 func TestFormatURLsLeavesURLUnchangedOnFormatterFailure(t *testing.T) {
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `exit 1`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `exit 1`)}}
 	text := "See https://example.com/page for details."
 
 	if got := m.formatURLs(text); got != text {
@@ -307,7 +309,7 @@ func TestFormatURLsLeavesURLUnchangedOnFormatterFailure(t *testing.T) {
 }
 
 func TestFormatURLsHandlesMultipleDistinctURLs(t *testing.T) {
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}}
 	text := "https://a.example.com then https://b.example.com"
 
 	want := "[[https://a.example.com][Formatted]] then [[https://b.example.com][Formatted]]"
@@ -317,10 +319,10 @@ func TestFormatURLsHandlesMultipleDistinctURLs(t *testing.T) {
 }
 
 func TestFormatURLsFormatsConfiguredPrefix(t *testing.T) {
-	m := Model{
-		urlFormatterCmd:      writeFakeFormatter(t, `echo "[[$1][Formatted]]"`),
-		urlFormatterPrefixes: []string{"bit.ly/", "go/"},
-	}
+	m := Model{cfg: config.Config{
+		URLFormatter:         writeFakeFormatter(t, `echo "[[$1][Formatted]]"`),
+		URLFormatterPrefixes: []string{"bit.ly/", "go/"},
+	}}
 	text := "See bit.ly/xyz and go/my-shortlink for details."
 	want := "See [[bit.ly/xyz][Formatted]] and [[go/my-shortlink][Formatted]] for details."
 	if got := m.formatURLs(text); got != want {
@@ -329,10 +331,10 @@ func TestFormatURLsFormatsConfiguredPrefix(t *testing.T) {
 }
 
 func TestFormatURLsWithConfiguredPrefixesStillRequiresWordBoundary(t *testing.T) {
-	m := Model{
-		urlFormatterCmd:      writeFakeFormatter(t, `echo "[[$1][Formatted]]"`),
-		urlFormatterPrefixes: []string{"go/"},
-	}
+	m := Model{cfg: config.Config{
+		URLFormatter:         writeFakeFormatter(t, `echo "[[$1][Formatted]]"`),
+		URLFormatterPrefixes: []string{"go/"},
+	}}
 	text := "embargo/foo should not become a link"
 	if got := m.formatURLs(text); got != text {
 		t.Errorf("formatURLs = %q, want unchanged (mid-word match)", got)
@@ -340,7 +342,7 @@ func TestFormatURLsWithConfiguredPrefixesStillRequiresWordBoundary(t *testing.T)
 }
 
 func TestFormatURLsWithoutConfiguredPrefixesDoesNotMatchThem(t *testing.T) {
-	m := Model{urlFormatterCmd: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}
+	m := Model{cfg: config.Config{URLFormatter: writeFakeFormatter(t, `echo "[[$1][Formatted]]"`)}}
 	text := "See go/my-shortlink for details."
 	if got := m.formatURLs(text); got != text {
 		t.Errorf("formatURLs = %q, want unchanged (no prefixes configured)", got)

@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/gitrepo"
@@ -184,94 +185,34 @@ type Model struct {
 	pendingUntrackedFiles []string
 	pendingUntrackedThen  func(m *Model) tea.Cmd
 
-	urlFormatterCmd      string         // external program that turns a bare URL into an org-mode link when editing an entry; disabled if empty
-	urlFormatterPrefixes []string       // extra bare-URL prefixes beyond http(s)://, e.g. "bit.ly/", "go/" (see WithURLFormatterPrefixes)
-	bareURLRe            *regexp.Regexp // compiled from urlFormatterPrefixes at construction time; see extprog.BareURLRegexp
-	editorOverride       string         // takes precedence over $EDITOR when set (see WithEditor); empty means "use $EDITOR"
+	// cfg is every user setting, fully resolved (flags, config file and
+	// defaults already merged — see internal/config and cmd/orgtd): which
+	// files are the inbox/calendar/meeting-tags files, the agenda window,
+	// the editor and URL formatters, :sync-calendar's Google settings, and
+	// the icon and color overrides. A Model built without New has the zero
+	// Config, i.e. nothing set. Not modified after construction; runtime
+	// state that starts from a setting (hideDoneEnabled) is kept apart.
+	cfg config.Config
 
-	// formatLinksURLFormatterCmd is the external program :format-links
-	// invokes in batch mode (see extprog.RunBatchFormatter) — configured
-	// separately from urlFormatterCmd since a batch-capable command may
-	// differ from (or take different arguments than) whatever handles a
-	// single URL while editing. Empty means "use urlFormatterCmd for
-	// :format-links too" — see formatLinksFormatterCmd.
-	formatLinksURLFormatterCmd string
+	// bareURLRe is the regexp formatURLs uses to find bare URLs, compiled
+	// from cfg.URLFormatterPrefixes at construction time (see
+	// extprog.BareURLRegexp).
+	bareURLRe *regexp.Regexp
 
-	view       viewKind
-	agendaDays int // how many days ahead the agenda's "Upcoming" section covers
-
-	inboxFile     string        // base name of the file :clarify treats as the inbox
+	view          viewKind
 	clarifyTarget *org.Headline // the inbox item currently pinned for clarification, in clarifyView; nil if the inbox is empty
 
-	// calendarFile is the base name of the file :sync-calendar writes (e.g.
-	// "calendar.org", the default) — excluded from the outline view
-	// entirely (see rebuildRows' default case) and shown instead, grouped
-	// by day, in calendarView (see appendCalendarRows).
-	calendarFile string
+	// hideDoneEnabled is whether stale DONE/CANCELLED items are currently
+	// hidden from the outline (after cfg.HideDoneAfterHours): off by
+	// default (see New), toggled by :toggledone, turned on at startup by
+	// WithConfig/WithHideDoneAfterHours.
+	hideDoneEnabled bool
 
-	// meetingTagsFile is the base name of the file holding durable
-	// meeting-tag records (e.g. "meeting-tags.org", the default) — "gt"
-	// on a calendarView entry writes here instead of editing the entry
-	// itself (see applyMeetingTag), so the tag survives calendarFile's
-	// wholesale regeneration by :sync-calendar. Excluded from the outline
-	// view entirely (see rebuildRows' default case) and shown instead, as
-	// an editable outline of its own, in meetingTagsView.
-	meetingTagsFile string
-
-	hideDoneAfterHours int  // how many hours after CLOSED a DONE/CANCELLED item disappears from the outline; see WithHideDoneAfterHours
-	hideDoneEnabled    bool // whether hideDoneAfterHours filtering is active; off by default (see New), toggled by :toggledone, turned on at startup by WithHideDoneAfterHours
-
-	debug bool // whether main.go turned on debug logging (see WithDebug); the Model itself never logs anything based on this — it's only carried here so :config can report it
-
-	// gcalOAuthClientID/Secret, gcalCalendarIDs, gcalSyncPastDays/FutureDays
-	// configure :sync-calendar (see startSyncCalendar) — the Google OAuth2
-	// installed-app client, which calendars to sync, and how wide a
-	// window around now to pull events from. An empty
-	// gcalOAuthClientID/Secret means :sync-calendar isn't configured at
-	// all (see WithGcalOAuthClient). syncingCalendar guards against
-	// starting a second sync while one is already in flight — unlike
-	// :format-links, a sync never touches any headline the user might be
-	// editing, so there's nothing to lock, just this one flag.
-	gcalOAuthClientID, gcalOAuthClientSecret string
-	gcalCalendarIDs                          []string
-	gcalSyncPastDays, gcalSyncFutureDays     int
-	syncingCalendar                          bool
-
-	// gcalAttendeeTagDomains restricts the "@username" attendee tags a
-	// sync gives a synced event (see internal/calendarsync's BuildFile)
-	// to attendees whose email ends in one of these domains — see
-	// WithGcalAttendeeTagDomains. Empty (the default) means no
-	// restriction: every confirmed attendee is tagged, regardless of
-	// domain.
-	gcalAttendeeTagDomains []string
-
-	// gcalAttendeeIgnorePatterns excludes any attendee whose email
-	// matches one of these glob patterns from consideration entirely,
-	// before gcalAttendeeTagDomains is even checked — see
-	// WithGcalAttendeeIgnorePatterns. Empty (the default) means no
-	// exclusions.
-	gcalAttendeeIgnorePatterns []string
-
-	// dirty/mark/clarify/lock/meeting Icon/Color customize the outline's
-	// gutter markers (see gutter, markColumn, lockColumn, meetingColumn,
-	// and renderPinnedRow for the same markers pinned in the info buffer
-	// at the bottom of the screen) — set from the config file's [icons]
-	// section (see WithDirtyIcon and its siblings, in options.go), each
-	// defaulting to New's own built-in glyph/color when unset. markColor
-	// has no matching markIcon: a mark's glyph is always the letter it
-	// was set with ("m<letter>"), not a fixed character.
-	dirtyIcon, dirtyColor     string
-	markColor                 string
-	clarifyIcon, clarifyColor string
-	lockIcon, lockColor       string
-	meetingIcon, meetingColor string
-
-	// colors overrides the rest of the built-in color scheme (see
-	// ColorOverrides and WithColors, and the resolver methods —
-	// fileStyle, keywordStyle, tagStyle, and friends, in style.go) — set from the config file's [colors] section, same as
-	// the icon fields above, each field defaulting to that resolver's own
-	// built-in wildcharm-dark color when unset.
-	colors ColorOverrides
+	// syncingCalendar guards against starting a second :sync-calendar
+	// while one is in flight — unlike :format-links, a sync never touches
+	// any headline the user might be editing, so there's nothing to lock,
+	// just this one flag.
+	syncingCalendar bool
 
 	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
 	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
@@ -291,27 +232,20 @@ type Model struct {
 // New builds a viewer model over ws. Every headline starts expanded.
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
-		ws:                 ws,
-		collapsed:          make(map[*org.Headline]bool),
-		dirty:              make(map[*org.File]bool),
-		dirtyHeadlines:     make(map[*org.Headline]bool),
-		savedPos:           make(map[*org.File]int),
-		immutable:          make(map[*org.Headline]bool),
-		execLog:            &execlog.Log{},
-		meetings:           &meetingCache{},
-		agendaDays:         14,
-		inboxFile:          "inbox.org",
-		calendarFile:       "calendar.org",
-		meetingTagsFile:    "meeting-tags.org",
-		hideDoneAfterHours: 24,
-		gcalCalendarIDs:    []string{"primary"},
-		gcalSyncPastDays:   1,
-		gcalSyncFutureDays: 14,
+		ws:             ws,
+		collapsed:      make(map[*org.Headline]bool),
+		dirty:          make(map[*org.File]bool),
+		dirtyHeadlines: make(map[*org.Headline]bool),
+		savedPos:       make(map[*org.File]int),
+		immutable:      make(map[*org.Headline]bool),
+		execLog:        &execlog.Log{},
+		meetings:       &meetingCache{},
+		cfg:            config.Default(),
 	}
 	for _, opt := range opts {
 		opt(&m)
 	}
-	m.bareURLRe = extprog.BareURLRegexp(m.urlFormatterPrefixes)
+	m.bareURLRe = extprog.BareURLRegexp(m.cfg.URLFormatterPrefixes)
 	m.rebuildRows()
 	return m
 }
@@ -324,7 +258,7 @@ func (m Model) Init() tea.Cmd {
 // WithCalendarFile), or nil if it isn't loaded.
 func (m *Model) findCalendarFile() *org.File {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.calendarFile {
+		if filepath.Base(f.Path) == m.cfg.CalendarFile {
 			return f
 		}
 	}
@@ -332,14 +266,14 @@ func (m *Model) findCalendarFile() *org.File {
 }
 
 // findMeetingTagsFile returns the workspace file meetingTagsView shows
-// (see WithMeetingTagsFile), or nil if it isn't loaded yet — nothing has
+// (see Config.MeetingTagsFile), or nil if it isn't loaded yet — nothing has
 // ever been tagged via "gt" on a calendar entry, so the file doesn't
 // exist on disk (see applyMeetingTag, which materializes it lazily on
 // first use, mirroring how finishSyncCalendar lazily creates the
 // calendar file's own workspace entry).
 func (m *Model) findMeetingTagsFile() *org.File {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.meetingTagsFile {
+		if filepath.Base(f.Path) == m.cfg.MeetingTagsFile {
 			return f
 		}
 	}
