@@ -103,7 +103,7 @@ func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) 
 func (m *Model) sectionSeparatorBudget() int {
 	n := 0
 	for _, r := range m.rows {
-		if r.section != "" {
+		if r.kind == rowSection {
 			n++
 		}
 	}

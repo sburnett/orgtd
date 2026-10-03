@@ -134,7 +134,7 @@ func TestMeetingsSectionGroupsTagMatchedItemUnderMeetingHeader(t *testing.T) {
 	var headerIdx, itemIdx = -1, -1
 	for i, r := range m.rows {
 		switch {
-		case r.isMeetingHeader && r.meetingTitle == "Weekly Standup":
+		case r.kind == rowMeetingHeader && r.meetingTitle == "Weekly Standup":
 			headerIdx = i
 		case r.headline == item:
 			itemIdx = i
@@ -168,8 +168,8 @@ func TestCalendarViewShowsTagMatchedItem(t *testing.T) {
 	for _, r := range m.rows {
 		if r.headline == linked {
 			found = true
-			if !r.isCalendarLinkedItem {
-				t.Errorf("tag-matched item row isn't marked isCalendarLinkedItem")
+			if r.kind != rowCalendarLinked {
+				t.Errorf("tag-matched item row isn't marked rowCalendarLinked")
 			}
 		}
 	}

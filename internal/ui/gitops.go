@@ -58,19 +58,19 @@ func (m *Model) repo() gitrepo.Repo {
 // all, so there's no HEAD to diff against.
 func (m *Model) appendDiffRows() {
 	if m.diffErr != "" {
-		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
+		m.rows = append(m.rows, row{kind: rowText, text: fmt.Sprintf("git diff failed: %s", m.diffErr)})
 		return
 	}
 	if len(m.ws.Files) == 0 {
-		m.rows = append(m.rows, row{isTextLine: true, text: "No files open in the outline."})
+		m.rows = append(m.rows, row{kind: rowText, text: "No files open in the outline."})
 		return
 	}
 	if strings.TrimSpace(m.diffOutput) == "" {
-		m.rows = append(m.rows, row{isTextLine: true, text: "No changes."})
+		m.rows = append(m.rows, row{kind: rowText, text: "No changes."})
 		return
 	}
 	for _, line := range strings.Split(m.diffOutput, "\n") {
-		m.rows = append(m.rows, row{isTextLine: true, text: line})
+		m.rows = append(m.rows, row{kind: rowText, text: line})
 	}
 }
 

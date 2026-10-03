@@ -54,10 +54,10 @@ func TestCalendarViewGroupsEventsByDayChronologically(t *testing.T) {
 	var sections []string
 	var order []string
 	for _, r := range m.rows {
-		if r.section != "" {
-			sections = append(sections, r.section)
+		if r.kind == rowSection {
+			sections = append(sections, r.text)
 		}
-		if r.headline != nil && !r.isBodyLine {
+		if r.headline != nil && r.kind != rowBody {
 			order = append(order, r.headline.Title)
 		}
 	}
@@ -102,7 +102,7 @@ func TestCalendarViewOrdersEventsWithinADayByStartTime(t *testing.T) {
 
 	var order []string
 	for _, r := range m.rows {
-		if r.headline != nil && !r.isBodyLine {
+		if r.headline != nil && r.kind != rowBody {
 			order = append(order, r.headline.Title)
 		}
 	}
@@ -454,7 +454,7 @@ func TestCalendarEventsAreFoldedByDefault(t *testing.T) {
 	m.switchToView(calendarView)
 
 	for _, r := range m.rows {
-		if r.isBodyLine {
+		if r.kind == rowBody {
 			t.Fatalf("event body is visible by default; rows should start folded")
 		}
 	}
@@ -475,7 +475,7 @@ func TestCalendarEventsAreFoldedByDefault(t *testing.T) {
 	}
 	found := false
 	for _, r := range m.rows {
-		if r.isBodyLine && r.headline == h {
+		if r.kind == rowBody && r.headline == h {
 			found = true
 		}
 	}
@@ -504,8 +504,8 @@ func TestCalendarViewShowsItemsAttachedToAMeetingByDefault(t *testing.T) {
 	for _, r := range m.rows {
 		if r.headline == linked {
 			found = true
-			if !r.isCalendarLinkedItem {
-				t.Errorf("linked item row isn't marked isCalendarLinkedItem")
+			if r.kind != rowCalendarLinked {
+				t.Errorf("linked item row isn't marked rowCalendarLinked")
 			}
 		}
 	}
@@ -618,9 +618,9 @@ func TestCalendarViewUnfoldedBodyShowsBeforeLinkedItems(t *testing.T) {
 	var order []string
 	for _, r := range m.rows {
 		switch {
-		case r.headline == event && r.isCalendarItem:
+		case r.headline == event && r.kind == rowCalendarEvent:
 			order = append(order, "event")
-		case r.isBodyLine && r.headline == event:
+		case r.kind == rowBody && r.headline == event:
 			order = append(order, "body")
 		case r.headline == linked:
 			order = append(order, "linked")
@@ -701,7 +701,7 @@ func TestEnterJumpsToSourceFromCalendarLinkedItem(t *testing.T) {
 	m := New(ws)
 	m.switchToView(calendarView)
 	m.cursor = findRow(t, m, "Follow up on budget")
-	if !m.rows[m.cursor].isCalendarLinkedItem {
+	if m.rows[m.cursor].kind != rowCalendarLinked {
 		t.Fatalf("fixture assumption broken: cursor isn't on the linked item row")
 	}
 

@@ -58,9 +58,9 @@ func (m *Model) appendTagsRows() {
 			}
 			return ti.Before(tj)
 		})
-		m.rows = append(m.rows, row{section: tag})
+		m.rows = append(m.rows, row{kind: rowSection, text: tag})
 		for _, h := range entries {
-			m.rows = append(m.rows, row{headline: h, level: 1, isTagsItem: true, tagsItemTag: tag})
+			m.rows = append(m.rows, row{headline: h, level: 1, kind: rowTagsItem, tagsItemTag: tag})
 		}
 	}
 }

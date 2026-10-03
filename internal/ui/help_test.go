@@ -161,7 +161,7 @@ func TestHelpViewRendersBlankLinesWithoutPanicking(t *testing.T) {
 func TestTextLineWithEmbeddedANSIGetsFullBackgroundHighlight(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
 	m := New(ws)
-	r := row{isTextLine: true, text: "\x1b[31mred\x1b[0mplain"}
+	r := row{kind: rowText, text: "\x1b[31mred\x1b[0mplain"}
 
 	got := m.renderRowWithBg(r, m.cursorBg())
 	want := m.highlightMatches("redplain", "", lipgloss.NewStyle().Background(m.cursorBg()))

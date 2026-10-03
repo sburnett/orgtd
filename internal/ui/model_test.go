@@ -133,7 +133,7 @@ func subtreeRowCount(h *org.Headline) int {
 func findRow(t *testing.T, m Model, title string) int {
 	t.Helper()
 	for i, r := range m.rows {
-		if r.headline != nil && !r.isBodyLine && r.headline.Title == title {
+		if r.headline != nil && r.kind != rowBody && r.headline.Title == title {
 			return i
 		}
 	}
@@ -216,7 +216,7 @@ func TestCursorMovementClamps(t *testing.T) {
 	// owning entry rather than separately steppable rows), so this
 	// clamps at the last row that isn't a body line.
 	want := len(m.rows) - 1
-	for want > 0 && m.rows[want].isBodyLine {
+	for want > 0 && m.rows[want].kind == rowBody {
 		want--
 	}
 	if m.cursor != want {
@@ -653,7 +653,7 @@ func TestFoldTogglesChildRows(t *testing.T) {
 	// projects.org; find it by walking rows.
 	idx := -1
 	for i, r := range m.rows {
-		if r.headline != nil && !r.isBodyLine && len(r.headline.Children) > 0 {
+		if r.headline != nil && r.kind != rowBody && len(r.headline.Children) > 0 {
 			idx = i
 			break
 		}

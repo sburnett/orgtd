@@ -172,7 +172,8 @@ including its known weak points, so changes can be made deliberately.
 |---|---|
 | `model.go` | The `Model` struct, `New`, `Update` (mode dispatch), the `mode`/`viewKind` enums, confirm-mode handling, workspace file lookups |
 | `options.go` | `With…` construction options (config → `Model` fields) |
-| `rows.go` | The `row` type, `rebuildRows`, and the outline's row building (fold, hide-done, body lines) |
+| `row.go` | The `row` type and its `rowKind`s, `sameRow`, `rowSearchText` |
+| `rows.go` | `rebuildRows` and the outline's row building (fold, hide-done, body lines) |
 | `nav.go`, `fold.go` | Cursor motions, viewport/scrolling; fold commands |
 | `keys_normal.go`, `keys_visual.go` | Normal-mode and visual-mode key handling (chords, counts) |
 | `commands.go` | `:` command line: input, history, completion, `runCommand`, `:w`/`:wq` |
@@ -206,9 +207,12 @@ organizational, not enforced: any file can reach any `Model` field. See
 `Model.rows` is the flat, visible listing; the cursor is an index into
 it. `rebuildRows` repopulates it for the current `viewKind`
 (outline, agenda, clarify, config, log, diff, help, calendar,
-meetingTags, tags). A `row` is a single struct with a flag per row
-flavor (`isAgendaItem`, `isMeetingHeader`, `isCalendarItem`,
-`isTagsItem`, `isTextLine`, `isBodyLine`, ...). Most per-entry commands
+meetingTags, tags). A `row` (`row.go`) carries a `kind`
+(`rowHeadline`, `rowFile`, `rowBody`, `rowSection`, `rowText`,
+`rowAgendaItem`, `rowMeetingHeader`, `rowCalendarEvent`,
+`rowMeetingTagsRecord`, `rowCalendarLinked`, `rowTagsItem`) that says
+which of its fields apply and how it renders, searches and compares;
+`row.go` documents each kind. Most per-entry commands
 (`i`, `dd`, `r`, `gd`, marks) work in every headline-backed view because
 they resolve the cursor row to its real `*org.Headline` via
 `currentHeadline()` and operate on that, not on the row.
@@ -258,9 +262,10 @@ These are recorded here so contributors don't mistake them for design:
    editor and URL-formatter programs (`internal/extprog`), and org link
    parsing (`internal/org`) — but the remaining ~30 files still share the
    one `Model`.
-2. **`row` is a tagged union without a tag**, and view-specific behavior
-   is spread across `m.view ==` checks, `rebuildRows`, `View`'s
-   empty-state text, `jumpToSource`, and per-view render functions.
+2. **View-specific behavior is scattered.** `row` is now properly tagged,
+   but what a *view* does is still spread across `m.view ==` checks,
+   `rebuildRows`, `View`'s empty-state text, `jumpToSource`, search, the
+   status line and `runCommand`.
 3. **Settings are threaded through ~8 layers** (config struct, flag,
    `flagValues`, `settings`, `resolveSettings`, `With…` option, `Model`
    field, `:config` view, README, `config.example.toml`).

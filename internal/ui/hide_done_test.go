@@ -23,7 +23,7 @@ func closedTS(t time.Time) string {
 // title is absent (hidden) rather than present.
 func rowIndex(m Model, title string) int {
 	for i, r := range m.rows {
-		if r.headline != nil && !r.isBodyLine && r.headline.Title == title {
+		if r.headline != nil && r.kind != rowBody && r.headline.Title == title {
 			return i
 		}
 	}

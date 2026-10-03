@@ -15,7 +15,7 @@ func (m *Model) jumpToSource() {
 	switch {
 	case m.view == agendaView:
 	case m.view == tagsView:
-	case m.view == calendarView && m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].isCalendarLinkedItem:
+	case m.view == calendarView && m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].kind == rowCalendarLinked:
 	default:
 		return
 	}

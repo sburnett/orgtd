@@ -51,7 +51,7 @@ func (m Model) View() string {
 
 		sepShown := 0
 		for i := start; i < end; i++ {
-			if i > start && m.rows[i].section != "" {
+			if i > start && m.rows[i].kind == rowSection {
 				b.WriteString("\n")
 				sepShown++
 			}

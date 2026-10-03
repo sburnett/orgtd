@@ -153,8 +153,8 @@ func (m Model) renderRow(r row) string {
 // same technique renderPinnedRow uses for the overlay background.
 func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	query := m.activeSearchQuery()
-	switch {
-	case r.isTextLine:
+	switch r.kind {
+	case rowText:
 		// Flush left, unstyled beyond the cursor's own background — a
 		// :config row is plain informational text, not a headline. A
 		// :help row, though, is glamour-rendered markdown and already
@@ -167,32 +167,34 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 			text = ansi.Strip(text)
 		}
 		return m.highlightMatches(text, query, lipgloss.NewStyle().Background(bg))
-	case r.section != "":
+	case rowSection:
 		// Flush left (no gutter/indent), unlike every item row below it,
 		// so a section header stands out at a glance in a long agenda.
-		return m.highlightMatches(r.section, query, m.fileStyle().Background(bg))
-	case r.isMeetingHeader:
+		return m.highlightMatches(r.text, query, m.fileStyle().Background(bg))
+	case rowMeetingHeader:
 		return m.renderMeetingHeaderRowWithBg(r, bg)
-	case r.file != nil:
+	case rowFile:
 		// Blank mark, lock, and meeting columns: files themselves are
 		// never marked, locked by :format-links, or attached to a
 		// meeting, but this keeps every row's dirty marker lined up in
 		// the same column.
 		name := m.highlightMatches(filepath.Base(r.file.Path), query, m.fileStyle().Background(bg))
 		return bgSpan(bg, " ") + bgSpan(bg, " ") + bgSpan(bg, " ") + m.gutter(m.dirty[r.file], bg) + bgSpan(bg, " ") + name
-	case r.isAgendaItem:
+	case rowAgendaItem:
 		return m.renderAgendaItemRowWithBg(r, bg)
-	case r.isCalendarItem:
+	case rowCalendarEvent:
 		return m.renderCalendarItemRowWithBg(r, bg)
-	case r.isCalendarLinkedItem:
+	case rowCalendarLinked:
 		return m.renderCalendarLinkedItemRowWithBg(r, bg)
-	case r.isTagsItem:
+	case rowTagsItem:
 		return m.renderTagsItemRowWithBg(r, bg)
-	case r.isMeetingTagsRecordRow:
+	case rowMeetingTagsRecord:
 		return m.renderMeetingTagsRecordRowWithBg(r, bg)
-	case r.isBodyLine:
+	case rowBody:
 		return m.renderBodyLineWithBg(r, bg)
 	}
+
+	// rowHeadline: an ordinary outline entry.
 
 	h := r.headline
 	indent := bgSpan(bg, strings.Repeat("  ", h.Level))
@@ -400,7 +402,7 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 }
 
 // renderMeetingTagsRecordRowWithBg renders a meeting-tags.org record's
-// own row in meetingTagsView (see isMeetingTagsRecordRow) — mark/lock/
+// own row in meetingTagsView (see rowMeetingTagsRecord) — mark/lock/
 // meeting/dirty gutter and title/tags exactly as the outline's own
 // default headline-row case (see the bottom of renderRowWithBg), but
 // without that case's indent or fold columns: a record is always
@@ -497,7 +499,7 @@ func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := strings.Repeat("  ", r.level)
 	blanks := bgSpan(bg, "     "+indent+"  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
 	style := m.fadeIfImmutable(m.bodyStyle(), r.headline).Background(bg)
-	return blanks + m.highlightMatches(strings.TrimSpace(r.bodyText), m.activeSearchQuery(), style)
+	return blanks + m.highlightMatches(strings.TrimSpace(r.text), m.activeSearchQuery(), style)
 }
 
 func planningSummary(h *org.Headline) string {

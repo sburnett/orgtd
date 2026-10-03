@@ -255,14 +255,14 @@ func TestSearchMatchingBodyLineResolvesToOwningHeadline(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
-	if !m.rows[idx+1].isBodyLine {
+	if m.rows[idx+1].kind != rowBody {
 		t.Fatalf("fixture assumption broken: expected a body line right after the headline")
 	}
 
 	m = sendKey(m, "/")
 	m = typeKeys(m, "API versioning")
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Fatalf("cursor rests on a body line: %+v", m.rows[m.cursor])
 	}
 	if got := m.currentHeadline(); got == nil || got.Title != "Read the RFC linked in yesterday's design review" {
@@ -471,7 +471,7 @@ func TestSearchInHelpViewFindsReadmeText(t *testing.T) {
 	if m.cursor == before {
 		t.Fatalf("search in help view found nothing")
 	}
-	if !m.rows[m.cursor].isTextLine || !strings.Contains(m.rows[m.cursor].text, "unique-marker-xyz") {
+	if m.rows[m.cursor].kind != rowText || !strings.Contains(m.rows[m.cursor].text, "unique-marker-xyz") {
 		t.Errorf("cursor landed on %+v, want the matching help row", m.rows[m.cursor])
 	}
 }

@@ -136,7 +136,7 @@ func (m *Model) countRowRange(n int) (start, end int) {
 	end = start
 	counted := 1
 	for i := start + 1; i < len(m.rows) && counted < n; i++ {
-		if m.rows[i].isBodyLine {
+		if m.rows[i].kind == rowBody {
 			continue
 		}
 		end = i

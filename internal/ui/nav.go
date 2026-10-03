@@ -21,7 +21,7 @@ func (m *Model) moveCursor(delta int) {
 			break
 		}
 		cur = next
-		if !m.rows[cur].isBodyLine {
+		if m.rows[cur].kind != rowBody {
 			n--
 		}
 	}
@@ -35,7 +35,7 @@ func (m *Model) moveCursor(delta int) {
 // begins: i itself, or — if i is one of that entry's own body lines —
 // the entry's title row.
 func (m *Model) entryStart(i int) int {
-	for i > 0 && m.rows[i].isBodyLine {
+	for i > 0 && m.rows[i].kind == rowBody {
 		i--
 	}
 	return i
@@ -60,7 +60,7 @@ func (m *Model) moveToLevel(dir, lvl int) {
 		return
 	}
 	i := m.cursor + dir
-	for i >= 0 && i < len(m.rows) && (m.rowLevel(i) > lvl || m.rows[i].isBodyLine) {
+	for i >= 0 && i < len(m.rows) && (m.rowLevel(i) > lvl || m.rows[i].kind == rowBody) {
 		// A body line is never a valid stopping point here — it's not a
 		// sibling or a hop-up target, just supplementary text — even on
 		// the rare occasion its level happens to coincide with lvl (an
@@ -111,7 +111,7 @@ func (m *Model) moveDeeper() {
 	// the current entry, not something to move "into" — to find the
 	// first real child, if any.
 	next := m.cursor + 1
-	for next < len(m.rows) && m.rows[next].isBodyLine {
+	for next < len(m.rows) && m.rows[next].kind == rowBody {
 		next++
 	}
 	if next < len(m.rows) && m.rowLevel(next) > m.rowLevel(m.cursor) {
@@ -185,7 +185,7 @@ func (m *Model) jumpToSubtreeBottom() {
 		// Body lines don't count as a "last child" to land on — an
 		// entry with a body but no real children has nothing deeper to
 		// drill into, same as a plain leaf.
-		if m.rowLevel(i) == cur+1 && !m.rows[i].isBodyLine {
+		if m.rowLevel(i) == cur+1 && m.rows[i].kind != rowBody {
 			last = i
 		}
 	}
@@ -246,7 +246,7 @@ func (m *Model) visibleRowCount(start int) int {
 	used, count := 0, 0
 	for i := start; i < len(m.rows); i++ {
 		cost := 1
-		if i > start && m.rows[i].section != "" {
+		if i > start && m.rows[i].kind == rowSection {
 			cost = 2 // its own line, plus the blank separator before it
 		}
 		if used+cost > budget {
@@ -302,7 +302,7 @@ func (m *Model) entryEnd(i int) int {
 	}
 	ch := m.rows[i].headline
 	end := i
-	for end+1 < len(m.rows) && m.rows[end+1].isBodyLine && m.rows[end+1].headline == ch {
+	for end+1 < len(m.rows) && m.rows[end+1].kind == rowBody && m.rows[end+1].headline == ch {
 		end++
 	}
 	return end

@@ -229,8 +229,8 @@ func TestMeetingTagLinksTaskInAgendaAndCalendar(t *testing.T) {
 	for _, r := range m.rows {
 		if r.headline == item {
 			found = true
-			if !r.isCalendarLinkedItem {
-				t.Errorf("linked item row isn't marked isCalendarLinkedItem")
+			if r.kind != rowCalendarLinked {
+				t.Errorf("linked item row isn't marked rowCalendarLinked")
 			}
 		}
 	}
@@ -284,7 +284,7 @@ func TestCalendarRowShowsMeetingTagOverlay(t *testing.T) {
 	)
 	m := New(ws)
 
-	line := stripANSI(m.renderRow(row{headline: meeting, isCalendarItem: true}))
+	line := stripANSI(m.renderRow(row{headline: meeting, kind: rowCalendarEvent}))
 	if !strings.Contains(line, "bob_project") {
 		t.Errorf("row = %q, want the overlaid meeting-tags.org tag shown", line)
 	}
@@ -416,8 +416,8 @@ func TestMeetingTagsViewNestsMatchingOneOffEvent(t *testing.T) {
 	if got, want := m.rows[eventIdx].level, m.rows[recordIdx].level+1; got != want {
 		t.Errorf("event row level = %d, want %d (one deeper than the record)", got, want)
 	}
-	if !m.rows[eventIdx].isCalendarItem {
-		t.Errorf("nested event row isn't marked isCalendarItem")
+	if m.rows[eventIdx].kind != rowCalendarEvent {
+		t.Errorf("nested event row isn't marked rowCalendarEvent")
 	}
 }
 
@@ -592,8 +592,8 @@ func TestMeetingTagsViewRecordRowOmitsIndentAndFoldColumns(t *testing.T) {
 	if len(m.rows) != 1 {
 		t.Fatalf("rows = %+v, want just the record", m.rows)
 	}
-	if !m.rows[0].isMeetingTagsRecordRow {
-		t.Fatalf("record row isn't marked isMeetingTagsRecordRow")
+	if m.rows[0].kind != rowMeetingTagsRecord {
+		t.Fatalf("record row kind = %v, want rowMeetingTagsRecord", m.rows[0].kind)
 	}
 
 	// mark(1) + lock(1) + meeting(1) + dirty(1) + space(1) = 5, then the

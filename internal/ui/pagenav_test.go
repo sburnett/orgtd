@@ -80,7 +80,7 @@ func TestPageDownSkipsBodyLines(t *testing.T) {
 
 	m = sendKey(m, "pgdown")
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Errorf("cursor after pgdown landed on a body line: %+v", m.rows[m.cursor])
 	}
 }

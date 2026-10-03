@@ -150,7 +150,7 @@ func (m *Model) searchRows() []row {
 			if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
 				continue
 			}
-			rows = append(rows, row{file: f})
+			rows = append(rows, row{kind: rowFile, file: f})
 			m.appendHeadlines(&rows, f.Headlines, true)
 		}
 		return rows
@@ -164,55 +164,6 @@ func (m *Model) searchRows() []row {
 		return rows
 	default:
 		return m.rows
-	}
-}
-
-// sameRow reports whether a and b refer to the same logical row —
-// identity, not value equality (two distinct blank body lines under the
-// same headline would otherwise be indistinguishable) — used to locate a
-// row found via searchRows within the (possibly differently-folded) real
-// m.rows, before and after revealRow.
-func sameRow(a, b row) bool {
-	switch {
-	case a.file != nil || b.file != nil:
-		return a.file == b.file
-	case a.isBodyLine || b.isBodyLine:
-		return a.isBodyLine == b.isBodyLine && a.headline == b.headline && a.bodyText == b.bodyText
-	case a.headline != nil || b.headline != nil:
-		// Covers plain headline rows and the isCalendarItem variant
-		// alike — that flag doesn't change what row a headline points
-		// at. isCalendarLinkedItem, isTagsItem, and the Meetings-section
-		// isAgendaItem case are different: the same headline can
-		// legitimately appear in more than one such row (an entry linked
-		// to several meetings/events, or carrying several tags), so those
-		// need their extra fields compared too, or every row past the
-		// first would look identical to it.
-		if a.headline != b.headline {
-			return false
-		}
-		if a.isCalendarLinkedItem || b.isCalendarLinkedItem {
-			return a.isCalendarLinkedItem == b.isCalendarLinkedItem && a.linkedFromEvent == b.linkedFromEvent
-		}
-		if a.isTagsItem || b.isTagsItem {
-			return a.isTagsItem == b.isTagsItem && a.tagsItemTag == b.tagsItemTag
-		}
-		if a.isAgendaItem || b.isAgendaItem {
-			return a.isAgendaItem == b.isAgendaItem &&
-				a.agendaLabel == b.agendaLabel &&
-				a.agendaDate.Equal(b.agendaDate) &&
-				a.meetingItemTitle == b.meetingItemTitle &&
-				a.meetingItemStart.Equal(b.meetingItemStart)
-		}
-		return true
-	case a.isMeetingHeader || b.isMeetingHeader:
-		// headline is nil on both sides here, so nil == nil would
-		// otherwise make every meeting header (and every section/
-		// isTextLine row, below) look like the same row.
-		return a.isMeetingHeader == b.isMeetingHeader && a.meetingTitle == b.meetingTitle && a.meetingStart.Equal(b.meetingStart)
-	case a.isTextLine || b.isTextLine:
-		return a.isTextLine == b.isTextLine && a.text == b.text
-	default:
-		return a.section == b.section
 	}
 }
 
@@ -249,7 +200,7 @@ func (m *Model) revealRow(target row) {
 		return
 	}
 	changed := false
-	if target.isBodyLine && m.collapsed[h] {
+	if target.kind == rowBody && m.collapsed[h] {
 		m.collapsed[h] = false
 		changed = true
 	}
@@ -311,28 +262,4 @@ func findMatch(rows []row, from row, query string, forward bool) (row, bool) {
 		}
 	}
 	return row{}, false
-}
-
-// rowSearchText returns the text of r that "/"/"?" search against.
-func rowSearchText(r row) string {
-	switch {
-	case r.section != "":
-		return r.section
-	case r.file != nil:
-		return filepath.Base(r.file.Path)
-	case r.isBodyLine:
-		return r.bodyText
-	case r.isTextLine:
-		return r.text
-	case r.isMeetingHeader:
-		return r.meetingTitle
-	case r.headline != nil:
-		h := r.headline
-		text := h.Keyword + " " + h.Title
-		if len(h.Tags) > 0 {
-			text += " " + strings.Join(h.Tags, " ")
-		}
-		return text
-	}
-	return ""
 }

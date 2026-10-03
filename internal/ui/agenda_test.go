@@ -179,7 +179,7 @@ func TestAgendaItemRowOmitsMissedCountWhenNotOverdue(t *testing.T) {
 	m.switchToView(agendaView)
 
 	for _, r := range m.rows {
-		if !r.isAgendaItem {
+		if r.kind != rowAgendaItem {
 			continue
 		}
 		line := stripANSI(m.renderRow(r))
@@ -212,8 +212,8 @@ func TestAppendAgendaRowsSkipsEmptySectionsAndSortsByDate(t *testing.T) {
 	if len(m.rows) != 3 {
 		t.Fatalf("rows = %d, want 3 (1 section header + 2 items, Overdue/Due Today skipped)", len(m.rows))
 	}
-	if m.rows[0].section != "Upcoming" {
-		t.Errorf("rows[0].section = %q, want %q", m.rows[0].section, "Upcoming")
+	if m.rows[0].text != "Upcoming" {
+		t.Errorf("rows[0].text = %q, want %q", m.rows[0].text, "Upcoming")
 	}
 	if m.rows[0].level != 0 {
 		t.Errorf("section row level = %d, want 0", m.rows[0].level)
@@ -238,8 +238,8 @@ func TestNextActionsSectionListsNextItemsWithNoDate(t *testing.T) {
 	if len(m.rows) != 2 {
 		t.Fatalf("rows = %d, want 2 (1 section header + 1 item)", len(m.rows))
 	}
-	if m.rows[0].section != "Next Actions" {
-		t.Errorf("rows[0].section = %q, want %q", m.rows[0].section, "Next Actions")
+	if m.rows[0].text != "Next Actions" {
+		t.Errorf("rows[0].text = %q, want %q", m.rows[0].text, "Next Actions")
 	}
 	if got := m.rows[1].headline.Title; got != "Undated next action" {
 		t.Errorf("rows[1] = %q, want the NEXT item", got)
@@ -252,7 +252,7 @@ func TestNextActionsSectionOmittedWhenNoNextItems(t *testing.T) {
 	m.switchToView(agendaView)
 
 	for _, r := range m.rows {
-		if r.section == "Next Actions" {
+		if r.text == "Next Actions" {
 			t.Fatalf("Next Actions section present with no NEXT items: %+v", m.rows)
 		}
 	}
@@ -267,8 +267,8 @@ func TestNextActionsSectionComesAfterDateBasedSections(t *testing.T) {
 
 	var sections []string
 	for _, r := range m.rows {
-		if r.section != "" {
-			sections = append(sections, r.section)
+		if r.kind == rowSection {
+			sections = append(sections, r.text)
 		}
 	}
 	want := []string{"Overdue", "Next Actions"}
@@ -510,12 +510,12 @@ func TestAgendaNavigationBraceJumpsBetweenSections(t *testing.T) {
 	// rows: 0=Overdue header, 1=Overdue item, 2=Upcoming header, 3=Upcoming item
 	m.cursor = 1
 	m = sendKey(m, "}")
-	if m.rows[m.cursor].section != "Upcoming" {
+	if m.rows[m.cursor].text != "Upcoming" {
 		t.Fatalf("} from an overdue item landed on row %d (%+v), want the 'Upcoming' section header", m.cursor, m.rows[m.cursor])
 	}
 
 	m = sendKey(m, "{")
-	if m.rows[m.cursor].section != "Overdue" {
+	if m.rows[m.cursor].text != "Overdue" {
 		t.Fatalf("{ from the Upcoming header landed on row %d (%+v), want the 'Overdue' section header", m.cursor, m.rows[m.cursor])
 	}
 }
@@ -533,7 +533,7 @@ func TestAgendaCaretAndDollarStayWithinSection(t *testing.T) {
 
 	m.cursor = 2 // "Second upcoming"
 	m = sendKey(m, "^")
-	if m.rows[m.cursor].section != "Upcoming" {
+	if m.rows[m.cursor].text != "Upcoming" {
 		t.Fatalf("^ landed on row %+v, want the section header", m.rows[m.cursor])
 	}
 
@@ -761,9 +761,9 @@ func TestMeetingsSectionGroupsLinkedItemUnderMeetingHeader(t *testing.T) {
 	var sectionIdx, headerIdx, itemIdx = -1, -1, -1
 	for i, r := range m.rows {
 		switch {
-		case r.section == "Meetings":
+		case r.text == "Meetings":
 			sectionIdx = i
-		case r.isMeetingHeader && r.meetingTitle == "Weekly Standup":
+		case r.kind == rowMeetingHeader && r.meetingTitle == "Weekly Standup":
 			headerIdx = i
 		case r.headline == item:
 			itemIdx = i
@@ -790,8 +790,8 @@ func TestMeetingsSectionGroupsLinkedItemUnderMeetingHeader(t *testing.T) {
 	if got, want := m.rows[itemIdx].level, 2; got != want {
 		t.Errorf("item level = %d, want %d", got, want)
 	}
-	if !m.rows[itemIdx].isAgendaItem {
-		t.Errorf("linked item row isAgendaItem = false, want true")
+	if m.rows[itemIdx].kind != rowAgendaItem {
+		t.Errorf("linked item row rowAgendaItem = false, want true")
 	}
 }
 
@@ -803,7 +803,7 @@ func TestMeetingsSectionOmitsOneOffMeetingWithNoLinkedItems(t *testing.T) {
 	m.switchToView(agendaView)
 
 	for _, r := range m.rows {
-		if r.section == "Meetings" {
+		if r.text == "Meetings" {
 			t.Fatalf("Meetings section present for a one-off meeting with nothing linked to it: %+v", m.rows)
 		}
 	}
@@ -829,7 +829,7 @@ func TestMeetingsSectionIncludesOneOffMeetingWithLinkedItem(t *testing.T) {
 	var headerIdx, itemIdx = -1, -1
 	for i, r := range m.rows {
 		switch {
-		case r.isMeetingHeader && r.meetingTitle == "Client Kickoff":
+		case r.kind == rowMeetingHeader && r.meetingTitle == "Client Kickoff":
 			headerIdx = i
 		case r.headline == item:
 			itemIdx = i
@@ -851,7 +851,7 @@ func TestMeetingsSectionOmitsRecurringMeetingWithNoLinkedItems(t *testing.T) {
 	m.switchToView(agendaView)
 
 	for _, r := range m.rows {
-		if r.section == "Meetings" {
+		if r.text == "Meetings" {
 			t.Fatalf("Meetings section present for a recurring meeting with nothing linked to it: %+v", m.rows)
 		}
 	}
@@ -871,7 +871,7 @@ func TestMeetingsSectionExcludesMeetingsOutsideWindow(t *testing.T) {
 	m.switchToView(agendaView)
 
 	for _, r := range m.rows {
-		if r.section == "Meetings" {
+		if r.text == "Meetings" {
 			t.Fatalf("Meetings section present for meetings outside the window: %+v", m.rows)
 		}
 	}
@@ -892,7 +892,7 @@ func TestMeetingsSectionIncludesMeetingAlreadyInProgressToday(t *testing.T) {
 
 	found := false
 	for _, r := range m.rows {
-		if r.isMeetingHeader && r.meetingTitle == "Morning Sync" {
+		if r.kind == rowMeetingHeader && r.meetingTitle == "Morning Sync" {
 			found = true
 		}
 	}
@@ -916,7 +916,7 @@ func TestMeetingsSectionChronologicalOrder(t *testing.T) {
 
 	var headers []string
 	for _, r := range m.rows {
-		if r.isMeetingHeader {
+		if r.kind == rowMeetingHeader {
 			headers = append(headers, r.meetingTitle)
 		}
 	}
@@ -1006,7 +1006,7 @@ func TestMeetingsSectionExcludesDoneAndCancelledLinkedItems(t *testing.T) {
 
 	var shown []string
 	for _, r := range m.rows {
-		if r.isAgendaItem && r.headline != nil {
+		if r.kind == rowAgendaItem && r.headline != nil {
 			shown = append(shown, r.headline.Title)
 		}
 	}
@@ -1028,7 +1028,7 @@ func TestMeetingHeaderRenderShowsTitleAndTime(t *testing.T) {
 
 	var rendered string
 	for _, r := range m.rows {
-		if r.isMeetingHeader {
+		if r.kind == rowMeetingHeader {
 			rendered = stripANSI(m.renderRow(r))
 		}
 	}
@@ -1057,7 +1057,7 @@ func TestSearchFindsMeetingHeaderByTitle(t *testing.T) {
 	m = sendKey(m, "/")
 	m = typeKeys(m, "Zzyzx")
 
-	if !m.rows[m.cursor].isMeetingHeader || m.rows[m.cursor].meetingTitle != "Weekly Standup Zzyzx" {
+	if m.rows[m.cursor].kind != rowMeetingHeader || m.rows[m.cursor].meetingTitle != "Weekly Standup Zzyzx" {
 		t.Errorf("cursor landed on %+v, want the meeting header row", m.rows[m.cursor])
 	}
 }

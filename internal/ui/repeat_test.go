@@ -86,8 +86,8 @@ func TestCompletingRecurringItemShowsUpcomingInAgenda(t *testing.T) {
 	m.switchToView(agendaView)
 	var section, currentSection string
 	for _, r := range m.rows {
-		if r.section != "" {
-			currentSection = r.section
+		if r.kind == rowSection {
+			currentSection = r.text
 		}
 		if r.headline != nil && r.headline.Title == "Weekly standup" {
 			section = currentSection

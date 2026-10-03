@@ -161,13 +161,13 @@ func TestCalendarOOStaysInCalendarViewFocusedOnNewEntry(t *testing.T) {
 	if current == nil || current.Title != "Follow up on budget numbers" {
 		t.Fatalf("cursor headline = %v, want the newly captured entry", current)
 	}
-	if !m.rows[m.cursor].isCalendarLinkedItem {
-		t.Errorf("cursor row isn't marked isCalendarLinkedItem, want it nested under its meeting")
+	if m.rows[m.cursor].kind != rowCalendarLinked {
+		t.Errorf("cursor row isn't marked rowCalendarLinked, want it nested under its meeting")
 	}
 }
 
 // TestCalendarOOnLinkedItemAttachesToItsOwnEvent covers o/O pressed on an
-// isCalendarLinkedItem row (an entry elsewhere in the workspace, already
+// rowCalendarLinked row (an entry elsewhere in the workspace, already
 // linked to the event and shown nested under it — see linkedMeetingItems)
 // rather than the event's own row: the new entry should still be
 // attached to that same event (via linkedFromEvent), not wherever the
@@ -184,8 +184,8 @@ func TestCalendarOOnLinkedItemAttachesToItsOwnEvent(t *testing.T) {
 	m := New(ws)
 	m.switchToView(calendarView)
 	m.cursor = findRow(t, m, "Discuss rollout plan")
-	if !m.rows[m.cursor].isCalendarLinkedItem {
-		t.Fatalf("cursor row isn't marked isCalendarLinkedItem")
+	if m.rows[m.cursor].kind != rowCalendarLinked {
+		t.Fatalf("cursor row isn't marked rowCalendarLinked")
 	}
 	before := len(findInboxHeadlines(t, m))
 
@@ -224,7 +224,7 @@ func TestCalendarOOnSectionHeaderRowIsNoop(t *testing.T) {
 	m := New(ws)
 	m.switchToView(calendarView)
 	m.cursor = 0
-	if m.rows[0].section == "" {
+	if m.rows[0].kind != rowSection {
 		t.Fatalf("row 0 isn't a section header, test fixture assumption broken")
 	}
 	before := len(findInboxHeadlines(t, m))

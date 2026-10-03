@@ -113,13 +113,13 @@ func (m *Model) appendAgendaRows() {
 			continue
 		}
 		sort.SliceStable(es, func(i, j int) bool { return es[i].date.Before(es[j].date) })
-		m.rows = append(m.rows, row{section: section})
+		m.rows = append(m.rows, row{kind: rowSection, text: section})
 		for _, e := range es {
 			missed := 0
 			if section == "Overdue" {
 				missed = e.missed
 			}
-			m.rows = append(m.rows, row{headline: e.h, level: 1, isAgendaItem: true, agendaLabel: e.label, agendaDate: e.date, agendaRepeater: e.repeater, agendaMissed: missed})
+			m.rows = append(m.rows, row{headline: e.h, level: 1, kind: rowAgendaItem, agendaLabel: e.label, agendaDate: e.date, agendaRepeater: e.repeater, agendaMissed: missed})
 		}
 	}
 }
@@ -129,9 +129,9 @@ func (m *Model) appendNextActionsSection() {
 	if len(next) == 0 {
 		return
 	}
-	m.rows = append(m.rows, row{section: "Next Actions"})
+	m.rows = append(m.rows, row{kind: rowSection, text: "Next Actions"})
 	for _, h := range next {
-		m.rows = append(m.rows, row{headline: h, level: 1, isAgendaItem: true})
+		m.rows = append(m.rows, row{headline: h, level: 1, kind: rowAgendaItem})
 	}
 }
 
@@ -193,11 +193,11 @@ func (m *Model) appendMeetingsSection() {
 	if len(meetings) == 0 {
 		return
 	}
-	m.rows = append(m.rows, row{section: "Meetings"})
+	m.rows = append(m.rows, row{kind: rowSection, text: "Meetings"})
 	for _, mt := range meetings {
-		m.rows = append(m.rows, row{level: 1, isMeetingHeader: true, meetingTitle: mt.title, meetingStart: mt.start, meetingEnd: mt.end})
+		m.rows = append(m.rows, row{level: 1, kind: rowMeetingHeader, meetingTitle: mt.title, meetingStart: mt.start, meetingEnd: mt.end})
 		for _, h := range mt.items {
-			m.rows = append(m.rows, row{headline: h, level: 2, isAgendaItem: true, meetingItemTitle: mt.title, meetingItemStart: mt.start})
+			m.rows = append(m.rows, row{headline: h, level: 2, kind: rowAgendaItem, meetingItemTitle: mt.title, meetingItemStart: mt.start})
 		}
 	}
 }

@@ -22,7 +22,7 @@ import (
 // test) shows a placeholder instead of an empty view.
 func (m *Model) appendHelpRows() {
 	if m.readme == "" {
-		m.rows = append(m.rows, row{isTextLine: true, text: "No help available."})
+		m.rows = append(m.rows, row{kind: rowText, text: "No help available."})
 		return
 	}
 	rendered, err := renderMarkdown(m.readme, m.helpWrapWidth())
@@ -30,7 +30,7 @@ func (m *Model) appendHelpRows() {
 		rendered = m.readme
 	}
 	for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
-		m.rows = append(m.rows, row{isTextLine: true, text: line})
+		m.rows = append(m.rows, row{kind: rowText, text: line})
 	}
 }
 
@@ -75,7 +75,7 @@ func renderMarkdown(src string, width int) (string, error) {
 // only what it ended up as).
 func (m *Model) appendConfigRows() {
 	line := func(format string, args ...any) {
-		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf(format, args...)})
+		m.rows = append(m.rows, row{kind: rowText, text: fmt.Sprintf(format, args...)})
 	}
 
 	line("Org directory: %s", m.ws.Dir)
@@ -169,10 +169,10 @@ func (m *Model) appendConfigRows() {
 func (m *Model) appendLogRows() {
 	entries := m.execLog.Snapshot()
 	if len(entries) == 0 {
-		m.rows = append(m.rows, row{isTextLine: true, text: "No external commands have been run yet."})
+		m.rows = append(m.rows, row{kind: rowText, text: "No external commands have been run yet."})
 		return
 	}
 	for _, e := range entries {
-		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.Time.Format("15:04:05.000"), e.Kind.Label(), execlog.PIDLabel(e.PID), e.Text)})
+		m.rows = append(m.rows, row{kind: rowText, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.Time.Format("15:04:05.000"), e.Kind.Label(), execlog.PIDLabel(e.PID), e.Text)})
 	}
 }

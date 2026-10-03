@@ -22,8 +22,8 @@ func TestTagsViewGroupsEntriesByTagAlphabetically(t *testing.T) {
 
 	var sections []string
 	for _, r := range m.rows {
-		if r.section != "" {
-			sections = append(sections, r.section)
+		if r.kind == rowSection {
+			sections = append(sections, r.text)
 		}
 	}
 	if len(sections) < 2 {
@@ -63,7 +63,7 @@ func TestTagsViewOrdersEntriesWithinATagByCreatedTime(t *testing.T) {
 
 	var order []string
 	for _, r := range m.rows {
-		if r.isTagsItem && r.tagsItemTag == "proj" {
+		if r.kind == rowTagsItem && r.tagsItemTag == "proj" {
 			order = append(order, r.headline.Title)
 		}
 	}
@@ -90,7 +90,7 @@ func TestTagsViewEntryWithMultipleTagsAppearsUnderEach(t *testing.T) {
 
 	var tagsSeen []string
 	for _, r := range m.rows {
-		if r.isTagsItem && r.headline == h {
+		if r.kind == rowTagsItem && r.headline == h {
 			tagsSeen = append(tagsSeen, r.tagsItemTag)
 		}
 	}
@@ -120,8 +120,8 @@ func TestTagsViewExcludesCalendarAndMeetingTagsFiles(t *testing.T) {
 	m.switchToView(tagsView)
 
 	for _, r := range m.rows {
-		if r.section == "recurring" || r.section == "@alice" || r.section == "standup" {
-			t.Errorf("tagsView shows section %q from an excluded file", r.section)
+		if r.text == "recurring" || r.text == "@alice" || r.text == "standup" {
+			t.Errorf("tagsView shows section %q from an excluded file", r.text)
 		}
 		if r.headline == event || r.headline == record {
 			t.Errorf("tagsView shows a row for a headline from an excluded file")
@@ -198,7 +198,7 @@ func TestTagsViewEnterJumpsToSource(t *testing.T) {
 	m.switchToView(tagsView)
 
 	for i, r := range m.rows {
-		if r.isTagsItem && r.headline == h {
+		if r.kind == rowTagsItem && r.headline == h {
 			m.cursor = i
 			break
 		}

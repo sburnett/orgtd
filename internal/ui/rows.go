@@ -10,104 +10,6 @@ import (
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
-// row is one visible line in the outline: either a file header or a
-// headline at some depth.
-type row struct {
-	file     *org.File // set for a file-header row (outline view)
-	headline *org.Headline
-	level    int // structural level used by level-aware navigation (rowLevel); file/section rows are 0
-
-	// isBodyLine marks a row showing one line of headline's free-text
-	// body (shown under its title when expanded — see appendBodyLines);
-	// bodyText is that line's text (which may itself be empty — a blank
-	// line in the body — so isBodyLine, not bodyText != "", is the
-	// reliable marker). headline is still set to the owning headline on
-	// such a row (not nil), so commands like i/dd/r/gd resolve to it
-	// exactly as if the cursor were on the title row itself.
-	isBodyLine bool
-	bodyText   string
-
-	section        string    // set for an agenda section-header row ("Overdue" etc.); outline rows never set this
-	isAgendaItem   bool      // true for every agenda item row (Next Actions entries have no date/label, so this — not agendaLabel — is the reliable marker)
-	agendaLabel    string    // "Scheduled" or "Deadline", set for a date-based agenda item row; empty for a Next Actions entry
-	agendaDate     time.Time // the date this agenda item row is shown for, if agendaLabel is set
-	agendaRepeater string    // e.g. "+1w", if agendaDate was computed from a recurring timestamp; empty otherwise
-	agendaMissed   int       // occurrences skipped since agendaDate, shown as "(Nx)"; only ever set on an Overdue row
-
-	// isMeetingHeader marks a meeting-group header row in the agenda's
-	// "Meetings" section (see appendMeetingsSection): a label ("<title>
-	// — <when>") to group the items below it under, one level deeper
-	// than the section header and one level shallower than its items
-	// (see rowLevel) — not itself a headline (headline is left nil, like
-	// a plain section row), so none of the outline's per-headline
-	// commands apply to it.
-	isMeetingHeader bool
-	meetingTitle    string
-	meetingStart    time.Time
-	meetingEnd      time.Time
-
-	// meetingItemTitle/meetingItemStart are set alongside isAgendaItem on
-	// a Meetings-section item row (see appendMeetingsSection), echoing
-	// the meetingTitle/meetingStart of the isMeetingHeader row it's
-	// nested under. An item linked to more than one meeting legitimately
-	// gets one row per meeting (see appendMeetingsSection) — all sharing
-	// the same headline — so sameRow (below) needs these to tell those
-	// rows apart; without them, search's "n"/"N" (see findMatch) could
-	// never advance past the first such row, since every later one would
-	// look identical to it.
-	meetingItemTitle string
-	meetingItemStart time.Time
-
-	// isCalendarItem marks a calendar-event row in calendarView (see
-	// appendCalendarHeadlines): rendered with its GCAL_START/GCAL_END
-	// time shown before the title (see renderCalendarItemRowWithBg),
-	// rather than the outline's usual keyword-first layout.
-	isCalendarItem bool
-
-	// meetings.IsTagRecord marks a meeting-tags.org record's own row in
-	// meetingTagsView (see appendMeetingTagsHeadlines/meetings.IsTagRecord
-	// in meeting_tags.go): rendered without the indent/fold columns every
-	// other headline row reserves (see renderMeetingTagsRecordRowWithBg)
-	// — a record is always effectively top-level and never has foldable
-	// content in practice, so those columns would just be dead space.
-	isMeetingTagsRecordRow bool
-
-	// isCalendarLinkedItem marks a row for an entry elsewhere in the
-	// workspace linked to a calendar event — attached via "gM", or
-	// sharing a tag with it (see linkedMeetingItems) — shown right after
-	// the event itself in calendarView regardless of whether the event is
-	// folded (see appendCalendarHeadlines), indented to level (one deeper
-	// than the event) rather than the headline's own real level in its
-	// own file (see renderCalendarLinkedItemRowWithBg).
-	isCalendarLinkedItem bool
-
-	// linkedFromEvent is the calendar event headline a
-	// isCalendarLinkedItem row is nested under (see
-	// appendCalendarHeadlines). An entry linked to more than one event
-	// gets one row per event, all sharing the same linked headline — so
-	// sameRow (below) needs this to tell those rows apart, the same
-	// reason meetingItemTitle/meetingItemStart exist above.
-	linkedFromEvent *org.Headline
-
-	// isTagsItem marks a row in tagsView (see appendTagsRows): a flat,
-	// single-line row for an entry carrying tagsItemTag, shown under that
-	// tag's section header — same rendering shape as isCalendarLinkedItem
-	// (no fold/body/children of its own, a "[file › parent]" place tag
-	// instead), since an entry with several tags legitimately gets one row
-	// per tag, all sharing the same headline pointer.
-	isTagsItem  bool
-	tagsItemTag string
-
-	// isTextLine marks a plain read-only informational row (:config/:log/
-	// :diff/:help), rendered flush left and never interactive; text is
-	// that line's own text (which may itself be empty — a blank line, as
-	// :help's embedded README naturally has plenty of — so isTextLine,
-	// not text != "", is the reliable marker; same reasoning as
-	// isBodyLine/bodyText above).
-	isTextLine bool
-	text       string
-}
-
 func (m *Model) rebuildRows() {
 	// Every change to the files' contents is followed by a rebuild, so this
 	// is where the meeting index (see meetingCache) goes stale.
@@ -135,7 +37,7 @@ func (m *Model) rebuildRows() {
 			if filepath.Base(f.Path) == m.calendarFile || filepath.Base(f.Path) == m.meetingTagsFile {
 				continue
 			}
-			m.rows = append(m.rows, row{file: f})
+			m.rows = append(m.rows, row{kind: rowFile, file: f})
 			m.appendHeadlines(&m.rows, f.Headlines, false)
 		}
 	}
@@ -223,7 +125,7 @@ func (m *Model) appendHeadlines(dst *[]row, headlines []*org.Headline, ignoreFol
 
 // appendCalendarHeadlines is appendHeadlines' calendarView counterpart:
 // same recursion (body lines, children), but each row is marked
-// isCalendarItem (see renderCalendarItemRowWithBg) instead of rendered
+// rowCalendarEvent (see renderCalendarItemRowWithBg) instead of rendered
 // the outline's usual way, and every event starts folded the first time
 // it's ever shown — its Location/Description/link body is meeting
 // detail you don't need at a glance, and stays one Tab away rather than
@@ -247,7 +149,7 @@ func (m *Model) appendCalendarHeadlines(dst *[]row, headlines []*org.Headline, i
 		if _, ok := m.collapsed[h]; !ok {
 			m.collapsed[h] = true
 		}
-		*dst = append(*dst, row{headline: h, level: h.Level, isCalendarItem: true})
+		*dst = append(*dst, row{headline: h, level: h.Level, kind: rowCalendarEvent})
 		if ignoreFold || !m.collapsed[h] {
 			m.appendBodyLines(dst, h)
 			if len(h.Children) > 0 {
@@ -255,7 +157,7 @@ func (m *Model) appendCalendarHeadlines(dst *[]row, headlines []*org.Headline, i
 			}
 		}
 		for _, item := range m.linkedMeetingItems(h) {
-			*dst = append(*dst, row{headline: item, level: h.Level + 1, isCalendarLinkedItem: true, linkedFromEvent: h})
+			*dst = append(*dst, row{headline: item, level: h.Level + 1, kind: rowCalendarLinked, linkedFromEvent: h})
 		}
 	}
 }
@@ -286,7 +188,7 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 // toggle shows or hides both together.
 func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
 	for _, line := range visibleBodyLines(h) {
-		*dst = append(*dst, row{headline: h, level: h.Level + 1, isBodyLine: true, bodyText: line})
+		*dst = append(*dst, row{headline: h, level: h.Level + 1, kind: rowBody, text: line})
 	}
 }
 

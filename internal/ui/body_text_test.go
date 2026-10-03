@@ -16,11 +16,11 @@ func TestBodyTextVisibleByDefault(t *testing.T) {
 
 	bodyIdx := idx + 1
 	r := m.rows[bodyIdx]
-	if !r.isBodyLine {
+	if r.kind != rowBody {
 		t.Fatalf("row after the headline = %+v, want its body line", r)
 	}
-	if !strings.Contains(r.bodyText, "Came up in the API versioning discussion.") {
-		t.Errorf("bodyText = %q, want the fixture's body content", r.bodyText)
+	if !strings.Contains(r.text, "Came up in the API versioning discussion.") {
+		t.Errorf("text = %q, want the fixture's body content", r.text)
 	}
 }
 
@@ -33,7 +33,7 @@ func TestBodyTextTrailingBlankLineNotShown(t *testing.T) {
 	// conventional blank line before the next headline, which the
 	// parser can't distinguish from a deliberate trailing blank in the
 	// body. It must not show up as a meaningless empty row.
-	if m.rows[idx+1].isBodyLine {
+	if m.rows[idx+1].kind == rowBody {
 		t.Errorf("row after a body-less headline = %+v, want the next headline, not a phantom blank body line", m.rows[idx+1])
 	}
 }
@@ -66,7 +66,7 @@ func TestFoldingAHeadlineHidesItsBodyToo(t *testing.T) {
 	if len(m.rows) != before-1 {
 		t.Fatalf("rows after folding a body-only headline = %d, want %d (the body line hidden)", len(m.rows), before-1)
 	}
-	if m.rows[idx].isBodyLine {
+	if m.rows[idx].kind == rowBody {
 		t.Errorf("body line still present after folding")
 	}
 
@@ -83,7 +83,7 @@ func TestBodyLineIsInertButActionsApplyToOwningHeadline(t *testing.T) {
 	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
 	h := m.rows[idx].headline
 	bodyIdx := idx + 1
-	if !m.rows[bodyIdx].isBodyLine {
+	if m.rows[bodyIdx].kind != rowBody {
 		t.Fatalf("fixture assumption broken: expected a body line right after the headline")
 	}
 
@@ -102,14 +102,14 @@ func TestCaretFromBodyLineGoesToOwningHeadline(t *testing.T) {
 	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
 	h := m.rows[idx].headline
 	bodyIdx := idx + 1
-	if !m.rows[bodyIdx].isBodyLine {
+	if m.rows[bodyIdx].kind != rowBody {
 		t.Fatalf("fixture assumption broken: expected a body line right after the headline")
 	}
 
 	m.cursor = bodyIdx
 	m = sendKey(m, "^")
 
-	if m.currentHeadline() != h || m.rows[m.cursor].isBodyLine {
+	if m.currentHeadline() != h || m.rows[m.cursor].kind == rowBody {
 		t.Errorf("^ from a body line landed on %+v, want the owning headline's own row", m.rows[m.cursor])
 	}
 }
@@ -120,14 +120,14 @@ func TestHKeyFromBodyLineGoesToOwningHeadline(t *testing.T) {
 	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
 	h := m.rows[idx].headline
 	bodyIdx := idx + 1
-	if !m.rows[bodyIdx].isBodyLine {
+	if m.rows[bodyIdx].kind != rowBody {
 		t.Fatalf("fixture assumption broken: expected a body line right after the headline")
 	}
 
 	m.cursor = bodyIdx
 	m = sendKey(m, "h")
 
-	if m.currentHeadline() != h || m.rows[m.cursor].isBodyLine {
+	if m.currentHeadline() != h || m.rows[m.cursor].kind == rowBody {
 		t.Errorf("h from a body line landed on %+v, want the owning headline's own row", m.rows[m.cursor])
 	}
 }
@@ -156,13 +156,13 @@ func TestJSkipsOverBodyLines(t *testing.T) {
 	m := New(ws)
 	idx := findRow(t, m, "Read the RFC linked in yesterday's design review")
 	m.cursor = idx
-	if !m.rows[idx+1].isBodyLine {
+	if m.rows[idx+1].kind != rowBody {
 		t.Fatalf("fixture assumption broken: expected a body line right after the headline")
 	}
 
 	m = sendKey(m, "j")
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Fatalf("cursor landed on a body line: %+v", m.rows[m.cursor])
 	}
 	if got := m.currentHeadline(); got == nil || got.Title != "Follow up with finance about the Q3 budget doc" {
@@ -178,7 +178,7 @@ func TestKSkipsOverBodyLinesGoingUp(t *testing.T) {
 
 	m = sendKey(m, "k")
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Fatalf("cursor landed on a body line: %+v", m.rows[m.cursor])
 	}
 	if got := m.currentHeadline(); got == nil || got.Title != "Read the RFC linked in yesterday's design review" {
@@ -190,7 +190,7 @@ func TestCursorNeverLandsOnTrailingBodyLineAtEndOfList(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	last := len(m.rows) - 1
-	if !m.rows[last].isBodyLine {
+	if m.rows[last].kind != rowBody {
 		t.Skip("fixture's last row isn't a body line in this configuration; nothing to exercise")
 	}
 
@@ -198,7 +198,7 @@ func TestCursorNeverLandsOnTrailingBodyLineAtEndOfList(t *testing.T) {
 	m = sendKey(m, "j")
 	m = sendKey(m, "j") // try to overshoot past the end
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Errorf("cursor ended on the trailing body line at the end of the list: %+v", m.rows[m.cursor])
 	}
 }
@@ -212,7 +212,7 @@ func TestHalfPageScrollAlsoSkipsBodyLines(t *testing.T) {
 
 	m = sendKey(m, "ctrl+d")
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Errorf("cursor after ctrl+d landed on a body line: %+v", m.rows[m.cursor])
 	}
 }
@@ -299,7 +299,7 @@ func TestCursorNeverRestsOnABodyLine(t *testing.T) {
 
 	hasBody := false
 	for _, r := range m.rows {
-		if r.isBodyLine {
+		if r.kind == rowBody {
 			hasBody = true
 			break
 		}
@@ -318,7 +318,7 @@ func TestCursorNeverRestsOnABodyLine(t *testing.T) {
 		} else {
 			m = sendKey(m, key)
 		}
-		if m.rows[m.cursor].isBodyLine {
+		if m.rows[m.cursor].kind == rowBody {
 			t.Fatalf("cursor rests on a body line after %q: %+v", key, m.rows[m.cursor])
 		}
 	}
@@ -336,13 +336,13 @@ func TestGSnapsToLastEntryNotItsBodyLine(t *testing.T) {
 	last.Body = []string{"Trailing note."}
 	m.rebuildRows()
 	m.width, m.height = 100, len(m.rows)+3
-	if !m.rows[len(m.rows)-1].isBodyLine {
+	if m.rows[len(m.rows)-1].kind != rowBody {
 		t.Fatalf("fixture setup broken: last row still isn't a body line")
 	}
 
 	m = sendKey(m, "G")
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Fatalf("cursor after G rests on a body line: %+v", m.rows[m.cursor])
 	}
 	if m.currentHeadline() != last {
@@ -373,7 +373,7 @@ func TestLSkipsOverBodyEntirelyToRealChild(t *testing.T) {
 
 	m = sendKey(m, "l")
 
-	if m.rows[m.cursor].isBodyLine {
+	if m.rows[m.cursor].kind == rowBody {
 		t.Fatalf("l landed on a body line: %+v", m.rows[m.cursor])
 	}
 	if got := m.currentHeadline(); got != h.Children[0] {

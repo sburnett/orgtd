@@ -140,7 +140,7 @@ func (m *Model) meetingTagEvents(h *org.Headline) []*org.Headline {
 // counterpart (see appendMeetingTagsRows, rows.go): same recursion
 // (body lines, children), but a headline that's itself a
 // meeting-tags.org record (meetings.IsTagRecord) is marked
-// isMeetingTagsRecordRow (see renderMeetingTagsRecordRowWithBg — a
+// rowMeetingTagsRecord (see renderMeetingTagsRecordRowWithBg — a
 // tighter row than the default headline case, no indent/fold columns),
 // and has every calendar event it currently matches
 // (meetingTagEvents) appended right after it, one level
@@ -155,7 +155,7 @@ func (m *Model) meetingTagEvents(h *org.Headline) []*org.Headline {
 // renderCalendarLinkedItemRowWithBg's r.level-based indent does for
 // :calendar's own linked items (its actual rendered indent is separately
 // capped — see renderCalendarItemRowWithBg). Each nested event row is
-// marked isCalendarItem, the same as its own row in :calendar (same
+// marked rowCalendarEvent, the same as its own row in :calendar (same
 // headline pointer), so it renders, folds, and edits identically —
 // including "gt", which applyTagInput routes right back to this same
 // record.
@@ -164,7 +164,11 @@ func (m *Model) appendMeetingTagsHeadlines(dst *[]row, headlines []*org.Headline
 		if m.hiddenAsStaleDone(h) {
 			continue
 		}
-		*dst = append(*dst, row{headline: h, level: h.Level, isMeetingTagsRecordRow: meetings.IsTagRecord(h)})
+		kind := rowHeadline
+		if meetings.IsTagRecord(h) {
+			kind = rowMeetingTagsRecord
+		}
+		*dst = append(*dst, row{kind: kind, headline: h, level: h.Level})
 		if ignoreFold || !m.collapsed[h] {
 			m.appendBodyLines(dst, h)
 			if len(h.Children) > 0 {
@@ -175,7 +179,7 @@ func (m *Model) appendMeetingTagsHeadlines(dst *[]row, headlines []*org.Headline
 			if _, ok := m.collapsed[event]; !ok {
 				m.collapsed[event] = true
 			}
-			*dst = append(*dst, row{headline: event, level: h.Level + 1, isCalendarItem: true})
+			*dst = append(*dst, row{headline: event, level: h.Level + 1, kind: rowCalendarEvent})
 			if ignoreFold || !m.collapsed[event] {
 				m.appendBodyLines(dst, event)
 			}

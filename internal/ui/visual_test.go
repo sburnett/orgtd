@@ -345,7 +345,7 @@ func TestVisualModeOnlyCursorEntryUsesCursorBg(t *testing.T) {
 func findHeadlineByTitle(t *testing.T, m Model, title string) *org.Headline {
 	t.Helper()
 	for _, r := range m.rows {
-		if r.headline != nil && !r.isBodyLine && r.headline.Title == title {
+		if r.headline != nil && r.kind != rowBody && r.headline.Title == title {
 			return r.headline
 		}
 	}

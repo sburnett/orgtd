@@ -12,7 +12,7 @@ import (
 
 // appendCalendarRows populates m.rows for calendarView: every headline
 // in the calendar file (see findCalendarFile/WithCalendarFile), grouped
-// under one flush-left day-header row per calendar day (see row.section)
+// under one flush-left day-header row per calendar day (see rowSection)
 // in chronological order — both the days themselves and, within each
 // day, the events on it, by start time. A headline with no parseable
 // GCAL_START (i.e. not one :sync-calendar wrote — see
@@ -66,7 +66,7 @@ func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 			sj, _ := meetings.TimeProperty(g.events[j], "GCAL_START")
 			return si.Before(sj)
 		})
-		*dst = append(*dst, row{section: day.Format("2006-01-02 Mon")})
+		*dst = append(*dst, row{kind: rowSection, text: day.Format("2006-01-02 Mon")})
 		m.appendCalendarHeadlines(dst, g.events, ignoreFold)
 	}
 }
@@ -186,14 +186,14 @@ func headlineCreatedTime(h *org.Headline) (time.Time, bool) {
 // calendarEventForRow resolves the calendar event a calendarView row r is
 // associated with, for insertCalendarCapture (o/O — see capture.go): r's
 // own headline if it's itself a synced calendar event (covers both the
-// event's own row, isCalendarItem, and one of its folded-open body-line
+// event's own row, rowCalendarEvent, and one of its folded-open body-line
 // rows, which share the same headline — see appendCalendarHeadlines), or
-// linkedFromEvent if r is an isCalendarLinkedItem row instead. ok is
+// linkedFromEvent if r is an rowCalendarLinked row instead. ok is
 // false for anything else (a day's section-header row), or if
 // linkedFromEvent is unset on a linked-item row (shouldn't happen in
 // practice, but leaves nothing to resolve either way).
 func calendarEventForRow(r row) (*org.Headline, bool) {
-	if r.isCalendarLinkedItem {
+	if r.kind == rowCalendarLinked {
 		return r.linkedFromEvent, r.linkedFromEvent != nil
 	}
 	if r.headline != nil {
