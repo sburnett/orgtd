@@ -446,15 +446,15 @@ func TestGgAndG(t *testing.T) {
 	}
 
 	m = sendKey(m, "g")
-	if !m.pendingG {
-		t.Fatalf("pendingG should be true after first g")
+	if m.chord != "g" {
+		t.Fatalf("chord should be true after first g")
 	}
 	m = sendKey(m, "g")
 	if m.cursor != 0 {
 		t.Errorf("cursor after gg = %d, want 0", m.cursor)
 	}
-	if m.pendingG {
-		t.Errorf("pendingG should be cleared after second g")
+	if m.chord == "g" {
+		t.Errorf("chord should be cleared after second g")
 	}
 }
 

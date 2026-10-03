@@ -113,8 +113,8 @@ func TestGXIsTwoKeyChordNotSingleG(t *testing.T) {
 	if m.mode == meetingPickerMode {
 		t.Fatalf("single g opened anything")
 	}
-	if !m.pendingG {
-		t.Errorf("expected pendingG after a single g")
+	if m.chord != "g" {
+		t.Errorf("expected chord after a single g")
 	}
 }
 
@@ -143,8 +143,8 @@ func TestGMIsTwoKeyChordNotSingleG(t *testing.T) {
 	if m.mode == meetingPickerMode {
 		t.Fatalf("single g opened the meeting picker")
 	}
-	if !m.pendingG {
-		t.Errorf("expected pendingG after a single g")
+	if m.chord != "g" {
+		t.Errorf("expected chord after a single g")
 	}
 }
 

@@ -56,15 +56,13 @@ type Model struct {
 
 	width, height int
 
-	pendingG     bool
-	pendingD     bool
-	pendingY     bool // pending 'y' of "yy"
-	pendingGT    bool // pending '>' of ">>"
-	pendingLT    bool // pending '<' of "<<"
-	pendingZ     bool // pending 'z' of a fold command (zo/zc/za/zO/zC/zA)
-	pendingM     bool // pending 'm' of "m<letter>" (set a mark)
-	pendingQuote bool // pending '\'' of "'<letter>" (jump to a mark)
-	pendingCount int  // numeric prefix built up so far for "dd"/"r"/"R" (e.g. "3dd", "2R"); 0 means none typed
+	// chord is the first key of a two-key command typed so far — "g", "d",
+	// "y", "z", ">", "<", or (for the mark commands) "m" or "'" — waiting
+	// for its second key; "" if none is. Set when such a key is pressed on
+	// its own, consumed by the very next key whatever it is (see runKey).
+	chord string
+
+	pendingCount int // numeric prefix built up so far for "dd"/"r"/"R" (e.g. "3dd", "2R"); 0 means none typed
 
 	// pendingForceQuit is set by a ctrl+c that got refused because there
 	// were unsaved changes (see Update) — a second ctrl+c right after it

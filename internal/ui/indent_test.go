@@ -214,7 +214,7 @@ func TestSingleAngleBracketIsPending(t *testing.T) {
 	if h.Level != origLevel {
 		t.Errorf("a single > already demoted the headline")
 	}
-	if !m.pendingGT {
-		t.Errorf("expected pendingGT after a single >")
+	if m.chord != ">" {
+		t.Errorf("expected chord after a single >")
 	}
 }

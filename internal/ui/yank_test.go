@@ -109,8 +109,8 @@ func TestYankIsDoubleYNotSingle(t *testing.T) {
 	if m.register != nil {
 		t.Fatalf("a single y already populated the register")
 	}
-	if !m.pendingY {
-		t.Errorf("expected pendingY after a single y")
+	if m.chord != "y" {
+		t.Errorf("expected chord after a single y")
 	}
 
 	// An unrelated key cancels the pending y.

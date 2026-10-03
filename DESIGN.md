@@ -195,7 +195,8 @@ including its known weak points, so changes can be made deliberately.
 | `row.go` | The `row` type and its `rowKind`s, `sameRow`, `rowSearchText` |
 | `rows.go` | `rebuildRows` and the outline's row building (fold, hide-done, body lines) |
 | `nav.go`, `fold.go` | Cursor motions, viewport/scrolling; fold commands |
-| `keys_normal.go`, `keys_visual.go` | Normal-mode and visual-mode key handling (chords, counts) |
+| `keymap.go` | The `keymap` type and the `normalKeys`/`visualKeys` tables: what every key and two-key chord does, and the dispatch (`runKey`) |
+| `keys_normal.go`, `keys_visual.go` | Normal- and visual-mode entry points: the argument chords (`m<letter>`), counts, then the table lookup |
 | `commands.go` | `:` command line: input, history, completion, `runCommand`, `:w`/`:wq` |
 | `command_table.go` | `commandTable` (every non-view `:` command), lookup, and dispatch |
 | `search.go` | `/` `?` `n` `N` incremental search and the search row space |
@@ -259,8 +260,9 @@ outline; shown in `:meeting-tags`; durable and committed like any other).
 `Model.mode` selects which `update*Mode` function interprets a key
 (normal, command, select, deadline, search, confirm, visual,
 meetingPicker, tag). Multi-key chords (`gg`, `dd`, `zo`, `m<letter>`,
-counts like `3dd`) are tracked by individual `pending*` booleans and a
-`pendingCount`, reset at the top of `updateNormalMode`. Colon commands
+counts like `3dd`) are driven by one `chord` field (the pending prefix
+key) and a `pendingCount`; the keys themselves are `keymap` tables in
+`keymap.go`, written `"g g"`, `"z o"`, `"d d"`. Colon commands
 are the `commandTable` in `command_table.go` (names, optional argument,
 handler); `runCommand` records history and calls `execCommand`, which
 dispatches to a view (`viewSpecs`) or a table command. Tab completion
@@ -345,10 +347,12 @@ names, whether it takes an argument, and its handler. Completion and
 dispatch need no other edits. Document it in README's command table and the
 `:help`-visible text (README is embedded). Add a key-driven test.
 
-**Add a normal-mode key or chord.** Edit `updateNormalMode`; if it's a
-chord prefix add a `pending*` flag, reset it with the others, and if it
-should extend a selection also handle it in `updateVisualMode`. Document
-in the README's keybinding tables.
+**Add a normal-mode key or chord.** Add a `bind` line to `buildNormalKeys`
+(`keymap.go`): the key (`"x"`, or `"g x"` for a chord — its prefix is
+registered automatically) and the action. Use `bindKeepView` if the action
+manages the viewport or mode itself. If it should work in visual mode,
+bind it in `buildVisualKeys` too (shared cursor motions are in
+`addMotions`). Document it in the README's keybinding tables.
 
 **Add an undoable edit.** Implement `undoAction` in `undo.go` (mutate in
 place; record old and new values), build it where the edit happens and

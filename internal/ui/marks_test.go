@@ -424,19 +424,19 @@ func TestJumpToMarkSwitchesToOutlineWhenNotInAgendaRows(t *testing.T) {
 
 func TestYankThenPasteDoesNotResetPendingMark(t *testing.T) {
 	// Regression-style sanity check: setting a mark, then using
-	// unrelated commands, doesn't leave pendingM/pendingQuote stuck.
+	// unrelated commands, doesn't leave a mark chord stuck.
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
-	if m.pendingM {
-		t.Errorf("pendingM still set after completing the mark chord")
+	if m.chord == "m" {
+		t.Errorf("chord still set after completing the mark chord")
 	}
 
 	m = sendKey(m, "'")
 	m = sendKey(m, "a")
-	if m.pendingQuote {
-		t.Errorf("pendingQuote still set after completing the jump chord")
+	if m.chord == "'" {
+		t.Errorf("chord still set after completing the jump chord")
 	}
 }

@@ -58,8 +58,8 @@ func TestGdIsTwoKeyChordNotSingleG(t *testing.T) {
 	if m.mode == deadlineMode {
 		t.Fatalf("single g opened deadline mode")
 	}
-	if !m.pendingG {
-		t.Errorf("expected pendingG after a single g")
+	if m.chord != "g" {
+		t.Errorf("expected chord after a single g")
 	}
 }
 

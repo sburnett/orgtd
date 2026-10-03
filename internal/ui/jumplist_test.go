@@ -358,8 +358,8 @@ func TestGThenIIsTwoKeyChordNotSingleG(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
 	m = sendKey(m, "g")
-	if !m.pendingG {
-		t.Fatalf("expected pendingG after a single g")
+	if m.chord != "g" {
+		t.Fatalf("expected chord after a single g")
 	}
 	// The second key of "gi" should not also start an edit.
 	_, cmd := sendKeyCmd(m, "i")

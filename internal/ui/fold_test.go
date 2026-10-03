@@ -102,8 +102,8 @@ func TestFoldLoneZIsPendingAndCancellable(t *testing.T) {
 	if m.collapsed[h] {
 		t.Errorf("a lone z already folded")
 	}
-	if !m.pendingZ {
-		t.Errorf("expected pendingZ after a lone z")
+	if m.chord != "z" {
+		t.Errorf("expected chord after a lone z")
 	}
 
 	// An unrelated key cancels the pending z, so a subsequent "o"

@@ -245,3 +245,13 @@ func findMatch(rows []row, from row, query string, forward bool) (row, bool) {
 	}
 	return row{}, false
 }
+
+// startSearch enters search mode ("/" for forward, "?" for backward),
+// remembering where the cursor was so Esc can put it back.
+func (m *Model) startSearch(forward bool) {
+	m.mode = searchMode
+	m.searchForward = forward
+	m.searchOrigin = m.cursor
+	m.searchQuery = ""
+	m.message = ""
+}

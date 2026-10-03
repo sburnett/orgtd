@@ -15,89 +15,11 @@ import (
 // folding, marks, paste, ...) has no obvious bulk meaning and is left
 // unbound rather than guessed at.
 func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	wasPendingG := m.pendingG
-	m.pendingG = false
+	chord := m.chord
+	m.chord = ""
 	m.message = ""
-
-	switch key {
-	case "esc", "V":
-		m.exitVisualMode()
-
-	case "j", "down":
-		m.moveCursor(1)
-
-	case "k", "up":
-		m.moveCursor(-1)
-
-	case "}":
-		m.jumpParagraph(1)
-
-	case "{":
-		m.jumpParagraph(-1)
-
-	case "l":
-		m.moveDeeper()
-
-	case "h":
-		m.moveShallower()
-
-	case "g":
-		if wasPendingG {
-			m.cursor = 0
-		} else {
-			m.pendingG = true
-		}
-
-	case "G":
-		if n := len(m.rows); n > 0 {
-			m.cursor = m.entryStart(n - 1)
-		}
-
-	case "^":
-		m.jumpToSubtreeTop()
-
-	case "$":
-		m.jumpToSubtreeBottom()
-
-	case "ctrl+d":
-		m.moveCursor(m.pageSize() / 2)
-
-	case "ctrl+u":
-		m.moveCursor(-m.pageSize() / 2)
-
-	case "pgdown":
-		m.moveCursor(m.pageSize())
-
-	case "pgup":
-		m.moveCursor(-m.pageSize())
-
-	case "ctrl+e":
-		m.scrollView(1)
-		return m, nil
-
-	case "ctrl+y":
-		m.scrollView(-1)
-		return m, nil
-
-	case "d":
-		m.deleteVisualSelection()
-
-	case "y":
-		m.yankVisualSelection()
-
-	case "r", "R":
-		if headlines := m.visualSelectedHeadlines(); len(headlines) > 0 {
-			m.mode = selectMode
-			m.selectModeTargets = headlines
-			m.selectFilter = ""
-			m.selectIndex = m.currentStatusIndex()
-		}
-	}
-
-	m.ensureVisible()
-	return m, nil
+	cmd := m.runKey(visualKeys, chord, msg.String())
+	return m, cmd
 }
 
 // exitVisualMode leaves visual selection and returns to normal mode —
