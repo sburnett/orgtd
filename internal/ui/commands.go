@@ -97,25 +97,6 @@ func (m *Model) recallCommandHistory(dir int) {
 	}
 }
 
-// runCommand executes the typed command line and always returns to
-// normal mode.
-// commandNames lists every command-mode word tab completion knows
-// about: the commands below plus every view's own (see viewSpecs). Both short and long forms of the same command (e.g. "q" and
-// "quit") are listed individually, since either is something you might
-// type and want completed.
-func commandNames() []string {
-	names := []string{
-		"w", "write", "wq", "q", "quit", "q!", "quit!",
-		"undo", "redo", "capture",
-		"delmarks", "delmarks!", "clear-registers", "noh", "nohlsearch", "toggledone", "next", "prev", "format-links", "commit",
-		"sync-calendar", "sync-calendar!",
-	}
-	for k := range viewSpecs {
-		names = append(names, viewSpecs[k].command)
-	}
-	return names
-}
-
 // completeCommand implements ":<prefix><Tab>": if the command word
 // typed so far (no completion once an argument is being typed, i.e.
 // past the first space) is a prefix of exactly one command name, the
@@ -178,97 +159,11 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	m.commandHistoryPos = len(m.commandHistory)
 	m.commandHistoryDraft = ""
 
-	if k, v := viewForCommand(cmd); v != nil {
-		m.openView(k)
-		return m, nil
-	}
-
-	if cmd == "delmarks!" {
-		m.marks = nil
-		m.message = "All marks deleted"
-		return m, nil
-	}
-	if letters, ok := strings.CutPrefix(cmd, "delmarks "); ok {
-		m.deleteMarks(letters)
-		return m, nil
-	}
-
-	switch cmd {
-	case "":
-		// Nothing typed; just dismiss the command line.
-
-	case "w", "write":
-		m.message = m.writeAll()
-
-	case "wq":
-		msg, ok := m.writeAllResult()
-		m.message = msg
-		if ok {
-			return m, tea.Quit
-		}
-
-	case "q", "quit":
-		if len(m.dirty) > 0 {
-			m.message = "Unsaved changes — :w to save, or :q! to discard them"
-			return m, nil
-		}
-		return m, tea.Quit
-
-	case "q!", "quit!":
-		return m, tea.Quit
-
-	case "undo":
-		m.undo()
-
-	case "redo":
-		m.redo()
-
-	case "noh", "nohlsearch":
-		m.lastSearchQuery = ""
-
-	case "capture":
-		return m, m.startCapture()
-
-	case "delmarks":
-		m.message = "Usage: :delmarks <letters> or :delmarks!"
-
-	case "clear-registers":
-		m.register = nil
-		m.message = "Register cleared"
-
-	case "toggledone":
-		m.toggleHideDone()
-
-	case "next":
-		if m.view != clarifyView {
-			m.message = ":next only works in clarify view"
-		} else {
-			m.clarifyStep(1)
-		}
-
-	case "prev":
-		if m.view != clarifyView {
-			m.message = ":prev only works in clarify view"
-		} else {
-			m.clarifyStep(-1)
-		}
-
-	case "format-links":
-		return m, m.startFormatLinks()
-
-	case "sync-calendar":
-		return m, m.startSyncCalendar(false)
-
-	case "sync-calendar!":
-		return m, m.startSyncCalendar(true)
-
-	case "commit":
-		return m, m.startCommit()
-
-	default:
-		m.message = fmt.Sprintf("Unknown command: %s", cmd)
-	}
-	return m, nil
+	// Run it first and return m after: execCommand mutates m, and Go leaves
+	// unspecified whether a bare m in the same return is read before or
+	// after the call.
+	run := m.execCommand(cmd)
+	return m, run
 }
 
 // writeAll writes every file with unwritten in-memory changes to disk,

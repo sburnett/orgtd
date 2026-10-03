@@ -197,6 +197,7 @@ including its known weak points, so changes can be made deliberately.
 | `nav.go`, `fold.go` | Cursor motions, viewport/scrolling; fold commands |
 | `keys_normal.go`, `keys_visual.go` | Normal-mode and visual-mode key handling (chords, counts) |
 | `commands.go` | `:` command line: input, history, completion, `runCommand`, `:w`/`:wq` |
+| `command_table.go` | `commandTable` (every non-view `:` command), lookup, and dispatch |
 | `search.go` | `/` `?` `n` `N` incremental search and the search row space |
 | `edit_ops.go` | Delete/yank/paste/promote/demote and bulk status changes |
 | `status_picker.go`, `deadline.go`, `tag_prompt.go`, `meeting_picker.go` | The `r`/`R`, `gd`, `gt`, `gM` prompts |
@@ -260,10 +261,11 @@ outline; shown in `:meeting-tags`; durable and committed like any other).
 meetingPicker, tag). Multi-key chords (`gg`, `dd`, `zo`, `m<letter>`,
 counts like `3dd`) are tracked by individual `pending*` booleans and a
 `pendingCount`, reset at the top of `updateNormalMode`. Colon commands
-are a `switch` in `runCommand`, and `Tab` completion has its own
-separate `commandNames()` list — **adding a non-view command means
-editing both**. View commands (`:agenda`, `:tags`, ...) come from
-`viewSpecs`, so they need neither.
+are the `commandTable` in `command_table.go` (names, optional argument,
+handler); `runCommand` records history and calls `execCommand`, which
+dispatches to a view (`viewSpecs`) or a table command. Tab completion
+(`commandNames()`) is derived from both, so a command is defined in
+exactly one place.
 
 ### Rendering
 
@@ -338,8 +340,9 @@ as `gM`.
 ## 9. Recipes for common changes
 
 **Add a colon command.** (A command that just opens a view is a `viewSpec`
-— see below.) Add a `case` in `runCommand` *and* the name in
-`commandNames()`; document it in README's command table and the
+— see below.) Add an entry to `commandTable` (`command_table.go`): its
+names, whether it takes an argument, and its handler. Completion and
+dispatch need no other edits. Document it in README's command table and the
 `:help`-visible text (README is embedded). Add a key-driven test.
 
 **Add a normal-mode key or chord.** Edit `updateNormalMode`; if it's a
