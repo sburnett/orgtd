@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -90,9 +91,9 @@ type Model struct {
 	immutable map[*org.Headline]bool
 
 	// execLog records every external command run since startup (URL
-	// formatters, $EDITOR), for :log — see execLog's own doc comment for
+	// formatters, $EDITOR), for :log — see execlog.Log's own doc comment for
 	// why it's a pointer rather than a plain value.
-	execLog *execLog
+	execLog *execlog.Log
 
 	visualAnchor int // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
 
@@ -305,7 +306,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		dirtyHeadlines:     make(map[*org.Headline]bool),
 		savedPos:           make(map[*org.File]int),
 		immutable:          make(map[*org.Headline]bool),
-		execLog:            &execLog{},
+		execLog:            &execlog.Log{},
 		agendaDays:         14,
 		inboxFile:          "inbox.org",
 		calendarFile:       "calendar.org",

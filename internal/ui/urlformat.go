@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/sburnett/orgtd/internal/execlog"
 )
 
 // debugLogHint returns a parenthesized suffix pointing a failure message
@@ -136,7 +138,7 @@ func bareURLSpansOutsideLinks(re *regexp.Regexp, text string) [][2]int {
 // this, silently leaving the URL unchanged on any error gives no clue
 // why; a failure also sets m.message so it's visible without leaving
 // the app or checking the log. The actual run goes through
-// runLoggedCommand, which also records it (start, every output line, and
+// execlog.Run, which also records it (start, every output line, and
 // its exit code) in m.execLog for :log.
 func (m *Model) runURLFormatter(url string) string {
 	fields := splitCommandFields(m.urlFormatterCmd)
@@ -150,7 +152,7 @@ func (m *Model) runURLFormatter(url string) string {
 	args := append(append([]string{}, fields[1:]...), url)
 	log.Printf("url formatter: running %v", append([]string{fields[0]}, args...))
 
-	out, err := runLoggedCommand(m.execLog, fields[0], args, "")
+	out, err := execlog.Run(m.execLog, fields[0], args, "")
 	if err != nil {
 		detail := err.Error()
 		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
@@ -179,11 +181,11 @@ func (m *Model) runURLFormatter(url string) string {
 // Returns exactly len(urls) formatted strings, in the same order;
 // anything else (a run failure, or a line-count mismatch) is an error,
 // since there'd be no reliable way to match output back to input. The
-// run itself goes through runLoggedCommand, which records it in elog
+// run itself goes through execlog.Run, which records it in elog
 // (start, every output line as it's produced, and its exit code) for
 // :log — this runs on its own goroutine (see startFormatLinks), so elog
 // must be safe for concurrent use, which is exactly what it's for.
-func runBatchURLFormatter(elog *execLog, urlFormatterCmd string, urls []string) ([]string, error) {
+func runBatchURLFormatter(elog *execlog.Log, urlFormatterCmd string, urls []string) ([]string, error) {
 	fields := splitCommandFields(urlFormatterCmd)
 	if len(fields) == 0 {
 		return nil, fmt.Errorf("url formatter command is empty")
@@ -195,7 +197,7 @@ func runBatchURLFormatter(elog *execLog, urlFormatterCmd string, urls []string) 
 	stdin := strings.Join(urls, "\n") + "\n"
 	log.Printf("url formatter (batch): running %v with %d url(s) on stdin", append([]string{fields[0]}, fields[1:]...), len(urls))
 
-	out, err := runLoggedCommand(elog, fields[0], fields[1:], stdin)
+	out, err := execlog.Run(elog, fields[0], fields[1:], stdin)
 	if err != nil {
 		detail := err.Error()
 		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {

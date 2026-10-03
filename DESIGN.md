@@ -41,6 +41,7 @@ readme.go             embeds README.md for :help (package orgtd)
 cmd/orgtd/            main: flags + config + env → settings → ui.New. Wiring only.
 internal/config/      TOML config file schema and loading (no precedence logic)
 internal/org/         org data model, parser, renderer, atomic writer, deep clone
+internal/execlog/      logged subprocess runner + the timeline :log shows
 internal/orgdate/     pure date logic: typed-date parsing, timestamp/repeater parsing and math
 internal/workspace/   loads a directory of .org files; advisory directory lock
 internal/ui/          the Bubble Tea application (nearly all behavior; see §5)
@@ -56,6 +57,7 @@ Dependency direction (no cycles, keep it this way):
 cmd/orgtd → ui → calendarsync → gcal
               ↘ workspace → org
               ↘ orgdate → org
+              ↘ execlog
               ↘ org
 cmd/orgtd → config, workspace
 ```
@@ -138,8 +140,8 @@ Bubble Tea: `Model`, `Update`, `View`.
   writes and the live in-editor URL formatter run synchronously inside
   `Update`. They are fast in practice; if one ever isn't, convert it to a
   `tea.Cmd` following the `:commit` pattern.
-- **All external commands go through `execLog`** (`exec_log.go`:
-  `runLoggedCommand`), which is what `:log` displays. New subprocess code
+- **All external commands go through `internal/execlog`** (`execlog.Run`),
+  which is what `:log` displays. New subprocess code
   should use it.
 
 ## 5. The UI package
@@ -176,7 +178,6 @@ including its known weak points, so changes can be made deliberately.
 | `calendar.go`, `meeting_tags.go`, `tags.go` | The `:calendar`, `:meeting-tags` and `:tags` views |
 | `repeat.go` | Completing a repeating item (`+1w`, `++1w`, `.+1w`) |
 | `sync_calendar.go` | `:sync-calendar` command and result application |
-| `exec_log.go` | Subprocess logging for `:log` |
 | `util.go` | Tiny shared helpers |
 
 All of these are one package and share `Model`, so the file boundaries are

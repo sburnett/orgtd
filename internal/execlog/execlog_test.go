@@ -1,0 +1,253 @@
+package execlog
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// writeScript writes a shell script with body as its body (given "$1" as
+// its first argument) and returns its path, for tests that need a real
+// subprocess to run and log.
+func writeScript(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-command.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}
+
+func TestExecLogNilSafe(t *testing.T) {
+	var l *Log
+	l.Append(Start, 123, "should not panic")
+	if got := l.Snapshot(); got != nil {
+		t.Errorf("snapshot() on a nil *Log = %v, want nil", got)
+	}
+}
+
+func TestExecLogAppendAndSnapshot(t *testing.T) {
+	l := &Log{}
+	l.Append(Start, 111, "running foo")
+	l.Append(Stdout, 111, "line one")
+	l.Append(Stderr, 111, "a warning")
+	l.Append(Exit, 111, "exit code 0")
+
+	got := l.Snapshot()
+	if len(got) != 4 {
+		t.Fatalf("snapshot = %#v, want 4 entries", got)
+	}
+	wantKinds := []Kind{Start, Stdout, Stderr, Exit}
+	wantText := []string{"running foo", "line one", "a warning", "exit code 0"}
+	for i := range got {
+		if got[i].Kind != wantKinds[i] {
+			t.Errorf("entry %d kind = %v, want %v", i, got[i].Kind, wantKinds[i])
+		}
+		if got[i].Text != wantText[i] {
+			t.Errorf("entry %d text = %q, want %q", i, got[i].Text, wantText[i])
+		}
+		if got[i].PID != 111 {
+			t.Errorf("entry %d pid = %d, want 111", i, got[i].PID)
+		}
+		if got[i].Time.IsZero() {
+			t.Errorf("entry %d has a zero timestamp", i)
+		}
+	}
+}
+
+func TestExecLogSnapshotIsACopy(t *testing.T) {
+	l := &Log{}
+	l.Append(Start, 1, "first")
+	snap := l.Snapshot()
+	l.Append(Start, 1, "second")
+	if len(snap) != 1 {
+		t.Errorf("earlier snapshot = %#v, should not see entries appended after it was taken", snap)
+	}
+}
+
+func TestPidLabel(t *testing.T) {
+	if got := PIDLabel(0); got != "-" {
+		t.Errorf("PIDLabel(0) = %q, want %q (no process ever started)", got, "-")
+	}
+	if got := PIDLabel(4242); got != "4242" {
+		t.Errorf("PIDLabel(4242) = %q, want %q", got, "4242")
+	}
+}
+
+func TestExitCodeFromErrorNilIsZero(t *testing.T) {
+	if got := ExitCode(nil); got != 0 {
+		t.Errorf("ExitCode(nil) = %d, want 0", got)
+	}
+}
+
+func TestExitCodeFromErrorExitError(t *testing.T) {
+	script := writeScript(t, "exit 3")
+	_, err := Run(&Log{}, script, nil, "")
+	if err == nil {
+		t.Fatal("expected an error from a script that exits 3")
+	}
+	if got := ExitCode(err); got != 3 {
+		t.Errorf("ExitCode(exit 3) = %d, want 3", got)
+	}
+}
+
+func TestExitCodeFromErrorUnstartableProgram(t *testing.T) {
+	_, err := Run(&Log{}, "/no/such/program/anywhere", nil, "")
+	if err == nil {
+		t.Fatal("expected an error running a nonexistent program")
+	}
+	if got := ExitCode(err); got != -1 {
+		t.Errorf("ExitCode(start failure) = %d, want -1 (no real exit code)", got)
+	}
+}
+
+func TestRunLoggedCommandRecordsStartWithPidAndArgsStdoutStderrAndExit(t *testing.T) {
+	script := writeScript(t, `echo "out line 1"; echo "err line 1" >&2; echo "out line 2"`)
+	l := &Log{}
+
+	stdout, err := Run(l, script, []string{"arg1"}, "")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stdout != "out line 1\nout line 2" {
+		t.Errorf("stdout = %q", stdout)
+	}
+
+	entries := l.Snapshot()
+	if len(entries) != 5 { // start, 2 stdout, 1 stderr, exit
+		t.Fatalf("entries = %#v, want 5", entries)
+	}
+	start := entries[0]
+	if start.Kind != Start || !strings.Contains(start.Text, "arg1") {
+		t.Errorf("first entry = %#v, want a start entry mentioning the arg", start)
+	}
+	if start.PID == 0 {
+		t.Errorf("start entry pid = 0, want the real (non-zero) child pid")
+	}
+	last := entries[len(entries)-1]
+	if last.Kind != Exit || last.Text != "exit code 0" {
+		t.Errorf("last entry = %#v, want exit code 0", last)
+	}
+	var sawStdout, sawStderr bool
+	for _, e := range entries[1 : len(entries)-1] {
+		if e.PID != start.PID {
+			t.Errorf("entry %#v pid does not match the start entry's pid %d", e, start.PID)
+		}
+		switch e.Kind {
+		case Stdout:
+			sawStdout = true
+		case Stderr:
+			sawStderr = true
+			if e.Text != "err line 1" {
+				t.Errorf("stderr entry text = %q, want %q", e.Text, "err line 1")
+			}
+		default:
+			t.Errorf("unexpected entry kind in the middle: %#v", e)
+		}
+	}
+	if !sawStdout || !sawStderr {
+		t.Errorf("entries = %#v, want at least one stdout and one stderr entry", entries)
+	}
+	if last.PID != start.PID {
+		t.Errorf("exit entry pid = %d, want it to match the start entry's pid %d", last.PID, start.PID)
+	}
+}
+
+func TestRunLoggedCommandFeedsStdin(t *testing.T) {
+	script := writeScript(t, `cat`)
+	stdout, err := Run(&Log{}, script, nil, "hello from stdin")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stdout != "hello from stdin" {
+		t.Errorf("stdout = %q, want the echoed stdin", stdout)
+	}
+}
+
+func TestRunLoggedCommandLogsStdinLines(t *testing.T) {
+	script := writeScript(t, `cat >/dev/null`)
+	l := &Log{}
+
+	_, err := Run(l, script, nil, "line one\nline two\nline three\n")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	entries := l.Snapshot()
+	var stdinLines []string
+	var pid int
+	for _, e := range entries {
+		if e.Kind == Stdin {
+			stdinLines = append(stdinLines, e.Text)
+			pid = e.PID
+		}
+	}
+	want := []string{"line one", "line two", "line three"}
+	if len(stdinLines) != len(want) {
+		t.Fatalf("stdin entries = %#v, want %v", stdinLines, want)
+	}
+	for i := range want {
+		if stdinLines[i] != want[i] {
+			t.Errorf("stdin entry %d = %q, want %q", i, stdinLines[i], want[i])
+		}
+	}
+	if pid == 0 {
+		t.Error("stdin entries should carry the real child pid")
+	}
+}
+
+func TestRunLoggedCommandLogsNoStdinEntriesWhenStdinEmpty(t *testing.T) {
+	script := writeScript(t, `true`)
+	l := &Log{}
+
+	if _, err := Run(l, script, nil, ""); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for _, e := range l.Snapshot() {
+		if e.Kind == Stdin {
+			t.Errorf("unexpected stdin entry %#v when no stdin was given", e)
+		}
+	}
+}
+
+func TestRunLoggedCommandPopulatesExitErrorStderr(t *testing.T) {
+	script := writeScript(t, `echo "boom" >&2; exit 1`)
+	_, err := Run(&Log{}, script, nil, "")
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("err = %v (%T), want *exec.ExitError", err, err)
+	}
+	if got := strings.TrimSpace(string(exitErr.Stderr)); got != "boom" {
+		t.Errorf("exitErr.Stderr = %q, want %q", got, "boom")
+	}
+	if got := ExitCode(err); got != 1 {
+		t.Errorf("exit code = %d, want 1", got)
+	}
+}
+
+// TestRunLoggedCommandOnUnstartableProgramLogsOnlyAFailureExit guards a
+// deliberate asymmetry: a process that never actually starts gets no
+// start entry at all (there's no real pid, and no meaningful "started"
+// moment) — just one exit-kind entry (pid "-") naming what was
+// attempted and why it failed.
+func TestRunLoggedCommandOnUnstartableProgramLogsOnlyAFailureExit(t *testing.T) {
+	l := &Log{}
+	_, err := Run(l, "/no/such/program/anywhere", []string{"arg1"}, "")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	entries := l.Snapshot()
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v, want exactly 1 (no start entry for a process that never started)", entries)
+	}
+	e := entries[0]
+	if e.Kind != Exit || e.PID != 0 {
+		t.Errorf("entry = %#v, want an exit entry with pid 0", e)
+	}
+	if !strings.Contains(e.Text, "failed to start") || !strings.Contains(e.Text, "arg1") {
+		t.Errorf("entry text = %q, want it to mention the failure and the attempted arguments", e.Text)
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -99,7 +100,7 @@ func TestCommitFromDiffViewCommitsWithStockMessage(t *testing.T) {
 	if m.message != "Committed and pushed" {
 		t.Errorf("message = %q, want \"Committed and pushed\"", m.message)
 	}
-	if entries := m.execLog.snapshot(); !gitLogMentions(entries, "commit", "-m", stockCommitMessage) {
+	if entries := m.execLog.Snapshot(); !gitLogMentions(entries, "commit", "-m", stockCommitMessage) {
 		t.Errorf("execLog = %#v, want the commit invocation to use stockCommitMessage %q", entries, stockCommitMessage)
 	}
 }
@@ -125,9 +126,9 @@ func TestCommitRealFailureSkipsPush(t *testing.T) {
 	if !strings.Contains(m.message, "git commit failed") {
 		t.Errorf("message = %q, want it to report the commit failure", m.message)
 	}
-	for _, e := range m.execLog.snapshot() {
-		if e.kind == execLogStart && strings.Contains(e.text, "push") {
-			t.Errorf("execLog = %#v, push should never run after a genuine commit failure", m.execLog.snapshot())
+	for _, e := range m.execLog.Snapshot() {
+		if e.Kind == execlog.Start && strings.Contains(e.Text, "push") {
+			t.Errorf("execLog = %#v, push should never run after a genuine commit failure", m.execLog.Snapshot())
 		}
 	}
 }
@@ -146,7 +147,7 @@ func TestCommitWithNothingToCommitStillPushes(t *testing.T) {
 	if m.message != "Nothing to commit; pushed" {
 		t.Errorf("message = %q, want \"Nothing to commit; pushed\"", m.message)
 	}
-	if entries := m.execLog.snapshot(); !gitLogMentions(entries, "push") {
+	if entries := m.execLog.Snapshot(); !gitLogMentions(entries, "push") {
 		t.Errorf("execLog = %#v, want push to have run even though there was nothing to commit", entries)
 	}
 }
@@ -167,7 +168,7 @@ func TestCommitWithNothingToCommitAndFailedPushReportsIt(t *testing.T) {
 	if !strings.Contains(m.message, "Nothing to commit, but git push failed") {
 		t.Errorf("message = %q, want it to report nothing to commit but the push failing", m.message)
 	}
-	if entries := m.execLog.snapshot(); !gitLogMentions(entries, "push") {
+	if entries := m.execLog.Snapshot(); !gitLogMentions(entries, "push") {
 		t.Errorf("execLog = %#v, want push to have been attempted even though there was nothing to commit", entries)
 	}
 }
@@ -200,7 +201,7 @@ func TestCommitScopesToFilesOpenInTheOutline(t *testing.T) {
 	cmd := m.startCommit()
 	m = runCommitCmd(t, m, cmd)
 
-	if entries := m.execLog.snapshot(); !gitLogMentions(entries, "commit", "todo.org") {
+	if entries := m.execLog.Snapshot(); !gitLogMentions(entries, "commit", "todo.org") {
 		t.Errorf("execLog = %#v, want the commit invocation to name todo.org", entries)
 	}
 }
@@ -243,7 +244,7 @@ func TestCommitExcludesCalendarFile(t *testing.T) {
 	cmd := m.startCommit()
 	m = runCommitCmd(t, m, cmd)
 
-	if entries := m.execLog.snapshot(); gitLogMentions(entries, "commit", "calendar.org") {
+	if entries := m.execLog.Snapshot(); gitLogMentions(entries, "commit", "calendar.org") {
 		t.Errorf("execLog = %#v, want the commit invocation to never name calendar.org", entries)
 	}
 
@@ -253,14 +254,14 @@ func TestCommitExcludesCalendarFile(t *testing.T) {
 	}
 }
 
-func gitLogMentions(entries []execLogEntry, substrs ...string) bool {
+func gitLogMentions(entries []execlog.Entry, substrs ...string) bool {
 	for _, e := range entries {
-		if e.kind != execLogStart {
+		if e.Kind != execlog.Start {
 			continue
 		}
 		all := true
 		for _, s := range substrs {
-			if !strings.Contains(e.text, s) {
+			if !strings.Contains(e.Text, s) {
 				all = false
 				break
 			}
@@ -470,9 +471,9 @@ func TestCommitRefusesWithUnsavedChanges(t *testing.T) {
 	if !strings.Contains(m.message, "Unsaved changes") {
 		t.Errorf("message = %q, want it to explain there are unsaved changes", m.message)
 	}
-	for _, e := range m.execLog.snapshot() {
-		if e.kind == execLogStart && strings.Contains(e.text, "commit") {
-			t.Errorf("execLog = %#v, git commit should never run with unsaved changes present", m.execLog.snapshot())
+	for _, e := range m.execLog.Snapshot() {
+		if e.Kind == execlog.Start && strings.Contains(e.Text, "commit") {
+			t.Errorf("execLog = %#v, git commit should never run with unsaved changes present", m.execLog.Snapshot())
 		}
 	}
 }

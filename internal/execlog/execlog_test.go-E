@@ -1,4 +1,4 @@
-package ui
+package execlog
 
 import (
 	"os/exec"
@@ -7,25 +7,25 @@ import (
 )
 
 func TestExecLogNilSafe(t *testing.T) {
-	var l *execLog
-	l.append(execLogStart, 123, "should not panic")
-	if got := l.snapshot(); got != nil {
-		t.Errorf("snapshot() on a nil *execLog = %v, want nil", got)
+	var l *Log
+	l.Append(Start, 123, "should not panic")
+	if got := l.Snapshot(); got != nil {
+		t.Errorf("snapshot() on a nil *Log = %v, want nil", got)
 	}
 }
 
 func TestExecLogAppendAndSnapshot(t *testing.T) {
-	l := &execLog{}
-	l.append(execLogStart, 111, "running foo")
-	l.append(execLogStdout, 111, "line one")
-	l.append(execLogStderr, 111, "a warning")
-	l.append(execLogExit, 111, "exit code 0")
+	l := &Log{}
+	l.Append(Start, 111, "running foo")
+	l.Append(Stdout, 111, "line one")
+	l.Append(Stderr, 111, "a warning")
+	l.Append(Exit, 111, "exit code 0")
 
-	got := l.snapshot()
+	got := l.Snapshot()
 	if len(got) != 4 {
 		t.Fatalf("snapshot = %#v, want 4 entries", got)
 	}
-	wantKinds := []execLogKind{execLogStart, execLogStdout, execLogStderr, execLogExit}
+	wantKinds := []Kind{Start, Stdout, Stderr, Exit}
 	wantText := []string{"running foo", "line one", "a warning", "exit code 0"}
 	for i := range got {
 		if got[i].kind != wantKinds[i] {
@@ -44,76 +44,76 @@ func TestExecLogAppendAndSnapshot(t *testing.T) {
 }
 
 func TestExecLogSnapshotIsACopy(t *testing.T) {
-	l := &execLog{}
-	l.append(execLogStart, 1, "first")
-	snap := l.snapshot()
-	l.append(execLogStart, 1, "second")
+	l := &Log{}
+	l.Append(Start, 1, "first")
+	snap := l.Snapshot()
+	l.Append(Start, 1, "second")
 	if len(snap) != 1 {
 		t.Errorf("earlier snapshot = %#v, should not see entries appended after it was taken", snap)
 	}
 }
 
 func TestPidLabel(t *testing.T) {
-	if got := pidLabel(0); got != "-" {
-		t.Errorf("pidLabel(0) = %q, want %q (no process ever started)", got, "-")
+	if got := PIDLabel(0); got != "-" {
+		t.Errorf("PIDLabel(0) = %q, want %q (no process ever started)", got, "-")
 	}
-	if got := pidLabel(4242); got != "4242" {
-		t.Errorf("pidLabel(4242) = %q, want %q", got, "4242")
+	if got := PIDLabel(4242); got != "4242" {
+		t.Errorf("PIDLabel(4242) = %q, want %q", got, "4242")
 	}
 }
 
 func TestExitCodeFromErrorNilIsZero(t *testing.T) {
-	if got := exitCodeFromError(nil); got != 0 {
-		t.Errorf("exitCodeFromError(nil) = %d, want 0", got)
+	if got := ExitCode(nil); got != 0 {
+		t.Errorf("ExitCode(nil) = %d, want 0", got)
 	}
 }
 
 func TestExitCodeFromErrorExitError(t *testing.T) {
 	script := writeFakeFormatter(t, "exit 3")
-	_, err := runLoggedCommand(&execLog{}, script, nil, "")
+	_, err := Run(&Log{}, script, nil, "")
 	if err == nil {
 		t.Fatal("expected an error from a script that exits 3")
 	}
-	if got := exitCodeFromError(err); got != 3 {
-		t.Errorf("exitCodeFromError(exit 3) = %d, want 3", got)
+	if got := ExitCode(err); got != 3 {
+		t.Errorf("ExitCode(exit 3) = %d, want 3", got)
 	}
 }
 
 func TestExitCodeFromErrorUnstartableProgram(t *testing.T) {
-	_, err := runLoggedCommand(&execLog{}, "/no/such/program/anywhere", nil, "")
+	_, err := Run(&Log{}, "/no/such/program/anywhere", nil, "")
 	if err == nil {
 		t.Fatal("expected an error running a nonexistent program")
 	}
-	if got := exitCodeFromError(err); got != -1 {
-		t.Errorf("exitCodeFromError(start failure) = %d, want -1 (no real exit code)", got)
+	if got := ExitCode(err); got != -1 {
+		t.Errorf("ExitCode(start failure) = %d, want -1 (no real exit code)", got)
 	}
 }
 
 func TestRunLoggedCommandRecordsStartWithPidAndArgsStdoutStderrAndExit(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "out line 1"; echo "err line 1" >&2; echo "out line 2"`)
-	l := &execLog{}
+	l := &Log{}
 
-	stdout, err := runLoggedCommand(l, script, []string{"arg1"}, "")
+	stdout, err := Run(l, script, []string{"arg1"}, "")
 	if err != nil {
-		t.Fatalf("runLoggedCommand: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
 	if stdout != "out line 1\nout line 2" {
 		t.Errorf("stdout = %q", stdout)
 	}
 
-	entries := l.snapshot()
+	entries := l.Snapshot()
 	if len(entries) != 5 { // start, 2 stdout, 1 stderr, exit
 		t.Fatalf("entries = %#v, want 5", entries)
 	}
 	start := entries[0]
-	if start.kind != execLogStart || !strings.Contains(start.text, "arg1") {
+	if start.kind != Start || !strings.Contains(start.text, "arg1") {
 		t.Errorf("first entry = %#v, want a start entry mentioning the arg", start)
 	}
 	if start.pid == 0 {
 		t.Errorf("start entry pid = 0, want the real (non-zero) child pid")
 	}
 	last := entries[len(entries)-1]
-	if last.kind != execLogExit || last.text != "exit code 0" {
+	if last.kind != Exit || last.text != "exit code 0" {
 		t.Errorf("last entry = %#v, want exit code 0", last)
 	}
 	var sawStdout, sawStderr bool
@@ -122,9 +122,9 @@ func TestRunLoggedCommandRecordsStartWithPidAndArgsStdoutStderrAndExit(t *testin
 			t.Errorf("entry %#v pid does not match the start entry's pid %d", e, start.pid)
 		}
 		switch e.kind {
-		case execLogStdout:
+		case Stdout:
 			sawStdout = true
-		case execLogStderr:
+		case Stderr:
 			sawStderr = true
 			if e.text != "err line 1" {
 				t.Errorf("stderr entry text = %q, want %q", e.text, "err line 1")
@@ -143,9 +143,9 @@ func TestRunLoggedCommandRecordsStartWithPidAndArgsStdoutStderrAndExit(t *testin
 
 func TestRunLoggedCommandFeedsStdin(t *testing.T) {
 	script := writeFakeFormatter(t, `cat`)
-	stdout, err := runLoggedCommand(&execLog{}, script, nil, "hello from stdin")
+	stdout, err := Run(&Log{}, script, nil, "hello from stdin")
 	if err != nil {
-		t.Fatalf("runLoggedCommand: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
 	if stdout != "hello from stdin" {
 		t.Errorf("stdout = %q, want the echoed stdin", stdout)
@@ -154,18 +154,18 @@ func TestRunLoggedCommandFeedsStdin(t *testing.T) {
 
 func TestRunLoggedCommandLogsStdinLines(t *testing.T) {
 	script := writeFakeFormatter(t, `cat >/dev/null`)
-	l := &execLog{}
+	l := &Log{}
 
-	_, err := runLoggedCommand(l, script, nil, "line one\nline two\nline three\n")
+	_, err := Run(l, script, nil, "line one\nline two\nline three\n")
 	if err != nil {
-		t.Fatalf("runLoggedCommand: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
 
-	entries := l.snapshot()
+	entries := l.Snapshot()
 	var stdinLines []string
 	var pid int
 	for _, e := range entries {
-		if e.kind == execLogStdin {
+		if e.kind == Stdin {
 			stdinLines = append(stdinLines, e.text)
 			pid = e.pid
 		}
@@ -186,14 +186,14 @@ func TestRunLoggedCommandLogsStdinLines(t *testing.T) {
 
 func TestRunLoggedCommandLogsNoStdinEntriesWhenStdinEmpty(t *testing.T) {
 	script := writeFakeFormatter(t, `true`)
-	l := &execLog{}
+	l := &Log{}
 
-	if _, err := runLoggedCommand(l, script, nil, ""); err != nil {
-		t.Fatalf("runLoggedCommand: %v", err)
+	if _, err := Run(l, script, nil, ""); err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 
-	for _, e := range l.snapshot() {
-		if e.kind == execLogStdin {
+	for _, e := range l.Snapshot() {
+		if e.kind == Stdin {
 			t.Errorf("unexpected stdin entry %#v when no stdin was given", e)
 		}
 	}
@@ -201,7 +201,7 @@ func TestRunLoggedCommandLogsNoStdinEntriesWhenStdinEmpty(t *testing.T) {
 
 func TestRunLoggedCommandPopulatesExitErrorStderr(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "boom" >&2; exit 1`)
-	_, err := runLoggedCommand(&execLog{}, script, nil, "")
+	_, err := Run(&Log{}, script, nil, "")
 	exitErr, ok := err.(*exec.ExitError)
 	if !ok {
 		t.Fatalf("err = %v (%T), want *exec.ExitError", err, err)
@@ -209,7 +209,7 @@ func TestRunLoggedCommandPopulatesExitErrorStderr(t *testing.T) {
 	if got := strings.TrimSpace(string(exitErr.Stderr)); got != "boom" {
 		t.Errorf("exitErr.Stderr = %q, want %q", got, "boom")
 	}
-	if got := exitCodeFromError(err); got != 1 {
+	if got := ExitCode(err); got != 1 {
 		t.Errorf("exit code = %d, want 1", got)
 	}
 }
@@ -220,17 +220,17 @@ func TestRunLoggedCommandPopulatesExitErrorStderr(t *testing.T) {
 // moment) — just one exit-kind entry (pid "-") naming what was
 // attempted and why it failed.
 func TestRunLoggedCommandOnUnstartableProgramLogsOnlyAFailureExit(t *testing.T) {
-	l := &execLog{}
-	_, err := runLoggedCommand(l, "/no/such/program/anywhere", []string{"arg1"}, "")
+	l := &Log{}
+	_, err := Run(l, "/no/such/program/anywhere", []string{"arg1"}, "")
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	entries := l.snapshot()
+	entries := l.Snapshot()
 	if len(entries) != 1 {
 		t.Fatalf("entries = %#v, want exactly 1 (no start entry for a process that never started)", entries)
 	}
 	e := entries[0]
-	if e.kind != execLogExit || e.pid != 0 {
+	if e.kind != Exit || e.pid != 0 {
 		t.Errorf("entry = %#v, want an exit entry with pid 0", e)
 	}
 	if !strings.Contains(e.text, "failed to start") || !strings.Contains(e.text, "arg1") {

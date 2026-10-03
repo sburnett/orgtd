@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -166,11 +167,11 @@ func TestMutatingGitHelpersRefuseWhenNotAtRepoRoot(t *testing.T) {
 		t.Errorf("runGitPush err = %v, want a repo-root refusal", err)
 	}
 
-	for _, e := range m.execLog.snapshot() {
-		if e.kind == execLogStart {
+	for _, e := range m.execLog.Snapshot() {
+		if e.Kind == execlog.Start {
 			for _, mutating := range []string{" add ", " commit ", " push"} {
-				if strings.Contains(e.text, mutating) {
-					t.Errorf("execLog entry = %q, a mutating git command should never actually run", e.text)
+				if strings.Contains(e.Text, mutating) {
+					t.Errorf("execLog entry = %q, a mutating git command should never actually run", e.Text)
 				}
 			}
 		}

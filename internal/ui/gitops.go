@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -146,13 +147,13 @@ func (m *Model) refreshDiffData() {
 // unstaged changes) so a file `git add`ed via requestAddUntracked but
 // not yet committed still shows up as an addition here, instead of
 // looking like nothing happened. Logged like any other external
-// command — see runLoggedCommand.
+// command — see execlog.Run.
 func (m *Model) runGitDiff() (string, error) {
 	args := []string{"-C", m.ws.Dir, "diff", "HEAD", "--"}
 	for _, f := range m.gitFiles() {
 		args = append(args, f.Path)
 	}
-	return runLoggedCommand(m.execLog, "git", args, "")
+	return execlog.Run(m.execLog, "git", args, "")
 }
 
 // untrackedFiles returns the paths, among m.gitFiles(), that git doesn't
@@ -172,7 +173,7 @@ func (m *Model) untrackedFiles() ([]string, error) {
 	for _, f := range gitFiles {
 		args = append(args, f.Path)
 	}
-	out, err := runLoggedCommand(m.execLog, "git", args, "")
+	out, err := execlog.Run(m.execLog, "git", args, "")
 	if err != nil {
 		return nil, err
 	}
@@ -190,8 +191,8 @@ func (m *Model) untrackedFiles() ([]string, error) {
 // captured up front instead of reaching back into a Model that a
 // concurrently running Update call could be mutating — see
 // applyCommit.
-func gitRepoRoot(elog *execLog, dir string) string {
-	out, err := runLoggedCommand(elog, "git", []string{"-C", dir, "rev-parse", "--show-toplevel"}, "")
+func gitRepoRoot(elog *execlog.Log, dir string) string {
+	out, err := execlog.Run(elog, "git", []string{"-C", dir, "rev-parse", "--show-toplevel"}, "")
 	if err != nil {
 		return ""
 	}
@@ -213,7 +214,7 @@ func gitRepoRoot(elog *execLog, dir string) string {
 // otherwise misreport plenty of genuinely rooted workspaces (anything
 // under the system's temp dir included) as nested elsewhere. A free
 // function for the same reason as gitRepoRoot.
-func gitRepoRootRefusal(elog *execLog, dir string) string {
+func gitRepoRootRefusal(elog *execlog.Log, dir string) string {
 	root := gitRepoRoot(elog, dir)
 	if root == "" {
 		return "the org directory isn't inside a git repository"
@@ -234,7 +235,7 @@ func gitRepoRootRefusal(elog *execLog, dir string) string {
 // an actual mutation without passing this, regardless of how it's
 // eventually called. A free function for the same reason as
 // gitRepoRoot.
-func requireGitRepoRoot(elog *execLog, dir string) error {
+func requireGitRepoRoot(elog *execlog.Log, dir string) error {
 	if reason := gitRepoRootRefusal(elog, dir); reason != "" {
 		return fmt.Errorf("%s", reason)
 	}
@@ -273,7 +274,7 @@ func (m *Model) gitAdd(paths []string) (string, error) {
 		return "", err
 	}
 	args := append([]string{"-C", m.ws.Dir, "add", "--"}, paths...)
-	return runLoggedCommand(m.execLog, "git", args, "")
+	return execlog.Run(m.execLog, "git", args, "")
 }
 
 // gitErrorText extracts the most useful message from a failed git
@@ -456,7 +457,7 @@ func (m Model) finishCommitPush(msg commitPushMsg) (tea.Model, tea.Cmd) {
 // the calendar file (m.gitFiles() — the same scope runGitDiff uses) with
 // message, from within the workspace directory. Refuses outside the
 // workspace's own git repository root — see requireGitRepoRoot. Logged
-// like any other external command — see runLoggedCommand.
+// like any other external command — see execlog.Run.
 func (m *Model) runGitCommit(message string) (string, error) {
 	gitFiles := m.gitFiles()
 	paths := make([]string, 0, len(gitFiles))
@@ -468,13 +469,13 @@ func (m *Model) runGitCommit(message string) (string, error) {
 
 // runGitCommit is runGitCommit's free-function core (see gitRepoRoot for
 // why): commits paths, from within dir, with message.
-func runGitCommit(elog *execLog, dir string, paths []string, message string) (string, error) {
+func runGitCommit(elog *execlog.Log, dir string, paths []string, message string) (string, error) {
 	if err := requireGitRepoRoot(elog, dir); err != nil {
 		return "", err
 	}
 	args := []string{"-C", dir, "commit", "-m", message, "--"}
 	args = append(args, paths...)
-	return runLoggedCommand(elog, "git", args, "")
+	return execlog.Run(elog, "git", args, "")
 }
 
 // runGitPush runs a plain `git push` from within the workspace
@@ -483,16 +484,16 @@ func runGitCommit(elog *execLog, dir string, paths []string, message string) (st
 // it just pushes the current branch to its configured upstream. This is
 // exactly why requireGitRepoRoot matters most here: a push affects the
 // whole repository's history, not just the org files orgtd knows about.
-// Logged like any other external command — see runLoggedCommand.
+// Logged like any other external command — see execlog.Run.
 func (m *Model) runGitPush() (string, error) {
 	return runGitPush(m.execLog, m.ws.Dir)
 }
 
 // runGitPush is runGitPush's free-function core (see gitRepoRoot for
 // why).
-func runGitPush(elog *execLog, dir string) (string, error) {
+func runGitPush(elog *execlog.Log, dir string) (string, error) {
 	if err := requireGitRepoRoot(elog, dir); err != nil {
 		return "", err
 	}
-	return runLoggedCommand(elog, "git", []string{"-C", dir, "push"}, "")
+	return execlog.Run(elog, "git", []string{"-C", dir, "push"}, "")
 }

@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -25,7 +26,7 @@ type editFinishedMsg struct {
 	path   string
 	target *org.Headline
 	insert *insertContext
-	cmd    *exec.Cmd // the editor process, for logCompletedProcess (its Process field is only populated once tea.ExecProcess has actually started it)
+	cmd    *exec.Cmd // the editor process, for execlog.LogCompleted (its Process field is only populated once tea.ExecProcess has actually started it)
 	err    error
 }
 
@@ -88,7 +89,7 @@ func (m *Model) startEditWithPlacement(placement editorCursorPlacement) tea.Cmd 
 // startEditFile has exited, for a whole-file edit ("i" on a file row).
 type fileEditFinishedMsg struct {
 	target *org.File // the file being edited, identified by its old pointer
-	cmd    *exec.Cmd // the editor process, for logCompletedProcess (its Process field is only populated once tea.ExecProcess has actually started it)
+	cmd    *exec.Cmd // the editor process, for execlog.LogCompleted (its Process field is only populated once tea.ExecProcess has actually started it)
 	err    error
 }
 
@@ -113,7 +114,7 @@ func (m *Model) startEditFile(f *org.File) tea.Cmd {
 // reloaded file itself is never marked dirty: the editor already wrote
 // it, so there's nothing more to save.
 func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
-	logCompletedProcess(m.execLog, msg.cmd, msg.err)
+	execlog.LogCompleted(m.execLog, msg.cmd, msg.err)
 	if msg.err != nil {
 		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)
 		return m, nil
@@ -607,7 +608,7 @@ func isBlankHeadlineTitle(title string) bool {
 // deleted here — it stays behind as a failsafe in case what comes back
 // from the editor is ever lost or discarded by mistake.
 func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
-	logCompletedProcess(m.execLog, msg.cmd, msg.err)
+	execlog.LogCompleted(m.execLog, msg.cmd, msg.err)
 
 	if msg.err != nil {
 		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sburnett/orgtd/internal/execlog"
 )
 
 // appendHelpRows populates m.rows for :help: README.md's embedded
@@ -166,12 +167,12 @@ func (m *Model) appendConfigRows() {
 // more while this view is already open, re-run :log to see it; the view
 // itself doesn't live-update.
 func (m *Model) appendLogRows() {
-	entries := m.execLog.snapshot()
+	entries := m.execLog.Snapshot()
 	if len(entries) == 0 {
 		m.rows = append(m.rows, row{isTextLine: true, text: "No external commands have been run yet."})
 		return
 	}
 	for _, e := range entries {
-		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.time.Format("15:04:05.000"), e.kind.label(), pidLabel(e.pid), e.text)})
+		m.rows = append(m.rows, row{isTextLine: true, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.Time.Format("15:04:05.000"), e.Kind.Label(), execlog.PIDLabel(e.PID), e.Text)})
 	}
 }

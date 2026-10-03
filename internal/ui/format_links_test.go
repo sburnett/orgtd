@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -417,7 +418,7 @@ func TestUndoRefusedWhenLastActionTouchesImmutableEntry(t *testing.T) {
 
 func TestRunBatchURLFormatterMatchesLinesByIndex(t *testing.T) {
 	script := writeBatchFakeFormatter(t, `echo "[[$line][Formatted]]"`)
-	got, err := runBatchURLFormatter(&execLog{}, script, []string{"https://a.example.com", "https://b.example.com"})
+	got, err := runBatchURLFormatter(&execlog.Log{}, script, []string{"https://a.example.com", "https://b.example.com"})
 	if err != nil {
 		t.Fatalf("runBatchURLFormatter: %v", err)
 	}
@@ -429,7 +430,7 @@ func TestRunBatchURLFormatterMatchesLinesByIndex(t *testing.T) {
 
 func TestRunBatchURLFormatterErrorsOnLineCountMismatch(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "only one line"`)
-	_, err := runBatchURLFormatter(&execLog{}, script, []string{"https://a.example.com", "https://b.example.com"})
+	_, err := runBatchURLFormatter(&execlog.Log{}, script, []string{"https://a.example.com", "https://b.example.com"})
 	if err == nil {
 		t.Fatal("expected an error when the formatter's output line count doesn't match the input")
 	}
@@ -437,7 +438,7 @@ func TestRunBatchURLFormatterErrorsOnLineCountMismatch(t *testing.T) {
 
 func TestRunBatchURLFormatterErrorsOnFailure(t *testing.T) {
 	script := writeFakeFormatter(t, `echo "boom" >&2; exit 1`)
-	_, err := runBatchURLFormatter(&execLog{}, script, []string{"https://a.example.com"})
+	_, err := runBatchURLFormatter(&execlog.Log{}, script, []string{"https://a.example.com"})
 	if err == nil {
 		t.Fatal("expected an error when the formatter process fails")
 	}

@@ -142,7 +142,7 @@ func TestDiffShowsPlaceholderWhenNoFilesOpen(t *testing.T) {
 	if len(m.rows) != 1 || !strings.Contains(m.rows[0].text, "No files open") {
 		t.Errorf("rows = %#v, want a single 'No files open' placeholder row", m.rows)
 	}
-	if entries := m.execLog.snapshot(); len(entries) != 0 {
+	if entries := m.execLog.Snapshot(); len(entries) != 0 {
 		t.Errorf("execLog = %#v, want git never invoked when there's nothing to diff", entries)
 	}
 }

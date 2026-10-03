@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/sburnett/orgtd/internal/execlog"
 )
 
 // exitErrorForTest returns a real *exec.ExitError with the given exit
@@ -26,7 +28,7 @@ func exitErrorForTest(t *testing.T, code int) error {
 // leaves it — for tests that construct an editFinishedMsg/
 // fileEditFinishedMsg directly (skipping tea.ExecProcess entirely,
 // which would otherwise really launch $EDITOR) but still want
-// logCompletedProcess to see a real pid, the way it would after a
+// execlog.LogCompleted to see a real pid, the way it would after a
 // genuine edit session.
 func startedCmdForTest(t *testing.T) *exec.Cmd {
 	t.Helper()
@@ -149,7 +151,7 @@ func TestLogViewIncludesEditorStartWithPidAndArgsAndExit(t *testing.T) {
 	}
 	// Deliberately not invoking cmd() (that would launch a real editor);
 	// instead simulate tea.ExecProcess having actually started and
-	// finished one, so logCompletedProcess (called from finishEdit) sees
+	// finished one, so execlog.LogCompleted (called from finishEdit) sees
 	// a real, populated *exec.Cmd.
 	editorCmd := startedCmdForTest(t)
 	updated, _ := m.Update(editFinishedMsg{
@@ -167,7 +169,7 @@ func TestLogViewIncludesEditorStartWithPidAndArgsAndExit(t *testing.T) {
 			if !strings.Contains(r.text, "arg1") || !strings.Contains(r.text, "arg2") {
 				t.Errorf("start row = %q, want it to mention the editor's arguments", r.text)
 			}
-			if !strings.Contains(r.text, pidLabel(editorCmd.Process.Pid)) {
+			if !strings.Contains(r.text, execlog.PIDLabel(editorCmd.Process.Pid)) {
 				t.Errorf("start row = %q, want it to mention pid %d", r.text, editorCmd.Process.Pid)
 			}
 		}
@@ -208,7 +210,7 @@ func TestLogViewRecordsNonZeroEditorExitCode(t *testing.T) {
 func TestLogViewNoStartEntryWhenEditorNeverStarted(t *testing.T) {
 	// err with no cmd (nil Process) simulates $EDITOR itself not being
 	// found at all — there's no real process, so no start entry, just
-	// the exit-style failure (see logCompletedProcess).
+	// the exit-style failure (see execlog.LogCompleted).
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")

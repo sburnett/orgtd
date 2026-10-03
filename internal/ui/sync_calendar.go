@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/sburnett/orgtd/internal/calendarsync"
+	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -65,7 +66,7 @@ func (m *Model) startSyncCalendar(reauth bool) tea.Cmd {
 		// still in flight (an execLog entry, unlike m.message, isn't
 		// tied to any particular Update cycle).
 		onConsentURL := func(url string) {
-			elog.append(execLogInfo, 0, "Opening browser for Google sign-in; if it doesn't open, visit: "+url)
+			elog.Append(execlog.Info, 0, "Opening browser for Google sign-in; if it doesn't open, visit: "+url)
 		}
 		result, err := calendarsync.Sync(context.Background(), settings, onConsentURL)
 		return syncCalendarMsg{result: result, err: err}
