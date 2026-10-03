@@ -23,21 +23,6 @@ import (
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
-// mode selects how key presses are interpreted.
-type mode int
-
-const (
-	normalMode mode = iota
-	commandMode
-	selectMode
-	deadlineMode
-	searchMode
-	confirmMode
-	visualMode
-	meetingPickerMode
-	tagMode
-)
-
 // Model is the Bubble Tea model for the viewer.
 type Model struct {
 	ws *workspace.Workspace
@@ -340,26 +325,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pendingForceQuit = false
 
-		switch m.mode {
-		case commandMode:
-			return m.updateCommandMode(msg)
-		case selectMode:
-			return m.updateSelectMode(msg)
-		case meetingPickerMode:
-			return m.updateMeetingPickerMode(msg)
-		case tagMode:
-			return m.updateTagMode(msg)
-		case deadlineMode:
-			return m.updateDeadlineMode(msg)
-		case searchMode:
-			return m.updateSearchMode(msg)
-		case confirmMode:
-			return m.updateConfirmMode(msg)
-		case visualMode:
-			return m.updateVisualMode(msg)
-		default:
-			return m.updateNormalMode(msg)
-		}
+		return modeSpecs[m.mode].update(m, msg)
 	}
 
 	return m, nil

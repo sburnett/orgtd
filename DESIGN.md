@@ -195,6 +195,7 @@ including its known weak points, so changes can be made deliberately.
 | `row.go` | The `row` type and its `rowKind`s, `sameRow`, `rowSearchText` |
 | `rows.go` | `rebuildRows` and the outline's row building (fold, hide-done, body lines) |
 | `nav.go`, `fold.go` | Cursor motions, viewport/scrolling; fold commands |
+| `modes.go` | The `mode`s and the `modeSpecs` registry — each mode's key handler, prompt row, and info-buffer sections |
 | `keymap.go` | The `keymap` type and the `normalKeys`/`visualKeys` tables: what every key and two-key chord does, and the dispatch (`runKey`) |
 | `keys_normal.go`, `keys_visual.go` | Normal- and visual-mode entry points: the argument chords (`m<letter>`), counts, then the table lookup |
 | `commands.go` | `:` command line: input, history, completion, `runCommand`, `:w`/`:wq` |
@@ -257,9 +258,11 @@ outline; shown in `:meeting-tags`; durable and committed like any other).
 
 ### Modes and input
 
-`Model.mode` selects which `update*Mode` function interprets a key
-(normal, command, select, deadline, search, confirm, visual,
-meetingPicker, tag). Multi-key chords (`gg`, `dd`, `zo`, `m<letter>`,
+`Model.mode` selects how a key is interpreted (normal, command, select,
+deadline, search, confirm, visual, meetingPicker, tag). Everything that
+varies per mode is one `modeSpec` in `modes.go`'s `modeSpecs` table: its
+key handler, how its prompt row is drawn, and any info-buffer sections it
+adds — `Update`, `View` and the info buffer just look the spec up. Multi-key chords (`gg`, `dd`, `zo`, `m<letter>`,
 counts like `3dd`) are driven by one `chord` field (the pending prefix
 key) and a `pendingCount`; the keys themselves are `keymap` tables in
 `keymap.go`, written `"g g"`, `"z o"`, `"d d"`. Colon commands
@@ -357,6 +360,11 @@ bind it in `buildVisualKeys` too (shared cursor motions are in
 **Add an undoable edit.** Implement `undoAction` in `undo.go` (mutate in
 place; record old and new values), build it where the edit happens and
 call `pushUndo`. Never set `m.dirty` directly.
+
+**Add a mode** (a new prompt or sub-state). Add a `mode` constant (before
+`numModes`), an `update` function, and an entry in `modeSpecs` (`modes.go`)
+with its `prompt` and any `infoAbove`/`infoBelow`; enter it by setting
+`m.mode`. `TestEveryModeHasAnUpdateHandler` fails if the spec is missing.
 
 **Add a view.** Add a `viewKind` constant (before `numViews`) and an
 entry in `viewSpecs` (`views.go`): its `command`, `label`, a `build`

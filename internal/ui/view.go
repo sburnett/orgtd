@@ -98,69 +98,9 @@ func (m Model) View() string {
 	// Command line — vim's own command-line/message area equivalent:
 	// whatever's active right now (a typed command, a prompt, a mode
 	// banner, or the last message), blank if there's nothing to show.
-	switch {
-	case m.mode == commandMode:
-		b.WriteString(":" + m.commandInput)
-		b.WriteString(m.caretStyle().Render(" ")) // caret, right after the input (no in-line editing yet)
-		// m.message can be set without leaving commandMode (e.g. Tab
-		// completion finding no match) — shown here too, not just in the
-		// mode-less case below, or it'd be set but never actually visible.
-		// Completion matches themselves are in the info buffer above
-		// (see infoBufferLines), not appended here.
-		if m.message != "" {
-			b.WriteString("  " + m.errorStyle().Render(m.message))
-		}
-	case m.mode == selectMode:
-		// The candidate list itself is in the info buffer above (see
-		// infoBufferLines' "Status:" section), not appended here.
-		prefix := " Set status:  "
-		if n := len(m.selectModeTargets); n > 0 {
-			prefix = fmt.Sprintf(" Set status for %d selected:  ", n)
-		}
-		b.WriteString(prefix)
-		if m.selectFilter != "" {
-			b.WriteString("(" + m.selectFilter + ")")
-		}
-	case m.mode == meetingPickerMode:
-		b.WriteString(m.renderMeetingPicker())
-	case m.mode == tagMode:
-		b.WriteString(" Tag (Tab completes, empty cancels; retyping an existing tag removes it): " + m.tagInput)
-		b.WriteString(m.caretStyle().Render(" "))
-		// Completion matches are in the info buffer above (see
-		// infoBufferLines), not appended here.
-		if m.message != "" {
-			b.WriteString("  " + m.errorStyle().Render(m.message))
-		}
-	case m.mode == deadlineMode:
-		b.WriteString(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
-		b.WriteString(m.caretStyle().Render(" "))
-		// As above: an invalid date sets m.message but deliberately leaves
-		// the prompt open for correction (see applyDeadlineInput), so it
-		// must be shown here rather than only in the mode-less case below.
-		if m.message != "" {
-			b.WriteString("  " + m.errorStyle().Render(m.message))
-		}
-	case m.mode == searchMode:
-		prefix := "/"
-		if !m.searchForward {
-			prefix = "?"
-		}
-		b.WriteString(prefix + m.searchQuery)
-		b.WriteString(m.caretStyle().Render(" "))
-		// m.message can be set without leaving searchMode (a no-match
-		// incremental search) — shown here too, not just in the
-		// mode-less case below, or it'd be set but never actually visible.
-		if m.message != "" {
-			b.WriteString("  " + m.errorStyle().Render(m.message))
-		}
-	case m.mode == confirmMode:
-		b.WriteString(m.errorStyle().Render(m.confirmMessage))
-	case m.mode == visualMode:
-		b.WriteString(m.statusStyle().Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, y: yank, R: set status, Esc: cancel)", len(m.visualSelectedHeadlines()))))
-		if m.message != "" {
-			b.WriteString("  " + m.errorStyle().Render(m.message))
-		}
-	case m.message != "":
+	if prompt := modeSpecs[m.mode].prompt; prompt != nil {
+		b.WriteString(prompt(&m))
+	} else if m.message != "" {
 		b.WriteString(m.errorStyle().Render(m.message))
 	}
 

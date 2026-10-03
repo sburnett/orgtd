@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -201,14 +200,8 @@ func (m *Model) infoBufferHeight() int {
 func (m *Model) infoBufferLines() []string {
 	var lines []string
 
-	if m.mode == tagMode && m.tagCompletions != "" {
-		lines = m.appendInfoSection(lines, "Tags:", strings.Fields(m.tagCompletions))
-	}
-	if m.mode == selectMode {
-		lines = m.appendInfoSectionRendered(lines, "Status:", m.statusSelectorLines())
-	}
-	if m.mode == meetingPickerMode {
-		lines = m.appendInfoSectionRendered(lines, "Attach meeting:", m.meetingPickerLines())
+	if above := modeSpecs[m.mode].infoAbove; above != nil {
+		lines = append(lines, above(m)...)
 	}
 	if h := m.currentHeadline(); h != nil {
 		lines = m.appendInfoSection(lines, "Links:", linksInTitle(h.Title))
@@ -225,8 +218,8 @@ func (m *Model) infoBufferLines() []string {
 	if info := m.spec().info; info != nil {
 		lines = append(lines, info(m)...)
 	}
-	if m.mode == commandMode && m.commandCompletions != "" {
-		lines = m.appendInfoSection(lines, "Matches:", strings.Fields(m.commandCompletions))
+	if below := modeSpecs[m.mode].infoBelow; below != nil {
+		lines = append(lines, below(m)...)
 	}
 
 	if len(lines) == 0 {
