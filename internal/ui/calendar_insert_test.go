@@ -24,7 +24,7 @@ func commitCalendarCapture(t *testing.T, m Model, body string, cand meetings.Mee
 		t.Fatalf("no tentative headline in the inbox file")
 	}
 	tentative := inbox[len(inbox)-1]
-	f, parent, idx := m.insertPosition(tentative)
+	f, parent, idx := m.ws.Locate(tentative)
 	ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: false, attachMeeting: &cand}
 	path := writeTempOrgFile(t, body)
 	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})

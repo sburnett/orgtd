@@ -12,6 +12,7 @@ package ui
 
 import (
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -36,24 +37,11 @@ func (m *Model) calendarDisplayTags(h *org.Headline) []string {
 	}
 	tags := append([]string(nil), h.Tags...)
 	for _, t := range record.Tags {
-		if indexOfString(tags, t) < 0 {
+		if slices.Index(tags, t) < 0 {
 			tags = append(tags, t)
 		}
 	}
 	return tags
-}
-
-// indexOfHeadline returns the index of h within list, or -1 if it isn't
-// there — used by applyMeetingTag to locate an existing meeting-tags.org
-// entry's position for a deleteAction, the same way callers elsewhere in
-// this package locate a headline's index before building a spliceAction.
-func indexOfHeadline(list []*org.Headline, h *org.Headline) int {
-	for i, cand := range list {
-		if cand == h {
-			return i
-		}
-	}
-	return -1
 }
 
 // applyMeetingTag is "gt" on a calendarView entry (see applyTagInput):
@@ -109,11 +97,7 @@ func (m *Model) applyMeetingTag(target *org.Headline, kind meetings.Kind, id, ta
 		// record, so prune the whole headline rather than leaving a
 		// meaningless tagless stub behind.
 		parent := existing.Parent
-		list := tagsFile.Headlines
-		if parent != nil {
-			list = parent.Children
-		}
-		index := indexOfHeadline(list, existing)
+		index := org.Siblings{File: tagsFile, Parent: parent}.IndexOf(existing)
 		m.pushUndo(&deleteAction{spliceAction{f: tagsFile, parent: parent, index: index, headlines: []*org.Headline{existing}, inTree: true}})
 		return
 	}

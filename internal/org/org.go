@@ -112,6 +112,45 @@ func (h *Headline) DeleteProperty(key string) {
 	}
 }
 
+// SetOrDeleteProperty sets h's key property to value, or removes it
+// entirely if value is empty (an empty property is meaningless clutter —
+// e.g. GCAL_RECURRING_EVENT_IDS/LINKS once every attached meeting has been
+// detached — so it's deleted rather than left as "").
+func (h *Headline) SetOrDeleteProperty(key, value string) {
+	if value == "" {
+		h.DeleteProperty(key)
+	} else {
+		h.SetProperty(key, value)
+	}
+}
+
+// RestoreProperty reverts h's key property to value if had is true (the
+// property existed before the change being reverted), or removes it if had
+// is false (the change introduced the property from nothing).
+func (h *Headline) RestoreProperty(key string, had bool, value string) {
+	if had {
+		h.SetProperty(key, value)
+	} else {
+		h.DeleteProperty(key)
+	}
+}
+
+// TrimmedBody returns h.Body with any trailing blank lines stripped. Org
+// files conventionally have a blank line separating a headline from the
+// next one, which the parser has no way to distinguish from deliberate
+// trailing whitespace in the body — without this, that separator would
+// show up as a meaningless empty line under nearly every single entry.
+// Deliberate blank lines *within* a multi-paragraph body (not at the very
+// end) are left alone.
+func (h *Headline) TrimmedBody() []string {
+	lines := h.Body
+	end := len(lines)
+	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	return lines[:end]
+}
+
 // File is a parsed org file.
 type File struct {
 	Path      string

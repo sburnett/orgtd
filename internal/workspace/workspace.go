@@ -51,3 +51,33 @@ func Load(dir string) (*Workspace, error) {
 	}
 	return ws, nil
 }
+
+// FileOf returns the loaded file that h's tree belongs to — found by
+// walking up to h's root headline and looking for it among each file's
+// top-level headlines — or nil if it isn't in any loaded file (e.g. an
+// external edit replaced it out from under a stale reference).
+func (w *Workspace) FileOf(h *org.Headline) *org.File {
+	root := h
+	for root.Parent != nil {
+		root = root.Parent
+	}
+	for _, f := range w.Files {
+		for _, top := range f.Headlines {
+			if top == root {
+				return f
+			}
+		}
+	}
+	return nil
+}
+
+// Locate returns the file, parent (nil if top-level) and index of h within
+// its parent's children (or its file's top-level list). f can come back
+// nil if h's root isn't in any loaded file — index is -1 in that case too
+// when h is top-level, since there's nowhere to look it up; a nested h
+// whose parent still lists it is found regardless of f.
+func (w *Workspace) Locate(h *org.Headline) (f *org.File, parent *org.Headline, index int) {
+	f = w.FileOf(h)
+	parent = h.Parent
+	return f, parent, org.Siblings{File: f, Parent: parent}.IndexOf(h)
+}

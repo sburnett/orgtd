@@ -78,7 +78,7 @@ func (m Model) applyDeadlineInput() (tea.Model, tea.Cmd) {
 		m.mode = normalMode
 		m.deadlineInput = ""
 		if h.Deadline != nil {
-			m.pushUndo(&deadlineChangeAction{h: h, f: m.fileForHeadline(h), oldDeadline: h.Deadline, newDeadline: nil})
+			m.pushUndo(&deadlineChangeAction{h: h, f: m.ws.FileOf(h), oldDeadline: h.Deadline, newDeadline: nil})
 		}
 		return m, nil
 	}
@@ -91,6 +91,6 @@ func (m Model) applyDeadlineInput() (tea.Model, tea.Cmd) {
 
 	m.mode = normalMode
 	m.deadlineInput = ""
-	m.pushUndo(&deadlineChangeAction{h: h, f: m.fileForHeadline(h), oldDeadline: h.Deadline, newDeadline: ts})
+	m.pushUndo(&deadlineChangeAction{h: h, f: m.ws.FileOf(h), oldDeadline: h.Deadline, newDeadline: ts})
 	return m, nil
 }

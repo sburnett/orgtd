@@ -364,3 +364,24 @@ func TestParseRelativeOffsetRejectsNonMatches(t *testing.T) {
 		}
 	}
 }
+
+func TestCreatedTimeParsesTheCreatedProperty(t *testing.T) {
+	h := &org.Headline{}
+	h.SetProperty("CREATED", "[2026-09-24 Thu 14:32]")
+	got, ok := CreatedTime(h)
+	want := time.Date(2026, 9, 24, 14, 32, 0, 0, time.Local)
+	if !ok || !got.Equal(want) {
+		t.Errorf("CreatedTime = %v, %v; want %v", got, ok, want)
+	}
+}
+
+func TestCreatedTimeIsNotOKWhenMissingOrUnreadable(t *testing.T) {
+	if _, ok := CreatedTime(&org.Headline{}); ok {
+		t.Error("CreatedTime ok = true with no CREATED property")
+	}
+	h := &org.Headline{}
+	h.SetProperty("CREATED", "[yesterday-ish]")
+	if _, ok := CreatedTime(h); ok {
+		t.Error("CreatedTime ok = true for an unparseable CREATED")
+	}
+}

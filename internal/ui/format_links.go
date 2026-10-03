@@ -193,7 +193,7 @@ func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		f := m.fileForHeadline(t.h)
+		f := m.ws.FileOf(t.h)
 		action := &linkFormatAction{h: t.h, f: f, oldTitle: t.h.Title, newTitle: newTitle, oldBody: t.h.Body, newBody: newBody}
 		if _, ok := byFile[f]; !ok {
 			order = append(order, f)

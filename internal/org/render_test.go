@@ -155,3 +155,53 @@ func TestWriteFileFailsOnUnwritableDirectory(t *testing.T) {
 		t.Fatalf("expected an error writing into a nonexistent directory")
 	}
 }
+
+func TestDedentEntryRemovesBulletAndMatchingIndentFromEveryLine(t *testing.T) {
+	h := &Headline{
+		Level:         2,
+		Keyword:       "NEXT",
+		Title:         "Implement the org file parser",
+		PropertyOrder: []string{"ID"},
+		Properties:    map[string]string{"ID": "abc123"},
+		Body:          []string{"   Headlines, planning lines, properties, body text."},
+	}
+	rendered := strings.TrimRight(RenderEntry(h), "\n")
+
+	got := DedentEntry(rendered, h.Level)
+
+	want := "NEXT Implement the org file parser\n" +
+		":PROPERTIES:\n" +
+		":ID: abc123\n" +
+		":END:\n" +
+		"Headlines, planning lines, properties, body text."
+	if got != want {
+		t.Errorf("DedentEntry() =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestIndentEntryReversesDedentEntry(t *testing.T) {
+	h := &Headline{
+		Level:         2,
+		Keyword:       "NEXT",
+		Title:         "Implement the org file parser",
+		PropertyOrder: []string{"ID"},
+		Properties:    map[string]string{"ID": "abc123"},
+		Body:          []string{"   Headlines, planning lines, properties, body text."},
+	}
+	rendered := strings.TrimRight(RenderEntry(h), "\n")
+
+	dedented := DedentEntry(rendered, h.Level)
+	got := IndentEntry(dedented, h.Level)
+
+	if got != rendered {
+		t.Errorf("IndentEntry(DedentEntry(s)) =\n%q\nwant original\n%q", got, rendered)
+	}
+}
+
+func TestIndentEntryLeavesBlankLinesAlone(t *testing.T) {
+	got := IndentEntry("TODO Buy milk\n\nSecond body line.", 1)
+	want := "* TODO Buy milk\n\n  Second body line."
+	if got != want {
+		t.Errorf("IndentEntry() = %q, want %q (blank line not indented)", got, want)
+	}
+}

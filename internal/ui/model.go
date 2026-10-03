@@ -394,24 +394,6 @@ func (m Model) updateConfirmMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// fileForHeadline returns the file h (or one of its ancestors) belongs
-// to, or nil if it can't be found (shouldn't happen for any headline
-// reachable from the workspace).
-func (m *Model) fileForHeadline(h *org.Headline) *org.File {
-	root := h
-	for root.Parent != nil {
-		root = root.Parent
-	}
-	for _, f := range m.ws.Files {
-		for _, top := range f.Headlines {
-			if top == root {
-				return f
-			}
-		}
-	}
-	return nil
-}
-
 // currentRowFile returns the file the cursor's current row belongs to:
 // the row's own file if it's a file-header row, else the file that owns
 // its headline. Used by startCapture as rollbackInsert's fallback focus
@@ -425,7 +407,7 @@ func (m *Model) currentRowFile() *org.File {
 		return r.file
 	}
 	if r.headline != nil {
-		return m.fileForHeadline(r.headline)
+		return m.ws.FileOf(r.headline)
 	}
 	return nil
 }

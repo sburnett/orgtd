@@ -314,7 +314,7 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 // that cap is chosen.
 func (m Model) agendaPlace(h *org.Headline, parentMaxWidth int) string {
 	fileName := ""
-	if f := m.fileForHeadline(h); f != nil {
+	if f := m.ws.FileOf(h); f != nil {
 		fileName = filepath.Base(f.Path)
 	}
 	if h.Parent == nil {

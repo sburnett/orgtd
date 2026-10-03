@@ -171,39 +171,11 @@ func (m *Model) headlinesInRowRange(start, end int) []*org.Headline {
 	return out
 }
 
-// visualTopmostHeadlines filters headlines down to those not descended
-// from another headline also in headlines — used by bulk delete, since
-// deleting an ancestor already removes its whole subtree (see
-// deleteHeadline), so a selected descendant needs no delete of its own
-// (and, by the time headlines' own deletes actually run, attempting one
-// would either be redundant or operate on a detached, no-longer-visible
-// copy).
-func visualTopmostHeadlines(headlines []*org.Headline) []*org.Headline {
-	selected := make(map[*org.Headline]bool, len(headlines))
-	for _, h := range headlines {
-		selected[h] = true
-	}
-	var out []*org.Headline
-	for _, h := range headlines {
-		underSelectedAncestor := false
-		for p := h.Parent; p != nil; p = p.Parent {
-			if selected[p] {
-				underSelectedAncestor = true
-				break
-			}
-		}
-		if !underSelectedAncestor {
-			out = append(out, h)
-		}
-	}
-	return out
-}
-
 // deleteVisualSelection removes every top-level selected entry (and its
 // subtree) — the visual-mode equivalent of dd. See deleteHeadlineSet for
 // the shared mechanics.
 func (m *Model) deleteVisualSelection() {
-	headlines := visualTopmostHeadlines(m.visualSelectedHeadlines())
+	headlines := org.Topmost(m.visualSelectedHeadlines())
 	m.exitVisualMode()
 	m.deleteHeadlineSet(headlines)
 }
@@ -214,7 +186,7 @@ func (m *Model) deleteVisualSelection() {
 // whose ancestor is also selected contributes nothing separately, since
 // the ancestor's own clone already carries its whole subtree along.
 func (m *Model) yankVisualSelection() {
-	headlines := visualTopmostHeadlines(m.visualSelectedHeadlines())
+	headlines := org.Topmost(m.visualSelectedHeadlines())
 	m.exitVisualMode()
 	if len(headlines) == 0 {
 		return

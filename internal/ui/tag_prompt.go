@@ -194,6 +194,6 @@ func (m Model) applyTagInput() (tea.Model, tea.Cmd) {
 	if !removed {
 		newTags = append(newTags, tag)
 	}
-	m.pushUndo(&tagChangeAction{h: target, f: m.fileForHeadline(target), oldTags: old, newTags: newTags})
+	m.pushUndo(&tagChangeAction{h: target, f: m.ws.FileOf(target), oldTags: old, newTags: newTags})
 	return m, nil
 }

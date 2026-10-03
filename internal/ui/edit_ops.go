@@ -15,7 +15,7 @@ func (m *Model) deleteHeadlineCount(n int) {
 	if m.currentHeadline() == nil {
 		return
 	}
-	headlines := visualTopmostHeadlines(m.headlinesInRowRange(m.countRowRange(n)))
+	headlines := org.Topmost(m.headlinesInRowRange(m.countRowRange(n)))
 	m.deleteHeadlineSet(headlines)
 }
 
@@ -23,7 +23,7 @@ func (m *Model) deleteHeadlineCount(n int) {
 // own subtree) — the shared implementation behind bulk delete, whether
 // the selection came from visual mode (deleteVisualSelection) or a
 // numeric prefix (deleteHeadlineCount). headlines is assumed already
-// topmost-filtered (see visualTopmostHeadlines) — deleting an ancestor
+// topmost-filtered (see org.Topmost) — deleting an ancestor
 // already removes its whole subtree, so a selected descendant needs no
 // delete of its own. Deletions are grouped into one undo step per file
 // touched (a batchAction — see undo.go), so a selection confined to a
@@ -53,7 +53,7 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 	var order []*org.File
 	byFile := make(map[*org.File][]target)
 	for _, h := range headlines {
-		f, parent, idx := m.insertPosition(h)
+		f, parent, idx := m.ws.Locate(h)
 		if idx < 0 {
 			continue
 		}
@@ -116,7 +116,7 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 
 	return &statusChangeAction{
 		h:          h,
-		f:          m.fileForHeadline(h),
+		f:          m.ws.FileOf(h),
 		oldKeyword: h.Keyword,
 		newKeyword: keyword,
 		oldClosed:  h.Closed,
@@ -146,7 +146,7 @@ func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, lab
 	var order []*org.File
 	byFile := make(map[*org.File][]undoAction)
 	for _, h := range headlines {
-		f := m.fileForHeadline(h)
+		f := m.ws.FileOf(h)
 		if _, ok := byFile[f]; !ok {
 			order = append(order, f)
 		}
@@ -216,7 +216,7 @@ func (m *Model) deleteHeadline() {
 	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
-	f, parent, idx := m.insertPosition(h)
+	f, parent, idx := m.ws.Locate(h)
 	if idx < 0 {
 		return
 	}
@@ -266,7 +266,7 @@ func (m *Model) pasteHeadline(before bool) {
 	clones := make([]*org.Headline, len(m.register))
 	for i, h := range m.register {
 		clone := org.CloneHeadline(h)
-		shiftHeadlineLevel(clone, level-clone.Level)
+		clone.ShiftLevel(level - clone.Level)
 		clones[i] = clone
 	}
 	m.pushUndo(&insertAction{spliceAction{f: f, parent: parent, index: idx, headlines: clones}})
@@ -284,18 +284,12 @@ func (m *Model) demoteHeadline() {
 	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
-	f, parent, idx := m.insertPosition(h)
+	f, parent, idx := m.ws.Locate(h)
 	if idx <= 0 {
 		m.message = "Cannot demote: no previous sibling to nest under"
 		return
 	}
-	var list []*org.Headline
-	if parent != nil {
-		list = parent.Children
-	} else if f != nil {
-		list = f.Headlines
-	}
-	prevSibling := list[idx-1]
+	prevSibling := org.Siblings{File: f, Parent: parent}.List()[idx-1]
 
 	m.pushUndo(&reparentAction{
 		h: h, f: f,
@@ -319,9 +313,9 @@ func (m *Model) promoteHeadline() {
 		m.message = "Cannot promote: already at the top level"
 		return
 	}
-	f, parent, idx := m.insertPosition(h)
+	f, parent, idx := m.ws.Locate(h)
 	grandparent := parent.Parent
-	_, _, parentIdx := m.insertPosition(parent)
+	_, _, parentIdx := m.ws.Locate(parent)
 
 	m.pushUndo(&reparentAction{
 		h: h, f: f,
@@ -329,16 +323,4 @@ func (m *Model) promoteHeadline() {
 		newParent: grandparent, newIndex: parentIdx + 1,
 		delta: -1,
 	})
-}
-
-// shiftHeadlineLevel adds delta to h.Level and every descendant's Level,
-// preserving relative nesting while adapting to a new absolute depth.
-func shiftHeadlineLevel(h *org.Headline, delta int) {
-	if delta == 0 {
-		return
-	}
-	h.Level += delta
-	for _, c := range h.Children {
-		shiftHeadlineLevel(c, delta)
-	}
 }

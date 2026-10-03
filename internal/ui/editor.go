@@ -191,7 +191,7 @@ func (m *Model) scratchFilePath() (string, error) {
 // plain `i`/`A` edit of an existing entry now share the same shape — the
 // entry's own text (title, minus its bullet, plus its planning line,
 // properties, and body, the whole thing dedented by one level — see
-// dedentEntry and org.RenderEntry) comes first in the buffer, cursor
+// org.DedentEntry and org.RenderEntry) comes first in the buffer, cursor
 // already there, followed by a blank line and a git-commit-style comment
 // trailer sketching the entry's place in the outline below it (see
 // editEntryContext). ctx tags the resulting editFinishedMsg so finishEdit
@@ -209,7 +209,7 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement extp
 		return nil
 	}
 
-	entry := dedentEntry(org.RenderEntry(h), h.Level)
+	entry := org.DedentEntry(org.RenderEntry(h), h.Level)
 	if !strings.HasSuffix(entry, "\n") {
 		entry += "\n"
 	}
@@ -226,60 +226,6 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement extp
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, cmd: editorCmd, err: err}
 	})
-}
-
-// dedentEntry removes one level's worth of indentation — level+1
-// characters, the fixed width writeHeadlineFields always uses, both for
-// the bullet ("<stars> ") on the first line and for the span of spaces
-// indenting every other line (planning, properties, body) so they align
-// under it — from every line of s (see org.RenderEntry). Used to build
-// the buffer an entry is edited or inserted in ("i"/"A", o/O, capture):
-// with the bullet gone, leaving the rest of the entry indented under
-// where it used to be would look disjointed, so the whole entry is
-// dedented together. Blank lines are left alone. indentEntry reverses
-// this once the edit comes back.
-func dedentEntry(s string, level int) string {
-	width := level + 1
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if i == 0 {
-			// The bullet is "<stars> ", not spaces, but is always exactly
-			// width bytes wide regardless of what follows.
-			if len(line) < width {
-				continue
-			}
-			lines[i] = line[width:]
-			continue
-		}
-		n := 0
-		for n < width && n < len(line) && line[n] == ' ' {
-			n++
-		}
-		lines[i] = line[n:]
-	}
-	return strings.Join(lines, "\n")
-}
-
-// indentEntry reverses dedentEntry once the edit comes back: restores
-// the bullet onto s's first line, and the matching span of indentation
-// onto every other non-blank line, so the whole entry re-parses as a
-// real headline at its original level with its planning/properties/body
-// lines indented the way writeHeadlineFields expects. Blank lines are
-// left alone, matching how dedentEntry treats them.
-func indentEntry(s string, level int) string {
-	indent := strings.Repeat(" ", level+1)
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if i == 0 {
-			lines[i] = strings.Repeat("*", level) + " " + line
-			continue
-		}
-		if line == "" {
-			continue
-		}
-		lines[i] = indent + line
-	}
-	return strings.Join(lines, "\n")
 }
 
 // editEntryContext builds the git-commit-style comment trailer for both
@@ -301,7 +247,7 @@ func indentEntry(s string, level int) string {
 // place.
 func (m *Model) editEntryContext(h *org.Headline, isInsert bool) string {
 	fileName := ""
-	if f := m.fileForHeadline(h); f != nil {
+	if f := m.ws.FileOf(h); f != nil {
 		fileName = filepath.Base(f.Path)
 	}
 	prev, next, earlierCount := m.siblingHeadlines(h)
@@ -401,7 +347,7 @@ func isBlankHeadlineTitle(title string) bool {
 // finishEdit reads back the edited entry and reparses it. For a plain
 // `i`/`A` edit, the result replaces the original headline's own text in
 // place, its children carried over unchanged since the edit buffer never
-// showed them (see indentEntry below and launchEditor) — or, if
+// showed them (see org.IndentEntry below and launchEditor) — or, if
 // the edit left nothing parseable, the original is left untouched. For
 // an o/O insert session, a successful result is committed as a single
 // undo step; any failure (editor error, unreadable file, unparseable or
@@ -436,8 +382,8 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	// every repeated edit.
 	stripped := strings.TrimRight(stripCommentLines(string(data)), "\n")
 
-	// The buffer never showed a bullet (see dedentEntry), so an
-	// all-blank result unambiguously means "cancel" — indentEntry
+	// The buffer never showed a bullet (see org.DedentEntry), so an
+	// all-blank result unambiguously means "cancel" — org.IndentEntry
 	// below would otherwise turn it into a real, blank-titled headline
 	// instead of nothing at all.
 	if strings.TrimSpace(stripped) == "" {
@@ -449,7 +395,7 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	stripped = indentEntry(stripped, msg.target.Level)
+	stripped = org.IndentEntry(stripped, msg.target.Level)
 
 	text := m.formatURLs(stripped)
 
@@ -463,7 +409,7 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if len(file.Headlines) == 0 {
-		// Unreachable in practice — indentEntry above guarantees
+		// Unreachable in practice — org.IndentEntry above guarantees
 		// the text starts with a real headline line — but kept as a
 		// defensive fallback rather than assuming it.
 		if msg.insert != nil {
@@ -518,7 +464,7 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.pushUndo(&subtreeReplaceAction{
-		f:      m.fileForHeadline(msg.target),
+		f:      m.ws.FileOf(msg.target),
 		oldSet: []*org.Headline{msg.target},
 		newSet: file.Headlines,
 	})

@@ -45,7 +45,7 @@ const (
 	NoPlacement Placement = iota
 	// AtEntryStart ("i", "o"/"O") puts the cursor at the very start
 	// of the entry's own text — column 1, since the buffer never shows a
-	// bullet to land after (see dedentEntry, launchEditor, and
+	// bullet to land after (see org.DedentEntry, launchEditor, and
 	// ResolveEntryPlacement) — in insert mode, so typing
 	// immediately inserts text there exactly as pressing vim's own "i" at
 	// that spot would. For o/O the entry is a blank template, so this is
@@ -80,7 +80,7 @@ func CursorArg(editorBase string, startLine, col int, placement Placement) strin
 
 // ResolveEntryPlacement returns the placement and (1-based) column
 // launchEditor should actually request for a dedented entry buffer (see
-// dedentEntry): AtEntryStart always targets column 1, since
+// org.DedentEntry): AtEntryStart always targets column 1, since
 // there's no bullet to land after — for either an existing
 // entry ("i"/"A") or a blank o/O template alike. It downgrades to
 // AtLineEnd when the first line is completely empty (a

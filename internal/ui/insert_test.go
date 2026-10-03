@@ -20,7 +20,7 @@ func commitTentative(t *testing.T, m Model, origin *org.Headline, body string) M
 	if tentative == nil {
 		t.Fatalf("cursor is not on a headline")
 	}
-	f, parent, idx := m.insertPosition(tentative)
+	f, parent, idx := m.ws.Locate(tentative)
 	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin}
 	path := writeTempOrgFile(t, body)
 	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
@@ -336,7 +336,7 @@ func TestInsertRollbackOnEditorError(t *testing.T) {
 
 	m = sendKey(m, "o")
 	tentative := m.currentHeadline()
-	f, parent, idx := m.insertPosition(tentative)
+	f, parent, idx := m.ws.Locate(tentative)
 	ctx := insertContext{f: f, parent: parent, index: idx, origin: orig}
 
 	updated, _ := m.Update(editFinishedMsg{path: "/nonexistent", target: tentative, insert: &ctx, err: errors.New("boom")})

@@ -100,3 +100,56 @@ func planningLine(h *Headline) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// DedentEntry removes one level's worth of indentation — level+1
+// characters, the fixed width writeHeadlineFields always uses, both for
+// the bullet ("<stars> ") on the first line and for the span of spaces
+// indenting every other line (planning, properties, body) so they align
+// under it — from every line of s (see RenderEntry). Used to build the
+// buffer an entry is edited or inserted in: with the bullet gone, leaving
+// the rest of the entry indented under where it used to be would look
+// disjointed, so the whole entry is dedented together. Blank lines are
+// left alone. IndentEntry reverses this once the edit comes back.
+func DedentEntry(s string, level int) string {
+	width := level + 1
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			// The bullet is "<stars> ", not spaces, but is always exactly
+			// width bytes wide regardless of what follows.
+			if len(line) < width {
+				continue
+			}
+			lines[i] = line[width:]
+			continue
+		}
+		n := 0
+		for n < width && n < len(line) && line[n] == ' ' {
+			n++
+		}
+		lines[i] = line[n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// IndentEntry reverses DedentEntry once the edit comes back: restores the
+// bullet onto s's first line, and the matching span of indentation onto
+// every other non-blank line, so the whole entry re-parses as a real
+// headline at its original level with its planning/properties/body lines
+// indented the way writeHeadlineFields expects. Blank lines are left
+// alone, matching how DedentEntry treats them.
+func IndentEntry(s string, level int) string {
+	indent := strings.Repeat(" ", level+1)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			lines[i] = strings.Repeat("*", level) + " " + line
+			continue
+		}
+		if line == "" {
+			continue
+		}
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n")
+}

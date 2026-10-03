@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,7 +145,7 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetings.Meeting) un
 	ids := strings.Fields(oldIDsRaw)
 	links := org.ParseLinks(oldLinksRaw)
 
-	if idx := indexOfString(ids, c.ID); idx >= 0 {
+	if idx := slices.Index(ids, c.ID); idx >= 0 {
 		ids = append(ids[:idx], ids[idx+1:]...)
 		if idx < len(links) {
 			links = append(links[:idx], links[idx+1:]...)
@@ -158,7 +159,7 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetings.Meeting) un
 
 	return &meetingAttachAction{
 		h:                h,
-		f:                m.fileForHeadline(h),
+		f:                m.ws.FileOf(h),
 		idsProp:          idsProp,
 		linksProp:        linksProp,
 		hadIDsProperty:   hadIDs,

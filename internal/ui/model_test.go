@@ -107,11 +107,11 @@ func countHeadlines(ws *workspace.Workspace) int {
 }
 
 // countVisibleBodyLines returns how many body-line rows every headline
-// across ws would contribute if fully expanded (see visibleBodyLines).
+// across ws would contribute if fully expanded (see Headline.TrimmedBody).
 func countVisibleBodyLines(ws *workspace.Workspace) int {
 	n := 0
 	for _, f := range ws.Files {
-		org.Walk(f.Headlines, func(h *org.Headline) { n += len(visibleBodyLines(h)) })
+		org.Walk(f.Headlines, func(h *org.Headline) { n += len(h.TrimmedBody()) })
 	}
 	return n
 }
@@ -121,7 +121,7 @@ func countVisibleBodyLines(ws *workspace.Workspace) int {
 // child — i.e. how many rows deleting h (dd) removes, or how many a
 // fresh copy of it (yy/p) adds.
 func subtreeRowCount(h *org.Headline) int {
-	n := 1 + len(visibleBodyLines(h))
+	n := 1 + len(h.TrimmedBody())
 	for _, c := range h.Children {
 		n += subtreeRowCount(c)
 	}
@@ -1169,7 +1169,7 @@ func TestEditPreservesChildrenUnchanged(t *testing.T) {
 	}
 	oldChildren := append([]*org.Headline(nil), old.Children...)
 
-	entry := dedentEntry(org.RenderEntry(old), old.Level)
+	entry := org.DedentEntry(org.RenderEntry(old), old.Level)
 	edited := strings.Replace(entry, "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
 	path := writeTempOrgFile(t, edited)
 
@@ -1193,7 +1193,7 @@ func TestEditPreservesChildrenUnchanged(t *testing.T) {
 	}
 	// The rebuilt row list should still walk into the (unchanged)
 	// children — right after any body line(s) the edited entry kept.
-	childRow := idx + 1 + len(visibleBodyLines(got))
+	childRow := idx + 1 + len(got.TrimmedBody())
 	if m.rows[childRow].headline != oldChildren[0] {
 		t.Errorf("row after edited entry (and any body) = %#v, want first child %q", m.rows[childRow], oldChildren[0].Title)
 	}
@@ -1613,7 +1613,7 @@ func TestEditMarksWholeSubtreeDirty(t *testing.T) {
 		t.Fatalf("fixture assumption broken: expected children")
 	}
 
-	entry := dedentEntry(org.RenderEntry(old), old.Level)
+	entry := org.DedentEntry(org.RenderEntry(old), old.Level)
 	edited := strings.Replace(entry, "Ship orgtd v0.1", "Ship orgtd v0.2", 1)
 	path := writeTempOrgFile(t, edited)
 

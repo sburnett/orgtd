@@ -21,7 +21,7 @@ func commitCaptureRollback(t *testing.T, m Model, origin *org.Headline, originFi
 	if tentative == nil {
 		t.Fatalf("cursor is not on a headline")
 	}
-	f, parent, idx := m.insertPosition(tentative)
+	f, parent, idx := m.ws.Locate(tentative)
 	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile}
 	path := writeTempOrgFile(t, "")
 	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
@@ -47,7 +47,7 @@ func TestCaptureAppendsToEndOfInbox(t *testing.T) {
 	if m.cursor != lastInboxIdx+1 {
 		t.Errorf("tentative row = %d, want %d (right after the last existing inbox item)", m.cursor, lastInboxIdx+1)
 	}
-	f := m.fileForHeadline(tentative)
+	f := m.ws.FileOf(tentative)
 	if f == nil || !strings.HasSuffix(f.Path, "inbox.org") {
 		t.Errorf("captured headline's file = %v, want inbox.org", f)
 	}
@@ -211,7 +211,7 @@ func commitCapture(t *testing.T, m Model, body string) Model {
 		t.Fatalf("no tentative headline in the inbox file")
 	}
 	tentative := inbox[len(inbox)-1]
-	f, parent, idx := m.insertPosition(tentative)
+	f, parent, idx := m.ws.Locate(tentative)
 	ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: true}
 	path := writeTempOrgFile(t, body)
 	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})

@@ -288,3 +288,35 @@ func sortChronologically(ms []Meeting) {
 		return ms[i].ID < ms[j].ID
 	})
 }
+
+// CursorTarget picks the event a calendar view should land on: among
+// headlines with a GCAL_START at or before now, the one with the latest
+// start that's still in progress (now before its GCAL_END) wins outright;
+// failing that, the one with the latest start overall (in progress or not
+// — an unparseable/missing GCAL_END, or one already elapsed, both fall
+// here) — i.e. "the current meeting, or the prior one if none is current".
+// nil if nothing has a GCAL_START at or before now at all (every synced
+// event is still upcoming, or there are none).
+func CursorTarget(headlines []*org.Headline, now time.Time) *org.Headline {
+	var current, prior *org.Headline
+	var currentStart, priorStart time.Time
+	for _, h := range headlines {
+		start, ok := TimeProperty(h, "GCAL_START")
+		if !ok || start.After(now) {
+			continue
+		}
+		if end, ok := TimeProperty(h, "GCAL_END"); ok && now.Before(end) {
+			if current == nil || start.After(currentStart) {
+				current, currentStart = h, start
+			}
+			continue
+		}
+		if prior == nil || start.After(priorStart) {
+			prior, priorStart = h, start
+		}
+	}
+	if current != nil {
+		return current
+	}
+	return prior
+}

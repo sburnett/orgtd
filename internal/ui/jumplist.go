@@ -113,7 +113,7 @@ func (m *Model) pushJumpAt(idx int) bool {
 		h = r.headline
 		f = r.file
 		if f == nil && h != nil {
-			f = m.fileForHeadline(h)
+			f = m.ws.FileOf(h)
 		}
 	}
 	entry := jumpEntry{view: m.view, headline: h, file: f}

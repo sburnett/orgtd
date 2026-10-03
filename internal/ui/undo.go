@@ -191,42 +191,19 @@ type meetingAttachAction struct {
 }
 
 func (a *meetingAttachAction) apply(m *Model) *org.Headline {
-	setOrDeleteProperty(a.h, a.idsProp, a.newIDs)
-	setOrDeleteProperty(a.h, a.linksProp, a.newLinks)
+	a.h.SetOrDeleteProperty(a.idsProp, a.newIDs)
+	a.h.SetOrDeleteProperty(a.linksProp, a.newLinks)
 	return a.h
 }
 
 func (a *meetingAttachAction) revert(m *Model) *org.Headline {
-	restoreProperty(a.h, a.idsProp, a.hadIDsProperty, a.oldIDs)
-	restoreProperty(a.h, a.linksProp, a.hadLinksProperty, a.oldLinks)
+	a.h.RestoreProperty(a.idsProp, a.hadIDsProperty, a.oldIDs)
+	a.h.RestoreProperty(a.linksProp, a.hadLinksProperty, a.oldLinks)
 	return a.h
 }
 
 func (a *meetingAttachAction) file() *org.File           { return a.f }
 func (a *meetingAttachAction) affected() []*org.Headline { return []*org.Headline{a.h} }
-
-// setOrDeleteProperty sets h's key property to value, or removes it
-// entirely if value is empty (an empty property is meaningless clutter
-// — e.g. GCAL_RECURRING_EVENT_IDS/LINKS once every attached meeting has
-// been detached — so it's deleted rather than left as "").
-func setOrDeleteProperty(h *org.Headline, key, value string) {
-	if value == "" {
-		h.DeleteProperty(key)
-	} else {
-		h.SetProperty(key, value)
-	}
-}
-
-// restoreProperty reverts h's key property to value if had is true (the
-// property existed before the action being reverted), or removes it if
-// had is false (the action introduced the property from nothing).
-func restoreProperty(h *org.Headline, key string, had bool, value string) {
-	if had {
-		h.SetProperty(key, value)
-	} else {
-		h.DeleteProperty(key)
-	}
-}
 
 // linkFormatAction records :format-links rewriting one headline's Title
 // and/or Body to replace bare URLs with their formatted org-mode link
@@ -361,11 +338,7 @@ func (a *spliceAction) insert(m *Model) *org.Headline {
 	for _, h := range a.headlines {
 		h.Parent = a.parent
 	}
-	if a.parent != nil {
-		a.parent.Children = spliceHeadlines(a.parent.Children, a.index, 0, a.headlines)
-	} else {
-		a.f.Headlines = spliceHeadlines(a.f.Headlines, a.index, 0, a.headlines)
-	}
+	a.siblings().Splice(a.index, 0, a.headlines)
 	a.inTree = true
 	return a.headlines[0]
 }
@@ -374,17 +347,18 @@ func (a *spliceAction) insert(m *Model) *org.Headline {
 // focus afterward: whatever now sits at the same position, else the
 // previous sibling, else nil (the caller falls back to the file row).
 func (a *spliceAction) remove(m *Model) *org.Headline {
-	if a.parent != nil {
-		a.parent.Children = spliceHeadlines(a.parent.Children, a.index, len(a.headlines), nil)
-	} else {
-		a.f.Headlines = spliceHeadlines(a.f.Headlines, a.index, len(a.headlines), nil)
-	}
+	a.siblings().Splice(a.index, len(a.headlines), nil)
 	org.Walk(a.headlines, func(h *org.Headline) { delete(m.collapsed, h) })
 	a.inTree = false
-	return m.siblingAt(a.parent, a.f, a.index)
+	return a.siblings().NearestTo(a.index)
 }
 
 func (a *spliceAction) file() *org.File { return a.f }
+
+// siblings is the list the headlines occupy (or once occupied).
+func (a *spliceAction) siblings() org.Siblings {
+	return org.Siblings{File: a.f, Parent: a.parent}
+}
 
 // affectedIfInTree returns the headlines while they're in the tree, or
 // nothing while they're not (there's nothing visible to mark dirty).
@@ -395,24 +369,6 @@ func (a *spliceAction) affectedIfInTree() []*org.Headline {
 	var out []*org.Headline
 	org.Walk(a.headlines, func(h *org.Headline) { out = append(out, h) })
 	return out
-}
-
-// siblingAt returns the headline now at index within parent's children
-// (or f's top-level list), or the one before it, or nil if the list is
-// empty at that point — used to pick a focus target after removing
-// something at that position.
-func (m *Model) siblingAt(parent *org.Headline, f *org.File, index int) *org.Headline {
-	list := f.Headlines
-	if parent != nil {
-		list = parent.Children
-	}
-	if index >= 0 && index < len(list) {
-		return list[index]
-	}
-	if index-1 >= 0 && index-1 < len(list) {
-		return list[index-1]
-	}
-	return nil
 }
 
 // insertAction records an o/O insert once it's been committed (see
@@ -447,12 +403,12 @@ type reparentAction struct {
 }
 
 func (a *reparentAction) apply(m *Model) *org.Headline {
-	m.moveHeadlineTo(a.h, a.f, a.newParent, a.newIndex, a.delta)
+	a.f.Move(a.h, a.newParent, a.newIndex, a.delta)
 	return a.h
 }
 
 func (a *reparentAction) revert(m *Model) *org.Headline {
-	m.moveHeadlineTo(a.h, a.f, a.oldParent, a.oldIndex, -a.delta)
+	a.f.Move(a.h, a.oldParent, a.oldIndex, -a.delta)
 	return a.h
 }
 
@@ -462,66 +418,6 @@ func (a *reparentAction) affected() []*org.Headline {
 	var out []*org.Headline
 	org.Walk([]*org.Headline{a.h}, func(x *org.Headline) { out = append(out, x) })
 	return out
-}
-
-// moveHeadlineTo removes h from wherever it currently sits within f
-// (its parent's children, or f's top-level list), shifts h's own Level
-// (and its descendants', via shiftHeadlineLevel) by delta, reparents it,
-// and inserts it at newIndex within newParent's children (or f's
-// top-level list, if newParent is nil).
-func (m *Model) moveHeadlineTo(h *org.Headline, f *org.File, newParent *org.Headline, newIndex, delta int) {
-	oldParent := h.Parent
-	oldList := f.Headlines
-	if oldParent != nil {
-		oldList = oldParent.Children
-	}
-	oldIndex := -1
-	for i, c := range oldList {
-		if c == h {
-			oldIndex = i
-			break
-		}
-	}
-	if oldIndex < 0 {
-		return
-	}
-	if oldParent != nil {
-		oldParent.Children = spliceHeadlines(oldParent.Children, oldIndex, 1, nil)
-	} else {
-		f.Headlines = spliceHeadlines(f.Headlines, oldIndex, 1, nil)
-	}
-
-	shiftHeadlineLevel(h, delta)
-	h.Parent = newParent
-
-	if newParent != nil {
-		newParent.Children = spliceHeadlines(newParent.Children, newIndex, 0, []*org.Headline{h})
-	} else {
-		f.Headlines = spliceHeadlines(f.Headlines, newIndex, 0, []*org.Headline{h})
-	}
-}
-
-// insertPosition returns the file, parent (nil if top-level), and index
-// of h within its parent's children (or its file's top-level list). f
-// can come back nil if h's root isn't found in any loaded file (e.g. an
-// external edit replaced it out from under a stale row) — index is -1
-// in that case too, since there's nowhere to look h up in.
-func (m *Model) insertPosition(h *org.Headline) (f *org.File, parent *org.Headline, index int) {
-	f = m.fileForHeadline(h)
-	parent = h.Parent
-	var list []*org.Headline
-	switch {
-	case parent != nil:
-		list = parent.Children
-	case f != nil:
-		list = f.Headlines
-	}
-	for i, c := range list {
-		if c == h {
-			return f, parent, i
-		}
-	}
-	return f, parent, -1
 }
 
 // commitInsert finalizes an o/O insert session: it swaps the tentative
@@ -618,34 +514,9 @@ func (m *Model) spliceReplace(oldSet, newSet []*org.Headline) {
 		m.collapsed[newSet[0]] = true
 	}
 
-	if first.Parent != nil {
-		for i, c := range first.Parent.Children {
-			if c == first {
-				first.Parent.Children = spliceHeadlines(first.Parent.Children, i, len(oldSet), newSet)
-				return
-			}
-		}
-		return
+	if f, parent, idx := m.ws.Locate(first); idx >= 0 {
+		org.Siblings{File: f, Parent: parent}.Splice(idx, len(oldSet), newSet)
 	}
-	for _, f := range m.ws.Files {
-		for i, top := range f.Headlines {
-			if top == first {
-				f.Headlines = spliceHeadlines(f.Headlines, i, len(oldSet), newSet)
-				return
-			}
-		}
-	}
-}
-
-// spliceHeadlines returns a copy of list with the removeCount elements
-// starting at idx replaced by replacements (which may contain zero, one,
-// or several headlines).
-func spliceHeadlines(list []*org.Headline, idx, removeCount int, replacements []*org.Headline) []*org.Headline {
-	out := make([]*org.Headline, 0, len(list)-removeCount+len(replacements))
-	out = append(out, list[:idx]...)
-	out = append(out, replacements...)
-	out = append(out, list[idx+removeCount:]...)
-	return out
 }
 
 // pushUndo performs a new edit: it discards any redo tail, applies the

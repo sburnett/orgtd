@@ -82,6 +82,14 @@ gcal but not the UI. Only `ui` knows about everything.
 - `Parse`/`ParseFile` build the tree; `RenderFile`/`RenderHeadline`/
   `RenderEntry` serialize it; `WriteFile` writes atomically (temp file in
   the same directory, then rename).
+- **Tree edits go through `org.Siblings`** (`tree.go`): one ordered list of
+  headlines — a parent's children, or a file's top level — with `IndexOf`,
+  `Splice` (builds a new slice, so undo records holding the old one stay
+  valid), `NearestTo` and `Neighbors`. `File.Move` reparents a subtree and
+  shifts its levels; `Headline.ShiftLevel`, `org.Topmost`,
+  `SetOrDeleteProperty`/`RestoreProperty`, `TrimmedBody`, `ParseLinks`,
+  and `DedentEntry`/`IndentEntry` (the editor buffer's bullet-free form)
+  live here too. Nothing in `org` knows about the UI, undo, or a workspace.
 - TODO keywords are fixed (`ActiveKeywords`, `DoneKeywords`).
 
 **Round-tripping is format-*preserving*, not byte-exact.** Body text and
@@ -97,6 +105,8 @@ sorted by path). `AcquireLock(dir)` takes an OS-level advisory lock
 (`.orgtd.lock`) so two instances can't race to overwrite the same files.
 There is no file watching: the directory is read once at startup, plus
 explicit reloads (see `finishEditFile` and `finishSyncCalendar` in ui).
+`FileOf(h)` and `Locate(h)` find which file, parent and index a headline
+sits at.
 
 ### internal/calendarsync and internal/gcal
 
@@ -270,14 +280,11 @@ These are recorded here so contributors don't mistake them for design:
    a file from touching state that isn't its own. Helpers that don't need
    `Model` have been moving out — date logic (`internal/orgdate`),
    subprocess logging (`internal/execlog`), git (`internal/gitrepo`),
-   editor and URL-formatter programs (`internal/extprog`), and org link
-   parsing (`internal/org`) — but the remaining ~30 files still share the
+   editor and URL-formatter programs (`internal/extprog`), meeting linking
+   (`internal/meetings`), and org link parsing and tree operations
+   (`internal/org`) — but the remaining ~30 files still share the
    one `Model`.
-2. **Some org-level logic still lives in `ui`.** Date and repeater logic
-   moved to `internal/orgdate`, but `headlineCreatedTime`, and tree
-   operations like `shiftHeadlineLevel`, `siblingHeadlines` and the
-   splice helpers in `undo.go`, belong with `org`.
-3. **`time.Now()` is called directly** in render and command paths.
+2. **`time.Now()` is called directly** in render and command paths.
 
 ## 7. Data conventions (properties and tags)
 

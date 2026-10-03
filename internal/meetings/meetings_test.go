@@ -311,3 +311,34 @@ func TestIsAttachedToAndFromEvent(t *testing.T) {
 		t.Error("FromEvent(plain task) ok = true")
 	}
 }
+
+func TestCursorTargetPrefersTheMeetingInProgress(t *testing.T) {
+	f := parse(t, "c.org",
+		event("past", "", "Earlier", t0.Add(-3*time.Hour), t0.Add(-2*time.Hour))+
+			event("now", "", "In progress", t0.Add(-10*time.Minute), t0.Add(20*time.Minute))+
+			event("recent", "", "Just ended", t0.Add(-time.Hour), t0.Add(-30*time.Minute))+
+			event("later", "", "Upcoming", t0.Add(time.Hour), t0.Add(2*time.Hour)))
+	if got := CursorTarget(f.Headlines, t0); got == nil || got.Title != "In progress" {
+		t.Errorf("CursorTarget = %v, want the in-progress meeting", got)
+	}
+}
+
+func TestCursorTargetFallsBackToTheMostRecentlyStarted(t *testing.T) {
+	f := parse(t, "c.org",
+		event("a", "", "Older", t0.Add(-3*time.Hour), t0.Add(-2*time.Hour))+
+			event("b", "", "Newer", t0.Add(-time.Hour), t0.Add(-30*time.Minute))+
+			event("c", "", "Upcoming", t0.Add(time.Hour), t0.Add(2*time.Hour)))
+	if got := CursorTarget(f.Headlines, t0); got == nil || got.Title != "Newer" {
+		t.Errorf("CursorTarget = %v, want the most recently started meeting", got)
+	}
+}
+
+func TestCursorTargetIsNilWhenEverythingIsUpcoming(t *testing.T) {
+	f := parse(t, "c.org", event("a", "", "Upcoming", t0.Add(time.Hour), t0.Add(2*time.Hour)))
+	if got := CursorTarget(f.Headlines, t0); got != nil {
+		t.Errorf("CursorTarget = %v, want nil", got)
+	}
+	if got := CursorTarget(nil, t0); got != nil {
+		t.Errorf("CursorTarget(nil) = %v, want nil", got)
+	}
+}

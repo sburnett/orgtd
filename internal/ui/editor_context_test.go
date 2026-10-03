@@ -10,16 +10,16 @@ import (
 )
 
 // TestEditEntryContextOnDetachedHeadlineDoesNotPanic guards a real
-// crash: insertPosition (undo.go) used to dereference f.Headlines
+// crash: Workspace.Locate's predecessor insertPosition used to dereference f.Headlines
 // unconditionally even when the caller was about to use parent.Children
-// instead, so any headline whose file couldn't be found (fileForHeadline
+// instead, so any headline whose file couldn't be found (Workspace.FileOf
 // returns nil — e.g. a stale row left over from an external-edit
 // reload, per internal/workspace's file watcher) crashed the whole
 // program the moment editEntryContext tried to compute its siblings,
 // which every "i"/"A"/o/O/capture session does. A top-level headline
 // detached from every loaded file exercises the parent==nil branch;
 // TestEditEntryContextOnDetachedNestedHeadlineDoesNotPanic below covers
-// the parent!=nil branch, since insertPosition's old bug crashed
+// the parent!=nil branch, since its old implementation's bug crashed
 // regardless of which one applied.
 func TestEditEntryContextOnDetachedHeadlineDoesNotPanic(t *testing.T) {
 	ws := loadFixture(t)
@@ -27,9 +27,9 @@ func TestEditEntryContextOnDetachedHeadlineDoesNotPanic(t *testing.T) {
 
 	orphan := &org.Headline{Level: 1, Title: "Not part of any loaded file"}
 
-	f, parent, idx := m.insertPosition(orphan)
+	f, parent, idx := m.ws.Locate(orphan)
 	if f != nil || parent != nil || idx != -1 {
-		t.Errorf("insertPosition(orphan) = (%v, %v, %d), want (nil, nil, -1)", f, parent, idx)
+		t.Errorf("Locate(orphan) = (%v, %v, %d), want (nil, nil, -1)", f, parent, idx)
 	}
 
 	prev, next, earlierCount := m.siblingHeadlines(orphan)
@@ -46,7 +46,7 @@ func TestEditEntryContextOnDetachedHeadlineDoesNotPanic(t *testing.T) {
 }
 
 // TestEditEntryContextOnDetachedNestedHeadlineDoesNotPanic is the
-// parent!=nil counterpart of the test above: insertPosition's old bug
+// parent!=nil counterpart of the test above: its old implementation's bug
 // dereferenced f.Headlines before ever checking parent, so a detached
 // *nested* headline crashed identically even though the lookup would
 // have used parent.Children, never f, once it got there.
@@ -58,64 +58,14 @@ func TestEditEntryContextOnDetachedNestedHeadlineDoesNotPanic(t *testing.T) {
 	orphanChild := &org.Headline{Level: 2, Title: "Detached child", Parent: orphanParent}
 	orphanParent.Children = []*org.Headline{orphanChild}
 
-	f, parent, idx := m.insertPosition(orphanChild)
+	f, parent, idx := m.ws.Locate(orphanChild)
 	if f != nil || parent != orphanParent || idx != 0 {
-		t.Errorf("insertPosition(orphanChild) = (%v, %v, %d), want (nil, orphanParent, 0)", f, parent, idx)
+		t.Errorf("Locate(orphanChild) = (%v, %v, %d), want (nil, orphanParent, 0)", f, parent, idx)
 	}
 
 	trailer := m.editEntryContext(orphanChild, false)
 	if !strings.Contains(trailer, "[THIS ENTRY HERE]") {
 		t.Errorf("trailer missing the marker even without file context:\n%s", trailer)
-	}
-}
-
-func TestDedentEntryRemovesBulletAndMatchingIndentFromEveryLine(t *testing.T) {
-	h := &org.Headline{
-		Level:         2,
-		Keyword:       "NEXT",
-		Title:         "Implement the org file parser",
-		PropertyOrder: []string{"ID"},
-		Properties:    map[string]string{"ID": "abc123"},
-		Body:          []string{"   Headlines, planning lines, properties, body text."},
-	}
-	rendered := strings.TrimRight(org.RenderEntry(h), "\n")
-
-	got := dedentEntry(rendered, h.Level)
-
-	want := "NEXT Implement the org file parser\n" +
-		":PROPERTIES:\n" +
-		":ID: abc123\n" +
-		":END:\n" +
-		"Headlines, planning lines, properties, body text."
-	if got != want {
-		t.Errorf("dedentEntry() =\n%q\nwant\n%q", got, want)
-	}
-}
-
-func TestIndentEntryReversesDedentEntry(t *testing.T) {
-	h := &org.Headline{
-		Level:         2,
-		Keyword:       "NEXT",
-		Title:         "Implement the org file parser",
-		PropertyOrder: []string{"ID"},
-		Properties:    map[string]string{"ID": "abc123"},
-		Body:          []string{"   Headlines, planning lines, properties, body text."},
-	}
-	rendered := strings.TrimRight(org.RenderEntry(h), "\n")
-
-	dedented := dedentEntry(rendered, h.Level)
-	got := indentEntry(dedented, h.Level)
-
-	if got != rendered {
-		t.Errorf("indentEntry(dedentEntry(s)) =\n%q\nwant original\n%q", got, rendered)
-	}
-}
-
-func TestIndentEntryLeavesBlankLinesAlone(t *testing.T) {
-	got := indentEntry("TODO Buy milk\n\nSecond body line.", 1)
-	want := "* TODO Buy milk\n\n  Second body line."
-	if got != want {
-		t.Errorf("indentEntry() = %q, want %q (blank line not indented)", got, want)
 	}
 }
 

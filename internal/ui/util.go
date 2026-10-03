@@ -8,12 +8,3 @@ func onOff(b bool) string {
 	}
 	return "off"
 }
-
-func indexOfString(list []string, s string) int {
-	for i, v := range list {
-		if v == s {
-			return i
-		}
-	}
-	return -1
-}

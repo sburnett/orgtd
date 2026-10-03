@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
@@ -142,7 +141,7 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 // collapsed[h] flag as h's children (see appendHeadlines): one fold
 // toggle shows or hides both together.
 func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
-	for _, line := range visibleBodyLines(h) {
+	for _, line := range h.TrimmedBody() {
 		*dst = append(*dst, row{headline: h, level: h.Level + 1, kind: rowBody, text: line})
 	}
 }
@@ -150,21 +149,5 @@ func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
 // hasFoldableContent reports whether h has anything a fold command
 // could show or hide: children, a body, or both.
 func hasFoldableContent(h *org.Headline) bool {
-	return len(h.Children) > 0 || len(visibleBodyLines(h)) > 0
-}
-
-// visibleBodyLines returns h.Body with any trailing blank lines
-// stripped. Org files conventionally have a blank line separating a
-// headline from the next one, which the parser has no way to
-// distinguish from deliberate trailing whitespace in the body — without
-// this, that separator would show up as a meaningless empty line under
-// nearly every single entry. Deliberate blank lines *within* a
-// multi-paragraph body (not at the very end) are left alone.
-func visibleBodyLines(h *org.Headline) []string {
-	lines := h.Body
-	end := len(lines)
-	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
-		end--
-	}
-	return lines[:end]
+	return len(h.Children) > 0 || len(h.TrimmedBody()) > 0
 }

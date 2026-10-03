@@ -2,7 +2,6 @@ package ui
 
 import (
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/sburnett/orgtd/internal/meetings"
@@ -73,7 +72,7 @@ func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 
 // enterCalendarView switches to calendarView with the cursor already on
 // the meeting currently in progress, or the most recently started past
-// meeting if none is (see findCalendarCursorTarget), scrolled to the
+// meeting if none is (see meetings.CursorTarget), scrolled to the
 // middle of the screen (see centerOnCursor) so you land right where the
 // day already is rather than at the top or edge of the page — landing at
 // row 0 (switchToView's own default), same as any other view switch, if
@@ -85,7 +84,7 @@ func (m *Model) enterCalendarView() {
 	if f == nil {
 		return
 	}
-	if h := findCalendarCursorTarget(f, time.Now()); h != nil {
+	if h := meetings.CursorTarget(f.Headlines, time.Now()); h != nil {
 		for i, r := range m.rows {
 			if r.headline == h {
 				m.cursor = i
@@ -94,39 +93,6 @@ func (m *Model) enterCalendarView() {
 			}
 		}
 	}
-}
-
-// findCalendarCursorTarget picks the event enterCalendarView should land
-// the cursor on: among every headline in f with a GCAL_START at or
-// before now, the one with the latest start that's still in progress
-// (now before its GCAL_END) wins outright; failing that, the one with
-// the latest start overall (in progress or not — an unparseable/missing
-// GCAL_END, or one already elapsed, both fall here) — i.e. "the current
-// meeting, or the prior one if none is current". nil if nothing in f
-// has a GCAL_START at or before now at all (every synced event is still
-// upcoming, or f has no synced events).
-func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
-	var current, prior *org.Headline
-	var currentStart, priorStart time.Time
-	for _, h := range f.Headlines {
-		start, ok := meetings.TimeProperty(h, "GCAL_START")
-		if !ok || start.After(now) {
-			continue
-		}
-		if end, ok := meetings.TimeProperty(h, "GCAL_END"); ok && now.Before(end) {
-			if current == nil || start.After(currentStart) {
-				current, currentStart = h, start
-			}
-			continue
-		}
-		if prior == nil || start.After(priorStart) {
-			prior, priorStart = h, start
-		}
-	}
-	if current != nil {
-		return current
-	}
-	return prior
 }
 
 // linkedMeetingItems returns every entry, elsewhere in the workspace,
@@ -141,7 +107,7 @@ func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
 //
 // Reordered from meetings.Index.LinkedItems's own file/tree order into ascending
 // CREATED order (items with no parseable CREATED keep their relative
-// tree-order position — see headlineCreatedTime), so that entries
+// tree-order position — see orgdate.CreatedTime), so that entries
 // insertCalendarCapture (o/O from this view — see capture.go) adds to the
 // end of the inbox still show up here in the order they were actually
 // captured, even after being filed away into some other file whose
@@ -155,32 +121,14 @@ func (m *Model) linkedMeetingItems(h *org.Headline) []*org.Headline {
 	// reorder it for every other caller.
 	items := append([]*org.Headline(nil), m.meetingIndex().LinkedItems(key.Kind, key.ID)...)
 	sort.SliceStable(items, func(i, j int) bool {
-		ti, iok := headlineCreatedTime(items[i])
-		tj, jok := headlineCreatedTime(items[j])
+		ti, iok := orgdate.CreatedTime(items[i])
+		tj, jok := orgdate.CreatedTime(items[j])
 		if !iok || !jok {
 			return false
 		}
 		return ti.Before(tj)
 	})
 	return items
-}
-
-// headlineCreatedTime parses h's CREATED property (set by insertHeadlineAt
-// on every new entry, e.g. "[2026-09-24 Thu 14:32]") back into a
-// time.Time, for ordering entries by when they were actually created
-// (see linkedMeetingItems) rather than by their position in the outline.
-// ok is false if CREATED is missing, or set to something orgdate.ParseFlexible
-// can't read (e.g. hand-edited).
-func headlineCreatedTime(h *org.Headline) (time.Time, bool) {
-	raw := strings.Trim(h.Properties["CREATED"], "[]")
-	if raw == "" {
-		return time.Time{}, false
-	}
-	t, _, err := orgdate.ParseFlexible(raw)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return t, true
 }
 
 // calendarEventForRow resolves the calendar event a calendarView row r is

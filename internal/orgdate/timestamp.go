@@ -210,3 +210,20 @@ func AdvanceRepeating(ts *org.Timestamp, now time.Time) (next *org.Timestamp, ok
 	}
 	return &org.Timestamp{Active: ts.Active, Raw: raw}, true
 }
+
+// CreatedTime parses h's CREATED property (stamped on every new entry,
+// e.g. "[2026-09-24 Thu 14:32]") back into a time.Time, for ordering
+// entries by when they were actually created rather than by their position
+// in the outline. ok is false if CREATED is missing, or set to something
+// ParseFlexible can't read (e.g. hand-edited).
+func CreatedTime(h *org.Headline) (time.Time, bool) {
+	raw := strings.Trim(h.Properties["CREATED"], "[]")
+	if raw == "" {
+		return time.Time{}, false
+	}
+	t, _, err := ParseFlexible(raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}

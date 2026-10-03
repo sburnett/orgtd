@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // appendTagsRows appends the rows for tagsView: one flush-left
@@ -19,7 +20,7 @@ import (
 // and a meeting-tags.org record's own tag, aren't outline entries to
 // catalog here), tags sorted alphabetically, each followed by every
 // headline carrying that tag, ordered by CREATED (oldest first, same as
-// linkedMeetingItems — see headlineCreatedTime) rather than by file/tree
+// linkedMeetingItems — see orgdate.CreatedTime) rather than by file/tree
 // position. An entry with more than one tag legitimately appears once
 // under each. Subject to the same stale-DONE hiding as the outline (see
 // hiddenAsStaleDone) — :toggledone affects this view the same way.
@@ -51,8 +52,8 @@ func (m *Model) appendTagsRows(dst *[]row) {
 	for _, tag := range tags {
 		entries := byTag[tag]
 		sort.SliceStable(entries, func(i, j int) bool {
-			ti, iok := headlineCreatedTime(entries[i])
-			tj, jok := headlineCreatedTime(entries[j])
+			ti, iok := orgdate.CreatedTime(entries[i])
+			tj, jok := orgdate.CreatedTime(entries[j])
 			if !iok || !jok {
 				return false
 			}

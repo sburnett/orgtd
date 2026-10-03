@@ -27,7 +27,7 @@ func (m *Model) repeatAdvanceForCompletion(h *org.Headline) undoAction {
 	oldLastRepeat, hadLastRepeat := h.Properties["LAST_REPEAT"]
 	return &repeatAdvanceAction{
 		h:             h,
-		f:             m.fileForHeadline(h),
+		f:             m.ws.FileOf(h),
 		oldScheduled:  h.Scheduled,
 		newScheduled:  newScheduled,
 		oldDeadline:   h.Deadline,

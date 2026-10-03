@@ -21,7 +21,7 @@ func commitCaptureAndPickMeeting(t *testing.T, m Model, body string) Model {
 	if tentative == nil {
 		t.Fatalf("cursor is not on a headline")
 	}
-	f, parent, idx := m.insertPosition(tentative)
+	f, parent, idx := m.ws.Locate(tentative)
 	ctx := insertContext{f: f, parent: parent, index: idx, thenPickMeeting: true}
 	path := writeTempOrgFile(t, body)
 	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})

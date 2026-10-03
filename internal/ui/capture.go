@@ -16,24 +16,11 @@ import (
 // top-level), or nil for either that doesn't exist. earlierCount is the
 // number of further siblings before prev (i.e. not shown by prev alone).
 func (m *Model) siblingHeadlines(h *org.Headline) (prev, next *org.Headline, earlierCount int) {
-	f, parent, idx := m.insertPosition(h)
+	f, parent, idx := m.ws.Locate(h)
 	if idx < 0 {
 		return nil, nil, 0
 	}
-	var list []*org.Headline
-	if parent != nil {
-		list = parent.Children
-	} else if f != nil {
-		list = f.Headlines
-	}
-	if idx > 0 {
-		prev = list[idx-1]
-		earlierCount = idx - 1
-	}
-	if idx+1 < len(list) {
-		next = list[idx+1]
-	}
-	return prev, next, earlierCount
+	return org.Siblings{File: f, Parent: parent}.Neighbors(idx)
 }
 
 // resolveInsertPosition computes where a new entry belongs relative to
@@ -53,7 +40,7 @@ func (m *Model) resolveInsertPosition(before bool) (f *org.File, parent *org.Hea
 	case row.headline != nil:
 		h := row.headline
 		origin, level = h, h.Level
-		f, parent, idx = m.insertPosition(h)
+		f, parent, idx = m.ws.Locate(h)
 		if idx < 0 {
 			return nil, nil, 0, 0, nil, false
 		}
@@ -235,11 +222,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool, attachMeeting *meetings.Meeting) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
 	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
-	if parent != nil {
-		parent.Children = spliceHeadlines(parent.Children, idx, 0, []*org.Headline{tentative})
-	} else {
-		f.Headlines = spliceHeadlines(f.Headlines, idx, 0, []*org.Headline{tentative})
-	}
+	org.Siblings{File: f, Parent: parent}.Splice(idx, 0, []*org.Headline{tentative})
 	m.rebuildRows()
 	m.focusHeadline(tentative)
 

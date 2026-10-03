@@ -366,7 +366,7 @@ func TestLSkipsOverBodyEntirelyToRealChild(t *testing.T) {
 	m := New(ws)
 	idx := findRow(t, m, "Ship orgtd v0.1") // has both a body and children
 	h := m.rows[idx].headline
-	if len(visibleBodyLines(h)) == 0 || len(h.Children) == 0 {
+	if len(h.TrimmedBody()) == 0 || len(h.Children) == 0 {
 		t.Fatalf("fixture assumption broken: expected 'Ship orgtd v0.1' to have both a body and children")
 	}
 	m.cursor = idx
