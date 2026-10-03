@@ -16,7 +16,7 @@ func WithURLFormatter(cmd string) Option {
 // WithFormatLinksURLFormatter sets the external program :format-links
 // invokes in batch mode — called with no trailing URL argument, it's
 // expected to read URLs one per line from stdin and print the same
-// number of formatted lines to stdout (see runBatchURLFormatter). A
+// number of formatted lines to stdout (see extprog.RunBatchFormatter). A
 // blank cmd (the default) means :format-links uses urlFormatterCmd
 // instead, same as everything else — see formatLinksFormatterCmd.
 func WithFormatLinksURLFormatter(cmd string) Option {
@@ -26,7 +26,7 @@ func WithFormatLinksURLFormatter(cmd string) Option {
 // WithURLFormatterPrefixes adds extra bare-URL prefixes formatURLs
 // recognizes beyond the built-in http:// and https:// — e.g. "bit.ly/"
 // for a shortlink service, or "go/" for an internal go-link convention.
-// Each is matched only at a word boundary (see buildBareURLRegexp), so
+// Each is matched only at a word boundary (see extprog.BareURLRegexp), so
 // a short prefix like "go/" doesn't also match mid-word. Has no effect
 // unless WithURLFormatter is also set, since there'd be nothing to
 // format a bare URL into otherwise.

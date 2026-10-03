@@ -8,12 +8,12 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/sburnett/orgtd/internal/execlog"
+	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -38,14 +38,14 @@ type editFinishedMsg struct {
 // itself. See startEditAppend for "A", and startEditWithPlacement for
 // the shared mechanics.
 func (m *Model) startEdit() tea.Cmd {
-	return m.startEditWithPlacement(cursorAtEntryStart)
+	return m.startEditWithPlacement(extprog.AtEntryStart)
 }
 
 // startEditAppend ("A") is startEdit, but positions the cursor at the
 // end of the entry's first line instead of right after the bullet —
 // vim's own "A" (append at end of line), once the editor's open.
 func (m *Model) startEditAppend() tea.Cmd {
-	return m.startEditWithPlacement(cursorAtLineEnd)
+	return m.startEditWithPlacement(extprog.AtLineEnd)
 }
 
 // startEditWithPlacement is the shared implementation behind startEdit
@@ -54,7 +54,7 @@ func (m *Model) startEditAppend() tea.Cmd {
 // the cursor per placement. Returns nil if there's nothing to edit or
 // the editor couldn't be launched, in which case any error is left in
 // m.message.
-func (m *Model) startEditWithPlacement(placement editorCursorPlacement) tea.Cmd {
+func (m *Model) startEditWithPlacement(placement extprog.Placement) tea.Cmd {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		if f := m.rows[m.cursor].file; f != nil {
 			// A whole-file edit hands the raw file to $EDITOR directly,
@@ -101,7 +101,7 @@ type fileEditFinishedMsg struct {
 // this — the editor already wrote the change directly to disk, so
 // there's no in-memory action to record or revert.
 func (m *Model) startEditFile(f *org.File) tea.Cmd {
-	editorCmd := buildEditorCommand(m.editorCommand(), f.Path, "", noCursorPlacement, 0)
+	editorCmd := extprog.EditorCommand(m.editorCommand(), f.Path, "", extprog.NoPlacement, 0)
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return fileEditFinishedMsg{target: f, cmd: editorCmd, err: err}
 	})
@@ -155,100 +155,6 @@ func (m *Model) clearRefsForFile(f *org.File) {
 	delete(m.savedPos, f)
 }
 
-// editorsWithLineArg lists $EDITOR basenames known to support a leading
-// "+N" argument that opens the file with the cursor on line N — a
-// convention shared by vi/vim, emacs, and nano. launchEditor uses this
-// to land the cursor on the real content rather than line 1, which is
-// now the context trailer's file-name comment. Applied only to these
-// editors, since an arbitrary editor could easily misread "+N" as a
-// literal filename instead of a line number.
-var editorsWithLineArg = map[string]bool{
-	"vi": true, "vim": true, "nvim": true, "gvim": true, "mvim": true,
-	"emacs": true, "emacsclient": true,
-	"nano": true,
-}
-
-// vimFamily is the subset of editorsWithLineArg that additionally
-// understands vim's ex-command syntax — a "+{command}" argument
-// executing an arbitrary command, not just a bare line number — used to
-// start "i"/"A" directly in insert mode at a specific spot (see
-// cursorPlacementArg). emacs/emacsclient and nano share the "+N" line
-// convention but have no equivalent notion of "insert mode" to start
-// (nano isn't modal; plain emacs isn't either), so they always just get
-// a bare "+N" regardless of placement.
-var vimFamily = map[string]bool{
-	"vi": true, "vim": true, "nvim": true, "gvim": true, "mvim": true,
-}
-
-// editorCursorPlacement selects where launchEditor positions the cursor,
-// and whether it starts the editor directly in insert mode, when the
-// configured editor is vim-family (see vimFamily) — a plain "+N" line
-// jump for anything else, or for noCursorPlacement.
-type editorCursorPlacement int
-
-const (
-	// noCursorPlacement just lands on the entry's first line, same as
-	// always — used only for a whole-file edit (startEditFile), where
-	// there's no single entry to position a cursor within.
-	noCursorPlacement editorCursorPlacement = iota
-	// cursorAtEntryStart ("i", "o"/"O") puts the cursor at the very start
-	// of the entry's own text — column 1, since the buffer never shows a
-	// bullet to land after (see dedentEntry, launchEditor, and
-	// resolveEntryCursorPlacement) — in insert mode, so typing
-	// immediately inserts text there exactly as pressing vim's own "i" at
-	// that spot would. For o/O the entry is a blank template, so this is
-	// also where its title will end up starting.
-	cursorAtEntryStart
-	// cursorAtLineEnd ("A") puts the cursor at the end of the entry's
-	// first line, in insert mode — vim's own "A" (append at end of
-	// line), landing on whichever text (keyword, title, tags) the line
-	// actually ends with.
-	cursorAtLineEnd
-)
-
-// cursorPlacementArg returns the "+..." argument buildEditorCommand
-// should pass for the given editor basename, startLine (1-based), col
-// (1-based, meaningful only for cursorAtEntryStart), and placement.
-// Non-vim-family editors (or noCursorPlacement) always get a bare
-// "+startLine" — see editorCursorPlacement and vimFamily.
-func cursorPlacementArg(editorBase string, startLine, col int, placement editorCursorPlacement) string {
-	if vimFamily[editorBase] {
-		switch placement {
-		case cursorAtEntryStart:
-			return fmt.Sprintf("+call cursor(%d,%d)|startinsert", startLine, col)
-		case cursorAtLineEnd:
-			// startinsert! is vim's own "A": moves to the end of the
-			// current line before entering insert mode, so there's no
-			// need to compute or pass a column at all.
-			return fmt.Sprintf("+%d|startinsert!", startLine)
-		}
-	}
-	return fmt.Sprintf("+%d", startLine)
-}
-
-// resolveEntryCursorPlacement returns the placement and (1-based) column
-// launchEditor should actually request for a dedented entry buffer (see
-// dedentEntry): cursorAtEntryStart always targets column 1, since
-// there's no bullet to land after — for either an existing
-// entry ("i"/"A") or a blank o/O template alike. It downgrades to
-// cursorAtLineEnd when the first line is completely empty (a
-// just-started o/O insert, or an existing entry with a blank title):
-// vim's cursor()+startinsert needs the target column to be an existing
-// character — cursor() clamps to the line's last real character rather
-// than allowing a column one past the end — so requesting column 1 on a
-// zero-length line would fail. cursorAtLineEnd's startinsert! (append)
-// sidesteps this entirely: on an empty line, "end of line" and "column
-// 1" are the exact same position anyway.
-func resolveEntryCursorPlacement(entry string, placement editorCursorPlacement) (editorCursorPlacement, int) {
-	if placement == cursorAtEntryStart {
-		firstLine, _, _ := strings.Cut(entry, "\n")
-		if len(firstLine) == 0 {
-			placement = cursorAtLineEnd
-		}
-	}
-	return placement, 1
-}
-
 // editorCommand returns the external editor to launch: m.editorOverride
 // (see WithEditor) if set, else $EDITOR (README's --editor row).
 func (m Model) editorCommand() string {
@@ -256,110 +162,6 @@ func (m Model) editorCommand() string {
 		return m.editorOverride
 	}
 	return os.Getenv("EDITOR")
-}
-
-// splitCommandFields splits s into command-line-style fields the way a
-// shell would for simple cases: runs of non-whitespace are one field
-// each, except that a single- or double-quoted span is treated as part
-// of the enclosing field (quotes stripped) and may itself contain
-// whitespace — e.g. `myformatter --template "a template" x` splits into
-// ["myformatter", "--template", "a template", "x"]. This is a minimal
-// word-splitter, not a shell parser: no escape sequences, no variable
-// expansion, no nesting — just enough for a configured command
-// (urlFormatterCmd, $EDITOR) to carry an argument containing spaces,
-// which plain strings.Fields cannot do (it would tear "a template"
-// apart into two fields, quote characters and all). An unterminated
-// quote isn't an error — whatever was captured is still emitted as a
-// field, rather than the whole config value being discarded.
-func splitCommandFields(s string) []string {
-	var fields []string
-	var cur strings.Builder
-	inField := false
-	var quote rune
-
-	flush := func() {
-		if inField {
-			fields = append(fields, cur.String())
-			cur.Reset()
-			inField = false
-		}
-	}
-
-	for _, r := range s {
-		switch {
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				cur.WriteRune(r)
-			}
-		case r == '\'' || r == '"':
-			quote = r
-			inField = true
-		case unicode.IsSpace(r):
-			flush()
-		default:
-			cur.WriteRune(r)
-			inField = true
-		}
-	}
-	flush()
-	return fields
-}
-
-// expandHomeField expands a leading "~" or "~/..." in field to the
-// user's home directory, the way an interactive shell expands a tilde
-// word during its own word-splitting. This matters specifically for
-// editor/urlFormatterCmd: typed on the command line, a value like
-// "~/bin/myformatter" is already expanded by the shell before orgtd
-// ever sees argv, but the identical value read from the config file
-// reaches us as a raw, unexpanded string — no shell is involved there —
-// so it would otherwise be handed to exec.Command completely literally
-// and fail to launch (silently, from the caller's perspective, since a
-// failed exec just leaves the input unchanged). Applied per-field
-// (after splitCommandFields), not to the whole command string, so a
-// tilde in a later argument is expanded too, not just a leading one.
-func expandHomeField(field string) string {
-	if field != "~" && !strings.HasPrefix(field, "~/") {
-		return field
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return field
-	}
-	if field == "~" {
-		return home
-	}
-	return filepath.Join(home, field[2:])
-}
-
-// buildEditorCommand builds the *exec.Cmd for opening path in the editor
-// named by editorEnv ($EDITOR's value; "vim" if empty), splitting off
-// any extra words as leading arguments (e.g. "code --wait"). For an
-// editor in editorsWithLineArg, it also inserts a "+..." argument (see
-// cursorPlacementArg) so the editor opens with the cursor on the real
-// content — or, for a vim-family editor with placement other than
-// noCursorPlacement, at a specific column within it and already in
-// insert mode (before is the context text written ahead of it in the
-// file; its newline count is exactly the 1-based line the real content
-// starts on). col is the 1-based column cursorAtEntryStart should land
-// on; unused otherwise.
-func buildEditorCommand(editorEnv, path, before string, placement editorCursorPlacement, col int) *exec.Cmd {
-	fields := splitCommandFields(editorEnv)
-	if len(fields) == 0 {
-		fields = []string{"vim"}
-	}
-	for i, f := range fields {
-		fields[i] = expandHomeField(f)
-	}
-	args := append([]string{}, fields[1:]...)
-	base := filepath.Base(fields[0])
-	if editorsWithLineArg[base] {
-		startLine := strings.Count(before, "\n") + 1
-		args = append(args, cursorPlacementArg(base, startLine, col, placement))
-	}
-	args = append(args, path)
-	return exec.Command(fields[0], args...)
 }
 
 // scratchFilePath returns a path for a new editor buffer under a
@@ -396,11 +198,11 @@ func (m *Model) scratchFilePath() (string, error) {
 // knows whether this is an insert session or a plain edit, and is also
 // what selects the trailer's wording ("Inserting a new entry." vs
 // "Editing this entry.").
-// placement (see editorCursorPlacement) controls where a vim-family
+// placement (see extprog.Placement) controls where a vim-family
 // editor lands the cursor and whether it starts in insert mode already.
 // Returns nil if the scratch file couldn't be created or the editor
 // couldn't be started, in which case the error is left in m.message.
-func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement editorCursorPlacement) tea.Cmd {
+func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement extprog.Placement) tea.Cmd {
 	path, err := m.scratchFilePath()
 	if err != nil {
 		m.message = fmt.Sprintf("Could not create scratch file: %v", err)
@@ -418,8 +220,8 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement edit
 		return nil
 	}
 
-	placement, col := resolveEntryCursorPlacement(entry, placement)
-	editorCmd := buildEditorCommand(m.editorCommand(), path, "", placement, col)
+	placement, col := extprog.ResolveEntryPlacement(entry, placement)
+	editorCmd := extprog.EditorCommand(m.editorCommand(), path, "", placement, col)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, insert: ctx, cmd: editorCmd, err: err}

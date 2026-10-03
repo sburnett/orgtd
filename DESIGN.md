@@ -41,6 +41,7 @@ readme.go             embeds README.md for :help (package orgtd)
 cmd/orgtd/            main: flags + config + env → settings → ui.New. Wiring only.
 internal/config/      TOML config file schema and loading (no precedence logic)
 internal/org/         org data model, parser, renderer, atomic writer, deep clone
+internal/extprog/      editor command building and URL formatter running (user-configured programs)
 internal/gitrepo/      the git commands :diff/:commit use (root guard, diff, add, commit, push)
 internal/execlog/      logged subprocess runner + the timeline :log shows
 internal/orgdate/     pure date logic: typed-date parsing, timestamp/repeater parsing and math
@@ -58,6 +59,7 @@ Dependency direction (no cycles, keep it this way):
 cmd/orgtd → ui → calendarsync → gcal
               ↘ workspace → org
               ↘ orgdate → org
+              ↘ extprog → execlog, org
               ↘ gitrepo → execlog
               ↘ execlog
               ↘ org
@@ -165,9 +167,9 @@ including its known weak points, so changes can be made deliberately.
 | `search.go` | `/` `?` `n` `N` incremental search and the search row space |
 | `edit_ops.go` | Delete/yank/paste/promote/demote and bulk status changes |
 | `status_picker.go`, `deadline.go`, `tag_prompt.go`, `meeting_picker.go` | The `r`/`R`, `gd`, `gt`, `gM` prompts |
-| `editor.go` | `$EDITOR` round trip: command building, scratch files, entry context, `finishEdit` |
+| `editor.go` | `$EDITOR` round trip: scratch files, entry context, `finishEdit` (the command line itself is built by `internal/extprog`) |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
-| `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch |
+| `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch (both run formatters through `internal/extprog`) |
 | `gitops.go` | `:diff`/`:commit` UI flow (confirm prompts, diff rows, background commit+push) over `internal/gitrepo` |
 | `clarify.go`, `marks.go`, `jumplist.go` | `:clarify` target, vim-style marks, ctrl-o/`gi` jump list and view switching |
 | `style.go` | Color/icon resolution, text-width and highlight helpers |
@@ -235,12 +237,12 @@ These are recorded here so contributors don't mistake them for design:
 
 1. **One `Model` struct, one package.** The files above split the code by
    topic, but they still all share a ~100-field `Model`, so nothing stops
-   a file from touching state that isn't its own. Pure helpers that don't
-   need `Model` (URL detection and formatting, editor-command
-   construction) are candidates to become their own
-   packages with narrow interfaces, as date logic (`internal/orgdate`),
-   subprocess logging (`internal/execlog`) and git (`internal/gitrepo`)
-   already did.
+   a file from touching state that isn't its own. Helpers that don't need
+   `Model` have been moving out — date logic (`internal/orgdate`),
+   subprocess logging (`internal/execlog`), git (`internal/gitrepo`),
+   editor and URL-formatter programs (`internal/extprog`), and org link
+   parsing (`internal/org`) — but the remaining ~30 files still share the
+   one `Model`.
 2. **Meeting linking is recomputed live and is expensive.** The gutter's
    `meetingColumn` calls `tagLinkedMeetingCandidates` for each visible
    tagged row on every render, which walks the whole workspace

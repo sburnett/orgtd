@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -45,7 +46,7 @@ type formatLinksTarget struct {
 // rewritten yet would just queue the same URLs a second time.
 func (m *Model) collectFormatLinksTargets() ([]*formatLinksTarget, []string) {
 	if m.bareURLRe == nil {
-		m.bareURLRe = buildBareURLRegexp(m.urlFormatterPrefixes)
+		m.bareURLRe = extprog.BareURLRegexp(m.urlFormatterPrefixes)
 	}
 	var targets []*formatLinksTarget
 	var urls []string
@@ -58,12 +59,12 @@ func (m *Model) collectFormatLinksTargets() ([]*formatLinksTarget, []string) {
 				return
 			}
 			var spans []formatLinksSpan
-			for _, sp := range bareURLSpansOutsideLinks(m.bareURLRe, h.Title) {
+			for _, sp := range extprog.BareURLSpans(m.bareURLRe, h.Title) {
 				spans = append(spans, formatLinksSpan{field: formatLinksTitleField, start: sp[0], end: sp[1]})
 				urls = append(urls, h.Title[sp[0]:sp[1]])
 			}
 			for i, line := range h.Body {
-				for _, sp := range bareURLSpansOutsideLinks(m.bareURLRe, line) {
+				for _, sp := range extprog.BareURLSpans(m.bareURLRe, line) {
 					spans = append(spans, formatLinksSpan{field: i, start: sp[0], end: sp[1]})
 					urls = append(urls, line[sp[0]:sp[1]])
 				}
@@ -127,7 +128,7 @@ func (m *Model) startFormatLinks() tea.Cmd {
 
 	elog := m.execLog
 	return func() tea.Msg {
-		formatted, err := runBatchURLFormatter(elog, formatterCmd, urls)
+		formatted, err := extprog.RunBatchFormatter(elog, formatterCmd, urls)
 		return formatLinksMsg{targets: targets, formatted: formatted, err: err}
 	}
 }

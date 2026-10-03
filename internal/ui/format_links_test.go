@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -413,37 +412,6 @@ func TestUndoRefusedWhenLastActionTouchesImmutableEntry(t *testing.T) {
 	}
 	if !strings.Contains(m.message, "format-links") {
 		t.Errorf("message = %q, want it to explain why undo was refused", m.message)
-	}
-}
-
-func TestRunBatchURLFormatterMatchesLinesByIndex(t *testing.T) {
-	script := writeBatchFakeFormatter(t, `echo "[[$line][Formatted]]"`)
-	got, err := runBatchURLFormatter(&execlog.Log{}, script, []string{"https://a.example.com", "https://b.example.com"})
-	if err != nil {
-		t.Fatalf("runBatchURLFormatter: %v", err)
-	}
-	want := []string{"[[https://a.example.com][Formatted]]", "[[https://b.example.com][Formatted]]"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Errorf("got %v, want %v", got, want)
-	}
-}
-
-func TestRunBatchURLFormatterErrorsOnLineCountMismatch(t *testing.T) {
-	script := writeFakeFormatter(t, `echo "only one line"`)
-	_, err := runBatchURLFormatter(&execlog.Log{}, script, []string{"https://a.example.com", "https://b.example.com"})
-	if err == nil {
-		t.Fatal("expected an error when the formatter's output line count doesn't match the input")
-	}
-}
-
-func TestRunBatchURLFormatterErrorsOnFailure(t *testing.T) {
-	script := writeFakeFormatter(t, `echo "boom" >&2; exit 1`)
-	_, err := runBatchURLFormatter(&execlog.Log{}, script, []string{"https://a.example.com"})
-	if err == nil {
-		t.Fatal("expected an error when the formatter process fails")
-	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Errorf("error = %v, want it to include the subprocess's stderr", err)
 	}
 }
 

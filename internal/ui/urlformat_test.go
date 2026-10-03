@@ -316,35 +316,6 @@ func TestFormatURLsHandlesMultipleDistinctURLs(t *testing.T) {
 	}
 }
 
-func TestBuildBareURLRegexpMatchesConfiguredPrefixes(t *testing.T) {
-	re := buildBareURLRegexp([]string{"bit.ly/", "go/"})
-	cases := []struct {
-		text string
-		want string // "" means no match expected
-	}{
-		{"See bit.ly/xyz for details.", "bit.ly/xyz"},
-		{"Check go/my-shortlink please", "go/my-shortlink"},
-		{"https://example.com/page still works", "https://example.com/page"},
-		{"http://example.com/page still works", "http://example.com/page"},
-		{"embargo/foo should not match", ""},  // "go/" mid-word
-		{"orbit.ly/foo should not match", ""}, // "bit.ly/" mid-word
-		{"a bit.ly/foo at word start matches", "bit.ly/foo"},
-	}
-	for _, c := range cases {
-		got := re.FindString(c.text)
-		if got != c.want {
-			t.Errorf("buildBareURLRegexp match in %q = %q, want %q", c.text, got, c.want)
-		}
-	}
-}
-
-func TestBuildBareURLRegexpIgnoresEmptyPrefix(t *testing.T) {
-	re := buildBareURLRegexp([]string{"", "go/"})
-	if got := re.FindString("go/x"); got != "go/x" {
-		t.Errorf("match = %q, want %q", got, "go/x")
-	}
-}
-
 func TestFormatURLsFormatsConfiguredPrefix(t *testing.T) {
 	m := Model{
 		urlFormatterCmd:      writeFakeFormatter(t, `echo "[[$1][Formatted]]"`),

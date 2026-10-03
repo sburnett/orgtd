@@ -1072,7 +1072,7 @@ func TestCapitalIKeyOnHeadlineReturnsEditCmd(t *testing.T) {
 
 // TestAKeyOnHeadlineReturnsEditCmd mirrors TestIKeyOnHeadlineReturnsEditCmd:
 // "A" goes through the exact same startEditWithPlacement path as "i",
-// just with a different editorCursorPlacement, so it should behave
+// just with a different extprog.Placement, so it should behave
 // identically at this level (mode, non-nil command).
 func TestAKeyOnHeadlineReturnsEditCmd(t *testing.T) {
 	ws := loadFixture(t)

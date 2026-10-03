@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/sburnett/orgtd/internal/execlog"
+	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/gitrepo"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
@@ -180,11 +181,11 @@ type Model struct {
 
 	urlFormatterCmd      string         // external program that turns a bare URL into an org-mode link when editing an entry; disabled if empty
 	urlFormatterPrefixes []string       // extra bare-URL prefixes beyond http(s)://, e.g. "bit.ly/", "go/" (see WithURLFormatterPrefixes)
-	bareURLRe            *regexp.Regexp // compiled from urlFormatterPrefixes at construction time; see buildBareURLRegexp
+	bareURLRe            *regexp.Regexp // compiled from urlFormatterPrefixes at construction time; see extprog.BareURLRegexp
 	editorOverride       string         // takes precedence over $EDITOR when set (see WithEditor); empty means "use $EDITOR"
 
 	// formatLinksURLFormatterCmd is the external program :format-links
-	// invokes in batch mode (see runBatchURLFormatter) — configured
+	// invokes in batch mode (see extprog.RunBatchFormatter) — configured
 	// separately from urlFormatterCmd since a batch-capable command may
 	// differ from (or take different arguments than) whatever handles a
 	// single URL while editing. Empty means "use urlFormatterCmd for
@@ -320,7 +321,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 	for _, opt := range opts {
 		opt(&m)
 	}
-	m.bareURLRe = buildBareURLRegexp(m.urlFormatterPrefixes)
+	m.bareURLRe = extprog.BareURLRegexp(m.urlFormatterPrefixes)
 	m.rebuildRows()
 	return m
 }

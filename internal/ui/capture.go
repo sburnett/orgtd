@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -205,7 +206,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 // and startCapture: splices a blank headline into f (at index within
 // parent's children, or f's top-level list if parent is nil) and opens
 // it in $EDITOR — for a vim-family editor, cursor already right after
-// the bullet and in insert mode (see cursorAtEntryStart), so typing the
+// the bullet and in insert mode (see extprog.AtEntryStart), so typing the
 // new title can start immediately — pre-filled with a CREATED property
 // set to now — org-mode's standard (if not automatic) convention for
 // recording an entry's creation time, e.g. via org-capture's %U escape.
@@ -242,7 +243,7 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	m.focusHeadline(tentative)
 
 	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile, thenPickMeeting: thenPickMeeting, switchToOutline: switchToOutline, attachMeeting: attachMeeting}
-	cmd := m.launchEditor(tentative, &ctx, cursorAtEntryStart)
+	cmd := m.launchEditor(tentative, &ctx, extprog.AtEntryStart)
 	if cmd == nil {
 		// Couldn't even launch the editor; don't leave a blank
 		// placeholder headline behind with no way to remove it.
