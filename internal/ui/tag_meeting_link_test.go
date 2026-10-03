@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -24,14 +25,14 @@ func TestEntriesForMeetingIncludesTagMatchedEntry(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.entriesForMeeting(oneOffMeeting, "kickoff-1")
+	got := m.meetingIndex().LinkedItems(meetings.OneOff, "kickoff-1")
 	if len(got) != 1 || got[0] != item {
-		t.Errorf("entriesForMeeting = %+v, want just the tag-matched item", got)
+		t.Errorf("meetings.Index.LinkedItems = %+v, want just the tag-matched item", got)
 	}
 }
 
 // TestEntriesForMeetingExcludesRecurringTagAlone guards the
-// meetingSeriesTag exclusion: "recurring" is stamped onto every
+// meetings.SeriesTag exclusion: "recurring" is stamped onto every
 // occurrence of every recurring series (see internal/calendarsync's
 // buildHeadline), so matching on it alone would link any
 // "recurring"-tagged entry to every recurring meeting synced — clearly
@@ -46,9 +47,9 @@ func TestEntriesForMeetingExcludesRecurringTagAlone(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.entriesForMeeting(recurringMeeting, "series-abc")
+	got := m.meetingIndex().LinkedItems(meetings.Recurring, "series-abc")
 	if len(got) != 0 {
-		t.Errorf("entriesForMeeting = %+v, want none (only the recurring system tag matches)", got)
+		t.Errorf("meetings.Index.LinkedItems = %+v, want none (only the recurring system tag matches)", got)
 	}
 }
 
@@ -66,9 +67,9 @@ func TestEntriesForMeetingExcludesDoneTagMatchedItem(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.entriesForMeeting(oneOffMeeting, "kickoff-1")
+	got := m.meetingIndex().LinkedItems(meetings.OneOff, "kickoff-1")
 	if len(got) != 0 {
-		t.Errorf("entriesForMeeting = %+v, want none (DONE item excluded)", got)
+		t.Errorf("meetings.Index.LinkedItems = %+v, want none (DONE item excluded)", got)
 	}
 }
 
@@ -87,9 +88,9 @@ func TestEntriesForMeetingDoesNotDuplicateExplicitAndTagMatch(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.entriesForMeeting(oneOffMeeting, "kickoff-1")
+	got := m.meetingIndex().LinkedItems(meetings.OneOff, "kickoff-1")
 	if len(got) != 1 {
-		t.Errorf("entriesForMeeting = %+v, want exactly one entry, not a duplicate", got)
+		t.Errorf("meetings.Index.LinkedItems = %+v, want exactly one entry, not a duplicate", got)
 	}
 }
 
@@ -109,9 +110,9 @@ func TestEntriesForMeetingExcludesOtherCalendarEventFromTagMatch(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.entriesForMeeting(oneOffMeeting, "kickoff-1")
+	got := m.meetingIndex().LinkedItems(meetings.OneOff, "kickoff-1")
 	if len(got) != 0 {
-		t.Errorf("entriesForMeeting = %+v, want none (meeting2 is a calendar event, not a linkable entry)", got)
+		t.Errorf("meetings.Index.LinkedItems = %+v, want none (meeting2 is a calendar event, not a linkable entry)", got)
 	}
 }
 
@@ -247,7 +248,7 @@ func TestMeetingColumnShowsForTagMatchedEntry(t *testing.T) {
 
 // TestMeetingColumnBlankForRecurringTagOnlyMatch: an entry tagged only
 // "recurring" never lights up the gutter marker, no matter how many
-// recurring meetings are synced — see meetingSeriesTag.
+// recurring meetings are synced — see meetings.SeriesTag.
 func TestMeetingColumnBlankForRecurringTagOnlyMatch(t *testing.T) {
 	now := time.Now()
 	meeting := recurringCalendarEventHeadline("instance-1", "series-abc", "Weekly Standup", now, now.Add(time.Hour))
@@ -296,9 +297,9 @@ func TestTagLinkedMeetingCandidatesExcludesEventsOwnMeeting(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.tagLinkedMeetingCandidates(event, now)
+	got := m.meetingIndex().TagLinked(event, now)
 	if len(got) != 0 {
-		t.Errorf("tagLinkedMeetingCandidates = %+v, want none (an event can't be linked to its own meeting)", got)
+		t.Errorf("meetings.Index.TagLinked = %+v, want none (an event can't be linked to its own meeting)", got)
 	}
 }
 
@@ -306,7 +307,7 @@ func TestTagLinkedMeetingCandidatesExcludesEventsOwnMeeting(t *testing.T) {
 // calendar event sharing a tag with a wholly different meeting (e.g. the
 // same attendee, invited to two unrelated meetings) is never treated as
 // tag-linked to it either — only entries elsewhere in the org directory
-// can be linked this way, mirroring entriesForMeeting's own blanket
+// can be linked this way, mirroring meetings.Index.LinkedItems's own blanket
 // exclusion of calendar events from tag-matched items (see
 // TestEntriesForMeetingExcludesOtherCalendarEventFromTagMatch).
 func TestTagLinkedMeetingCandidatesExcludesOtherCalendarEvent(t *testing.T) {
@@ -320,8 +321,8 @@ func TestTagLinkedMeetingCandidatesExcludesOtherCalendarEvent(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.tagLinkedMeetingCandidates(event1, now)
+	got := m.meetingIndex().TagLinked(event1, now)
 	if len(got) != 0 {
-		t.Errorf("tagLinkedMeetingCandidates = %+v, want none (event2 is a calendar event, not a linkable meeting for event1)", got)
+		t.Errorf("meetings.Index.TagLinked = %+v, want none (event2 is a calendar event, not a linkable meeting for event1)", got)
 	}
 }

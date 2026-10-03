@@ -56,7 +56,7 @@ type Event struct {
 	// as "accepted": nothing to RSVP to means it's implicitly confirmed.
 	// Used by internal/ui's "gM" picker to require acceptance, not just
 	// invitation, before a meeting counts as "in progress" for ranking
-	// purposes — see meetingPickerLess.
+	// purposes — see meetings.Less.
 	SelfResponseStatus string
 }
 

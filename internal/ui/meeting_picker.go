@@ -7,16 +7,17 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
 // startMeetingPicker ("gM") opens a fuzzy-filterable picker (see
 // updateMeetingPickerMode) over every distinct recurring meeting series
 // or one-off event :sync-calendar currently has synced at least one instance
-// of (see meetingCandidates, in agenda.go), letting the user toggle the
+// of (see meetings.Index.Candidates), letting the user toggle the
 // chosen meeting's ID on or off the current entry's
 // GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS property (matching
-// whichever kind the meeting is — see meetingCandidate.kind) — so it
+// whichever kind the meeting is — see meetings.Meeting.Kind) — so it
 // shows up under that meeting in the agenda's Meetings section (see
 // appendMeetingsSection) next time it's due (a recurring series) or
 // until it happens (a one-off). A no-op (with a status message) if the
@@ -30,7 +31,7 @@ func (m *Model) startMeetingPicker() {
 		return
 	}
 	now := time.Now()
-	candidates := m.meetingCandidates(now)
+	candidates := m.meetingIndex().Candidates(now)
 	if len(candidates) == 0 {
 		m.message = "No calendar meetings synced yet (see :sync-calendar)"
 		return
@@ -39,12 +40,12 @@ func (m *Model) startMeetingPicker() {
 	m.meetingPickerTarget = h
 	m.meetingPickerCandidates = candidates
 	m.meetingPickerFilter = ""
-	m.meetingPickerIndex = meetingPickerDefaultIndex(candidates, now)
+	m.meetingPickerIndex = meetings.DefaultIndex(candidates, now)
 }
 
 // updateMeetingPickerMode handles key presses while the "gM" picker is
 // open: typing narrows meetingPickerCandidates to those whose title
-// contains what's been typed so far (see filteredMeetingCandidates), ↑/↓
+// contains what's been typed so far (see meetings.Filter), ↑/↓
 // browse the (possibly filtered) result, Enter toggles the highlighted
 // candidate on the target entry (see applySelectedMeeting), and Esc
 // cancels. Unlike the status picker's typeSelectChar, "j"/"k" are not
@@ -87,7 +88,7 @@ func (m Model) updateMeetingPickerMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) moveMeetingHighlight(delta int) {
-	n := len(filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter))
+	n := len(meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter))
 	m.meetingPickerIndex += delta
 	if m.meetingPickerIndex < 0 {
 		m.meetingPickerIndex = 0
@@ -98,11 +99,11 @@ func (m *Model) moveMeetingHighlight(delta int) {
 }
 
 // applySelectedMeeting toggles the currently highlighted candidate (see
-// filteredMeetingCandidates/meetingPickerIndex) on meetingPickerTarget
+// meetings.Filter/meetingPickerIndex) on meetingPickerTarget
 // and always returns to normal mode. A no-op, other than closing the
 // picker, if nothing matches the typed filter.
 func (m Model) applySelectedMeeting() (tea.Model, tea.Cmd) {
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
 	target := m.meetingPickerTarget
 	m.mode = normalMode
 	m.meetingPickerTarget = nil
@@ -125,8 +126,8 @@ func (m Model) applySelectedMeeting() (tea.Model, tea.Cmd) {
 // buildMeetingAttachAction builds the undoAction toggling c on or off
 // h's ids/links property pair — GCAL_RECURRING_EVENT_IDS/
 // GCAL_RECURRING_EVENT_LINKS for a recurring series, GCAL_EVENT_IDS/
-// GCAL_EVENT_LINKS for a one-off event, per c.kind (adding both if c
-// isn't yet attached, removing both if it is — see meetingIsAttached),
+// GCAL_EVENT_LINKS for a one-off event, per c.Kind (adding both if c
+// isn't yet attached, removing both if it is — see meetings.Meeting.IsAttachedTo),
 // without applying or pushing it yet (see pushUndo). The two properties
 // are kept index-aligned: attaching appends c's ID and (if c has a
 // link) its "[[url][title]]" link to the end of each; detaching removes
@@ -135,23 +136,23 @@ func (m Model) applySelectedMeeting() (tea.Model, tea.Cmd) {
 // drifted out of alignment — e.g. a link-less candidate was attached,
 // or either property was hand-edited — rather than risk removing the
 // wrong entry).
-func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) undoAction {
-	idsProp, linksProp := c.kind.idsProperty(), c.kind.linksProperty()
+func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetings.Meeting) undoAction {
+	idsProp, linksProp := c.Kind.IDsProperty(), c.Kind.LinksProperty()
 	oldIDsRaw, hadIDs := h.Properties[idsProp]
 	oldLinksRaw, hadLinks := h.Properties[linksProp]
 
 	ids := strings.Fields(oldIDsRaw)
 	links := org.ParseLinks(oldLinksRaw)
 
-	if idx := indexOfString(ids, c.id); idx >= 0 {
+	if idx := indexOfString(ids, c.ID); idx >= 0 {
 		ids = append(ids[:idx], ids[idx+1:]...)
 		if idx < len(links) {
 			links = append(links[:idx], links[idx+1:]...)
 		}
 	} else {
-		ids = append(ids, c.id)
-		if c.link != "" {
-			links = append(links, org.Link{URL: c.link, Description: c.title})
+		ids = append(ids, c.ID)
+		if c.Link != "" {
+			links = append(links, org.Link{URL: c.Link, Description: c.Title})
 		}
 	}
 
@@ -170,22 +171,22 @@ func (m *Model) buildMeetingAttachAction(h *org.Headline, c meetingCandidate) un
 }
 
 // meetingPickerLines renders one line per meeting candidate matching the
-// "gM" picker's typed filter (see filteredMeetingCandidates) for the
+// "gM" picker's typed filter (see meetings.Filter) for the
 // info buffer's "Attach meeting:" section — the structured, one-per-line
 // counterpart of the old renderMeetingPicker, which only ever showed the
 // single highlighted candidate on the command line (there was nowhere
 // else to put the rest before the info buffer existed). matches is
-// already in chronological order (meetingCandidates sorts it that way),
+// already in chronological order (meetings.Index.Candidates sorts it that way),
 // and each line leads with its date/time — "<date>  <title>" — rather
 // than the title, so the times line up in a column and are easy to
 // compare down the list; " (attached)" is appended for a candidate
-// already on the target entry (see meetingIsAttached — picking it again
+// already on the target entry (see meetings.Meeting.IsAttachedTo — picking it again
 // detaches rather than adding a duplicate), and the currently highlighted
-// candidate (see meetingPickerDefaultIndex for how that's chosen when the
+// candidate (see meetings.DefaultIndex for how that's chosen when the
 // picker first opens) renders in reverse video, same convention as
 // statusSelectorLines above. nil if the filter matches nothing.
 func (m Model) meetingPickerLines() []string {
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -199,8 +200,8 @@ func (m Model) meetingPickerLines() []string {
 
 	lines := make([]string, len(matches))
 	for i, c := range matches {
-		text := c.when.Local().Format("2006-01-02 Mon 15:04") + "  " + c.title
-		if meetingIsAttached(m.meetingPickerTarget, c) {
+		text := c.When.Local().Format("2006-01-02 Mon 15:04") + "  " + c.Title
+		if c.IsAttachedTo(m.meetingPickerTarget) {
 			text += "  (attached)"
 		}
 		if i == idx {
@@ -221,7 +222,7 @@ func (m Model) meetingPickerLines() []string {
 // candidate list (statusSelectorLines) rather than crowding it onto this
 // single command-line row.
 func (m Model) renderMeetingPicker() string {
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
 	line := " Attach meeting: no matches"
 	if len(matches) > 0 {
 		idx := m.meetingPickerIndex

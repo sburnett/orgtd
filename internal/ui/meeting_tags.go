@@ -15,81 +15,27 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
-
-// isMeetingTagsRecord reports whether h is itself a meeting-tags.org
-// record (carries either kind's meetingTagsIDsProperty) rather than an
-// ordinary outline entry — see entriesForMeeting's use of this, which
-// keeps such a record from tag-matching its own meeting: it necessarily
-// carries whatever tag it records, so without this check it would always
-// show up as a "linked item" of the very meeting it's bookkeeping for.
-func isMeetingTagsRecord(h *org.Headline) bool {
-	return h.Properties[oneOffMeeting.meetingTagsIDsProperty()] != "" || h.Properties[recurringMeeting.meetingTagsIDsProperty()] != ""
-}
-
-// meetingTagsHeadlineFor returns tagsFile's headline recording tags for
-// the meeting kind/id identifies (see meetingIdentity), or nil if none
-// exists yet. Uses org.Walk rather than a flat scan of tagsFile.Headlines
-// so a user who's manually reorganized entries in meetingTagsView (e.g.
-// nested one under another for their own bookkeeping) doesn't break
-// lookups.
-func meetingTagsHeadlineFor(tagsFile *org.File, kind meetingIDKind, id string) *org.Headline {
-	if tagsFile == nil {
-		return nil
-	}
-	prop := kind.meetingTagsIDsProperty()
-	var found *org.Headline
-	org.Walk(tagsFile.Headlines, func(h *org.Headline) {
-		if found != nil {
-			return
-		}
-		for _, candidateID := range strings.Fields(h.Properties[prop]) {
-			if candidateID == id {
-				found = h
-				return
-			}
-		}
-	})
-	return found
-}
-
-// meetingTagOverlay returns the tags meeting-tags.org durably records for
-// the meeting kind/id identifies — nil if the file isn't loaded yet or
-// has no matching entry. Two callers union this in: meetingTags
-// (agenda.go), which feeds every tag-based-linking consumer (the
-// agenda's Meetings section, :calendar's nested linked items, the
-// gutter's meeting marker, the info buffer's "Meeting:" section, and the
-// "gM" picker's filter-by-tag), and renderCalendarItemRowWithBg
-// (render_rows.go), which shows it directly on the meeting's own row. Both
-// compute this live on every call rather than caching it, so a "gt" edit
-// here — or a hand-edit made in meetingTagsView — takes effect
-// immediately everywhere, with nothing to invalidate.
-func (m *Model) meetingTagOverlay(kind meetingIDKind, id string) []string {
-	h := meetingTagsHeadlineFor(m.findMeetingTagsFile(), kind, id)
-	if h == nil {
-		return nil
-	}
-	return h.Tags
-}
 
 // calendarDisplayTags returns the tags renderCalendarItemRowWithBg
 // should show on a calendar event's own row: h's own tags (recurring,
 // attendee) followed by any meeting-tags.org tags for it that aren't
-// already present — purely a rendering-time union (see meetingTagOverlay
+// already present — purely a rendering-time union (see meetings.Index.TagRecord
 // above), so it never mutates h.Tags itself. h is assumed to be a synced
 // calendar event; a no-op union (just h.Tags) if it somehow isn't.
 func (m *Model) calendarDisplayTags(h *org.Headline) []string {
-	kind, id, ok := meetingIdentity(h)
+	key, ok := meetings.Identity(h)
 	if !ok {
 		return h.Tags
 	}
-	overlay := m.meetingTagOverlay(kind, id)
-	if len(overlay) == 0 {
+	record := m.meetingIndex().TagRecord(key.Kind, key.ID)
+	if record == nil || len(record.Tags) == 0 {
 		return h.Tags
 	}
 	tags := append([]string(nil), h.Tags...)
-	for _, t := range overlay {
+	for _, t := range record.Tags {
 		if indexOfString(tags, t) < 0 {
 			tags = append(tags, t)
 		}
@@ -115,13 +61,13 @@ func indexOfHeadline(list []*org.Headline, h *org.Headline) int {
 // :sync-calendar would wipe out on its next wholesale regeneration, it
 // records tag durably in meeting-tags.org instead — toggling it on
 // whichever entry already records tags for this meeting (kind/id — see
-// meetingIdentity), or creating a new one, seeded with target's own
+// meetings.Identity), or creating a new one, seeded with target's own
 // title for context, if none exists yet. Every branch below is exactly
 // one pushUndo call touching only meeting-tags.org, so this is a single
 // undo step, same as any other "gt" edit — calendar.org's live headline
 // is never touched.
-func (m *Model) applyMeetingTag(target *org.Headline, kind meetingIDKind, id, tag string) {
-	if tag == meetingSeriesTag {
+func (m *Model) applyMeetingTag(target *org.Headline, kind meetings.Kind, id, tag string) {
+	if tag == meetings.SeriesTag {
 		m.message = `"recurring" is reserved and can't be used as a meeting tag`
 		return
 	}
@@ -137,10 +83,10 @@ func (m *Model) applyMeetingTag(target *org.Headline, kind meetingIDKind, id, ta
 		sort.Slice(m.ws.Files, func(i, j int) bool { return m.ws.Files[i].Path < m.ws.Files[j].Path })
 	}
 
-	existing := meetingTagsHeadlineFor(tagsFile, kind, id)
+	existing := m.meetingIndex().TagRecord(kind, id)
 	if existing == nil {
 		h := &org.Headline{Level: 1, Title: target.Title, Tags: []string{tag}}
-		h.SetProperty(kind.meetingTagsIDsProperty(), id)
+		h.SetProperty(kind.TagsIDsProperty(), id)
 		m.pushUndo(&insertAction{spliceAction{f: tagsFile, index: len(tagsFile.Headlines), headlines: []*org.Headline{h}}})
 		return
 	}
@@ -174,56 +120,30 @@ func (m *Model) applyMeetingTag(target *org.Headline, kind meetingIDKind, id, ta
 	m.pushUndo(&tagChangeAction{h: existing, f: tagsFile, oldTags: old, newTags: newTags})
 }
 
-// meetingTagsMatchingEvents returns every currently-synced calendar
-// event (across the whole workspace, any file) whose identity
-// (meetingIdentity) matches one of h's own MEETING_TAG_RECURRING_EVENT_IDS/
-// MEETING_TAG_EVENT_IDS IDs — nil if h isn't a meeting-tags.org record at
-// all (isMeetingTagsRecord), or none of its IDs currently resolve to a
-// synced occurrence. That second case is meeting-tags.org's own window
-// into a stale record: an ID whose series was deleted and recreated (a
-// new GCAL_RECURRING_EVENT_ID), or a one-off event that's aged out of
-// the sync window, simply shows nothing nested under it in
-// meetingTagsView, rather than silently doing nothing forever. Sorted
-// chronologically by start time, like :calendar's own day-by-day
-// ordering.
-func (m *Model) meetingTagsMatchingEvents(h *org.Headline) []*org.Headline {
-	recurIDs := strings.Fields(h.Properties[recurringMeeting.meetingTagsIDsProperty()])
-	eventIDs := strings.Fields(h.Properties[oneOffMeeting.meetingTagsIDsProperty()])
-	if len(recurIDs) == 0 && len(eventIDs) == 0 {
-		return nil
-	}
-	var matches []*org.Headline
-	for _, f := range m.ws.Files {
-		org.Walk(f.Headlines, func(cand *org.Headline) {
-			kind, id, ok := meetingIdentity(cand)
-			if !ok {
-				return
-			}
-			ids := eventIDs
-			if kind == recurringMeeting {
-				ids = recurIDs
-			}
-			if indexOfString(ids, id) >= 0 {
-				matches = append(matches, cand)
-			}
-		})
-	}
-	sort.SliceStable(matches, func(i, j int) bool {
-		si, _ := parseRFC3339Property(matches[i], "GCAL_START")
-		sj, _ := parseRFC3339Property(matches[j], "GCAL_START")
-		return si.Before(sj)
-	})
-	return matches
+// meetingTagEvents returns every currently-synced calendar event
+// occurrence (across the whole workspace, any file) that the
+// meeting-tags.org record h names — nil if h isn't a record at all, or
+// none of its IDs currently resolve to a synced occurrence. That second
+// case is meeting-tags.org's own window into a stale record: an ID whose
+// series was deleted and recreated (a new GCAL_RECURRING_EVENT_ID), or a
+// one-off event that's aged out of the sync window, simply shows nothing
+// nested under it in meetingTagsView, rather than silently doing nothing
+// forever. Sorted chronologically by start time, like :calendar's own
+// day-by-day ordering.
+func (m *Model) meetingTagEvents(h *org.Headline) []*org.Headline {
+	return m.meetingIndex().EventsFor(
+		strings.Fields(h.Properties[meetings.Recurring.TagsIDsProperty()]),
+		strings.Fields(h.Properties[meetings.OneOff.TagsIDsProperty()]))
 }
 
 // appendMeetingTagsHeadlines is appendHeadlines' meetingTagsView
 // counterpart (see appendMeetingTagsRows, rows.go): same recursion
 // (body lines, children), but a headline that's itself a
-// meeting-tags.org record (isMeetingTagsRecord) is marked
+// meeting-tags.org record (meetings.IsTagRecord) is marked
 // isMeetingTagsRecordRow (see renderMeetingTagsRecordRowWithBg — a
 // tighter row than the default headline case, no indent/fold columns),
 // and has every calendar event it currently matches
-// (meetingTagsMatchingEvents) appended right after it, one level
+// (meetingTagEvents) appended right after it, one level
 // deeper — the meeting-tags.org analogue of appendCalendarHeadlines
 // nesting linked items under each event, so browsing :meeting-tags shows
 // at a glance which synced occurrences a record's IDs actually resolve
@@ -244,14 +164,14 @@ func (m *Model) appendMeetingTagsHeadlines(dst *[]row, headlines []*org.Headline
 		if m.hiddenAsStaleDone(h) {
 			continue
 		}
-		*dst = append(*dst, row{headline: h, level: h.Level, isMeetingTagsRecordRow: isMeetingTagsRecord(h)})
+		*dst = append(*dst, row{headline: h, level: h.Level, isMeetingTagsRecordRow: meetings.IsTagRecord(h)})
 		if ignoreFold || !m.collapsed[h] {
 			m.appendBodyLines(dst, h)
 			if len(h.Children) > 0 {
 				m.appendMeetingTagsHeadlines(dst, h.Children, ignoreFold)
 			}
 		}
-		for _, event := range m.meetingTagsMatchingEvents(h) {
+		for _, event := range m.meetingTagEvents(h) {
 			if _, ok := m.collapsed[event]; !ok {
 				m.collapsed[event] = true
 			}

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -16,7 +17,7 @@ import (
 // thenPickMeeting is the interactive-picker equivalent of this. Locates
 // the tentative headline via the inbox file directly, same reasoning as
 // commitCapture: calendarView's own rows never include it.
-func commitCalendarCapture(t *testing.T, m Model, body string, cand meetingCandidate) Model {
+func commitCalendarCapture(t *testing.T, m Model, body string, cand meetings.Meeting) Model {
 	t.Helper()
 	inbox := findInboxHeadlines(t, m)
 	if len(inbox) == 0 {
@@ -62,9 +63,9 @@ func TestCalendarOOnEventRowCapturesToInboxAndAttaches(t *testing.T) {
 			t.Errorf("key %q: tentative = level %d parent %v, want top-level", key, tentative.Level, tentative.Parent)
 		}
 
-		cand, ok := meetingCandidateFromEvent(event)
+		cand, ok := meetings.FromEvent(event)
 		if !ok {
-			t.Fatalf("meetingCandidateFromEvent: event not recognized as a synced meeting")
+			t.Fatalf("meetings.FromEvent: event not recognized as a synced meeting")
 		}
 		m = commitCalendarCapture(t, m, "Follow up on budget numbers\n", cand)
 
@@ -102,9 +103,9 @@ func TestCalendarOOCapturePlusAttachIsOneUndoStep(t *testing.T) {
 	undoPosBefore := m.undoPos
 
 	m = sendKey(m, "o")
-	cand, ok := meetingCandidateFromEvent(event)
+	cand, ok := meetings.FromEvent(event)
 	if !ok {
-		t.Fatalf("meetingCandidateFromEvent: event not recognized as a synced meeting")
+		t.Fatalf("meetings.FromEvent: event not recognized as a synced meeting")
 	}
 	m = commitCalendarCapture(t, m, "Follow up on budget numbers\n", cand)
 
@@ -147,9 +148,9 @@ func TestCalendarOOStaysInCalendarViewFocusedOnNewEntry(t *testing.T) {
 	m.cursor = findRow(t, m, event.Title)
 
 	m = sendKey(m, "O")
-	cand, ok := meetingCandidateFromEvent(event)
+	cand, ok := meetings.FromEvent(event)
 	if !ok {
-		t.Fatalf("meetingCandidateFromEvent: event not recognized as a synced meeting")
+		t.Fatalf("meetings.FromEvent: event not recognized as a synced meeting")
 	}
 	m = commitCalendarCapture(t, m, "Follow up on budget numbers\n", cand)
 
@@ -195,9 +196,9 @@ func TestCalendarOOnLinkedItemAttachesToItsOwnEvent(t *testing.T) {
 		t.Fatalf("inbox headline count = %d, want %d", len(inbox), before+1)
 	}
 
-	cand, ok := meetingCandidateFromEvent(event)
+	cand, ok := meetings.FromEvent(event)
 	if !ok {
-		t.Fatalf("meetingCandidateFromEvent: event not recognized as a synced meeting")
+		t.Fatalf("meetings.FromEvent: event not recognized as a synced meeting")
 	}
 	m = commitCalendarCapture(t, m, "Ping infra about the outage\n", cand)
 

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -116,8 +117,8 @@ func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 // WithMeetingIcon and the config file's [icons] section) while h is
 // linked to a recurring series or a one-off event, either explicitly —
 // attached via "gM" (GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS — see
-// meetingCandidate.kind) — or automatically, by sharing a tag with one
-// (see tagLinkedMeetingCandidates, e.g. a confirmed attendee's
+// meetings.Meeting.Kind) — or automatically, by sharing a tag with one
+// (see meetings.Index.TagLinked, e.g. a confirmed attendee's
 // "@username" tag) — blank otherwise. This is what lets "is this entry
 // linked to some meeting" be answered by looking at the row, rather
 // than opening it in $EDITOR to check its property drawer (and, for a
@@ -126,8 +127,8 @@ func (m Model) lockColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 // rendered with (see gutter).
 func (m Model) meetingColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 	linked := h.Properties["GCAL_RECURRING_EVENT_IDS"] != "" || h.Properties["GCAL_EVENT_IDS"] != ""
-	if !linked {
-		linked = len(m.tagLinkedMeetingCandidates(h, time.Now())) > 0
+	if !linked && len(h.Tags) > 0 {
+		linked = len(m.meetingIndex().TagLinked(h, time.Now())) > 0
 	}
 	if linked {
 		icon := orDefault(m.meetingIcon, defaultMeetingIcon)
@@ -469,8 +470,8 @@ func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColo
 // if GCAL_START/GCAL_END don't parse (e.g. h isn't actually a synced
 // calendar event).
 func calendarItemTime(h *org.Headline) string {
-	start, startOK := parseRFC3339Property(h, "GCAL_START")
-	end, endOK := parseRFC3339Property(h, "GCAL_END")
+	start, startOK := meetings.TimeProperty(h, "GCAL_START")
+	end, endOK := meetings.TimeProperty(h, "GCAL_END")
 	if !startOK || !endOK {
 		return ""
 	}

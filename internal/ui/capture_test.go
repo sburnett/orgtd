@@ -92,7 +92,7 @@ func calendarEventHeadline(id string, start, end time.Time) *org.Headline {
 // withResponseStatus overrides h's GCAL_SELF_RESPONSE_STATUS (set to
 // "accepted" by calendarEventHeadline above by default) — for a test
 // that needs a meeting the picker sees as merely invited, not
-// confirmed, e.g. to verify meetingPickerLess's in-progress boost
+// confirmed, e.g. to verify meetings.Less's in-progress boost
 // requires acceptance, not just an invite.
 func withResponseStatus(h *org.Headline, status string) *org.Headline {
 	h.SetProperty("GCAL_SELF_RESPONSE_STATUS", status)

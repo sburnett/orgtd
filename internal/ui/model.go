@@ -16,6 +16,7 @@ import (
 	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/gitrepo"
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -97,6 +98,10 @@ type Model struct {
 	// why it's a pointer rather than a plain value.
 	execLog *execlog.Log
 
+	// meetings caches the meetings.Index for the current workspace state —
+	// see meetingCache. Nil on a Model constructed as a bare literal.
+	meetings *meetingCache
+
 	visualAnchor int // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
 
 	// selectModeTargets holds the entries a pending R (selectMode) should
@@ -131,7 +136,7 @@ type Model struct {
 
 	// meetingPickerTarget is the entry "gM" was invoked on, whose
 	// GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS (matching whichever the
-	// highlighted candidate is — see meetingCandidate.kind) is
+	// highlighted candidate is — see meetings.Meeting.Kind) is
 	// attached/detached from on Enter (see applySelectedMeeting).
 	// meetingPickerCandidates is computed once, when the picker opens
 	// (startMeetingPicker) — every distinct recurring series or one-off
@@ -143,7 +148,7 @@ type Model struct {
 	// arbitrary text, not a small fixed set of keywords); meetingPickerIndex
 	// is the highlighted index within the filtered candidates.
 	meetingPickerTarget     *org.Headline
-	meetingPickerCandidates []meetingCandidate
+	meetingPickerCandidates []meetings.Meeting
 	meetingPickerFilter     string
 	meetingPickerIndex      int
 
@@ -309,6 +314,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		savedPos:           make(map[*org.File]int),
 		immutable:          make(map[*org.Headline]bool),
 		execLog:            &execlog.Log{},
+		meetings:           &meetingCache{},
 		agendaDays:         14,
 		inboxFile:          "inbox.org",
 		calendarFile:       "calendar.org",

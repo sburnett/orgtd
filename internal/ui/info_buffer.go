@@ -164,7 +164,7 @@ func (m *Model) infoBufferHeight() int {
 //
 //   - "Attach meeting:" — while the "gM" picker (meetingPickerMode) is
 //     open, every meeting candidate matching the typed filter (see
-//     filteredMeetingCandidates), one per line — title, resolved date,
+//     meetings.Filter), one per line — title, resolved date,
 //     and whether it's already attached to the target entry — the
 //     currently highlighted one in reverse video (meetingPickerLines).
 //     The structured counterpart of the old single-candidate

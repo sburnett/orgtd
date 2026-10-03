@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/sburnett/orgtd/internal/extprog"
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -147,7 +148,7 @@ func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 	if !ok {
 		return nil, false
 	}
-	cand, ok := meetingCandidateFromEvent(eventH)
+	cand, ok := meetings.FromEvent(eventH)
 	if !ok {
 		return nil, false
 	}
@@ -231,7 +232,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 // only by insertCalendarCapture, o/O from calendarView) instead attaches
 // a specific, already-known meeting outright, with no picker — see
 // insertContext.attachMeeting.
-func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool, attachMeeting *meetingCandidate) tea.Cmd {
+func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool, attachMeeting *meetings.Meeting) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
 	tentative.SetProperty("CREATED", "["+time.Now().Format("2006-01-02 Mon 15:04")+"]")
 	if parent != nil {

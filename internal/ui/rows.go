@@ -64,8 +64,8 @@ type row struct {
 	// rather than the outline's usual keyword-first layout.
 	isCalendarItem bool
 
-	// isMeetingTagsRecord marks a meeting-tags.org record's own row in
-	// meetingTagsView (see appendMeetingTagsHeadlines/isMeetingTagsRecord
+	// meetings.IsTagRecord marks a meeting-tags.org record's own row in
+	// meetingTagsView (see appendMeetingTagsHeadlines/meetings.IsTagRecord
 	// in meeting_tags.go): rendered without the indent/fold columns every
 	// other headline row reserves (see renderMeetingTagsRecordRowWithBg)
 	// — a record is always effectively top-level and never has foldable
@@ -109,6 +109,9 @@ type row struct {
 }
 
 func (m *Model) rebuildRows() {
+	// Every change to the files' contents is followed by a rebuild, so this
+	// is where the meeting index (see meetingCache) goes stale.
+	m.invalidateMeetingIndex()
 	m.rows = m.rows[:0]
 	switch m.view {
 	case agendaView:

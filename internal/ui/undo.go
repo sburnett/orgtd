@@ -1,6 +1,9 @@
 package ui
 
-import "github.com/sburnett/orgtd/internal/org"
+import (
+	"github.com/sburnett/orgtd/internal/meetings"
+	"github.com/sburnett/orgtd/internal/org"
+)
 
 // undoAction is one undoable edit. apply/revert perform the tree
 // mutation for their direction and return the headline the cursor
@@ -167,7 +170,7 @@ func (a *tagChangeAction) file() *org.File           { return a.f }
 func (a *tagChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
 // meetingAttachAction records "gM" toggling one meeting (a recurring
-// series or a one-off event — see meetingCandidate.kind) on or off an
+// series or a one-off event — see meetings.Meeting.Kind) on or off an
 // entry's ids/links property pair together — idsProp/linksProp name
 // which pair (GCAL_RECURRING_EVENT_IDS/GCAL_RECURRING_EVENT_LINKS or
 // GCAL_EVENT_IDS/GCAL_EVENT_LINKS), fixed at construction (see
@@ -317,7 +320,7 @@ type insertContext struct {
 	// except the meeting is already unambiguous from the row o/O was
 	// pressed on, so there's no picker to open, and no separate
 	// asynchronous step to attach it in. Never set anywhere else.
-	attachMeeting *meetingCandidate
+	attachMeeting *meetings.Meeting
 
 	// switchToOutline is set by :capture/gC and gX (capture plus
 	// thenPickMeeting above) unconditionally, and by insertCalendarCapture

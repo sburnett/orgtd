@@ -4,20 +4,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
-
-func parseRFC3339Property(h *org.Headline, key string) (time.Time, bool) {
-	raw, ok := h.Properties[key]
-	if !ok {
-		return time.Time{}, false
-	}
-	t, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return t, true
-}
 
 // calendarEventEntry is one calendar meeting a headline is linked to
 // (see calendarEventEntries): its name and link — the same pair
@@ -41,7 +30,7 @@ type calendarEventEntry struct {
 // attached to, likewise via "gM" (GCAL_RECURRING_EVENT_LINKS/
 // GCAL_RECURRING_EVENT_IDS) — see resolveMeetingEntries for how each of
 // the latter two pairs is resolved; and any meeting h is linked to
-// purely by sharing a tag with it (see tagLinkedMeetingCandidates),
+// purely by sharing a tag with it (see meetings.Index.TagLinked),
 // skipping one already covered by an explicit attachment above so a
 // meeting that's both "gM"-attached and tag-matched isn't listed twice.
 // This is what lets calendarView show an event's meeting details (link,
@@ -52,24 +41,21 @@ func (m *Model) calendarEventEntries(h *org.Headline) []calendarEventEntry {
 	var entries []calendarEventEntry
 	if url := h.Properties["GCAL_HTML_LINK"]; url != "" {
 		e := calendarEventEntry{title: h.Title, url: url}
-		e.when, e.hasWhen = parseRFC3339Property(h, "GCAL_START")
+		e.when, e.hasWhen = meetings.TimeProperty(h, "GCAL_START")
 		entries = append(entries, e)
 	}
-	entries = append(entries, m.resolveMeetingEntries(h, "GCAL_EVENT_LINKS", "GCAL_EVENT_ID", "GCAL_EVENT_IDS")...)
-	entries = append(entries, m.resolveMeetingEntries(h, "GCAL_RECURRING_EVENT_LINKS", "GCAL_RECURRING_EVENT_ID", "GCAL_RECURRING_EVENT_IDS")...)
-
-	attached := make(map[meetingKey]bool)
-	for _, id := range strings.Fields(h.Properties["GCAL_EVENT_IDS"]) {
-		attached[meetingKey{oneOffMeeting, id}] = true
+	attached := make(map[meetings.Key]bool)
+	for _, kind := range []meetings.Kind{meetings.OneOff, meetings.Recurring} {
+		entries = append(entries, m.resolveMeetingEntries(h, kind)...)
+		for _, id := range strings.Fields(h.Properties[kind.IDsProperty()]) {
+			attached[meetings.Key{Kind: kind, ID: id}] = true
+		}
 	}
-	for _, id := range strings.Fields(h.Properties["GCAL_RECURRING_EVENT_IDS"]) {
-		attached[meetingKey{recurringMeeting, id}] = true
-	}
-	for _, c := range m.tagLinkedMeetingCandidates(h, time.Now()) {
-		if attached[meetingKey{c.kind, c.id}] || c.link == "" {
+	for _, c := range m.meetingIndex().TagLinked(h, time.Now()) {
+		if attached[c.Key] || c.Link == "" {
 			continue
 		}
-		entries = append(entries, calendarEventEntry{title: c.title, url: c.link, when: c.when, hasWhen: true})
+		entries = append(entries, calendarEventEntry{title: c.Title, url: c.Link, when: c.When, hasWhen: true})
 	}
 	return entries
 }
@@ -90,8 +76,9 @@ func (m *Model) calendarEventLinks(h *org.Headline) []string {
 	return links
 }
 
-// resolveMeetingEntries resolves one (linksProp, idProp, idsProp) triple
-// on h into calendarEventEntry values.
+// resolveMeetingEntries resolves h's attachments to meetings of one kind
+// (its kind.LinksProperty/IDProperty/IDsProperty triple) into
+// calendarEventEntry values.
 //
 // linksProp (set by "gM" — one "[[url][title]]" per matched/attached
 // meeting) is tried first: it was captured once, at the time h was
@@ -109,7 +96,9 @@ func (m *Model) calendarEventLinks(h *org.Headline) []string {
 // cached, which (with no captured link to fall back on) can come up
 // empty entirely once the event ages out; an ID that resolves neither
 // way is silently skipped rather than shown broken.
-func (m *Model) resolveMeetingEntries(h *org.Headline, linksProp, idProp, idsProp string) []calendarEventEntry {
+func (m *Model) resolveMeetingEntries(h *org.Headline, kind meetings.Kind) []calendarEventEntry {
+	linksProp, idProp, idsProp := kind.LinksProperty(), kind.IDProperty(), kind.IDsProperty()
+	ix := m.meetingIndex()
 	if raw := h.Properties[linksProp]; raw != "" {
 		var entries []calendarEventEntry
 		for _, l := range org.ParseLinks(raw) {
@@ -118,7 +107,7 @@ func (m *Model) resolveMeetingEntries(h *org.Headline, linksProp, idProp, idsPro
 				title = l.URL
 			}
 			e := calendarEventEntry{title: title, url: l.URL}
-			e.when, e.hasWhen = m.findEventTimeByLink(l.URL)
+			e.when, e.hasWhen = ix.EventTimeByLink(l.URL)
 			entries = append(entries, e)
 		}
 		return entries
@@ -130,56 +119,13 @@ func (m *Model) resolveMeetingEntries(h *org.Headline, linksProp, idProp, idsPro
 	}
 	var entries []calendarEventEntry
 	for _, id := range strings.Fields(raw) {
-		title, url, when, hasWhen, ok := m.findHeadlineByProperty(idProp, id)
+		title, url, when, hasWhen, ok := ix.EventByProperty(idProp, id)
 		if !ok || url == "" {
 			continue
 		}
 		entries = append(entries, calendarEventEntry{title: title, url: url, when: when, hasWhen: hasWhen})
 	}
 	return entries
-}
-
-// findHeadlineByProperty searches every loaded org file for a headline
-// whose idProp property (GCAL_EVENT_ID or GCAL_RECURRING_EVENT_ID —
-// i.e. one :sync-calendar wrote to calendar.org) equals id, returning
-// its title, GCAL_HTML_LINK, and GCAL_START (when, hasWhen — false if
-// missing/unparseable, same as parseRFC3339Property).
-func (m *Model) findHeadlineByProperty(idProp, id string) (title, url string, when time.Time, hasWhen bool, ok bool) {
-	for _, f := range m.ws.Files {
-		org.Walk(f.Headlines, func(candidate *org.Headline) {
-			if ok || candidate.Properties[idProp] != id {
-				return
-			}
-			title, url, ok = candidate.Title, candidate.Properties["GCAL_HTML_LINK"], true
-			when, hasWhen = parseRFC3339Property(candidate, "GCAL_START")
-		})
-		if ok {
-			return title, url, when, hasWhen, true
-		}
-	}
-	return "", "", time.Time{}, false, false
-}
-
-// findEventTimeByLink searches every loaded org file for a synced
-// calendar event (GCAL_HTML_LINK) matching url, returning its
-// GCAL_START. Used by resolveMeetingEntries to recover a meeting's
-// start time for a "gM"-attached entry whose *_LINKS property only
-// captured the title/link, not the time, at attach time — comes up
-// empty once the event has aged out of calendar.org's synced window,
-// same as any other live lookup by ID.
-func (m *Model) findEventTimeByLink(url string) (when time.Time, ok bool) {
-	for _, f := range m.ws.Files {
-		org.Walk(f.Headlines, func(candidate *org.Headline) {
-			if ok || candidate.Properties["GCAL_HTML_LINK"] != url {
-				return
-			}
-			when, ok = parseRFC3339Property(candidate, "GCAL_START")
-		})
-		if ok {
-			return when, true
-		}
-	}
-	return time.Time{}, false
 }
 
 // formatCalendarEventEntry formats one calendarEventEntry for the info

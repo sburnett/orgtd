@@ -41,6 +41,7 @@ readme.go             embeds README.md for :help (package orgtd)
 cmd/orgtd/            main: flags + config + env → settings → ui.New. Wiring only.
 internal/config/      TOML config file schema and loading (no precedence logic)
 internal/org/         org data model, parser, renderer, atomic writer, deep clone
+internal/meetings/      calendar meetings and how entries link to them (pure; cached Index)
 internal/extprog/      editor command building and URL formatter running (user-configured programs)
 internal/gitrepo/      the git commands :diff/:commit use (root guard, diff, add, commit, push)
 internal/execlog/      logged subprocess runner + the timeline :log shows
@@ -59,6 +60,7 @@ Dependency direction (no cycles, keep it this way):
 cmd/orgtd → ui → calendarsync → gcal
               ↘ workspace → org
               ↘ orgdate → org
+              ↘ meetings → org
               ↘ extprog → execlog, org
               ↘ gitrepo → execlog
               ↘ execlog
@@ -128,6 +130,16 @@ Bubble Tea: `Model`, `Update`, `View`.
   its `savedPos` (the count at last write). So undoing back to the saved
   point makes a file clean again. Any new edit *must* go through
   `pushUndo` (or a variant) to be undoable and to mark the file dirty.
+- **Derived indexes are invalidated in `rebuildRows`.** The meetings
+  index (`internal/meetings`, held in `m.meetings`) is a snapshot of every
+  loaded file, built lazily and dropped by `rebuildRows`. The invariant
+  that makes this safe: **every change to a file's contents (an
+  `undoAction` apply/revert, a whole-file reload, a calendar sync) must
+  be followed by `rebuildRows`** — which every such path already does,
+  since the rows would be stale otherwise. If you add a path that mutates
+  headlines without rebuilding rows, the meeting links shown in the
+  gutter, agenda and calendar will go stale. Don't hold a
+  `m.meetingIndex()` result across a mutation.
 - **Headlines are identified by pointer.** `collapsed`, `marks`,
   `register`, `immutable`, `clarifyTarget`, jump-list entries and
   undo actions all hold `*org.Headline`. Anything that replaces a file's
@@ -176,9 +188,10 @@ including its known weak points, so changes can be made deliberately.
 | `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |
 | `view.go`, `info_buffer.go` | `View`, status line; the info buffer's sections and pinned register/marks |
 | `info_views.go` | Rows for the read-only `:help`/`:config`/`:log` views |
+| `meeting_index.go` | The cached `meetings.Index` (`m.meetingIndex()`) and its invalidation |
 | `meeting_links.go` | Resolving an entry's calendar-meeting links for display |
 | `undo.go` | `undoAction` types, undo/redo, dirty derivation, structural-edit helpers (`insertContext`, splice/reparent actions) |
-| `agenda.go` | Agenda computation and rows, repeater math, **and** the meeting-linking domain (`meetingIDKind`, `meetingCandidate`, tag matching, `entriesForMeeting`) |
+| `agenda.go` | Agenda computation and rows, including the Meetings section (items grouped under upcoming meetings, via the meetings index) |
 | `calendar.go`, `meeting_tags.go`, `tags.go` | The `:calendar`, `:meeting-tags` and `:tags` views |
 | `repeat.go` | Completing a repeating item (`+1w`, `++1w`, `.+1w`) |
 | `sync_calendar.go` | `:sync-calendar` command and result application |
@@ -228,8 +241,10 @@ and command line. The info buffer (`infoBufferLines`) is a stack of
 labeled sections whose content depends on mode, view and the current
 headline. Colors/icons resolve through small `…Style`/`…Bg` methods with
 built-in defaults overridden by `ColorOverrides`/`With…Icon` options.
-**`View` runs on every keypress, so nothing it calls may be expensive**
-(see debt item 2).
+**`View` runs on every keypress, so nothing it calls may be expensive**:
+anything that needs workspace-wide knowledge (the gutter's ▣ marker asks
+it for every visible row) must go through a cached index like
+`m.meetingIndex()`, never rescan the files.
 
 ### Known structural debt
 
@@ -243,22 +258,17 @@ These are recorded here so contributors don't mistake them for design:
    editor and URL-formatter programs (`internal/extprog`), and org link
    parsing (`internal/org`) — but the remaining ~30 files still share the
    one `Model`.
-2. **Meeting linking is recomputed live and is expensive.** The gutter's
-   `meetingColumn` calls `tagLinkedMeetingCandidates` for each visible
-   tagged row on every render, which walks the whole workspace
-   (`meetingCandidates` → `meetingTags` per candidate). It wants a cached
-   index invalidated on edit/sync/undo.
-3. **`row` is a tagged union without a tag**, and view-specific behavior
+2. **`row` is a tagged union without a tag**, and view-specific behavior
    is spread across `m.view ==` checks, `rebuildRows`, `View`'s
    empty-state text, `jumpToSource`, and per-view render functions.
-4. **Settings are threaded through ~8 layers** (config struct, flag,
+3. **Settings are threaded through ~8 layers** (config struct, flag,
    `flagValues`, `settings`, `resolveSettings`, `With…` option, `Model`
    field, `:config` view, README, `config.example.toml`).
-5. **Some org-level logic still lives in `ui`.** Date and repeater logic
+4. **Some org-level logic still lives in `ui`.** Date and repeater logic
    moved to `internal/orgdate`, but `headlineCreatedTime`, and tree
    operations like `shiftHeadlineLevel`, `siblingHeadlines` and the
    splice helpers in `undo.go`, belong with `org`.
-6. **`time.Now()` is called directly** in render and command paths.
+5. **`time.Now()` is called directly** in render and command paths.
 
 ## 7. Data conventions (properties and tags)
 
@@ -327,7 +337,7 @@ empty-state message, `jumpToSource` if rows can jump to the outline,
 **Add a config setting.** Add it to `config.Config`, the flag in
 `main.go`, `flagValues`/`settings`/`resolveSettings`, a `With…` option and
 `Model` field, the `:config` listing (`appendConfigRows`),
-`config.example.toml`, and the README tables. (Debt item 4.)
+`config.example.toml`, and the README tables. (Debt item 3.)
 
 **Run an external program.** Use `runLoggedCommand` so it appears in
 `:log`; run it from a `tea.Cmd` unless it is guaranteed fast.

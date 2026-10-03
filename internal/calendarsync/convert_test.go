@@ -59,7 +59,7 @@ func TestBuildHeadlineHasNoKeywordOrScheduled(t *testing.T) {
 
 // TestBuildHeadlineRecordsSelfResponseStatus covers GCAL_SELF_RESPONSE_STATUS
 // round-tripping ev.SelfResponseStatus verbatim — internal/ui's "gM"
-// picker (meetingCandidate.accepted) reads it back to require
+// picker (meetings.Meeting.Accepted) reads it back to require
 // acceptance, not just invitation, before treating a meeting as "in
 // progress" for ranking purposes.
 func TestBuildHeadlineRecordsSelfResponseStatus(t *testing.T) {

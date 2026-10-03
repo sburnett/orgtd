@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -159,7 +160,7 @@ func (m *Model) completeTagInput() {
 // empty-clears convention doesn't apply here since a headline can carry
 // more than one tag. Always returns to normal mode.
 //
-// If target is itself a synced calendar event (meetingIdentity), the
+// If target is itself a synced calendar event (meetings.Identity), the
 // tag is recorded in meeting-tags.org instead (see applyMeetingTag) —
 // editing target's own Tags here would just be undone by the next
 // :sync-calendar, which wholesale-regenerates the calendar file.
@@ -175,8 +176,8 @@ func (m Model) applyTagInput() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if kind, id, ok := meetingIdentity(target); ok {
-		m.applyMeetingTag(target, kind, id, tag)
+	if key, ok := meetings.Identity(target); ok {
+		m.applyMeetingTag(target, key.Kind, key.ID, tag)
 		return m, nil
 	}
 

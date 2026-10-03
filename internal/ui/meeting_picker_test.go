@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -172,10 +173,10 @@ func TestGMOpensPickerWithDedupedRecurringSeries(t *testing.T) {
 	}
 	// Chronological: Standup's soonest instance (in 1h) sorts before
 	// Planning's (in 2h).
-	if m.meetingPickerCandidates[0].id != "series-standup" {
+	if m.meetingPickerCandidates[0].ID != "series-standup" {
 		t.Errorf("candidates[0] = %+v, want series-standup first (sooner)", m.meetingPickerCandidates[0])
 	}
-	if m.meetingPickerCandidates[1].id != "series-planning" {
+	if m.meetingPickerCandidates[1].ID != "series-planning" {
 		t.Errorf("candidates[1] = %+v, want series-planning second", m.meetingPickerCandidates[1])
 	}
 }
@@ -215,12 +216,12 @@ func TestGMDefaultPrefersInProgressInstanceOverAFutureInstanceOfSameSeries(t *te
 		t.Fatalf("candidates = %d, want 2 (deduped by series)", len(m.meetingPickerCandidates))
 	}
 	highlighted := m.meetingPickerCandidates[m.meetingPickerIndex]
-	if highlighted.id != "series-standup" {
-		t.Fatalf("default highlight = %q, want series-standup (its today instance is in progress)", highlighted.id)
+	if highlighted.ID != "series-standup" {
+		t.Fatalf("default highlight = %q, want series-standup (its today instance is in progress)", highlighted.ID)
 	}
 	// GCAL_START round-trips through RFC3339 (second precision), so
 	// compare at that resolution rather than requiring an exact Equal.
-	if when := highlighted.when; when.Unix() != now.Add(-5*time.Minute).Unix() {
+	if when := highlighted.When; when.Unix() != now.Add(-5*time.Minute).Unix() {
 		t.Errorf("default highlight's when = %v, want today's already-started instance (%v), not tomorrow's", when, now.Add(-5*time.Minute))
 	}
 }
@@ -233,7 +234,7 @@ func TestGMDefaultPrefersInProgressInstanceOverAFutureInstanceOfSameSeries(t *te
 // get buried under an hours-long meeting that's also technically
 // ongoing. The candidate list itself (m.meetingPickerCandidates) stays
 // chronological regardless — see TestGMOpensPickerWithDedupedRecurringSeries
-// and meetingCandidates — it's only the default highlight
+// and meetings.Index.Candidates — it's only the default highlight
 // (m.meetingPickerIndex) that follows this policy.
 func TestGMDefaultsToShortestInProgressMeeting(t *testing.T) {
 	ws := loadFixture(t)
@@ -260,16 +261,16 @@ func TestGMDefaultsToShortestInProgressMeeting(t *testing.T) {
 	}
 	// Chronological: offsite started earliest (2h ago), then standup
 	// (10m ago), then planning (starts in 20m).
-	if got := m.meetingPickerCandidates[0].id; got != "series-offsite" {
+	if got := m.meetingPickerCandidates[0].ID; got != "series-offsite" {
 		t.Errorf("candidates[0] = %q, want series-offsite (starts earliest)", got)
 	}
-	if got := m.meetingPickerCandidates[1].id; got != "series-standup" {
+	if got := m.meetingPickerCandidates[1].ID; got != "series-standup" {
 		t.Errorf("candidates[1] = %q, want series-standup", got)
 	}
-	if got := m.meetingPickerCandidates[2].id; got != "series-planning" {
+	if got := m.meetingPickerCandidates[2].ID; got != "series-planning" {
 		t.Errorf("candidates[2] = %q, want series-planning last (starts latest)", got)
 	}
-	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].ID; got != "series-standup" {
 		t.Errorf("default highlight = %q, want series-standup (shortest in-progress meeting)", got)
 	}
 }
@@ -294,7 +295,7 @@ func TestGMDefaultsToNextStartTimeWhenNothingInProgress(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "M")
 
-	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].ID; got != "series-standup" {
 		t.Errorf("default highlight = %q, want series-standup (starts sooner, nothing in progress)", got)
 	}
 }
@@ -302,8 +303,8 @@ func TestGMDefaultsToNextStartTimeWhenNothingInProgress(t *testing.T) {
 // TestGMInProgressButOnlyMaybeDoesNotOutrankAcceptedUpcoming covers the
 // amendment to the "in progress" boost: a meeting that's currently
 // running but only RSVP'd "maybe" (tentative) to no longer gets
-// meetingPickerLess's top-tier treatment — it falls back to
-// moreRelevantOccurrence like anything else not in progress, so a
+// meetings.Less's top-tier treatment — it falls back to
+// meetings.Less like anything else not in progress, so a
 // meeting starting soon that was actually accepted isn't buried under
 // one the user merely tentatively joined.
 func TestGMInProgressButOnlyMaybeDoesNotOutrankAcceptedUpcoming(t *testing.T) {
@@ -319,7 +320,7 @@ func TestGMInProgressButOnlyMaybeDoesNotOutrankAcceptedUpcoming(t *testing.T) {
 			tentativeInProgress,
 			// Starts in 5 minutes, much closer to now than the
 			// tentative meeting's own start (50m ago) — so it wins the
-			// moreRelevantOccurrence fallback both are now judged by.
+			// meetings.Less fallback both are now judged by.
 			recurringCalendarEventHeadline("standup-1", "series-standup", "Weekly Standup", now.Add(5*time.Minute), now.Add(20*time.Minute)),
 		},
 	})
@@ -329,7 +330,7 @@ func TestGMInProgressButOnlyMaybeDoesNotOutrankAcceptedUpcoming(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "M")
 
-	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].ID; got != "series-standup" {
 		t.Errorf("default highlight = %q, want series-standup (the in-progress meeting was only a \"maybe\")", got)
 	}
 }
@@ -359,7 +360,7 @@ func TestGMAcceptedInProgressStillOutranksMaybeInProgress(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "M")
 
-	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-offsite" {
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].ID; got != "series-offsite" {
 		t.Errorf("default highlight = %q, want series-offsite (accepted; the shorter meeting was only a \"maybe\")", got)
 	}
 }
@@ -388,7 +389,7 @@ func TestGMRecentlyEndedMeetingRanksNearTop(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "M")
 
-	if got := m.meetingPickerCandidates[m.meetingPickerIndex].id; got != "series-standup" {
+	if got := m.meetingPickerCandidates[m.meetingPickerIndex].ID; got != "series-standup" {
 		t.Errorf("default highlight = %q, want series-standup (just ended, closer to now than a week-off meeting)", got)
 	}
 }
@@ -410,8 +411,8 @@ func TestGMFilterNarrowsBySubstring(t *testing.T) {
 
 	m = typeKeys(m, "plan")
 
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
-	if len(matches) != 1 || matches[0].id != "series-planning" {
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) != 1 || matches[0].ID != "series-planning" {
 		t.Fatalf("filtered matches = %+v, want just series-planning", matches)
 	}
 }
@@ -439,14 +440,14 @@ func TestGMFilterAlsoMatchesAttendeeTag(t *testing.T) {
 
 	m = typeKeys(m, "alice")
 
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
-	if len(matches) != 1 || matches[0].id != "series-standup" {
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) != 1 || matches[0].ID != "series-standup" {
 		t.Fatalf("filtered matches = %+v, want just series-standup", matches)
 	}
 }
 
 // TestGMFilterIgnoresRecurringSystemTag covers that the "recurring" tag
-// every recurring occurrence carries (meetingSeriesTag) never counts as a
+// every recurring occurrence carries (meetings.SeriesTag) never counts as a
 // filter match on its own — it's noise stamped onto every series, not a
 // meaningful attendee, so typing "recurring" shouldn't match every
 // recurring meeting synced.
@@ -466,7 +467,7 @@ func TestGMFilterIgnoresRecurringSystemTag(t *testing.T) {
 
 	m = typeKeys(m, "recurring")
 
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
 	if len(matches) != 0 {
 		t.Fatalf("filtered matches = %+v, want none", matches)
 	}
@@ -527,14 +528,14 @@ func TestGMOffersOneOffEvent(t *testing.T) {
 		t.Fatalf("candidates = %d, want 1", len(m.meetingPickerCandidates))
 	}
 	c := m.meetingPickerCandidates[0]
-	if c.title != "Client Kickoff" {
-		t.Errorf("candidate title = %q, want %q", c.title, "Client Kickoff")
+	if c.Title != "Client Kickoff" {
+		t.Errorf("candidate title = %q, want %q", c.Title, "Client Kickoff")
 	}
-	if c.id != "kickoff-1" {
-		t.Errorf("candidate id = %q, want the event's own GCAL_EVENT_ID %q", c.id, "kickoff-1")
+	if c.ID != "kickoff-1" {
+		t.Errorf("candidate id = %q, want the event's own GCAL_EVENT_ID %q", c.ID, "kickoff-1")
 	}
-	if c.kind != oneOffMeeting {
-		t.Errorf("candidate kind = %v, want oneOffMeeting", c.kind)
+	if c.Kind != meetings.OneOff {
+		t.Errorf("candidate kind = %v, want meetings.OneOff", c.Kind)
 	}
 }
 
@@ -625,8 +626,8 @@ func TestGMOneOffAndRecurringCandidatesCoexist(t *testing.T) {
 	}
 
 	m = typeKeys(m, "kickoff")
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
-	if len(matches) != 1 || matches[0].title != "Client Kickoff" {
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) != 1 || matches[0].Title != "Client Kickoff" {
 		t.Fatalf("filtered matches = %+v, want just Client Kickoff", matches)
 	}
 	m, _ = sendKeyCmd(m, "enter")
@@ -896,8 +897,8 @@ func TestGMTypedLettersFilterRatherThanNavigate(t *testing.T) {
 	if m.meetingPickerFilter != "jam" {
 		t.Errorf("meetingPickerFilter = %q, want %q (j/k should filter here, not navigate)", m.meetingPickerFilter, "jam")
 	}
-	matches := filteredMeetingCandidates(m.meetingPickerCandidates, m.meetingPickerFilter)
-	if len(matches) != 1 || matches[0].id != "series-jam" {
+	matches := meetings.Filter(m.meetingPickerCandidates, m.meetingPickerFilter)
+	if len(matches) != 1 || matches[0].ID != "series-jam" {
 		t.Errorf("filtered matches = %+v, want just series-jam", matches)
 	}
 }

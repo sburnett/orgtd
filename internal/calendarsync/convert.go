@@ -27,7 +27,7 @@ const maxMeetingDuration = 6 * time.Hour
 // entire-day block someone forgot to mark as a real all-day event, a
 // botched recurring series) otherwise clutter the synced file and,
 // worse, look "in progress" for hours on end in the "gM" picker (see
-// internal/ui/agenda.go's meetingCandidates). Returns a new slice;
+// internal/ui/agenda.go's meetings.Index.Candidates). Returns a new slice;
 // events is left untouched.
 func ExcludeTooLong(events []gcal.Event) []gcal.Event {
 	kept := make([]gcal.Event, 0, len(events))
@@ -93,9 +93,9 @@ func buildHeadline(ev gcal.Event, attendeeTagDomains, attendeeIgnorePatterns []s
 	h.Tags = append(h.Tags, attendeeTags(ev, attendeeTagDomains, attendeeIgnorePatterns)...)
 	h.SetProperty("GCAL_EVENT_ID", ev.ID)
 	h.SetProperty("GCAL_CALENDAR_ID", ev.CalendarID)
-	// Read back by internal/ui's "gM" picker (meetingCandidate.accepted)
+	// Read back by internal/ui's "gM" picker (meetings.Meeting.Accepted)
 	// to require acceptance, not just invitation, before a meeting counts
-	// as "in progress" for ranking purposes — see meetingPickerLess.
+	// as "in progress" for ranking purposes — see meetings.Less.
 	h.SetProperty("GCAL_SELF_RESPONSE_STATUS", ev.SelfResponseStatus)
 	if ev.RecurringEventID != "" {
 		// Stable across every occurrence of the series (unlike

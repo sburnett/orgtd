@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/sburnett/orgtd/internal/calendarsync"
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -69,7 +70,7 @@ func TestGtOnCalendarEntryRecurringSeriesUsesRecurringID(t *testing.T) {
 
 	m = gtOnCalendarRow(t, m, "Weekly Standup", "bob_project")
 
-	h := meetingTagsHeadlineFor(m.findMeetingTagsFile(), recurringMeeting, "series-abc")
+	h := m.meetingIndex().TagRecord(meetings.Recurring, "series-abc")
 	if h == nil {
 		t.Fatalf("no meeting-tags.org entry for the recurring series ID")
 	}
@@ -203,7 +204,7 @@ func TestGtTagCompletionIncludesExistingMeetingTag(t *testing.T) {
 // TestMeetingTagLinksTaskInAgendaAndCalendar is the end-to-end case: a
 // tag recorded via "gt" on a calendar entry links a same-tagged task the
 // same way a literal tag on the calendar headline would (see meetingTags
-// in agenda.go), without any change to entriesForMeeting/
+// in agenda.go), without any change to meetings.Index.LinkedItems/
 // appendMeetingsSection/appendCalendarHeadlines themselves.
 func TestMeetingTagLinksTaskInAgendaAndCalendar(t *testing.T) {
 	now := time.Now()
@@ -218,9 +219,9 @@ func TestMeetingTagLinksTaskInAgendaAndCalendar(t *testing.T) {
 	)
 	m := New(ws)
 
-	got := m.entriesForMeeting(oneOffMeeting, "kickoff-1")
+	got := m.meetingIndex().LinkedItems(meetings.OneOff, "kickoff-1")
 	if len(got) != 1 || got[0] != item {
-		t.Fatalf("entriesForMeeting = %+v, want just the meeting-tags.org-linked item", got)
+		t.Fatalf("meetings.Index.LinkedItems = %+v, want just the meeting-tags.org-linked item", got)
 	}
 
 	m.switchToView(calendarView)
@@ -253,7 +254,7 @@ func TestMeetingTagSurvivesSyncCalendarResync(t *testing.T) {
 	m.rebuildRows()
 	m = gtOnCalendarRow(t, m, "Meeting abc123", "bob_project")
 
-	tags := m.meetingTags(oneOffMeeting, "abc123")
+	tags := m.meetingIndex().Tags(meetings.OneOff, "abc123")
 	if !tags["bob_project"] {
 		t.Fatalf("meetingTags before resync = %v, want bob_project", tags)
 	}
@@ -266,7 +267,7 @@ func TestMeetingTagSurvivesSyncCalendarResync(t *testing.T) {
 	updated, _ := m.Update(syncCalendarMsg{result: result})
 	m = updated.(Model)
 
-	tags = m.meetingTags(oneOffMeeting, "abc123")
+	tags = m.meetingIndex().Tags(meetings.OneOff, "abc123")
 	if !tags["bob_project"] {
 		t.Errorf("meetingTags after resync = %v, want bob_project to survive", tags)
 	}
@@ -453,7 +454,7 @@ func TestMeetingTagsViewNestsEveryRecurringOccurrence(t *testing.T) {
 // TestMeetingTagsViewNestsNothingForStaleID: a record whose ID no longer
 // matches any currently-synced event shows nothing nested under it —
 // meeting-tags.org's own window into a stale record (see
-// meetingTagsMatchingEvents) — rather than erroring or showing a stale
+// meetingTagEvents) — rather than erroring or showing a stale
 // placeholder.
 func TestMeetingTagsViewNestsNothingForStaleID(t *testing.T) {
 	record := &org.Headline{Level: 1, Title: "Long-gone meeting", Tags: []string{"bob_project"}}
@@ -657,9 +658,9 @@ func TestMeetingTagsOOnNestedEventCapturesToInboxAndAttaches(t *testing.T) {
 		}
 		tentative := inbox[len(inbox)-1]
 
-		cand, ok := meetingCandidateFromEvent(event)
+		cand, ok := meetings.FromEvent(event)
 		if !ok {
-			t.Fatalf("key %q: meetingCandidateFromEvent: event not recognized as a synced meeting", key)
+			t.Fatalf("key %q: meetings.FromEvent: event not recognized as a synced meeting", key)
 		}
 		f, parent, idx := m.insertPosition(tentative)
 		ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: true, attachMeeting: &cand}

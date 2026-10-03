@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
@@ -43,7 +44,7 @@ func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 	groups := make(map[time.Time]*dayGroup)
 	var days []time.Time
 	for _, h := range f.Headlines {
-		start, ok := parseRFC3339Property(h, "GCAL_START")
+		start, ok := meetings.TimeProperty(h, "GCAL_START")
 		if !ok {
 			continue
 		}
@@ -61,8 +62,8 @@ func (m *Model) appendCalendarRows(dst *[]row, ignoreFold bool) {
 	for _, day := range days {
 		g := groups[day]
 		sort.SliceStable(g.events, func(i, j int) bool {
-			si, _ := parseRFC3339Property(g.events[i], "GCAL_START")
-			sj, _ := parseRFC3339Property(g.events[j], "GCAL_START")
+			si, _ := meetings.TimeProperty(g.events[i], "GCAL_START")
+			sj, _ := meetings.TimeProperty(g.events[j], "GCAL_START")
 			return si.Before(sj)
 		})
 		*dst = append(*dst, row{section: day.Format("2006-01-02 Mon")})
@@ -108,11 +109,11 @@ func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
 	var current, prior *org.Headline
 	var currentStart, priorStart time.Time
 	for _, h := range f.Headlines {
-		start, ok := parseRFC3339Property(h, "GCAL_START")
+		start, ok := meetings.TimeProperty(h, "GCAL_START")
 		if !ok || start.After(now) {
 			continue
 		}
-		if end, ok := parseRFC3339Property(h, "GCAL_END"); ok && now.Before(end) {
+		if end, ok := meetings.TimeProperty(h, "GCAL_END"); ok && now.Before(end) {
 			if current == nil || start.After(currentStart) {
 				current, currentStart = h, start
 			}
@@ -130,7 +131,7 @@ func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
 
 // linkedMeetingItems returns every entry, elsewhere in the workspace,
 // linked to calendar event h — attached via "gM", or sharing a tag with
-// it (e.g. a confirmed attendee's "@username" — see entriesForMeeting
+// it (e.g. a confirmed attendee's "@username" — see meetings.Index.LinkedItems
 // for both) — the same items the agenda's Meetings section groups under
 // a meeting header (see appendMeetingsSection), but surfaced here
 // alongside the meeting itself in calendarView (see
@@ -138,7 +139,7 @@ func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
 // today or within the next 24 hours. nil if h isn't itself a synced
 // calendar event (no GCAL_EVENT_ID) or has nothing linked.
 //
-// Reordered from entriesForMeeting's own file/tree order into ascending
+// Reordered from meetings.Index.LinkedItems's own file/tree order into ascending
 // CREATED order (items with no parseable CREATED keep their relative
 // tree-order position — see headlineCreatedTime), so that entries
 // insertCalendarCapture (o/O from this view — see capture.go) adds to the
@@ -146,11 +147,13 @@ func findCalendarCursorTarget(f *org.File, now time.Time) *org.Headline {
 // captured, even after being filed away into some other file whose
 // position in file/tree order no longer reflects when it happened.
 func (m *Model) linkedMeetingItems(h *org.Headline) []*org.Headline {
-	kind, id, ok := meetingIdentity(h)
+	key, ok := meetings.Identity(h)
 	if !ok {
 		return nil
 	}
-	items := m.entriesForMeeting(kind, id)
+	// A copy: the index's slice is shared, and sorting it in place would
+	// reorder it for every other caller.
+	items := append([]*org.Headline(nil), m.meetingIndex().LinkedItems(key.Kind, key.ID)...)
 	sort.SliceStable(items, func(i, j int) bool {
 		ti, iok := headlineCreatedTime(items[i])
 		tj, jok := headlineCreatedTime(items[j])
@@ -194,23 +197,9 @@ func calendarEventForRow(r row) (*org.Headline, bool) {
 		return r.linkedFromEvent, r.linkedFromEvent != nil
 	}
 	if r.headline != nil {
-		if _, _, ok := meetingIdentity(r.headline); ok {
+		if _, ok := meetings.Identity(r.headline); ok {
 			return r.headline, true
 		}
 	}
 	return nil, false
-}
-
-// meetingCandidateFromEvent builds the meetingCandidate identifying event
-// h itself (kind/id/title/link only — the fields buildMeetingAttachAction
-// actually uses), for insertCalendarCapture to attach a freshly captured
-// entry to h directly, without going through the interactive "gM" picker
-// (see meetingCandidates for the picker's own, fuller construction). ok is
-// false if h isn't itself a synced calendar event.
-func meetingCandidateFromEvent(h *org.Headline) (meetingCandidate, bool) {
-	kind, id, ok := meetingIdentity(h)
-	if !ok {
-		return meetingCandidate{}, false
-	}
-	return meetingCandidate{id: id, kind: kind, title: h.Title, link: h.Properties["GCAL_HTML_LINK"]}, true
 }
