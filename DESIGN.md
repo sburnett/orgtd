@@ -41,6 +41,7 @@ readme.go             embeds README.md for :help (package orgtd)
 cmd/orgtd/            main: flags + config + env → settings → ui.New. Wiring only.
 internal/config/      TOML config file schema and loading (no precedence logic)
 internal/org/         org data model, parser, renderer, atomic writer, deep clone
+internal/gitrepo/      the git commands :diff/:commit use (root guard, diff, add, commit, push)
 internal/execlog/      logged subprocess runner + the timeline :log shows
 internal/orgdate/     pure date logic: typed-date parsing, timestamp/repeater parsing and math
 internal/workspace/   loads a directory of .org files; advisory directory lock
@@ -57,6 +58,7 @@ Dependency direction (no cycles, keep it this way):
 cmd/orgtd → ui → calendarsync → gcal
               ↘ workspace → org
               ↘ orgdate → org
+              ↘ gitrepo → execlog
               ↘ execlog
               ↘ org
 cmd/orgtd → config, workspace
@@ -166,7 +168,7 @@ including its known weak points, so changes can be made deliberately.
 | `editor.go` | `$EDITOR` round trip: command building, scratch files, entry context, `finishEdit` |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch |
-| `gitops.go` | `:diff`/`:commit` and the git helpers they use |
+| `gitops.go` | `:diff`/`:commit` UI flow (confirm prompts, diff rows, background commit+push) over `internal/gitrepo` |
 | `clarify.go`, `marks.go`, `jumplist.go` | `:clarify` target, vim-style marks, ctrl-o/`gi` jump list and view switching |
 | `style.go` | Color/icon resolution, text-width and highlight helpers |
 | `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |
@@ -234,10 +236,11 @@ These are recorded here so contributors don't mistake them for design:
 1. **One `Model` struct, one package.** The files above split the code by
    topic, but they still all share a ~100-field `Model`, so nothing stops
    a file from touching state that isn't its own. Pure helpers that don't
-   need `Model` (git operations, URL detection and formatting,
-   editor-command construction) are candidates to become their own
-   packages with narrow interfaces, as date logic already did
-   (`internal/orgdate`).
+   need `Model` (URL detection and formatting, editor-command
+   construction) are candidates to become their own
+   packages with narrow interfaces, as date logic (`internal/orgdate`),
+   subprocess logging (`internal/execlog`) and git (`internal/gitrepo`)
+   already did.
 2. **Meeting linking is recomputed live and is expensive.** The gutter's
    `meetingColumn` calls `tagLinkedMeetingCandidates` for each visible
    tagged row on every render, which walks the whole workspace

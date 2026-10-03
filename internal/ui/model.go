@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/sburnett/orgtd/internal/execlog"
+	"github.com/sburnett/orgtd/internal/gitrepo"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -451,8 +452,8 @@ func (m Model) updateConfirmMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// asked in the first place.
 	if untrackedThen != nil {
 		if accepted {
-			if _, err := m.gitAdd(untrackedFiles); err != nil {
-				m.message = fmt.Sprintf("git add failed: %s", gitErrorText(err))
+			if _, err := m.repo().Add(untrackedFiles); err != nil {
+				m.message = fmt.Sprintf("git add failed: %s", gitrepo.ErrorText(err))
 				return m, nil
 			}
 		}

@@ -77,12 +77,12 @@ func TestDiffAcceptingAddsFileAndShowsItInTheDiff(t *testing.T) {
 		t.Errorf("rows = %#v, want the newly added file's content to show up in the diff", m.rows)
 	}
 
-	untracked, err := m.untrackedFiles()
+	untracked, err := m.repo().Untracked(m.gitPaths())
 	if err != nil {
-		t.Fatalf("untrackedFiles: %v", err)
+		t.Fatalf("Untracked: %v", err)
 	}
 	if len(untracked) != 0 {
-		t.Errorf("untrackedFiles after accepting = %v, want none left", untracked)
+		t.Errorf("Untracked after accepting = %v, want none left", untracked)
 	}
 }
 
@@ -105,12 +105,12 @@ func TestDiffDecliningSkipsAddButStillShowsDiff(t *testing.T) {
 		}
 	}
 
-	untracked, err := m.untrackedFiles()
+	untracked, err := m.repo().Untracked(m.gitPaths())
 	if err != nil {
-		t.Fatalf("untrackedFiles: %v", err)
+		t.Fatalf("Untracked: %v", err)
 	}
 	if len(untracked) != 1 || untracked[0] != "new.org" {
-		t.Errorf("untrackedFiles after declining = %v, want new.org still untracked", untracked)
+		t.Errorf("Untracked after declining = %v, want new.org still untracked", untracked)
 	}
 }
 
@@ -170,12 +170,12 @@ func TestCommitDecliningLeavesTheUntrackedFileUntrackedAndFailsTheCommit(t *test
 		t.Errorf("message = %q, want the commit to fail since new.org's pathspec matches nothing tracked", m.message)
 	}
 
-	untracked, err := m.untrackedFiles()
+	untracked, err := m.repo().Untracked(m.gitPaths())
 	if err != nil {
-		t.Fatalf("untrackedFiles: %v", err)
+		t.Fatalf("Untracked: %v", err)
 	}
 	if len(untracked) != 1 || untracked[0] != "new.org" {
-		t.Errorf("untrackedFiles after declining = %v, want new.org still untracked", untracked)
+		t.Errorf("Untracked after declining = %v, want new.org still untracked", untracked)
 	}
 }
 
@@ -215,12 +215,12 @@ func TestUntrackedFilesEmptyWhenEverythingIsTracked(t *testing.T) {
 	ws := gitRepoFixture(t, "todo.org", "* TODO Something\n", "* TODO Changed\n")
 	m := New(ws)
 
-	untracked, err := m.untrackedFiles()
+	untracked, err := m.repo().Untracked(m.gitPaths())
 	if err != nil {
-		t.Fatalf("untrackedFiles: %v", err)
+		t.Fatalf("Untracked: %v", err)
 	}
 	if len(untracked) != 0 {
-		t.Errorf("untrackedFiles = %v, want none — the file is tracked, just modified", untracked)
+		t.Errorf("Untracked = %v, want none — the file is tracked, just modified", untracked)
 	}
 }
 

@@ -2,13 +2,12 @@ package ui
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/sburnett/orgtd/internal/execlog"
+	"github.com/sburnett/orgtd/internal/gitrepo"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -30,8 +29,27 @@ func (m *Model) gitFiles() []*org.File {
 	return files
 }
 
+// gitPaths returns the on-disk paths of gitFiles(), the pathspec every
+// diff/ls-files/commit scopes itself to.
+func (m *Model) gitPaths() []string {
+	files := m.gitFiles()
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	return paths
+}
+
+// repo returns the git repository handle for the workspace directory.
+// It's a plain value, so a background goroutine can capture it up front
+// (see applyCommit) instead of reaching back into a Model that a
+// concurrently running Update call could be mutating.
+func (m *Model) repo() gitrepo.Repo {
+	return gitrepo.Repo{Dir: m.ws.Dir, Log: m.execLog}
+}
+
 // appendDiffRows populates m.rows for :diff: the working-tree diff (see
-// showDiff/runGitDiff) for every file currently open in the outline
+// showDiff/refreshDiffData) for every file currently open in the outline
 // (excluding the calendar file — see gitFiles), one row per line, verbatim (like :log's output lines, no further parsing
 // or styling) — or a placeholder if there's nothing to show, no files
 // are open, or the diff itself failed despite the workspace being a
@@ -78,7 +96,7 @@ func (m *Model) anyGitFileDirty() bool {
 // unsaved changes (see anyGitFileDirty), since otherwise the diff shown
 // would silently be missing them, looking like they were never made at
 // all. Also refuses unless the workspace is the root of its git
-// repository (see gitRepoRootRefusal), same as :commit: a diff run from
+// repository (see gitrepo.Repo.RootRefusal), same as :commit: a diff run from
 // some subdirectory of a larger repo (or outside a repo entirely) would
 // never be able to offer adding an untracked file either, so showing it
 // at all would be misleading about what :commit could actually do with
@@ -92,11 +110,11 @@ func (m *Model) showDiff() {
 		return
 	}
 	if len(m.gitFiles()) > 0 {
-		if reason := m.gitRepoRootRefusal(); reason != "" {
+		if reason := m.repo().RootRefusal(); reason != "" {
 			m.message = fmt.Sprintf("Refusing to diff: %s", reason)
 			return
 		}
-		if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
+		if untracked, err := m.repo().Untracked(m.gitPaths()); err == nil && len(untracked) > 0 {
 			m.requestAddUntracked(untracked, func(m *Model) tea.Cmd { m.runDiffNow(); return nil })
 			return
 		}
@@ -117,7 +135,7 @@ func (m *Model) runDiffNow() {
 }
 
 // refreshDiffData is runDiffNow's data half on its own, without the
-// switch to diff view: runs `git diff` (see runGitDiff), updating
+// switch to diff view: runs `git diff` (see gitrepo.Repo.Diff), updating
 // m.diffOutput/m.diffErr, and — only if diff view happens to be showing
 // already — rebuilds m.rows so it's visibly current too. Used by
 // finishCommitPush once a background :commit finishes, so the diff
@@ -127,9 +145,9 @@ func (m *Model) runDiffNow() {
 func (m *Model) refreshDiffData() {
 	m.diffOutput, m.diffErr = "", ""
 	if len(m.gitFiles()) > 0 {
-		out, err := m.runGitDiff()
+		out, err := m.repo().Diff(m.gitPaths())
 		if err != nil {
-			m.diffErr = gitErrorText(err)
+			m.diffErr = gitrepo.ErrorText(err)
 		} else {
 			m.diffOutput = out
 		}
@@ -139,116 +157,9 @@ func (m *Model) refreshDiffData() {
 	}
 }
 
-// runGitDiff runs `git diff HEAD` scoped to every file currently open in
-// the outline except the calendar file (see gitFiles), with git itself pointed at the workspace
-// directory (via -C, rather than relying on orgtd's own working
-// directory) so a repository rooted there or above is found either way.
-// Diffed against HEAD rather than a plain `git diff` (which only shows
-// unstaged changes) so a file `git add`ed via requestAddUntracked but
-// not yet committed still shows up as an addition here, instead of
-// looking like nothing happened. Logged like any other external
-// command — see execlog.Run.
-func (m *Model) runGitDiff() (string, error) {
-	args := []string{"-C", m.ws.Dir, "diff", "HEAD", "--"}
-	for _, f := range m.gitFiles() {
-		args = append(args, f.Path)
-	}
-	return execlog.Run(m.execLog, "git", args, "")
-}
-
-// untrackedFiles returns the paths, among m.gitFiles(), that git doesn't
-// track at all yet — via `git ls-files --others --exclude-standard`,
-// scoped to just those paths so files elsewhere in the repo (or
-// gitignored entirely) never show up. Returns (nil, nil) if there are
-// no open files or nothing is untracked; the error return is only for a
-// genuine failure to even ask (not a git repository, git missing,
-// ...) — callers treat that the same as "nothing untracked" and let the
-// diff/commit that follows surface the real problem instead.
-func (m *Model) untrackedFiles() ([]string, error) {
-	gitFiles := m.gitFiles()
-	if len(gitFiles) == 0 {
-		return nil, nil
-	}
-	args := []string{"-C", m.ws.Dir, "ls-files", "--others", "--exclude-standard", "--"}
-	for _, f := range gitFiles {
-		args = append(args, f.Path)
-	}
-	out, err := execlog.Run(m.execLog, "git", args, "")
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(out) == "" {
-		return nil, nil
-	}
-	return strings.Split(out, "\n"), nil
-}
-
-// gitRepoRoot returns the git repository root that contains dir — via
-// `git rev-parse --show-toplevel` — or "" if dir isn't inside a git
-// repository at all (or git itself failed). Logged like any other
-// external command. A free function, rather than a *Model method, so
-// applyCommit's background goroutine can call it directly with values
-// captured up front instead of reaching back into a Model that a
-// concurrently running Update call could be mutating — see
-// applyCommit.
-func gitRepoRoot(elog *execlog.Log, dir string) string {
-	out, err := execlog.Run(elog, "git", []string{"-C", dir, "rev-parse", "--show-toplevel"}, "")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out)
-}
-
-// gitRepoRootRefusal reports why mutating git commands (add, commit,
-// push — see requireGitRepoRoot) must refuse to run against dir, or ""
-// if they're fine to run. They're refused unless dir is itself the
-// *root* of its git repository, not merely somewhere inside one: git
-// add/commit are scoped to specific files, so on their own a nested
-// workspace wouldn't be too dangerous, but git push is not scoped to
-// files at all — it pushes the *whole* current branch — and a workspace
-// that's really just a subdirectory of some larger, unrelated repository
-// (e.g. orgtd's own testdata/orgdir, nested inside this very repo) must
-// never have that run against it. Paths are compared after resolving
-// symlinks (see filepath.EvalSymlinks) since e.g. macOS routes /tmp and
-// /var through symlinks into /private — comparing raw paths would
-// otherwise misreport plenty of genuinely rooted workspaces (anything
-// under the system's temp dir included) as nested elsewhere. A free
-// function for the same reason as gitRepoRoot.
-func gitRepoRootRefusal(elog *execlog.Log, dir string) string {
-	root := gitRepoRoot(elog, dir)
-	if root == "" {
-		return "the org directory isn't inside a git repository"
-	}
-	wsResolved, wsErr := filepath.EvalSymlinks(dir)
-	rootResolved, rootErr := filepath.EvalSymlinks(root)
-	if wsErr != nil || rootErr != nil || wsResolved != rootResolved {
-		return fmt.Sprintf("the org directory isn't the root of its git repository (root is %s)", root)
-	}
-	return ""
-}
-
-// requireGitRepoRoot is the guard every mutating git operation (gitAdd,
-// runGitCommit, runGitPush) checks before doing anything — see
-// gitRepoRootRefusal for why. Checked there directly (rather than only
-// at the higher-level call sites that ask about it first, for a better
-// error message — see showDiff/startCommit) so there's no way to reach
-// an actual mutation without passing this, regardless of how it's
-// eventually called. A free function for the same reason as
-// gitRepoRoot.
-func requireGitRepoRoot(elog *execlog.Log, dir string) error {
-	if reason := gitRepoRootRefusal(elog, dir); reason != "" {
-		return fmt.Errorf("%s", reason)
-	}
-	return nil
-}
-
-func (m *Model) gitRepoRoot() string        { return gitRepoRoot(m.execLog, m.ws.Dir) }
-func (m *Model) gitRepoRootRefusal() string { return gitRepoRootRefusal(m.execLog, m.ws.Dir) }
-func (m *Model) requireGitRepoRoot() error  { return requireGitRepoRoot(m.execLog, m.ws.Dir) }
-
 // requestAddUntracked interrupts :diff/:commit with a y/N confirmation
 // (reusing confirmMode, alongside its existing file-edit prompt — see
-// pendingUntrackedFiles/pendingUntrackedThen) when untrackedFiles found
+// pendingUntrackedFiles/pendingUntrackedThen) when gitrepo.Repo.Untracked found
 // something. then runs either way once answered (see
 // updateConfirmMode): `git add`ing untracked first if accepted, or
 // completely unchanged if declined — a deliberately untracked file
@@ -261,33 +172,6 @@ func (m *Model) requestAddUntracked(untracked []string, then func(m *Model) tea.
 	m.confirmMessage = fmt.Sprintf("Not tracked by git: %s. Add to git? [y/N]", strings.Join(untracked, ", "))
 	m.pendingUntrackedFiles = untracked
 	m.pendingUntrackedThen = then
-}
-
-// gitAdd runs `git add` for exactly the given paths (as returned by
-// untrackedFiles — already suitable as pathspecs from within the
-// workspace directory), so accepting requestAddUntracked's prompt never
-// stages anything beyond what it named. Refuses outside the workspace's
-// own git repository root — see requireGitRepoRoot. Logged like any
-// other external command.
-func (m *Model) gitAdd(paths []string) (string, error) {
-	if err := m.requireGitRepoRoot(); err != nil {
-		return "", err
-	}
-	args := append([]string{"-C", m.ws.Dir, "add", "--"}, paths...)
-	return execlog.Run(m.execLog, "git", args, "")
-}
-
-// gitErrorText extracts the most useful message from a failed git
-// invocation (diff, commit, or push): git's own stderr (e.g. "fatal: not
-// a git repository...") when there is one, else the raw error (e.g.
-// "git" not being installed at all).
-func gitErrorText(err error) string {
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
-			return msg
-		}
-	}
-	return err.Error()
 }
 
 // stockCommitMessage is the fixed message every :commit uses — see
@@ -313,7 +197,7 @@ const stockCommitMessage = "orgtd commit"
 // otherwise let :commit commit disk content that's missing whatever's
 // still only in memory. Otherwise, since :commit always ends in a
 // mutating git add/commit/push, it refuses altogether unless the
-// workspace is safe to run those against (see gitRepoRootRefusal) —
+// workspace is safe to run those against (see gitrepo.Repo.RootRefusal) —
 // checked up front, before even asking about untracked files, so
 // declining that question is never even on the table when the real
 // problem is the repository itself. Otherwise, as with :diff, first
@@ -334,11 +218,11 @@ func (m *Model) startCommit() tea.Cmd {
 		m.message = "Unsaved changes — :w first, since :commit only commits what's actually on disk"
 		return nil
 	}
-	if reason := m.gitRepoRootRefusal(); reason != "" {
+	if reason := m.repo().RootRefusal(); reason != "" {
 		m.message = fmt.Sprintf("Refusing to commit: %s", reason)
 		return nil
 	}
-	if untracked, err := m.untrackedFiles(); err == nil && len(untracked) > 0 {
+	if untracked, err := m.repo().Untracked(m.gitPaths()); err == nil && len(untracked) > 0 {
 		m.requestAddUntracked(untracked, func(m *Model) tea.Cmd { return m.applyCommit() })
 		return nil
 	}
@@ -358,16 +242,6 @@ type commitPushMsg struct {
 	commitErr       error
 	pushErr         error
 	nothingToCommit bool
-}
-
-// isNothingToCommit reports whether stdout from a failed `git commit` is
-// just git's own "nothing to commit" message rather than a real failure.
-// applyCommit treats this as harmless and still runs the push — useful
-// on its own right after a push failure (say, a transient network
-// error): rerunning :commit should retry the push even though the
-// earlier :commit already made the commit itself.
-func isNothingToCommit(stdout string) bool {
-	return strings.Contains(stdout, "nothing to commit")
 }
 
 // applyCommit commits every file currently open in the outline except
@@ -394,23 +268,18 @@ func (m *Model) applyCommit() tea.Cmd {
 	m.gitRunning = true
 	m.message = "Running git commit and git push in the background..."
 
-	elog := m.execLog
-	dir := m.ws.Dir
-	gitFiles := m.gitFiles()
-	paths := make([]string, 0, len(gitFiles))
-	for _, f := range gitFiles {
-		paths = append(paths, f.Path)
-	}
+	repo := m.repo()
+	paths := m.gitPaths()
 
 	return func() tea.Msg {
 		nothingToCommit := false
-		if stdout, err := runGitCommit(elog, dir, paths, stockCommitMessage); err != nil {
-			if !isNothingToCommit(stdout) {
+		if stdout, err := repo.Commit(paths, stockCommitMessage); err != nil {
+			if !gitrepo.IsNothingToCommit(stdout) {
 				return commitPushMsg{commitErr: err}
 			}
 			nothingToCommit = true
 		}
-		if _, err := runGitPush(elog, dir); err != nil {
+		if _, err := repo.Push(); err != nil {
 			return commitPushMsg{pushErr: err, nothingToCommit: nothingToCommit}
 		}
 		return commitPushMsg{nothingToCommit: nothingToCommit}
@@ -431,14 +300,14 @@ func (m Model) finishCommitPush(msg commitPushMsg) (tea.Model, tea.Cmd) {
 	m.gitRunning = false
 
 	if msg.commitErr != nil {
-		m.message = fmt.Sprintf("git commit failed: %s", gitErrorText(msg.commitErr))
+		m.message = fmt.Sprintf("git commit failed: %s", gitrepo.ErrorText(msg.commitErr))
 		return m, nil
 	}
 	if msg.pushErr != nil {
 		if msg.nothingToCommit {
-			m.message = fmt.Sprintf("Nothing to commit, but git push failed: %s", gitErrorText(msg.pushErr))
+			m.message = fmt.Sprintf("Nothing to commit, but git push failed: %s", gitrepo.ErrorText(msg.pushErr))
 		} else {
-			m.message = fmt.Sprintf("Committed, but git push failed: %s", gitErrorText(msg.pushErr))
+			m.message = fmt.Sprintf("Committed, but git push failed: %s", gitrepo.ErrorText(msg.pushErr))
 		}
 		m.refreshDiffData()
 		return m, nil
@@ -451,49 +320,4 @@ func (m Model) finishCommitPush(msg commitPushMsg) (tea.Model, tea.Cmd) {
 	}
 	m.refreshDiffData()
 	return m, nil
-}
-
-// runGitCommit commits every file currently open in the outline except
-// the calendar file (m.gitFiles() — the same scope runGitDiff uses) with
-// message, from within the workspace directory. Refuses outside the
-// workspace's own git repository root — see requireGitRepoRoot. Logged
-// like any other external command — see execlog.Run.
-func (m *Model) runGitCommit(message string) (string, error) {
-	gitFiles := m.gitFiles()
-	paths := make([]string, 0, len(gitFiles))
-	for _, f := range gitFiles {
-		paths = append(paths, f.Path)
-	}
-	return runGitCommit(m.execLog, m.ws.Dir, paths, message)
-}
-
-// runGitCommit is runGitCommit's free-function core (see gitRepoRoot for
-// why): commits paths, from within dir, with message.
-func runGitCommit(elog *execlog.Log, dir string, paths []string, message string) (string, error) {
-	if err := requireGitRepoRoot(elog, dir); err != nil {
-		return "", err
-	}
-	args := []string{"-C", dir, "commit", "-m", message, "--"}
-	args = append(args, paths...)
-	return execlog.Run(elog, "git", args, "")
-}
-
-// runGitPush runs a plain `git push` from within the workspace
-// directory — unlike diff and commit, a push isn't scoped to particular
-// files (there's no such thing as pushing only some files' history), so
-// it just pushes the current branch to its configured upstream. This is
-// exactly why requireGitRepoRoot matters most here: a push affects the
-// whole repository's history, not just the org files orgtd knows about.
-// Logged like any other external command — see execlog.Run.
-func (m *Model) runGitPush() (string, error) {
-	return runGitPush(m.execLog, m.ws.Dir)
-}
-
-// runGitPush is runGitPush's free-function core (see gitRepoRoot for
-// why).
-func runGitPush(elog *execlog.Log, dir string) (string, error) {
-	if err := requireGitRepoRoot(elog, dir); err != nil {
-		return "", err
-	}
-	return execlog.Run(elog, "git", []string{"-C", dir, "push"}, "")
 }

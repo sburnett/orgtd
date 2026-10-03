@@ -78,9 +78,9 @@ func TestCommitOnlyWorksFromDiffView(t *testing.T) {
 	if !strings.Contains(m.message, "diff view") {
 		t.Errorf("message = %q, want it to explain :commit needs diff view", m.message)
 	}
-	out, err := m.runGitDiff()
+	out, err := m.repo().Diff(m.gitPaths())
 	if err != nil {
-		t.Fatalf("runGitDiff: %v", err)
+		t.Fatalf("Diff: %v", err)
 	}
 	if !strings.Contains(out, "New title") {
 		t.Errorf("diff after refused :commit = %q, want the uncommitted change still present", out)
@@ -248,9 +248,9 @@ func TestCommitExcludesCalendarFile(t *testing.T) {
 		t.Errorf("execLog = %#v, want the commit invocation to never name calendar.org", entries)
 	}
 
-	out, err := m.runGitCommit("noop")
+	out, err := m.repo().Commit(m.gitPaths(), "noop")
 	if err == nil || !strings.Contains(out, "no changes added to commit") {
-		t.Fatalf("runGitCommit after :commit = (%q, %v), want its stdout to report nothing staged, since calendar.org's edit was never staged", out, err)
+		t.Fatalf("Commit after :commit = (%q, %v), want its stdout to report nothing staged, since calendar.org's edit was never staged", out, err)
 	}
 }
 

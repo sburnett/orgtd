@@ -51,8 +51,8 @@ func TestGitRepoRootRefusalEmptyWhenWorkspaceIsTheRepoRoot(t *testing.T) {
 	ws := gitRepoFixture(t, "todo.org", "* TODO Something\n", "")
 	m := New(ws)
 
-	if reason := m.gitRepoRootRefusal(); reason != "" {
-		t.Errorf("gitRepoRootRefusal() = %q, want empty — the workspace is the repo root", reason)
+	if reason := m.repo().RootRefusal(); reason != "" {
+		t.Errorf("RootRefusal() = %q, want empty — the workspace is the repo root", reason)
 	}
 }
 
@@ -60,12 +60,12 @@ func TestGitRepoRootRefusalWhenWorkspaceIsNestedInALargerRepo(t *testing.T) {
 	ws := gitRepoWithNestedWorkspace(t, "* TODO Something\n", "")
 	m := New(ws)
 
-	reason := m.gitRepoRootRefusal()
+	reason := m.repo().RootRefusal()
 	if reason == "" {
-		t.Fatal("gitRepoRootRefusal() = \"\", want a refusal — the workspace is only a subdirectory of the repo")
+		t.Fatal("RootRefusal() = \"\", want a refusal — the workspace is only a subdirectory of the repo")
 	}
 	if !strings.Contains(reason, "root of its git repository") {
-		t.Errorf("gitRepoRootRefusal() = %q, want it to explain the workspace isn't the repo root", reason)
+		t.Errorf("RootRefusal() = %q, want it to explain the workspace isn't the repo root", reason)
 	}
 }
 
@@ -80,9 +80,9 @@ func TestGitRepoRootRefusalWhenNotAGitRepositoryAtAll(t *testing.T) {
 	}
 	m := New(ws)
 
-	reason := m.gitRepoRootRefusal()
+	reason := m.repo().RootRefusal()
 	if !strings.Contains(reason, "isn't inside a git repository") {
-		t.Errorf("gitRepoRootRefusal() = %q, want it to explain there's no git repository at all", reason)
+		t.Errorf("RootRefusal() = %q, want it to explain there's no git repository at all", reason)
 	}
 }
 
@@ -157,14 +157,14 @@ func TestMutatingGitHelpersRefuseWhenNotAtRepoRoot(t *testing.T) {
 	ws := gitRepoWithNestedWorkspace(t, "* TODO Old title\n", "* TODO New title\n")
 	m := New(ws)
 
-	if _, err := m.gitAdd([]string{"todo.org"}); err == nil || !strings.Contains(err.Error(), "root of its git repository") {
-		t.Errorf("gitAdd err = %v, want a repo-root refusal", err)
+	if _, err := m.repo().Add([]string{"todo.org"}); err == nil || !strings.Contains(err.Error(), "root of its git repository") {
+		t.Errorf("Add err = %v, want a repo-root refusal", err)
 	}
-	if _, err := m.runGitCommit("a message"); err == nil || !strings.Contains(err.Error(), "root of its git repository") {
-		t.Errorf("runGitCommit err = %v, want a repo-root refusal", err)
+	if _, err := m.repo().Commit(m.gitPaths(), "a message"); err == nil || !strings.Contains(err.Error(), "root of its git repository") {
+		t.Errorf("Commit err = %v, want a repo-root refusal", err)
 	}
-	if _, err := m.runGitPush(); err == nil || !strings.Contains(err.Error(), "root of its git repository") {
-		t.Errorf("runGitPush err = %v, want a repo-root refusal", err)
+	if _, err := m.repo().Push(); err == nil || !strings.Contains(err.Error(), "root of its git repository") {
+		t.Errorf("Push err = %v, want a repo-root refusal", err)
 	}
 
 	for _, e := range m.execLog.Snapshot() {
