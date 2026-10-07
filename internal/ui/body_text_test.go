@@ -380,3 +380,13 @@ func TestLSkipsOverBodyEntirelyToRealChild(t *testing.T) {
 		t.Errorf("l = %v, want the first real child %v (body skipped over)", got, h.Children[0])
 	}
 }
+
+func TestBodyLineRendersLinkAsDescription(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	r := row{headline: ws.Files[0].Headlines[0], level: 1, kind: rowBody, text: "see [[https://example.com/x][the docs]] now"}
+	out := stripANSI(m.renderBodyLineWithBg(r, lipgloss.NoColor{}))
+	if !strings.Contains(out, "see the docs now") || strings.Contains(out, "[[") || strings.Contains(out, "example.com") {
+		t.Errorf("body line = %q, want link shown as its description only", out)
+	}
+}

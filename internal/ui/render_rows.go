@@ -508,7 +508,7 @@ func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := m.indentGuides(owner, r.level, m.guideScope(), bg)
 	blanks := bgSpan(bg, "     ") + indent + bgSpan(bg, "  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
 	style := m.fadeIfImmutable(m.bodyStyle(), r.headline).Background(bg)
-	return blanks + m.highlightMatches(strings.TrimSpace(r.text), m.activeSearchQuery(), style)
+	return blanks + m.renderTitleForDisplay(strings.TrimSpace(r.text), style, m.activeSearchQuery())
 }
 
 func planningSummary(h *org.Headline) string {
