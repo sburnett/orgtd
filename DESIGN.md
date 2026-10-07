@@ -288,7 +288,8 @@ are the `commandTable` in `command_table.go` (names, optional argument,
 handler); `runCommand` records history and calls `execCommand`, which
 dispatches to a view (`viewSpecs`) or a table command. Tab completion
 (`commandNames()`) is derived from both, so a command is defined in
-exactly one place.
+exactly one place; a table command may also set `complete` to Tab-complete
+its argument (`:edit`'s file names).
 
 ### Rendering
 

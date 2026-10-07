@@ -98,14 +98,15 @@ func (m *Model) recallCommandHistory(dir int) {
 }
 
 // completeCommand implements ":<prefix><Tab>": if the command word
-// typed so far (no completion once an argument is being typed, i.e.
-// past the first space) is a prefix of exactly one command name, the
-// input is completed to it in full; if it's a prefix of several, the
-// input is extended to their longest common prefix and the matches are
-// listed after it so it's clear what to type next; if it matches none,
-// a message says so.
+// typed so far is a prefix of exactly one command name, the input is
+// completed to it in full; if it's a prefix of several, the input is
+// extended to their longest common prefix and the matches are listed
+// after it so it's clear what to type next; if it matches none, a message
+// says so. Once an argument is being typed (past the first space), see
+// completeArg.
 func (m *Model) completeCommand() {
 	if strings.Contains(m.commandInput, " ") {
+		m.completeArg()
 		return
 	}
 	word := m.commandInput
@@ -126,6 +127,33 @@ func (m *Model) completeCommand() {
 		sort.Strings(matches)
 		if common := commonPrefix(matches); len(common) > len(word) {
 			m.commandInput = common
+		}
+		m.commandCompletions = strings.Join(matches, "  ")
+	}
+}
+
+// completeArg is completeCommand's counterpart for the argument after
+// the command word, for a command with a complete function (see command):
+// the same behavior — a single candidate completes in full, several
+// extend to their longest common prefix and are listed, none says so.
+func (m *Model) completeArg() {
+	name, rest, _ := strings.Cut(m.commandInput, " ")
+	c, _ := lookupCommand(name + " x")
+	if c == nil || c.complete == nil {
+		return
+	}
+	partial := strings.TrimLeft(rest, " ")
+
+	matches := c.complete(m, partial)
+	switch len(matches) {
+	case 0:
+		m.message = fmt.Sprintf("No match for %q", partial)
+	case 1:
+		m.commandInput = name + " " + matches[0]
+	default:
+		sort.Strings(matches)
+		if common := commonPrefix(matches); len(common) > len(partial) {
+			m.commandInput = name + " " + common
 		}
 		m.commandCompletions = strings.Join(matches, "  ")
 	}

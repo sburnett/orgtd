@@ -123,3 +123,32 @@ func (m *Model) addFile(path string) (f *org.File, created bool, err error) {
 	sort.Slice(m.ws.Files, func(i, j int) bool { return m.ws.Files[i].Path < m.ws.Files[j].Path })
 	return f, created, nil
 }
+
+// completeEditArg lists the ":edit" arguments starting with partial: the
+// ".org" files directly in the org directory, "reference/" itself, and the
+// files in it — each whether already loaded or only on disk (so a file
+// created from a shell can be found without knowing its name by heart).
+func (m *Model) completeEditArg(partial string) []string {
+	seen := map[string]bool{workspace.ReferenceDir + "/": true}
+	for _, dir := range []string{"", workspace.ReferenceDir} {
+		entries, _ := os.ReadDir(filepath.Join(m.ws.Dir, dir))
+		for _, e := range entries {
+			if !e.IsDir() && filepath.Ext(e.Name()) == ".org" && !strings.HasPrefix(e.Name(), ".") {
+				seen[filepath.Join(dir, e.Name())] = true
+			}
+		}
+	}
+	for _, f := range m.ws.Files {
+		if rel, err := filepath.Rel(m.ws.Dir, f.Path); err == nil {
+			seen[filepath.ToSlash(rel)] = true
+		}
+	}
+
+	var matches []string
+	for cand := range seen {
+		if strings.HasPrefix(cand, partial) {
+			matches = append(matches, cand)
+		}
+	}
+	return matches
+}

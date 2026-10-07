@@ -593,7 +593,10 @@ text) and stay highlighted after you move on, until the next search or
 ### Command mode (`:`)
 
 `<Tab>` completes a partial command, listing every match (in the info
-buffer's "Matches" section — see above) if it's ambiguous. `↑`/`↓`
+buffer's "Matches" section — see above) if it's ambiguous. `:edit`'s
+file argument completes too, the same way: the `.org` files in `--dir`,
+`reference/`, and the files in it — whether loaded already or only on
+disk, so a file created from a shell is found too. `↑`/`↓`
 recall previous commands, most recent first —
 matching vim's own cmdline history: every command actually run is
 recorded (whether or not it turned out valid, and without deduplicating

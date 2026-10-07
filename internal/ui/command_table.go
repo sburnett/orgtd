@@ -26,6 +26,12 @@ type command struct {
 	// empty if nothing did, and always empty unless takesArg). It returns
 	// a tea.Cmd to run, or nil.
 	run func(m *Model, arg string) tea.Cmd
+
+	// complete, if set, lists the candidates for Tab completion of the
+	// argument typed so far (partial, with leading spaces removed — it may
+	// be empty). Only consulted for a command that takesArg. Nil means the
+	// argument isn't completed.
+	complete func(m *Model, partial string) []string
 }
 
 // commandTable lists every non-view command. Populated in init rather than
@@ -61,7 +67,7 @@ func init() {
 			m.lastSearchQuery = ""
 			return nil
 		}},
-		{names: []string{"e", "edit"}, takesArg: true, run: func(m *Model, file string) tea.Cmd {
+		{names: []string{"e", "edit"}, takesArg: true, complete: (*Model).completeEditArg, run: func(m *Model, file string) tea.Cmd {
 			m.editFile(file)
 			return nil
 		}},

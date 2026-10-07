@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -175,5 +177,68 @@ func TestCommonPrefixHelper(t *testing.T) {
 		if got := commonPrefix(c.in); got != c.want {
 			t.Errorf("commonPrefix(%v) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestTabCompletesEditArgumentUniquely(t *testing.T) {
+	m := New(loadFixture(t))
+	m = typeKeys(m, ":e pro")
+	m = sendKey(m, "tab")
+	if m.commandInput != "e projects.org" {
+		t.Errorf("commandInput = %q, want %q", m.commandInput, "e projects.org")
+	}
+}
+
+func TestTabEditArgumentListsAmbiguousMatchesAndExtendsCommonPrefix(t *testing.T) {
+	m := New(loadFixture(t))
+	m = typeKeys(m, ":edit ")
+	m = sendKey(m, "tab")
+	for _, want := range []string{"inbox.org", "projects.org", "reference/"} {
+		if !strings.Contains(m.commandCompletions, want) {
+			t.Errorf("completions = %q, want it to list %q", m.commandCompletions, want)
+		}
+	}
+	if m.commandInput != "edit " {
+		t.Errorf("commandInput = %q, want unchanged (no common prefix)", m.commandInput)
+	}
+}
+
+func TestTabEditArgumentCompletesIntoReferenceDirectory(t *testing.T) {
+	m := New(loadFixture(t))
+	m = typeKeys(m, ":e r")
+	m = sendKey(m, "tab")
+	if m.commandInput != "e reference/" {
+		t.Fatalf("commandInput = %q, want %q", m.commandInput, "e reference/")
+	}
+
+	path := filepath.Join(m.ws.Dir, "reference", "wifi.org")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o644); err != nil { // on disk only, not loaded
+		t.Fatal(err)
+	}
+	m = typeKeys(m, "w")
+	m = sendKey(m, "tab")
+	if m.commandInput != "e reference/wifi.org" {
+		t.Errorf("commandInput = %q, want %q", m.commandInput, "e reference/wifi.org")
+	}
+}
+
+func TestTabEditArgumentWithNoMatchSaysSo(t *testing.T) {
+	m := New(loadFixture(t))
+	m = typeKeys(m, ":e zzz")
+	m = sendKey(m, "tab")
+	if m.commandInput != "e zzz" || !strings.Contains(m.message, "No match") {
+		t.Errorf("input %q message %q, want unchanged input and a no-match message", m.commandInput, m.message)
+	}
+}
+
+func TestTabDoesNotCompleteArgumentsOfOtherCommands(t *testing.T) {
+	m := New(loadFixture(t))
+	m = typeKeys(m, ":delmarks a")
+	m = sendKey(m, "tab")
+	if m.commandInput != "delmarks a" || m.commandCompletions != "" {
+		t.Errorf("input %q completions %q, want both unchanged", m.commandInput, m.commandCompletions)
 	}
 }
