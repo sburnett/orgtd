@@ -86,8 +86,8 @@ func init() {
 			return nil
 		}},
 		{names: []string{"clear-registers"}, run: func(m *Model, _ string) tea.Cmd {
-			m.register = nil
-			m.message = "Register cleared"
+			m.clearRegisters()
+			m.message = "Registers cleared"
 			return nil
 		}},
 		{names: []string{"toggledone"}, run: func(m *Model, _ string) tea.Cmd { m.toggleHideDone(); return nil }},

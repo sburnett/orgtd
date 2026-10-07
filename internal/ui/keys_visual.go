@@ -18,7 +18,7 @@ func (m Model) updateVisualMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	chord := m.chord
 	m.chord = ""
 	m.message = ""
-	cmd := m.runKey(visualKeys, chord, msg.String())
+	cmd, _ := m.runWithRegister(visualKeys, chord, msg.String())
 	return m, cmd
 }
 
@@ -108,8 +108,19 @@ func (m *Model) deleteVisualSelection() {
 // whose ancestor is also selected contributes nothing separately, since
 // the ancestor's own clone already carries its whole subtree along.
 func (m *Model) yankVisualSelection() {
+	if m.refuseReadOnlyRegister() {
+		m.exitVisualMode()
+		return
+	}
 	headlines := org.Topmost(m.visualSelectedHeadlines())
 	m.exitVisualMode()
+	m.yankHeadlines(headlines)
+}
+
+// yankHeadlines stores a snapshot of each of headlines (assumed already
+// topmost-filtered, see org.Topmost) in the register — the shared
+// mechanics behind visual-mode y and a numeric-prefixed yy.
+func (m *Model) yankHeadlines(headlines []*org.Headline) {
 	if len(headlines) == 0 {
 		return
 	}
@@ -117,6 +128,6 @@ func (m *Model) yankVisualSelection() {
 	for i, h := range headlines {
 		clones[i] = org.CloneHeadline(h)
 	}
-	m.register = clones
+	m.storeRegister(clones)
 	m.message = "Yanked"
 }

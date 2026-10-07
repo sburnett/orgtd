@@ -35,6 +35,9 @@ func (m *Model) deleteHeadlineCount(n int) {
 // filterImmutable) rather than aborting the whole operation; the summary
 // message notes how many, if any.
 func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
+	if m.refuseReadOnlyRegister() {
+		return
+	}
 	headlines, skipped := m.filterImmutable(headlines)
 	if len(headlines) == 0 {
 		if skipped > 0 {
@@ -85,7 +88,7 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 			org.Walk([]*org.Headline{t.h}, m.clearMarksFor)
 		}
 	}
-	m.register = headlines
+	m.storeRegister(headlines)
 	m.message = fmt.Sprintf("Deleted %d entries", len(headlines))
 	if skipped > 0 {
 		m.message += fmt.Sprintf(" (%d skipped: locked by :format-links)", skipped)
@@ -222,7 +225,7 @@ func (m *Model) deleteHeadline() {
 	if idx < 0 {
 		return
 	}
-	m.register = []*org.Headline{h}
+	m.storeRegister([]*org.Headline{h})
 	m.pushUndoKeepingCursor(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
 
 	if m.view == reviewView && h == m.reviewTarget {
@@ -247,8 +250,18 @@ func (m *Model) yankHeadline() {
 	if h == nil {
 		return
 	}
-	m.register = []*org.Headline{org.CloneHeadline(h)}
+	m.storeRegister([]*org.Headline{org.CloneHeadline(h)})
 	m.message = "Yanked"
+}
+
+// yankHeadlineCount implements a numeric-prefixed "yy" (e.g. "3yy"):
+// yanks the current entry and the next n-1 entries, each with its
+// subtree, as one group — the yank counterpart of deleteHeadlineCount.
+func (m *Model) yankHeadlineCount(n int) {
+	if m.refuseReadOnlyRegister() || m.currentHeadline() == nil {
+		return
+	}
+	m.yankHeadlines(org.Topmost(m.headlinesInRowRange(m.countRowRange(n))))
 }
 
 // pasteHeadline inserts a copy of the register's contents — one entry

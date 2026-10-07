@@ -397,9 +397,9 @@ from shifting position any more than it has to:
   meeting's name, start time (when still resolvable), and link.
 - **Registers** — the read-only `%` register (the `:review` view's
   pinned inbox item, with its `CREATED` property and any
-  `SCHEDULED`/`DEADLINE`; see Registers, below), then whatever
-  `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put in the unnamed paste
-  register, one row per entry.
+  `SCHEDULED`/`DEADLINE`; see Registers, below), then the unnamed paste
+  register (whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last stored),
+  then every non-empty named register (`a`–`z`), one row per entry.
 - **Active marks** — every active mark (see Marks, below), sorted by
   letter, one row each — visible in every view until cleared.
 - **Matches** — the same idea as **Tags** above, for command-mode (`:`)
@@ -512,10 +512,11 @@ stop), and so on.
 | `i` / `I` | Edit the current entry's own text (title, planning line, properties, and body — not its children, which are left untouched) in `$EDITOR`. The buffer has no leading bullet (`*`) to edit around, and the whole entry — not just the title — is dedented by one level to match, so properties/planning/body lines that would otherwise still be indented under the now-absent bullet start flush left too; it's just the entry's text, plain, starting on line 1, re-indented automatically once you save. A vim-family `$EDITOR` (vi/vim/nvim/gvim/mvim) starts right there already in insert mode. Below it, git-commit-style, is a comment block sketching the entry's place in the outline (its file, parent, siblings, and its own children, each with their real bullets) with a `[THIS ENTRY HERE]` marker standing in for the entry itself — for orientation only; editing it has no effect. On a file's own header row, edits the whole file directly instead (after a confirmation, since this discards undo history and marks for that file) |
 | `A` | Same as `i`, but the cursor lands at the end of the entry's first line instead (vim's own "append" position) |
 | `o` / `O` | Insert a new entry after / before the current one (or at the end/start of a file, from a file header row). The template opened in `$EDITOR` uses the same bullet-free buffer as `i` (see above) — blank, starting on line 1, cursor already there — prefilled with a `CREATED` property set to now (edit or delete it like anything else before saving), with the same comment block below it showing where the new entry will land: its file, parent, and siblings (it has no children yet, being new). For a vim-family `$EDITOR`, typing the new title can start immediately. In `:calendar` view, on a row associated with a meeting — the event's own row/body, or an item already linked to it (see below) — `o`/`O` behave identically instead: both append the new entry to the end of the inbox (same target as `gC`) and attach it to that meeting outright, the same properties `gM` would set but chosen automatically, with no picker step, since the meeting is already unambiguous from the cursor's row — the capture and the attach are one undo step together, unlike tagging a meeting via `gt`/`gM` elsewhere, which is always its own separate step. There's no "before"/"after" left to distinguish once the target is always the end of one shared file rather than a position relative to the cursor; the entry's place among any others linked to the same meeting (see `:calendar`, below) is decided by `CREATED` instead, so repeated `o`/`O` presses still show up in the order they were actually captured regardless of which file each one is later filed into. Unlike `gC`/`gX` (below), the cursor stays in `:calendar` view, right on the newly captured entry now nested under its meeting, rather than switching to outline view |
-| `dd` | Delete the current entry and its subtree (undoable; also fills the paste register). The cursor stays at the same screen row, landing on whatever now occupies it (or the new last row, if it was the last one) — matching vim's own `dd` |
+| `dd` | Delete the current entry and its subtree (undoable; also fills the paste register, or the named one given by a `"<register>` prefix — see Registers, below). The cursor stays at the same screen row, landing on whatever now occupies it (or the new last row, if it was the last one) — matching vim's own `dd` |
 | `<N>dd` | Delete the current entry and the next N-1 entries and their subtrees, as one undo step (e.g. `3dd` deletes 3 entries). A count of 1 (or none) is exactly plain `dd`. A higher count fills the register with all of the deleted entries (top-to-bottom order preserved), pasted back together as a group by a single `p`/`P` |
-| `yy` | Yank the current entry and its subtree into the paste register, without deleting it |
-| `p` / `P` | Paste the register's contents after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`/`y`), all of them are pasted together, in the same order they were deleted/yanked in |
+| `yy` / `Y` | Yank the current entry and its subtree into the paste register, without deleting it |
+| `<N>yy` / `<N>Y` | Yank the current entry and the next N-1 entries and their subtrees, as a group pasted back together by a single `p`/`P` — the yank counterpart of `<N>dd`. A count of 1 (or none) is plain `yy` |
+| `p` / `P` | Paste the unnamed register's contents (or the one named by a `"<register>` prefix) after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`/`y`), all of them are pasted together, in the same order they were deleted/yanked in |
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
 | `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
@@ -575,16 +576,25 @@ looking unchanged. Capped at 5 entries shown at once (a big `<N>dd` or
 visual-mode delete/yank collapses the rest into a trailing "...and N
 more" line) so a large register can't push the actual listing
 off-screen. `:clear-registers`
-empties it (and its pinned display) without needing another `dd`/`yy`.
+empties every register (and the pinned display) without needing another `dd`/`yy`.
 
 ### Registers
 
 | Key | Action |
 |---|---|
-| `"<register>` | Name the register the next `p`/`P` pastes from, like vim. `""` is the unnamed register (the default, filled by `dd`/`yy`); `"%` is read-only and holds the entry `:review` is currently pinning — empty outside review view, or with nothing pending in the inbox. So `"%p` / `"%P` paste a copy of the entry being reviewed. `dd`/`yy` refuse a `"%` prefix; an unknown register name is rejected |
+| `"<register>` | Name the register the next command uses, like vim. Applies to exactly one command, and survives a count (`"a2dd`) |
+| `"<a-z>yy` / `"<a-z>Y` / `"<a-z>dd` / `"<a-z><N>yy` / `"<a-z><N>dd` | Yank or delete into a named register instead of (only) the unnamed one. Also works in visual mode (`"ay`, `"ad`). `Y` is `yy` |
+| `"<A-Z>yy` etc. | An uppercase name *appends* to the lowercase register (`"Ayy` adds to `a`) instead of replacing it |
+| `"<a-z>p` / `"<a-z>P` | Paste from a named register |
+| `"%p` / `"%P` | Paste a copy of the entry `:review` is currently pinning. `%` is read-only: it's empty outside review view or with nothing pending in the inbox, and `"%dd`/`"%yy` are refused |
+| `""` | The unnamed register, explicitly — what a bare `dd`/`yy`/`p` uses |
 
-The prefix applies to exactly the next command (and survives the first
-key of a chord, so `"%dd` is refused as a whole).
+Every write also lands in the unnamed register (as in vim), so a bare `p`
+pastes whatever was stored last, wherever it went. An unknown register
+name is rejected. All of them are shown in the info buffer's "Registers:"
+section (see Views, above), each row starting with its register's name;
+`:clear-registers` empties every one. Registers last for the session,
+not across restarts.
 
 ### Search
 

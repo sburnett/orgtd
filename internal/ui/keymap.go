@@ -220,7 +220,15 @@ func buildNormalKeys() *keymap {
 		}
 		m.pendingCount = 0
 	}), "d d")
-	km.bind(do((*Model).yankHeadline), "y y")
+	km.bind(do(func(m *Model) {
+		n := m.pendingCount
+		m.pendingCount = 0
+		if n > 1 {
+			m.yankHeadlineCount(n)
+		} else {
+			m.yankHeadline()
+		}
+	}), "y y", "Y")
 	km.bind(do(func(m *Model) { m.pasteHeadline(false) }), "p")
 	km.bind(do(func(m *Model) { m.pasteHeadline(true) }), "P")
 	km.bind(do((*Model).demoteHeadline), "> >")
@@ -249,8 +257,9 @@ func buildVisualKeys() *keymap {
 			m.cursor = m.entryStart(n - 1)
 		}
 	}), "G")
+	km.addPrefix("\"") // "\"<register>" selects the register for the next d/y; see runWithRegister
 	km.bind(do((*Model).deleteVisualSelection), "d")
-	km.bind(do((*Model).yankVisualSelection), "y")
+	km.bind(do((*Model).yankVisualSelection), "y", "Y")
 	km.bind(do(func(m *Model) {
 		if m.refuseTaskStateInReference() {
 			return

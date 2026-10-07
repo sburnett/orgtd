@@ -306,7 +306,7 @@ func TestUnknownRegisterIsRejected(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m = sendKey(m, "\"")
-	m = sendKey(m, "q")
+	m = sendKey(m, "1")
 	if !strings.Contains(m.message, "Unknown register") || m.pendingRegister != 0 {
 		t.Errorf("message = %q, pendingRegister = %q, want rejection", m.message, m.pendingRegister)
 	}

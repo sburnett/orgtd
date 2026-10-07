@@ -17,48 +17,76 @@ import (
 // more" summary line instead.
 const maxRegisterPinnedLines = 5
 
-// registerPinnedLineCount is how many lines the registers section of the
-// info buffer occupies below its own label: one for the read-only "%"
-// register (see registerContents) if it's set, plus one per unnamed
-// register entry, or maxRegisterPinnedLines plus one summary line once
-// there are more than that.
-func (m *Model) registerPinnedLineCount() int {
-	n := len(m.registerContents('%'))
-	if len(m.register) > maxRegisterPinnedLines {
-		return n + maxRegisterPinnedLines + 1
+// pinnedRegister is one register's rows in the info buffer's registers
+// section: the marker its rows start with (the register's own name), its
+// entries, and whether to render them with the review target's triage
+// detail (CREATED, planning) — only the read-only "%" register does.
+type pinnedRegister struct {
+	marker  string
+	entries []*org.Headline
+	triage  bool
+}
+
+// pinnedRegisters lists every non-empty register in display order: "%"
+// (the review target), the unnamed register, then the named ones
+// alphabetically.
+func (m Model) pinnedRegisters() []pinnedRegister {
+	var regs []pinnedRegister
+	if e := m.registerContents('%'); len(e) > 0 {
+		regs = append(regs, pinnedRegister{"%", e, true})
 	}
-	return n + len(m.register)
+	if len(m.register) > 0 {
+		regs = append(regs, pinnedRegister{"\"", m.register, false})
+	}
+	for _, r := range m.namedRegisterLetters() {
+		regs = append(regs, pinnedRegister{string(r), m.namedRegisters[r], false})
+	}
+	return regs
+}
+
+// registerPinnedLineCount is how many lines the registers section of the
+// info buffer occupies below its own label: per register, one per entry,
+// or maxRegisterPinnedLines plus one summary line once it holds more
+// than that.
+func (m *Model) registerPinnedLineCount() int {
+	n := 0
+	for _, r := range m.pinnedRegisters() {
+		if len(r.entries) > maxRegisterPinnedLines {
+			n += maxRegisterPinnedLines + 1
+		} else {
+			n += len(r.entries)
+		}
+	}
+	return n
 }
 
 // registerPinnedLines renders the registers section of the info buffer:
-// a "Registers:" label, then the read-only "%" register's entry (the
-// review target, with its CREATED/planning triage context), then one row
-// per entry in the unnamed register (up to maxRegisterPinnedLines, so a
+// a "Registers:" label, then for each non-empty register (see
+// pinnedRegisters) one row per entry (up to maxRegisterPinnedLines, so a
 // big <N>dd or visual-mode delete can't push the actual outline listing
-// off-screen), then a summary line for whatever didn't fit — or nil if
-// every register is empty. Every entry shown is exactly what p/P (for
-// the unnamed register) or "%p/"%P (for "%") would paste.
+// off-screen) followed by a summary line for whatever didn't fit — or
+// nil if every register is empty. Each row starts with its register's
+// name, so what p/P, "ap or "%p would paste is always visible.
 func (m Model) registerPinnedLines() []string {
-	review := m.registerContents('%')
-	if len(m.register) == 0 && len(review) == 0 {
+	regs := m.pinnedRegisters()
+	if len(regs) == 0 {
 		return nil
 	}
 	lines := []string{m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Registers:"), m.overlayBg())}
-	for _, h := range review {
-		lines = append(lines, m.renderPinnedRow("%", h, true))
-	}
-	shown := m.register
-	overflow := 0
-	if len(shown) > maxRegisterPinnedLines {
-		overflow = len(shown) - maxRegisterPinnedLines
-		shown = shown[:maxRegisterPinnedLines]
-	}
-	for _, h := range shown {
-		lines = append(lines, m.renderPinnedRow("\"", h, false))
-	}
-	if overflow > 0 {
-		summary := m.statusStyle().Background(m.overlayBg()).Render(fmt.Sprintf("  ...and %d more", overflow))
-		lines = append(lines, m.padLineToWidth(summary, m.overlayBg()))
+	for _, r := range regs {
+		shown := r.entries
+		overflow := 0
+		if len(shown) > maxRegisterPinnedLines {
+			overflow = len(shown) - maxRegisterPinnedLines
+			shown = shown[:maxRegisterPinnedLines]
+		}
+		for _, h := range shown {
+			lines = append(lines, m.renderPinnedRow(r.marker, h, r.triage))
+		}
+		if overflow > 0 {
+			summary := m.statusStyle().Background(m.overlayBg()).Render(fmt.Sprintf("  ...and %d more", overflow))
+			lines = append(lines, m.padLineToWidth(summary, m.overlayBg()))
+		}
 	}
 	return lines
 }

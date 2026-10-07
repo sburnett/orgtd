@@ -47,9 +47,10 @@ type Model struct {
 	// its own, consumed by the very next key whatever it is (see runKey).
 	chord string
 
-	pendingRegister rune // register named by a typed "\"<register>" prefix, waiting for the p/P (or other command) that uses it; 0 means none
-	activeRegister  rune // pendingRegister as handed to the command being run right now (0 = the unnamed register); see updateNormalMode
-	pendingCount    int  // numeric prefix built up so far for "dd"/"r"/"R" (e.g. "3dd", "2R"); 0 means none typed
+	namedRegisters  map[rune][]*org.Headline // the writable a-z registers ("ayy, "add, ...), pasted by "ap/"aP; see registers.go
+	pendingRegister rune                     // register named by a typed "\"<register>" prefix, waiting for the p/P (or other command) that uses it; 0 means none
+	activeRegister  rune                     // pendingRegister as handed to the command being run right now (0 = the unnamed register); see updateNormalMode
+	pendingCount    int                      // numeric prefix built up so far for "dd"/"r"/"R" (e.g. "3dd", "2R"); 0 means none typed
 
 	// pendingForceQuit is set by a ctrl+c that got refused because there
 	// were unsaved changes (see Update) — a second ctrl+c right after it
