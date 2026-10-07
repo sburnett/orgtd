@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -30,14 +32,12 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// A digit builds up a numeric prefix for "dd"/"r"/"R" (e.g. "3dd",
-	// "2r", "2R"). A leading zero (no digits typed yet) is not a valid
-	// count on its own — there's no "0" command to distinguish it from —
+	// A digit builds up a numeric prefix for "dd"/"r"/"R" and the fold
+	// commands (e.g. "3dd", "2r", "2R", "2zc"). A leading zero (no digits
+	// typed yet) is not a valid count on its own — there's no "0" command to distinguish it from —
 	// so it falls through as a plain, currently unbound key instead of
-	// starting a count. Any other key that isn't "d", "r", or "R"
-	// themselves clears a pending count rather than silently applying to
-	// some other command later — the prefix is scoped to exactly these
-	// three.
+	// starting a count. Any other key clears a pending count rather than
+	// silently applying to some other command later (see keepCount below).
 	if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
 		if d := int(key[0] - '0'); d > 0 || m.pendingCount > 0 {
 			m.pendingCount = m.pendingCount*10 + d
@@ -45,7 +45,13 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ensureVisible()
 		return m, nil
 	}
-	if key != "d" && key != "r" && key != "R" {
+	// The fold commands take a count too ("2zc"): the "z" itself and the
+	// key completing it keep it pending; a fold action then consumes it.
+	keepCount := key == "d" || key == "r" || key == "R" || key == "z" || key == "tab"
+	if chord == "z" && strings.Contains("aoc", key) {
+		keepCount = true
+	}
+	if !keepCount {
 		m.pendingCount = 0
 	}
 

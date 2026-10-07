@@ -57,19 +57,101 @@ func TestFoldOpenRevealsChildren(t *testing.T) {
 	}
 }
 
-func TestFoldOpenAndCloseNoopWithoutChildren(t *testing.T) {
+func TestFoldOpenNoopWithoutChildren(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup") // a leaf
 	before := len(m.rows)
 
 	m = sendKey(m, "z")
-	m = sendKey(m, "c")
-	m = sendKey(m, "z")
 	m = sendKey(m, "o")
 
 	if len(m.rows) != before {
-		t.Errorf("zc/zo on a leaf changed row count: %d, want %d", len(m.rows), before)
+		t.Errorf("zo on a leaf changed row count: %d, want %d", len(m.rows), before)
+	}
+}
+
+func TestFoldCloseOnLeafClosesParent(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Implement the Bubble Tea viewer") // a nested leaf
+	parent := m.currentHeadline().Parent
+
+	m = sendKey(m, "z")
+	m = sendKey(m, "c")
+
+	if parent == nil || !m.collapsed[parent] {
+		t.Errorf("zc on a leaf did not close its parent")
+	}
+	if m.currentHeadline() != parent {
+		t.Errorf("cursor did not move to the closed parent")
+	}
+}
+
+func TestFoldCloseOnClosedClosesParent(t *testing.T) {
+	ws := loadFixture(t)
+	m, top, mid, _ := buildThreeLevelNesting(t, New(ws))
+	m.cursor = findRow(t, m, mid.Title)
+
+	m = sendKey(m, "z")
+	m = sendKey(m, "c")
+	if !m.collapsed[mid] || m.collapsed[top] {
+		t.Fatalf("first zc: mid=%v top=%v, want only mid closed", m.collapsed[mid], m.collapsed[top])
+	}
+	m = sendKey(m, "z")
+	m = sendKey(m, "c")
+	if !m.collapsed[top] || m.currentHeadline() != top {
+		t.Errorf("second zc on a closed fold did not close the parent")
+	}
+}
+
+func TestFoldCloseCountWalksUp(t *testing.T) {
+	ws := loadFixture(t)
+	m, top, mid, _ := buildThreeLevelNesting(t, New(ws))
+	m.cursor = findRow(t, m, mid.Title)
+
+	m = sendKey(m, "2")
+	m = sendKey(m, "z")
+	m = sendKey(m, "c")
+
+	if !m.collapsed[mid] || !m.collapsed[top] {
+		t.Errorf("2zc: mid=%v top=%v, want both closed", m.collapsed[mid], m.collapsed[top])
+	}
+	if m.pendingCount != 0 {
+		t.Errorf("count not consumed")
+	}
+}
+
+func TestFoldOpenCountOpensNestedLevels(t *testing.T) {
+	ws := loadFixture(t)
+	m, top, mid, leaf := buildThreeLevelNesting(t, New(ws))
+	m = sendKey(m, "z")
+	m = sendKey(m, "C")
+
+	m = sendKey(m, "z")
+	m = sendKey(m, "o")
+	if m.collapsed[top] || !m.collapsed[mid] || rowVisible(m, leaf.Title) {
+		t.Fatalf("plain zo should open exactly one level")
+	}
+
+	m = sendKey(m, "z")
+	m = sendKey(m, "C")
+	m = sendKey(m, "2")
+	m = sendKey(m, "z")
+	m = sendKey(m, "o")
+	if m.collapsed[top] || m.collapsed[mid] || !rowVisible(m, leaf.Title) {
+		t.Errorf("2zo should open two levels")
+	}
+}
+
+func TestFoldCountDroppedByOtherKey(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m = sendKey(m, "3")
+	m = sendKey(m, "z")
+	m = sendKey(m, "j")
+	if m.pendingCount != 0 {
+		t.Errorf("count leaked past 3zj")
 	}
 }
 
