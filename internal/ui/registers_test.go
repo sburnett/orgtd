@@ -144,3 +144,141 @@ func TestCountedYankYanksThatManyEntries(t *testing.T) {
 		}
 	}
 }
+
+func TestBlackHoleDeleteLeavesRegistersAlone(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, rfcTitle)
+	m = typeKeys(m, `yy`)
+	m.cursor = findRow(t, m, vetTitle)
+	m = typeKeys(m, `"_dd`)
+
+	if countTitle(m, vetTitle) != 0 {
+		t.Errorf(`"_dd didn't delete the entry`)
+	}
+	if len(m.register) != 1 || m.register[0].Title != rfcTitle {
+		t.Errorf("unnamed register = %v, want the earlier RFC yank untouched", m.register)
+	}
+	if len(m.namedRegisters['1']) != 0 {
+		t.Errorf(`"_dd filled register 1: %v`, m.namedRegisters['1'])
+	}
+	m = typeKeys(m, `"_p`)
+	if m.message != "Nothing to paste" {
+		t.Errorf(`"_p message = %q, want Nothing to paste`, m.message)
+	}
+}
+
+func TestYankRegisterSurvivesDeletes(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, rfcTitle)
+	m = typeKeys(m, `yy`)
+	m.cursor = findRow(t, m, vetTitle)
+	m = typeKeys(m, `dd`)
+
+	if m.register[0].Title != vetTitle {
+		t.Fatalf("unnamed register = %v, want the deleted entry", m.register)
+	}
+	if got := m.namedRegisters['0']; len(got) != 1 || got[0].Title != rfcTitle {
+		t.Fatalf("register 0 = %v, want the yanked RFC entry", got)
+	}
+	before := countTitle(m, rfcTitle)
+	m = typeKeys(m, `"0p`)
+	if countTitle(m, rfcTitle) != before+1 {
+		t.Errorf(`"0p didn't paste the yanked entry`)
+	}
+}
+
+func TestNamedYankLeavesYankRegisterAlone(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, vetTitle)
+	m = typeKeys(m, `"ayy`)
+	if len(m.namedRegisters['0']) != 0 {
+		t.Errorf(`"ayy filled register 0: %v`, m.namedRegisters['0'])
+	}
+}
+
+func TestDeleteHistoryShiftsDown(t *testing.T) {
+	m := New(loadFixture(t))
+	var titles []string
+	for _, h := range findInboxHeadlines(t, m)[:3] {
+		titles = append(titles, h.Title)
+	}
+	for range titles {
+		m.cursor = findRow(t, m, findInboxHeadlines(t, m)[0].Title)
+		m = typeKeys(m, `dd`)
+	}
+	for i, want := range []string{titles[2], titles[1], titles[0]} {
+		reg := rune('1' + i)
+		if got := m.namedRegisters[reg]; len(got) != 1 || got[0].Title != want {
+			t.Errorf("register %c = %v, want %q", reg, got, want)
+		}
+	}
+}
+
+func TestNumberedRegistersAreReadOnlyAndNamedDeleteSkipsHistory(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, vetTitle)
+	m = typeKeys(m, `"1yy`)
+	if !strings.Contains(m.message, "read-only") || len(m.namedRegisters['1']) != 0 {
+		t.Errorf(`"1yy: message = %q, register 1 = %v, want a refusal`, m.message, m.namedRegisters['1'])
+	}
+	m = typeKeys(m, `"add`)
+	if len(m.namedRegisters['1']) != 0 {
+		t.Errorf(`"add shifted the delete history: %v`, m.namedRegisters['1'])
+	}
+}
+
+func TestCountedPasteRepeatsRegister(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, vetTitle)
+	m = typeKeys(m, `yy`)
+	before := countTitle(m, vetTitle)
+	m = typeKeys(m, `3p`)
+	if got := countTitle(m, vetTitle); got != before+3 {
+		t.Errorf("3p: %d copies, want %d", got, before+3)
+	}
+	m = typeKeys(m, `u`)
+	if got := countTitle(m, vetTitle); got != before {
+		t.Errorf("one undo after 3p left %d copies, want %d", got, before)
+	}
+	m = typeKeys(m, `2"0P`)
+	if got := countTitle(m, vetTitle); got != before+2 {
+		t.Errorf(`2"0P: %d copies, want %d`, got, before+2)
+	}
+	m = typeKeys(m, `p`)
+	if got := countTitle(m, vetTitle); got != before+3 {
+		t.Errorf("a later bare p reused the count: %d copies, want %d", got, before+3)
+	}
+}
+
+func TestRegistersSectionIsCappedOverall(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, vetTitle)
+	for _, r := range "abcdefghijklmnopqrstuvwxyz" {
+		m = typeKeys(m, `"`+string(r)+`yy`)
+	}
+	lines := stripANSILines(m.registerPinnedLines())
+	if len(lines) != 1+maxInfoBufferLines+1 {
+		t.Fatalf("registers section has %d lines, want label + %d rows + summary", len(lines), maxInfoBufferLines)
+	}
+	if last := lines[len(lines)-1]; !strings.Contains(last, "more registers") {
+		t.Errorf("last line = %q, want an overflow summary", last)
+	}
+	if !strings.HasPrefix(lines[1], `" `) || !strings.HasPrefix(lines[2], "a ") {
+		t.Errorf("lines = %q, want the unnamed then named registers first", lines[1:3])
+	}
+}
+
+func TestNamedRegistersOutlastNumberedHistoryWhenTruncated(t *testing.T) {
+	m := New(loadFixture(t))
+	names := m.namedRegisterNames()
+	if len(names) != 0 {
+		t.Fatalf("fixture assumption broken: %q", string(names))
+	}
+	for i := '1'; i <= '9'; i++ {
+		m.setNamedRegister(i, m.ws.Files[0].Headlines[:1])
+	}
+	m.setNamedRegister('z', m.ws.Files[0].Headlines[:1])
+	if got := string(m.namedRegisterNames()); got != "z123456789" {
+		t.Errorf("names = %q, want letters before digits", got)
+	}
+}

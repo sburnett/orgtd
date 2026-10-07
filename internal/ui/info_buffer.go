@@ -28,8 +28,11 @@ type pinnedRegister struct {
 }
 
 // pinnedRegisters lists every non-empty register in display order: "%"
-// (the review target), the unnamed register, then the named ones
-// alphabetically.
+// (the review target), the unnamed register, the named ones
+// alphabetically, then the numbered yank/delete history ("0"-"9") — the
+// order the registers section truncates from the end of (see
+// registerPinnedLines), so the registers you chose deliberately outlast
+// the automatic history.
 func (m Model) pinnedRegisters() []pinnedRegister {
 	var regs []pinnedRegister
 	if e := m.registerContents('%'); len(e) > 0 {
@@ -38,55 +41,55 @@ func (m Model) pinnedRegisters() []pinnedRegister {
 	if len(m.register) > 0 {
 		regs = append(regs, pinnedRegister{"\"", m.register, false})
 	}
-	for _, r := range m.namedRegisterLetters() {
+	for _, r := range m.namedRegisterNames() {
 		regs = append(regs, pinnedRegister{string(r), m.namedRegisters[r], false})
 	}
 	return regs
 }
 
-// registerPinnedLineCount is how many lines the registers section of the
-// info buffer occupies below its own label: per register, one per entry,
-// or maxRegisterPinnedLines plus one summary line once it holds more
-// than that.
-func (m *Model) registerPinnedLineCount() int {
-	n := 0
-	for _, r := range m.pinnedRegisters() {
-		if len(r.entries) > maxRegisterPinnedLines {
-			n += maxRegisterPinnedLines + 1
-		} else {
-			n += len(r.entries)
-		}
+// registerBlock renders one register's rows: one per entry (up to
+// maxRegisterPinnedLines, so a big <N>dd or visual-mode delete can't
+// push the actual outline listing off-screen), then a summary line for
+// whatever didn't fit. Each row starts with the register's name.
+func (m Model) registerBlock(r pinnedRegister) []string {
+	shown := r.entries
+	overflow := 0
+	if len(shown) > maxRegisterPinnedLines {
+		overflow = len(shown) - maxRegisterPinnedLines
+		shown = shown[:maxRegisterPinnedLines]
 	}
-	return n
+	var lines []string
+	for _, h := range shown {
+		lines = append(lines, m.renderPinnedRow(r.marker, h, r.triage))
+	}
+	if overflow > 0 {
+		summary := m.statusStyle().Background(m.overlayBg()).Render(fmt.Sprintf("  ...and %d more", overflow))
+		lines = append(lines, m.padLineToWidth(summary, m.overlayBg()))
+	}
+	return lines
 }
 
 // registerPinnedLines renders the registers section of the info buffer:
-// a "Registers:" label, then for each non-empty register (see
-// pinnedRegisters) one row per entry (up to maxRegisterPinnedLines, so a
-// big <N>dd or visual-mode delete can't push the actual outline listing
-// off-screen) followed by a summary line for whatever didn't fit — or
-// nil if every register is empty. Each row starts with its register's
-// name, so what p/P, "ap or "%p would paste is always visible.
+// a "Registers:" label, then each non-empty register's block (see
+// registerBlock), capped overall at maxInfoBufferLines rows — a register
+// that wouldn't fit whole is dropped, along with every one after it, and
+// a trailing "...and N more registers" counts them. Nil if every
+// register is empty.
 func (m Model) registerPinnedLines() []string {
 	regs := m.pinnedRegisters()
 	if len(regs) == 0 {
 		return nil
 	}
 	lines := []string{m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Registers:"), m.overlayBg())}
-	for _, r := range regs {
-		shown := r.entries
-		overflow := 0
-		if len(shown) > maxRegisterPinnedLines {
-			overflow = len(shown) - maxRegisterPinnedLines
-			shown = shown[:maxRegisterPinnedLines]
+	rows := 0
+	for i, r := range regs {
+		block := m.registerBlock(r)
+		if rows+len(block) > maxInfoBufferLines && rows > 0 {
+			summary := m.statusStyle().Background(m.overlayBg()).Render(fmt.Sprintf("  ...and %d more registers", len(regs)-i))
+			return append(lines, m.padLineToWidth(summary, m.overlayBg()))
 		}
-		for _, h := range shown {
-			lines = append(lines, m.renderPinnedRow(r.marker, h, r.triage))
-		}
-		if overflow > 0 {
-			summary := m.statusStyle().Background(m.overlayBg()).Render(fmt.Sprintf("  ...and %d more", overflow))
-			lines = append(lines, m.padLineToWidth(summary, m.overlayBg()))
-		}
+		lines = append(lines, block...)
+		rows += len(block)
 	}
 	return lines
 }

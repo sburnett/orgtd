@@ -399,7 +399,7 @@ from shifting position any more than it has to:
   pinned inbox item, with its `CREATED` property and any
   `SCHEDULED`/`DEADLINE`; see Registers, below), then the unnamed paste
   register (whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last stored),
-  then every non-empty named register (`a`–`z`), one row per entry.
+  then every non-empty named (`a`–`z`) and numbered (`0`–`9`) register, one row per entry. The whole section is capped at 20 rows: a register that wouldn't fit whole is dropped along with the ones after it, summarized as "...and N more registers" — the numbered history goes first, so the registers you chose by name last longest.
 - **Active marks** — every active mark (see Marks, below), sorted by
   letter, one row each — visible in every view until cleared.
 - **Matches** — the same idea as **Tags** above, for command-mode (`:`)
@@ -516,7 +516,7 @@ stop), and so on.
 | `<N>dd` | Delete the current entry and the next N-1 entries and their subtrees, as one undo step (e.g. `3dd` deletes 3 entries). A count of 1 (or none) is exactly plain `dd`. A higher count fills the register with all of the deleted entries (top-to-bottom order preserved), pasted back together as a group by a single `p`/`P` |
 | `yy` / `Y` | Yank the current entry and its subtree into the paste register, without deleting it |
 | `<N>yy` / `<N>Y` | Yank the current entry and the next N-1 entries and their subtrees, as a group pasted back together by a single `p`/`P` — the yank counterpart of `<N>dd`. A count of 1 (or none) is plain `yy` |
-| `p` / `P` | Paste the unnamed register's contents (or the one named by a `"<register>` prefix) after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`/`y`), all of them are pasted together, in the same order they were deleted/yanked in |
+| `p` / `P` | Paste the unnamed register's contents (or the one named by a `"<register>` prefix); a count repeats it (`3p`) after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`/`y`), all of them are pasted together, in the same order they were deleted/yanked in |
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
 | `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
@@ -586,11 +586,15 @@ empties every register (and the pinned display) without needing another `dd`/`yy
 | `"<a-z>yy` / `"<a-z>Y` / `"<a-z>dd` / `"<a-z><N>yy` / `"<a-z><N>dd` | Yank or delete into a named register instead of (only) the unnamed one. Also works in visual mode (`"ay`, `"ad`). `Y` is `yy` |
 | `"<A-Z>yy` etc. | An uppercase name *appends* to the lowercase register (`"Ayy` adds to `a`) instead of replacing it |
 | `"<a-z>p` / `"<a-z>P` | Paste from a named register |
-| `"%p` / `"%P` | Paste a copy of the entry `:review` is currently pinning. `%` is read-only: it's empty outside review view or with nothing pending in the inbox, and `"%dd`/`"%yy` are refused |
+| `"%p` / `"%P` | Paste a copy of the entry `:review` is currently pinning. `%` is read-only: it's empty outside review view or with nothing pending in the inbox, and `"%dd`/`"%yy` are refused (as are `"0`–`"9`, which fill themselves) |
 | `""` | The unnamed register, explicitly — what a bare `dd`/`yy`/`p` uses |
+| `"0p` | Paste the last yank. Unlike the unnamed register, a delete never overwrites it, so `yy`, then `dd` on something else, then `"0p` still pastes the `yy`. Read-only, and not set by a yank into a named register |
+| `"1p` … `"9p` | Paste from the delete history: `"1` is the last delete, `"2` the one before it, and so on up to nine, each delete shifting the older ones down. Read-only, and not touched by a delete into a named register (`"add`) or the black hole |
+| `"_` | The black hole: `"_dd` / `"_yy` store nothing anywhere, leaving every register as it was; `"_p` has nothing to paste |
+| `<N>p` / `<N>P` | Paste the register N times, as one undo step (`3p`, `2"aP`) |
 
-Every write also lands in the unnamed register (as in vim), so a bare `p`
-pastes whatever was stored last, wherever it went. An unknown register
+Every write except to the black hole also lands in the unnamed register (as in
+vim), so a bare `p` pastes whatever was stored last, wherever it went. An unknown register
 name is rejected. All of them are shown in the info buffer's "Registers:"
 section (see Views, above), each row starting with its register's name;
 `:clear-registers` empties every one. Registers last for the session,

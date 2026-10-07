@@ -128,6 +128,6 @@ func (m *Model) yankHeadlines(headlines []*org.Headline) {
 	for i, h := range headlines {
 		clones[i] = org.CloneHeadline(h)
 	}
-	m.storeRegister(clones)
+	m.storeRegister(clones, false)
 	m.message = "Yanked"
 }

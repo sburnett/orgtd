@@ -232,10 +232,6 @@ func TestRegisterPinnedSectionIsHeightBounded(t *testing.T) {
 	}
 	m.register = register
 
-	if got := m.registerPinnedLineCount(); got != maxRegisterPinnedLines+1 {
-		t.Fatalf("registerPinnedLineCount() = %d, want %d (capped entries + 1 summary line)", got, maxRegisterPinnedLines+1)
-	}
-
 	lines := m.registerPinnedLines()
 	if len(lines) != 1+maxRegisterPinnedLines+1 {
 		t.Fatalf("registerPinnedLines() has %d lines, want %d (label + capped entries + summary)", len(lines), 1+maxRegisterPinnedLines+1)

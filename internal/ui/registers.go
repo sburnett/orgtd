@@ -12,6 +12,9 @@ import (
 //
 //   - 0 or '"' — the unnamed register, filled by dd/yy (and by whichever
 //     register those last wrote to) and pasted by a bare p/P.
+//   - '0' — the last yank (not overwritten by deletes), '1'-'9' — the
+//     last nine deletes, most recent first. All read-only.
+//   - '_' — the black hole: always empty; writing to it stores nothing.
 //   - 'a'-'z' — a named register, filled by "ayy, "add and so on.
 //     'A'-'Z' reads the same register as its lowercase letter.
 //   - '%' — read-only: the entry :review is currently pinning (empty
@@ -23,7 +26,7 @@ func (m *Model) registerContents(name rune) []*org.Headline {
 	switch {
 	case name == 0 || name == '"':
 		return m.register
-	case name >= 'a' && name <= 'z':
+	case name >= 'a' && name <= 'z', name >= '0' && name <= '9':
 		return m.namedRegisters[name]
 	case name >= 'A' && name <= 'Z':
 		return m.namedRegisters[name-'A'+'a']
@@ -37,17 +40,22 @@ func (m *Model) registerContents(name rune) []*org.Headline {
 
 // isRegisterName reports whether name can follow the " prefix.
 func isRegisterName(name rune) bool {
-	return name == '"' || name == '%' || (name >= 'a' && name <= 'z') || (name >= 'A' && name <= 'Z')
+	return name == '"' || name == '%' || name == '_' || (name >= '0' && name <= '9') || (name >= 'a' && name <= 'z') || (name >= 'A' && name <= 'Z')
 }
 
-// storeRegister is where every yank and delete puts what it took: into
-// the register the command was prefixed with — replacing it, or, for an
-// uppercase name ("Ayy), appending to its lowercase counterpart, as in
-// vim — and always into the unnamed register too, so a bare p/P pastes
-// whatever was stored last. With no prefix it's just the unnamed register.
-func (m *Model) storeRegister(headlines []*org.Headline) {
+// storeRegister is where every yank and delete (isDelete) puts what it
+// took. Prefixed with a register, it goes there — replacing it, or, for
+// an uppercase name ("Ayy), appending to its lowercase counterpart, as in
+// vim — and into the unnamed register too, so a bare p/P pastes whatever
+// was stored last. Prefixed with "_ (the black hole) it goes nowhere,
+// leaving every register as it was. With no prefix it's the unnamed
+// register, plus the numbered history: a yank fills "0, a delete shifts
+// "1-"8 down to "2-"9 and fills "1.
+func (m *Model) storeRegister(headlines []*org.Headline, isDelete bool) {
 	name := m.activeRegister
 	switch {
+	case name == '_':
+		return
 	case name >= 'a' && name <= 'z':
 		m.setNamedRegister(name, headlines)
 	case name >= 'A' && name <= 'Z':
@@ -55,6 +63,13 @@ func (m *Model) storeRegister(headlines []*org.Headline) {
 		joined := append(append([]*org.Headline(nil), m.namedRegisters[lower]...), headlines...)
 		m.setNamedRegister(lower, joined)
 		headlines = joined
+	case !isDelete:
+		m.setNamedRegister('0', headlines)
+	default:
+		for r := '9'; r > '1'; r-- {
+			m.setNamedRegister(r, m.namedRegisters[r-1])
+		}
+		m.setNamedRegister('1', headlines)
 	}
 	m.register = headlines
 }
@@ -66,21 +81,28 @@ func (m *Model) setNamedRegister(name rune, headlines []*org.Headline) {
 	m.namedRegisters[name] = headlines
 }
 
-// namedRegisterLetters returns the letters of the non-empty named
-// registers, in alphabetical order.
-func (m *Model) namedRegisterLetters() []rune {
-	var letters []rune
+// namedRegisterNames returns the names of the non-empty named and
+// numbered registers: letters alphabetically, then digits.
+func (m *Model) namedRegisterNames() []rune {
+	var names []rune
 	for r, hs := range m.namedRegisters {
 		if len(hs) > 0 {
-			letters = append(letters, r)
+			names = append(names, r)
 		}
 	}
-	sort.Slice(letters, func(i, j int) bool { return letters[i] < letters[j] })
-	return letters
+	isDigit := func(r rune) bool { return r >= '0' && r <= '9' }
+	sort.Slice(names, func(i, j int) bool {
+		if di, dj := isDigit(names[i]), isDigit(names[j]); di != dj {
+			return dj
+		}
+		return names[i] < names[j]
+	})
+	return names
 }
 
 // clearRegisters empties the unnamed and every named register (the "%"
-// register isn't stored, so there's nothing to clear there).
+// register isn't stored, so there's nothing to clear there), including
+// the numbered ones.
 func (m *Model) clearRegisters() {
 	m.register = nil
 	m.namedRegisters = nil
@@ -88,11 +110,11 @@ func (m *Model) clearRegisters() {
 
 // refuseReadOnlyRegister reports (with a status message) whether the
 // command being run was prefixed with a register that can't be written
-// to — "%" holds whatever :review is pinning, so "%dd or "%yy would
-// have nothing sensible to store.
+// to: "% holds whatever :review is pinning, and "0-"9 are the yank and
+// delete history, filled automatically.
 func (m *Model) refuseReadOnlyRegister() bool {
-	if m.activeRegister == '%' {
-		m.message = "Register % is read-only"
+	if r := m.activeRegister; r == '%' || (r >= '0' && r <= '9') {
+		m.message = "Register " + string(r) + " is read-only"
 		return true
 	}
 	return false

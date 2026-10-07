@@ -88,7 +88,7 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 			org.Walk([]*org.Headline{t.h}, m.clearMarksFor)
 		}
 	}
-	m.storeRegister(headlines)
+	m.storeRegister(headlines, true)
 	m.message = fmt.Sprintf("Deleted %d entries", len(headlines))
 	if skipped > 0 {
 		m.message += fmt.Sprintf(" (%d skipped: locked by :format-links)", skipped)
@@ -225,7 +225,7 @@ func (m *Model) deleteHeadline() {
 	if idx < 0 {
 		return
 	}
-	m.storeRegister([]*org.Headline{h})
+	m.storeRegister([]*org.Headline{h}, true)
 	m.pushUndoKeepingCursor(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
 
 	if m.view == reviewView && h == m.reviewTarget {
@@ -250,7 +250,7 @@ func (m *Model) yankHeadline() {
 	if h == nil {
 		return
 	}
-	m.storeRegister([]*org.Headline{org.CloneHeadline(h)})
+	m.storeRegister([]*org.Headline{org.CloneHeadline(h)}, false)
 	m.message = "Yanked"
 }
 
@@ -272,6 +272,7 @@ func (m *Model) yankHeadlineCount(n int) {
 // to fit the destination depth. The register itself is left untouched,
 // so it can be pasted again.
 func (m *Model) pasteHeadline(before bool) {
+	defer func() { m.pendingCount = 0 }()
 	contents := m.registerContents(m.activeRegister)
 	if len(contents) == 0 {
 		m.message = "Nothing to paste"
@@ -282,11 +283,17 @@ func (m *Model) pasteHeadline(before bool) {
 		return
 	}
 
-	clones := make([]*org.Headline, len(contents))
-	for i, h := range contents {
-		clone := org.CloneHeadline(h)
-		clone.ShiftLevel(level - clone.Level)
-		clones[i] = clone
+	// A count ("3p") pastes the whole register that many times, in one
+	// undo step.
+	times := max(m.pendingCount, 1)
+	m.pendingCount = 0
+	clones := make([]*org.Headline, 0, len(contents)*times)
+	for range times {
+		for _, h := range contents {
+			clone := org.CloneHeadline(h)
+			clone.ShiftLevel(level - clone.Level)
+			clones = append(clones, clone)
+		}
 	}
 	m.pushUndo(&insertAction{spliceAction{f: f, parent: parent, index: idx, headlines: clones}})
 }

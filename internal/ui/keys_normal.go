@@ -53,7 +53,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// The fold commands take a count too ("2zc"): the "z" itself and the
 	// key completing it keep it pending; a fold action then consumes it.
-	keepCount := key == "\"" || key == "d" || key == "y" || key == "Y" || key == "r" || key == "R" || key == "z" || key == "tab"
+	keepCount := key == "\"" || key == "d" || key == "y" || key == "Y" || key == "p" || key == "P" || key == "r" || key == "R" || key == "z" || key == "tab"
 	if chord == "z" && strings.Contains("aoc", key) {
 		keepCount = true
 	}
