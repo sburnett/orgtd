@@ -55,7 +55,7 @@ only, not its own subdirectories) — reference material in GTD's sense,
 information with no action attached; see the Reference view, below. Any
 other subdirectory is not scanned. `reference/` is created by hand (there's
 no setting for its name), and, like the rest of `--dir`, is read once at
-startup, so a file added to it while orgtd is running needs a restart.
+startup — to add a file while orgtd is running, use `:edit` (below).
 
 orgtd takes an exclusive lock on `--dir` for as long as it's running (a
 `.orgtd.lock` file inside it), so a second orgtd instance accidentally
@@ -610,6 +610,7 @@ History doesn't persist between sessions.
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
 | `:agenda` / `:clarify` / `:outline` / `:reference` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
+| `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is created (on disk immediately, since an empty file has no edit for `:w` to save) — add entries with `o`/`O` on its header row. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |

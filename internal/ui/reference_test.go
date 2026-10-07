@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -184,5 +185,79 @@ func TestReferenceFileNamedLikeASpecialFileIsNotThatFile(t *testing.T) {
 	m := New(ws)
 	if f := m.findInboxFile(); f == nil || f.Headlines[0] != inbox {
 		t.Errorf("findInboxFile picked %v, want the top-level inbox.org", f)
+	}
+}
+
+func editFixture(t *testing.T) Model {
+	t.Helper()
+	return New(loadFixtureCopy(t))
+}
+
+func runEdit(m Model, cmd string) Model {
+	return sendKey(typeKeys(m, ":"+cmd), "enter")
+}
+
+func TestEditCreatesAnEmptyReferenceFileAndFocusesItsHeader(t *testing.T) {
+	m := editFixture(t)
+	m = runEdit(m, "e reference/wifi")
+	if m.view != referenceView {
+		t.Fatalf("view = %d, want referenceView (message %q)", m.view, m.message)
+	}
+	if r := m.rows[m.cursor]; r.kind != rowFile || filepath.Base(r.file.Path) != "wifi.org" {
+		t.Errorf("cursor row = %+v, want wifi.org's header", r)
+	}
+	path := filepath.Join(m.ws.Dir, "reference", "wifi.org")
+	if data, err := os.ReadFile(path); err != nil || len(data) != 0 {
+		t.Errorf("file on disk = %q, %v; want empty", data, err)
+	}
+	if !strings.Contains(m.message, "Created reference/wifi.org") {
+		t.Errorf("message = %q", m.message)
+	}
+}
+
+func TestEditOnAnExistingFileJustMovesTheCursorToItsHeader(t *testing.T) {
+	m := editFixture(t)
+	n := len(m.ws.Files)
+	m = runEdit(m, "edit projects.org")
+	if len(m.ws.Files) != n {
+		t.Errorf("files = %d, want %d (nothing created)", len(m.ws.Files), n)
+	}
+	if m.view != outlineView {
+		t.Errorf("view = %d, want outline", m.view)
+	}
+	if r := m.rows[m.cursor]; r.kind != rowFile || filepath.Base(r.file.Path) != "projects.org" {
+		t.Errorf("cursor row = %+v, want projects.org's header", r)
+	}
+	if m.message != "" {
+		t.Errorf("message = %q, want none", m.message)
+	}
+}
+
+func TestEditLoadsAFileCreatedOutsideOrgtd(t *testing.T) {
+	m := editFixture(t)
+	path := filepath.Join(m.ws.Dir, "reference", "later.org")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("* From a shell\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m = runEdit(m, "e reference/later.org")
+	if m.view != referenceView || !strings.Contains(strings.Join(rowTitles(m), "|"), "From a shell") {
+		t.Errorf("view %d rows %v, want the loaded file in :reference", m.view, rowTitles(m))
+	}
+	if strings.Contains(m.message, "Created") {
+		t.Errorf("message = %q, the file already existed", m.message)
+	}
+}
+
+func TestEditRejectsPathsOutsideTheScannedDirectories(t *testing.T) {
+	for _, arg := range []string{"", "scratch/x", "reference/a/b", "../x", "/etc/x", ".hidden", "reference/"} {
+		m := editFixture(t)
+		n := len(m.ws.Files)
+		m = runEdit(m, "e "+arg)
+		if len(m.ws.Files) != n || m.message == "" {
+			t.Errorf(":e %q: files %d→%d, message %q; want refused with a message", arg, n, len(m.ws.Files), m.message)
+		}
 	}
 }

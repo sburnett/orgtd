@@ -61,6 +61,10 @@ func init() {
 			m.lastSearchQuery = ""
 			return nil
 		}},
+		{names: []string{"e", "edit"}, takesArg: true, run: func(m *Model, file string) tea.Cmd {
+			m.editFile(file)
+			return nil
+		}},
 		{names: []string{"capture"}, run: func(m *Model, _ string) tea.Cmd { return m.startCapture() }},
 		{names: []string{"delmarks"}, takesArg: true, run: func(m *Model, letters string) tea.Cmd {
 			if letters == "" {
