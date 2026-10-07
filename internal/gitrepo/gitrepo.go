@@ -49,7 +49,7 @@ func (r Repo) Root() string {
 // dangerous, but git push is not scoped to files at all — it pushes the
 // *whole* current branch — and a workspace that's really just a
 // subdirectory of some larger, unrelated repository (e.g. orgtd's own
-// testdata/orgdir, nested inside this very repo) must never have that run
+// testdata/minimal, nested inside this very repo) must never have that run
 // against it. Paths are compared after resolving symlinks (see
 // filepath.EvalSymlinks) since e.g. macOS routes /tmp and /var through
 // symlinks into /private — comparing raw paths would otherwise misreport

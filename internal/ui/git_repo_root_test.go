@@ -14,7 +14,7 @@ import (
 // dir, with its one tracked org file inside a subdirectory ("orgs/") —
 // so the *workspace* (which only ever points at that subdirectory) is
 // nested inside a larger repository, not the root of it. Mirrors, for
-// example, this very project's testdata/orgdir sitting inside the
+// example, this very project's testdata/minimal sitting inside the
 // orgtd repo itself.
 func gitRepoWithNestedWorkspace(t *testing.T, committed, dirty string) *workspace.Workspace {
 	t.Helper()

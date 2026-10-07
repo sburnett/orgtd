@@ -1,0 +1,54 @@
+#+TITLE: Personal
+
+* Home   :home:
+** TODO Replace the bathroom fan
+   :PROPERTIES:
+   :CREATED: [2026-09-14 Mon 19:30]
+   :END:
+*** DONE Measure the duct opening
+    CLOSED: [2026-09-20 Sun 11:00]
+*** NEXT Order a 110 CFM fan
+    SCHEDULED: <2026-10-10 Sat>
+*** TODO Install it (needs a second pair of hands)
+** TODO Schedule furnace maintenance before it gets cold
+   DEADLINE: <2026-10-31 Sat>
+** TODO Clean the gutters
+   SCHEDULED: <2026-10-11 Sun>
+** WAITING Contractor quote for fence repair   :@fence_guy:
+   :PROPERTIES:
+   :CREATED: [2026-09-26 Sat 09:40]
+   :END:
+   Said he'd email a quote by the end of the week of Sep 28.
+** SOMEDAY Build a standing desk for the office
+
+* Health   :health:
+** TODO Annual physical
+   DEADLINE: <2026-11-15 Sun>
+** NEXT Call the vet about Fido's checkup
+   SCHEDULED: <2026-10-07 Wed>
+** TODO Dentist cleaning follow-up
+   SCHEDULED: <2026-10-15 Thu>
+
+* Finance   :money:
+** TODO File the Q3 estimated tax payment
+   DEADLINE: <2026-10-15 Thu>
+** TODO Review the 529 contribution
+** DONE Renew car registration
+   CLOSED: [2026-09-30 Wed 12:30]
+** TODO Pay credit card
+   SCHEDULED: <2026-10-20 Tue +1m>
+
+* Errands
+** TODO Pick up the dry cleaning
+** TODO Return the Amazon package
+   DEADLINE: <2026-10-08 Thu>
+** TODO Buy a birthday gift for Sam
+   DEADLINE: <2026-10-18 Sun>
+
+* Reading and learning   :learning:
+** TODO Read "Designing Data-Intensive Applications", ch. 7-9
+** SOMEDAY Learn some Rust
+** SOMEDAY Take a pottery class
+** CANCELLED Finish the half-built Raspberry Pi project
+   CLOSED: [2026-09-10 Thu 20:00]
+   Not going to happen. Parts are in the closet if I change my mind.

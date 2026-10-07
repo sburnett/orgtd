@@ -1,0 +1,11 @@
+#+TITLE: Meeting tags
+
+* Planning cadence   :planning:
+  :PROPERTIES:
+  :MEETING_TAG_RECURRING_EVENT_IDS: rec_planning
+  :MEETING_TAG_EVENT_IDS: evt_2837d169a7d6bd412ea9
+  :END:
+* Incident follow-ups   :oncall:
+  :PROPERTIES:
+  :MEETING_TAG_EVENT_IDS: evt_incident_review_old_series
+  :END:

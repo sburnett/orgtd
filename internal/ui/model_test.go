@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 func cursorStyleSGR() string { return ansiEscapeRe.FindString((Model{}).cursorStyle().Render("x")) }
 func caretStyleSGR() string  { return ansiEscapeRe.FindString((Model{}).caretStyle().Render("x")) }
 
-// loadFixture loads a workspace over a scratch copy of testdata/orgdir,
+// loadFixture loads a workspace over a scratch copy of testdata/minimal,
 // so that no test — including one that only opens `$EDITOR` (which now
 // writes a scratch/ file under the org dir itself; see
 // Model.scratchFilePath) or runs `:w` — ever touches the checked-in
@@ -71,7 +71,7 @@ func loadFixture(t *testing.T) *workspace.Workspace {
 // (e.g. a test that writes to disk).
 func loadFixtureCopy(t *testing.T) *workspace.Workspace {
 	t.Helper()
-	src := "../../testdata/orgdir"
+	src := "../../testdata/minimal"
 	dst := t.TempDir()
 
 	entries, err := os.ReadDir(src)
@@ -391,7 +391,7 @@ func TestMoveDeeperAndShallower(t *testing.T) {
 // already on a file's header row: rather than getting stuck in place, it
 // should move to the previous file's header row. It looks up whichever
 // file actually precedes "projects.org" rather than assuming it's
-// "inbox.org", since the shared testdata/orgdir fixture directory may
+// "inbox.org", since the shared testdata/minimal fixture directory may
 // have other files in it too.
 func TestMoveShallowerFromFileRowGoesToPreviousFile(t *testing.T) {
 	ws := loadFixture(t)

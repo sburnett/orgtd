@@ -1,0 +1,132 @@
+#+TITLE: Work
+
+* Platform API v2   :platform:
+  :PROPERTIES:
+  :CREATED: [2026-08-12 Wed 10:05]
+  :END:
+  Replace the v1 REST surface with a versioned API. Target GA is the end
+  of Q4; the migration guide is the long pole.
+** NEXT Finalize the versioning scheme decision   :@priya:
+   DEADLINE: <2026-10-09 Fri>
+   :PROPERTIES:
+   :CREATED: [2026-09-30 Wed 14:20]
+   :GCAL_EVENT_IDS: evt_22502aff8e3b08de65e3
+   :GCAL_EVENT_LINKS: [[https://calendar.google.com/calendar/event?eid=evt_22502aff8e3b08de65e3][API versioning design review]]
+   :END:
+   Options on the table: URL path (/v2/), header negotiation, or date-based
+   versions. See the RFC linked from the design review.
+*** DONE Write up the three options with tradeoffs
+    CLOSED: [2026-10-02 Fri 16:40]
+    :PROPERTIES:
+    :CREATED: [2026-09-30 Wed 14:25]
+    :END:
+*** NEXT Collect feedback from the SDK team
+    SCHEDULED: <2026-10-07 Wed>
+    :PROPERTIES:
+    :CREATED: [2026-10-02 Fri 16:45]
+    :END:
+*** TODO Update the RFC with the decision
+** TODO Implement request routing for /v2
+   :PROPERTIES:
+   :CREATED: [2026-09-18 Fri 09:12]
+   :END:
+*** TODO Router skeleton with version negotiation
+**** NEXT Add version middleware
+     SCHEDULED: <2026-10-08 Thu>
+     :PROPERTIES:
+     :CREATED: [2026-10-01 Thu 11:00]
+     :END:
+     Should default to the latest stable version when no version is given,
+     and reject unknown versions with a 400.
+**** TODO Table-driven tests for negotiation edge cases
+**** TODO Benchmark routing overhead against v1
+*** TODO Port the /users endpoints
+**** TODO Port GET /users and GET /users/{id}
+**** TODO Port the mutating endpoints
+***** TODO POST /users
+***** TODO PATCH /users/{id}
+***** TODO DELETE /users/{id}
+** WAITING Security review of the new auth flow   :@carol:
+   :PROPERTIES:
+   :CREATED: [2026-09-22 Tue 13:30]
+   :END:
+   Submitted 2026-09-29. Review queue is about two weeks.
+** TODO Write the v1 -> v2 migration guide
+   DEADLINE: <2026-11-20 Fri>
+   :PROPERTIES:
+   :CREATED: [2026-09-18 Fri 09:30]
+   :END:
+** SOMEDAY GraphQL gateway on top of v2
+
+* Q4 planning   :planning:
+  :PROPERTIES:
+  :CREATED: [2026-09-02 Wed 09:00]
+  :END:
+** NEXT Draft the Q4 goals doc
+   DEADLINE: <2026-10-12 Mon>
+   :PROPERTIES:
+   :CREATED: [2026-09-02 Wed 09:05]
+   :GCAL_EVENT_IDS: evt_2837d169a7d6bd412ea9
+   :GCAL_EVENT_LINKS: [[https://calendar.google.com/calendar/event?eid=evt_2837d169a7d6bd412ea9][Quarterly planning kickoff]]
+   :END:
+** WAITING Q3 actuals from finance   :@carol:
+   DEADLINE: <2026-10-07 Wed>
+   :PROPERTIES:
+   :CREATED: [2026-09-25 Fri 10:15]
+   :GCAL_EVENT_IDS: evt_255158c283c5b59d2e55
+   :END:
+** TODO Headcount proposal for the platform team
+   :PROPERTIES:
+   :CREATED: [2026-09-28 Mon 15:40]
+   :END:
+** TODO Review each team's draft OKRs
+*** TODO Platform
+*** TODO Data
+*** TODO Mobile
+
+* Team and people
+** TODO Prep for 1:1 with Dana   :@dana:
+   SCHEDULED: <2026-10-06 Tue>
+   :PROPERTIES:
+   :CREATED: [2026-10-05 Mon 17:50]
+   :GCAL_RECURRING_EVENT_IDS: rec_dana_1on1
+   :END:
+   - Promo packet timeline
+   - Her feedback on the on-call rotation
+   - Conference travel for November
+** TODO Write Marcus's mid-year review   :@marcus:
+   DEADLINE: <2026-10-16 Fri>
+   :PROPERTIES:
+   :CREATED: [2026-09-21 Mon 08:45]
+   :END:
+** TODO Schedule skip-levels for the month
+   SCHEDULED: <2026-10-05 Mon>
+** DONE Approve Lena's conference request
+   CLOSED: [2026-10-06 Tue 08:10]
+   :PROPERTIES:
+   :CREATED: [2026-10-05 Mon 12:02]
+   :END:
+** DONE Send interview feedback for the senior backend loop
+   CLOSED: [2026-09-28 Mon 18:00]
+
+* Incident: ingest latency   :oncall:
+  :PROPERTIES:
+  :CREATED: [2026-10-03 Sat 21:14]
+  :END:
+** DONE Roll back the batch-size change
+   CLOSED: [2026-10-03 Sat 22:05]
+** NEXT Draft the postmortem timeline
+   SCHEDULED: <2026-10-07 Wed>
+   :PROPERTIES:
+   :CREATED: [2026-10-04 Sun 10:00]
+   :END:
+** TODO Add an alert on p99 ingest latency
+** TODO Load test the new batching under 2x traffic
+
+* Recurring chores
+** TODO Submit weekly status update
+   SCHEDULED: <2026-10-09 Fri +1w>
+** TODO Review dashboards and alert noise
+   SCHEDULED: <2026-10-05 Mon +1w>
+** TODO Rotate the staging credentials
+   SCHEDULED: <2026-09-01 Tue +1m>

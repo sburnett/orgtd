@@ -1,0 +1,14 @@
+#+TITLE: Reference
+
+* Runbooks   :reference:
+** Restarting the ingest workers
+   1. Drain the queue with =ingestctl drain --wait=.
+   2. Roll the deployment: =kubectl rollout restart deploy/ingest=.
+   3. Watch p99 latency on the ingest dashboard for 10 minutes.
+** Rotating on-call
+   The schedule lives in the shared calendar; swaps go through the
+   #oncall channel and must be confirmed by both parties.
+* Useful links   :reference:
+** [[https://example.com/wiki/platform][Platform wiki]]
+** [[https://example.com/dashboards/ingest][Ingest dashboard]]
+** [[https://example.com/rfcs][RFC index]]

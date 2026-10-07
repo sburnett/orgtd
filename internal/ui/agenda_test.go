@@ -20,7 +20,7 @@ func ts(t time.Time) string {
 
 // agendaFixture builds a workspace over a single in-memory org file, so
 // agenda tests can use dates relative to the real clock without
-// depending on (or polluting) the shared testdata/orgdir fixture.
+// depending on (or polluting) the shared testdata/minimal fixture.
 func agendaFixture(t *testing.T, orgText string) *workspace.Workspace {
 	t.Helper()
 	f, err := org.Parse(strings.NewReader(orgText), "agenda.org")

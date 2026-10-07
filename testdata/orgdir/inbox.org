@@ -1,22 +1,37 @@
 #+TITLE: Inbox
 
-* TODO Call the vet about Fido's checkup
+* TODO Reply to Dana about the on-call rotation proposal
   :PROPERTIES:
-  :ID:           1f2a3b4c-0001
-  :CAPTURED_AT:  [2026-09-05 Sat 09:12]
+  :CREATED: [2026-10-06 Tue 07:48]
   :END:
-
+* TODO Look into why the staging deploy took 40 minutes
+  :PROPERTIES:
+  :CREATED: [2026-10-05 Mon 15:22]
+  :END:
+  Noticed during the afternoon release. Might just be the image cache.
 * TODO Read the RFC linked in yesterday's design review
   :PROPERTIES:
-  :ID:           1f2a3b4c-0002
-  :CAPTURED_AT:  [2026-09-05 Sat 16:44]
+  :CREATED: [2026-10-05 Mon 11:30]
+  :GCAL_EVENT_IDS: evt_22502aff8e3b08de65e3
   :END:
-  Came up in the API versioning discussion.
-
-* TODO Follow up with finance about the Q3 budget doc
-  DEADLINE: <2026-09-12 Sat>
+* TODO Ask finance whether the Q4 budget doc is final
+  DEADLINE: <2026-10-09 Fri>
   :PROPERTIES:
-  :ID:           1f2a3b4c-0003
-  :CAPTURED_AT:  [2026-09-06 Sun 08:03]
-  :GCAL_EVENT_IDS: evt_finance_sync_0906
+  :CREATED: [2026-10-04 Sun 20:15]
+  :END:
+* TODO Book flights for the November offsite
+  :PROPERTIES:
+  :CREATED: [2026-10-03 Sat 09:05]
+  :END:
+* TODO Idea: a weekly "what broke" digest for the team   :ideas:
+  :PROPERTIES:
+  :CREATED: [2026-10-02 Fri 17:40]
+  :END:
+* TODO https://example.com/blog/postgres-connection-pooling
+  :PROPERTIES:
+  :CREATED: [2026-10-01 Thu 12:10]
+  :END:
+* TODO Gift ideas for Mom's birthday
+  :PROPERTIES:
+  :CREATED: [2026-09-29 Tue 21:00]
   :END:

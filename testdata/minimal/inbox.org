@@ -1,0 +1,22 @@
+#+TITLE: Inbox
+
+* TODO Call the vet about Fido's checkup
+  :PROPERTIES:
+  :ID:           1f2a3b4c-0001
+  :CAPTURED_AT:  [2026-09-05 Sat 09:12]
+  :END:
+
+* TODO Read the RFC linked in yesterday's design review
+  :PROPERTIES:
+  :ID:           1f2a3b4c-0002
+  :CAPTURED_AT:  [2026-09-05 Sat 16:44]
+  :END:
+  Came up in the API versioning discussion.
+
+* TODO Follow up with finance about the Q3 budget doc
+  DEADLINE: <2026-09-12 Sat>
+  :PROPERTIES:
+  :ID:           1f2a3b4c-0003
+  :CAPTURED_AT:  [2026-09-06 Sun 08:03]
+  :GCAL_EVENT_IDS: evt_finance_sync_0906
+  :END:
