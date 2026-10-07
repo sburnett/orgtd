@@ -197,7 +197,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	// rowHeadline: an ordinary outline entry.
 
 	h := r.headline
-	indent := bgSpan(bg, strings.Repeat("  ", h.Level))
+	indent := m.indentGuides(h.Parent, h.Level, m.guideScope(), bg)
 
 	fold := bgSpan(bg, " ")
 	if hasFoldableContent(h) {
@@ -496,8 +496,15 @@ func sameLocalDay(a, b time.Time) bool {
 // addressable item — that state lives on the headline's own row), shown
 // in a muted style so it doesn't compete visually with real entries.
 func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
-	indent := strings.Repeat("  ", r.level)
-	blanks := bgSpan(bg, "     "+indent+"  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
+	// Guides run through a body line too, including its owner's own (the
+	// column its children's fold arrows would hang from), when it has
+	// children below.
+	owner := r.headline.Parent
+	if len(r.headline.Children) > 0 {
+		owner = r.headline
+	}
+	indent := m.indentGuides(owner, r.level, m.guideScope(), bg)
+	blanks := bgSpan(bg, "     ") + indent + bgSpan(bg, "  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
 	style := m.fadeIfImmutable(m.bodyStyle(), r.headline).Background(bg)
 	return blanks + m.highlightMatches(strings.TrimSpace(r.text), m.activeSearchQuery(), style)
 }
@@ -514,4 +521,66 @@ func planningSummary(h *org.Headline) string {
 		parts = append(parts, "CLOSED: "+h.Closed.String())
 	}
 	return strings.Join(parts, "  ")
+}
+
+const (
+	defaultGuideColor      = "#444444" // dim: just enough to follow with the eye
+	defaultGuideScopeColor = "#8a8a8a" // brighter: the cursor's own sibling group
+)
+
+// guideScope returns the headline whose children are the cursor row's
+// siblings — the cursor headline's parent, or, on a body line, the
+// owning headline itself — so indentGuides can draw that one guide
+// brighter. nil when the cursor is on a top-level entry or a non-outline
+// row.
+func (m Model) guideScope() *org.Headline {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return nil
+	}
+	c := m.rows[m.cursor]
+	switch c.kind {
+	case rowHeadline:
+		return c.headline.Parent
+	case rowBody:
+		return c.headline
+	}
+	return nil
+}
+
+// indentGuides renders the level*2-column indent of an outline row whose
+// nearest ancestor to draw a guide for is innermost: a vertical bar sits
+// under each ancestor's fold arrow, so the rows of one sibling group are
+// visibly bracketed by the line running down the column to their left.
+// The guide for scope (see guideScope) is drawn brighter. Levels are
+// 1-based, so level L has L-1 ancestors whose arrows are at columns
+// 2*k; the rest of the indent is blank.
+func (m Model) indentGuides(innermost *org.Headline, level int, scope *org.Headline, bg lipgloss.TerminalColor) string {
+	cols := make([]string, level*2)
+	for i := range cols {
+		cols[i] = " "
+	}
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(defaultGuideColor)).Background(bg)
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color(defaultGuideScopeColor)).Background(bg)
+	styled := make(map[int]lipgloss.Style)
+	for a := innermost; a != nil; a = a.Parent {
+		col := a.Level * 2
+		if col >= len(cols) {
+			continue
+		}
+		cols[col] = "│"
+		if a == scope {
+			styled[col] = bright
+		} else {
+			styled[col] = dim
+		}
+	}
+	var b strings.Builder
+	for i, c := range cols {
+		if st, ok := styled[i]; ok {
+			b.WriteString(st.Render(c))
+		} else {
+			b.WriteString(bgSpan(bg, c))
+		}
+	}
+	return b.String()
 }
