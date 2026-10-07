@@ -70,6 +70,11 @@ const (
 	// panel color.
 	defaultPanelBg = "#303030"
 
+	// defaultPanelFg is the text color for the info buffer's plain
+	// items (links, meetings, completions) — much brighter than the
+	// muted status color, which is hard to read on the panel tint.
+	defaultPanelFg = "#d0d0d0"
+
 	// defaultStatusBarBg/Fg tint the one-line status bar at the bottom of
 	// the screen (see normalStatusLine) — wildcharm's StatusLine, which
 	// is defined as light-grey-on-black with a "reverse" attribute;
@@ -192,6 +197,11 @@ func (m Model) cursorStyle() lipgloss.Style {
 // status and "gM" meeting pickers).
 func (m Model) overlayBg() lipgloss.TerminalColor {
 	return lipgloss.Color(orDefault(m.cfg.Colors.PanelBg, defaultPanelBg))
+}
+
+// panelFgStyle is for plain item text within the info buffer.
+func (m Model) panelFgStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.PanelFg, defaultPanelFg)))
 }
 
 // statusBarBg/statusBarFg tint the one-line status bar at the bottom of

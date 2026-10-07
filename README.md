@@ -141,6 +141,7 @@ caret_fg                = "#000000"  # the command line's text-cursor caret
 caret_bg                = "#ffffff"
 highlight_bg            = "#585858"  # the highlighted candidate in an overlay list (the "R"/status picker, "gM"'s meeting picker)
 panel_bg                = "#303030"  # the info buffer (review/marks/register, links, meeting detail, completions, pickers)
+panel_fg                = "#d0d0d0"  # the plain item text in the info buffer's links, meeting and completion lists
 status_bar_fg           = "#000000"  # the one-line status bar at the bottom of the screen
 status_bar_bg           = "#9e9e9e"
 cursor_row_bg           = "#204060"  # the row under the cursor

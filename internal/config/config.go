@@ -191,6 +191,10 @@ type ColorsConfig struct {
 	// "gM" meeting pickers) (default: a dark grey).
 	PanelBg string `toml:"panel_bg"`
 
+	// PanelFg colors the plain item text in the info buffer's Links/
+	// Meeting sections and completion lists (default: a light grey).
+	PanelFg string `toml:"panel_fg"`
+
 	// StatusBarBg/StatusBarFg color the one-line status bar at the bottom
 	// of the screen (defaults: black on a light grey).
 	StatusBarBg string `toml:"status_bar_bg"`

@@ -271,7 +271,7 @@ func (m *Model) infoBufferLines() []string {
 func (m Model) appendInfoSection(lines []string, label string, items []string) []string {
 	rendered := make([]string, len(items))
 	for i, item := range items {
-		rendered[i] = m.statusStyle().Background(m.overlayBg()).Render(" " + item)
+		rendered[i] = m.panelFgStyle().Background(m.overlayBg()).Render(" " + item)
 	}
 	return m.appendInfoSectionRendered(lines, label, rendered)
 }

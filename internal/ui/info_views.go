@@ -133,7 +133,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		orDefault(m.cfg.Icons.LockIcon, defaultLockIcon), orDefault(m.cfg.Icons.LockColor, defaultLockColor),
 		orDefault(m.cfg.Icons.MeetingIcon, defaultMeetingIcon), orDefault(m.cfg.Icons.MeetingColor, defaultMeetingColor))
 
-	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), status-bar (%s on %s), cursor-row (%s), visual-selection (%s), search-highlight (%s)",
+	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), panel-fg (%s), status-bar (%s on %s), cursor-row (%s), visual-selection (%s), search-highlight (%s)",
 		orDefault(m.cfg.Colors.File, defaultFileColor),
 		orDefault(m.cfg.Colors.TODO, defaultTODOColor),
 		orDefault(m.cfg.Colors.Next, defaultNextColor),
@@ -150,6 +150,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		orDefault(m.cfg.Colors.CaretFg, defaultCaretFg), orDefault(m.cfg.Colors.CaretBg, defaultCaretBg),
 		orDefault(m.cfg.Colors.HighlightBg, defaultHighlightBg),
 		orDefault(m.cfg.Colors.PanelBg, defaultPanelBg),
+		orDefault(m.cfg.Colors.PanelFg, defaultPanelFg),
 		orDefault(m.cfg.Colors.StatusBarFg, defaultStatusBarFg), orDefault(m.cfg.Colors.StatusBarBg, defaultStatusBarBg),
 		orDefault(m.cfg.Colors.CursorRowBg, defaultCursorRowBg),
 		orDefault(m.cfg.Colors.VisualSelectionBg, defaultVisualSelectionBg),
