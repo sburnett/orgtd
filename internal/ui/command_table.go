@@ -90,18 +90,19 @@ func init() {
 			m.message = "Registers cleared"
 			return nil
 		}},
+		{names: []string{"review"}, run: func(m *Model, _ string) tea.Cmd { m.toggleReview(); return nil }},
 		{names: []string{"toggledone"}, run: func(m *Model, _ string) tea.Cmd { m.toggleHideDone(); return nil }},
 		{names: []string{"next"}, run: func(m *Model, _ string) tea.Cmd {
-			if m.view != reviewView {
-				m.message = ":next only works in review view"
+			if !m.reviewActive {
+				m.message = ":next only works while reviewing (:review)"
 			} else {
 				m.reviewStep(1)
 			}
 			return nil
 		}},
 		{names: []string{"prev"}, run: func(m *Model, _ string) tea.Cmd {
-			if m.view != reviewView {
-				m.message = ":prev only works in review view"
+			if !m.reviewActive {
+				m.message = ":prev only works while reviewing (:review)"
 			} else {
 				m.reviewStep(-1)
 			}

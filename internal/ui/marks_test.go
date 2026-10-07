@@ -289,7 +289,7 @@ func TestMarksVisibleInEveryView(t *testing.T) {
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
 
-	for _, v := range []viewKind{outlineView, agendaView, reviewView} {
+	for _, v := range []viewKind{outlineView, agendaView} {
 		m.switchToView(v)
 		if len(m.infoBufferLines()) == 0 {
 			t.Errorf("view %v: infoBufferLines is empty, want the 'a' mark to still show", v)

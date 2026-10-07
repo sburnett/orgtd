@@ -18,7 +18,7 @@ import (
 //   - 'a'-'z' — a named register, filled by "ayy, "add and so on.
 //     'A'-'Z' reads the same register as its lowercase letter.
 //   - '%' — read-only: the entry :review is currently pinning (empty
-//     outside review view, or when the inbox has nothing pending), so
+//     while review is off, or when the inbox has nothing pending), so
 //     "%p/"%P pastes a copy of it.
 //
 // An unknown name holds nothing.
@@ -31,7 +31,7 @@ func (m *Model) registerContents(name rune) []*org.Headline {
 	case name >= 'A' && name <= 'Z':
 		return m.namedRegisters[name-'A'+'a']
 	case name == '%':
-		if m.view == reviewView && m.reviewTarget != nil {
+		if m.reviewActive && m.reviewTarget != nil {
 			return []*org.Headline{m.reviewTarget}
 		}
 	}
@@ -100,12 +100,13 @@ func (m *Model) namedRegisterNames() []rune {
 	return names
 }
 
-// clearRegisters empties the unnamed and every named register (the "%"
-// register isn't stored, so there's nothing to clear there), including
-// the numbered ones.
+// clearRegisters empties the unnamed register and every named and
+// numbered one, and turns the "%" register off (it isn't stored, so
+// "clearing" it means unpinning the review target).
 func (m *Model) clearRegisters() {
 	m.register = nil
 	m.namedRegisters = nil
+	m.deactivateReview()
 }
 
 // refuseReadOnlyRegister reports (with a status message) whether the

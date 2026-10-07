@@ -212,7 +212,7 @@ including its known weak points, so changes can be made deliberately.
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch (both run formatters through `internal/extprog`) |
 | `gitops.go` | `:diff`/`:commit` UI flow (confirm prompts, diff rows, background commit+push) over `internal/gitrepo` |
-| `review.go`, `marks.go`, `jumplist.go` | `:review` target, vim-style marks, ctrl-o/`gi` jump list and view switching |
+| `review.go`, `marks.go`, `jumplist.go` | `:review` target (the `%` register, toggled by `:review`), vim-style marks, ctrl-o/`gi` jump list and view switching |
 | `style.go` | Color/icon resolution, text-width and highlight helpers |
 | `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |
 | `view.go`, `info_buffer.go` | `View`, status line; the info buffer's sections and pinned register/marks |
@@ -237,9 +237,9 @@ it. `rebuildRows` repopulates it by calling the current view's `build`
 function. **Everything that varies per view lives in one `viewSpec`** in
 `views.go`'s `viewSpecs` table — its `:command`, status-line label, row
 builder, whether its rows fold, the empty-state message, what Enter does,
-any `open` preparation (review, calendar, diff), and info-buffer lines —
+any `open` preparation (calendar, diff), and info-buffer lines —
 and the rest of the package asks the spec instead of switching on
-`m.view`. The views are outline, agenda, review, config, log, diff, help,
+`m.view`. The views are outline, agenda, config, log, diff, help,
 calendar, meetingTags, tags and reference. A `row` (`row.go`) carries a `kind`
 (`rowHeadline`, `rowFile`, `rowBody`, `rowSection`, `rowText`,
 `rowAgendaItem`, `rowMeetingHeader`, `rowCalendarEvent`,
@@ -411,7 +411,7 @@ CONCEPT.md's vision still describes the direction, but these pieces do
 not exist, so don't look for them in the code:
 
 - **Guided inbox processing** (a `p` key walking an item into a
-  project). `:review` is the implemented workflow instead: it pins the
+  project). `:review` is the implemented workflow instead: it toggles the `%` register, which pins the
   inbox's next item while you navigate and re-file it by hand.
 - **Meeting capture from Google Docs action items.** Only Calendar is
   integrated; there is no Docs/Drive/Meet client. Capture-time meeting

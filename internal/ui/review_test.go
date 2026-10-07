@@ -5,40 +5,63 @@ import (
 	"testing"
 )
 
-func TestReviewCommandPinsFirstInboxItem(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
+func TestReviewCommandTogglesPercentRegisterWithoutChangingView(t *testing.T) {
+	for _, cmd := range []string{"review"} {
+		m := New(loadFixture(t))
+		cursor := m.cursor
 
-	m = sendKey(m, ":")
-	m = typeKeys(m, "review")
-	m, _ = sendKeyCmd(m, "enter")
+		m = sendKey(m, ":")
+		m = typeKeys(m, cmd)
+		m, _ = sendKeyCmd(m, "enter")
 
-	if m.view != reviewView {
-		t.Fatalf("view after :review = %v, want reviewView", m.view)
-	}
-	if m.reviewTarget == nil || m.reviewTarget.Title != "Call the vet about Fido's checkup" {
-		t.Fatalf("reviewTarget = %v, want the inbox's first headline", m.reviewTarget)
+		if m.view != outlineView || m.cursor != cursor {
+			t.Fatalf(":%s changed the view (%v) or cursor (%d→%d)", cmd, m.view, cursor, m.cursor)
+		}
+		if m.reviewTarget == nil || m.reviewTarget.Title != "Call the vet about Fido's checkup" {
+			t.Fatalf("reviewTarget after :%s = %v, want the inbox's first headline", cmd, m.reviewTarget)
+		}
+
+		m = sendKey(m, ":")
+		m = typeKeys(m, cmd)
+		m, _ = sendKeyCmd(m, "enter")
+		if m.reviewActive || m.reviewTarget != nil || m.registerContents('%') != nil {
+			t.Errorf("second :%s left review on", cmd)
+		}
 	}
 }
 
-func TestReviewBackToOutlineViaCommand(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	m.enterReviewView()
-
+func TestClearRegistersTurnsReviewOff(t *testing.T) {
+	m := New(loadFixture(t))
+	m.activateReview()
 	m = sendKey(m, ":")
-	m = typeKeys(m, "outline")
+	m = typeKeys(m, "clear-registers")
 	m, _ = sendKeyCmd(m, "enter")
+	if m.reviewActive || m.registerContents('%') != nil {
+		t.Errorf(":clear-registers left the %% register on")
+	}
+}
 
-	if m.view != outlineView {
-		t.Fatalf("view after :outline = %v, want outlineView", m.view)
+func TestReviewWorksInEveryView(t *testing.T) {
+	m := New(loadFixture(t))
+	m.activateReview()
+	first := m.reviewTarget
+	m.switchToView(agendaView)
+	if got := m.registerContents('%'); len(got) != 1 || got[0] != first {
+		t.Errorf("register %% in agenda view = %v, want the review target", got)
+	}
+	if len(m.infoBufferLines()) == 0 {
+		t.Errorf("agenda view's info buffer is empty, want the %% register")
+	}
+	m = typeKeys(m, "gc")
+	if m.view != outlineView || m.currentHeadline() != first {
+		t.Errorf("gc from agenda: view = %v, cursor on %v, want the target in the outline", m.view, m.currentHeadline())
 	}
 }
 
 func TestReviewHeaderRendersPinnedItem(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 
 	lines := stripANSILines(m.infoBufferLines())
 
@@ -56,7 +79,7 @@ func TestReviewHeaderRendersPinnedItem(t *testing.T) {
 func TestReviewHeaderShowsCreatedProperty(t *testing.T) {
 	ws := agendaFixture(t, "* TODO New idea\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "Created: [2026-09-07 Mon 14:32]") {
@@ -67,7 +90,7 @@ func TestReviewHeaderShowsCreatedProperty(t *testing.T) {
 func TestReviewHeaderOmitsCreatedLabelWhenPropertyAbsent(t *testing.T) {
 	ws := agendaFixture(t, "* TODO No created property\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	lines := stripANSILines(m.infoBufferLines())
 	if strings.Contains(lines[1], "Created:") {
@@ -78,7 +101,7 @@ func TestReviewHeaderOmitsCreatedLabelWhenPropertyAbsent(t *testing.T) {
 func TestReviewHeaderShowsDeadline(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Follow up\n  DEADLINE: <2026-09-20 Sun>\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "DEADLINE: <2026-09-20 Sun>") {
@@ -89,7 +112,7 @@ func TestReviewHeaderShowsDeadline(t *testing.T) {
 func TestReviewHeaderShowsScheduled(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Follow up\n  SCHEDULED: <2026-09-10 Thu>\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "SCHEDULED: <2026-09-10 Thu>") {
@@ -100,7 +123,7 @@ func TestReviewHeaderShowsScheduled(t *testing.T) {
 func TestReviewHeaderShowsCreatedAndDeadlineTogether(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Follow up\n  DEADLINE: <2026-09-20 Sun>\n  :PROPERTIES:\n  :CREATED: [2026-09-07 Mon 14:32]\n  :END:\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	lines := stripANSILines(m.infoBufferLines())
 	if !strings.Contains(lines[1], "Created: [2026-09-07 Mon 14:32]") || !strings.Contains(lines[1], "DEADLINE: <2026-09-20 Sun>") {
@@ -111,7 +134,7 @@ func TestReviewHeaderShowsCreatedAndDeadlineTogether(t *testing.T) {
 func TestReviewHeaderOmitsDateWhenAbsent(t *testing.T) {
 	ws := agendaFixture(t, "* TODO No date at all\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	lines := stripANSILines(m.infoBufferLines())
 	for _, want := range []string{"SCHEDULED:", "DEADLINE:", "CLOSED:"} {
@@ -162,7 +185,7 @@ func TestMarkedRowDoesNotShowCreatedProperty(t *testing.T) {
 func TestReviewSeparatorLineCarriesOverlayBackground(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	m.width = 100
 
 	lines := m.infoBufferLines()
@@ -178,7 +201,7 @@ func TestReviewSeparatorLineCarriesOverlayBackground(t *testing.T) {
 func TestReviewMarksTheRealRowInTheListing(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 
 	target := m.reviewTarget
 	idx := findRow(t, m, target.Title)
@@ -208,7 +231,7 @@ func TestReviewMarkerAbsentInOutlineView(t *testing.T) {
 func TestReviewEmptyInboxShowsMessage(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Not in the inbox\n") // agenda.org, not inbox.org
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 
 	if m.reviewTarget != nil {
@@ -228,9 +251,9 @@ func TestPercentRegisterHoldsReviewTargetOnlyInReviewView(t *testing.T) {
 	if got := m.registerContents('%'); got != nil {
 		t.Errorf("register %% in outline view = %v, want empty", got)
 	}
-	m.enterReviewView()
+	m.activateReview()
 	if got := m.registerContents('%'); len(got) != 1 || got[0] != m.reviewTarget {
-		t.Errorf("register %% in review view = %v, want the review target", got)
+		t.Errorf("register %% while reviewing = %v, want the review target", got)
 	}
 }
 
@@ -238,7 +261,7 @@ func TestPercentRegisterPasteAfterAndBefore(t *testing.T) {
 	for _, key := range []string{"p", "P"} {
 		ws := loadFixture(t)
 		m := New(ws)
-		m.enterReviewView()
+		m.activateReview()
 		title := m.reviewTarget.Title
 		count := func() (n int) {
 			for _, r := range m.rows {
@@ -270,7 +293,7 @@ func TestPercentRegisterPasteAfterAndBefore(t *testing.T) {
 func TestPercentRegisterIsReadOnly(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	n := len(m.rows)
 
 	m = sendKey(m, "\"")
@@ -289,7 +312,7 @@ func TestPercentRegisterIsReadOnly(t *testing.T) {
 func TestRegisterPrefixOnlyAppliesToNextCommand(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	m.register = nil
 
 	m = sendKey(m, "\"")
@@ -315,7 +338,7 @@ func TestUnknownRegisterIsRejected(t *testing.T) {
 func TestReviewDeletingTargetAdvancesToNextInboxItem(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	first := m.reviewTarget
 
 	m = sendKey(m, "g")
@@ -336,7 +359,7 @@ func TestReviewDeletingLastInboxItemLeavesEmptyTarget(t *testing.T) {
 	// in-memory "agenda.org" fixture stands in for the inbox).
 	ws := agendaFixture(t, "* TODO Only item\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 	if m.reviewTarget == nil || m.reviewTarget.Title != "Only item" {
 		t.Fatalf("fixture assumption broken: reviewTarget = %v", m.reviewTarget)
 	}
@@ -354,7 +377,7 @@ func TestReviewDeletingLastInboxItemLeavesEmptyTarget(t *testing.T) {
 func TestJumpToReviewTargetMovesCursorToRealRow(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	m.cursor = findFileRow(t, m, "projects.org") // navigate away
 
 	m = sendKey(m, "g")
@@ -374,14 +397,14 @@ func TestJumpToReviewTargetNoopOutsideReviewView(t *testing.T) {
 	m = sendKey(m, "c")
 
 	if m.cursor != before {
-		t.Errorf("gc outside review view moved the cursor to %d, want unchanged %d", m.cursor, before)
+		t.Errorf("gc with review off moved the cursor to %d, want unchanged %d", m.cursor, before)
 	}
 }
 
 func TestReviewEditingWorksNormallyOnTheRealRow(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	h := m.reviewTarget
 	origKeyword := h.Keyword
 
@@ -390,14 +413,14 @@ func TestReviewEditingWorksNormallyOnTheRealRow(t *testing.T) {
 	m = setStatus(m, "n") // TODO -> NEXT
 
 	if h.Keyword == origKeyword {
-		t.Errorf("status change in review view did not change the keyword")
+		t.Errorf("status change while reviewing did not change the keyword")
 	}
 }
 
 func TestReviewTargetSurvivesEditingIt(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	old := m.reviewTarget
 
 	m = sendKey(m, "g")
@@ -417,7 +440,7 @@ func TestReviewTargetSurvivesEditingIt(t *testing.T) {
 func TestReviewEnterSkipsLeadingDoneAndCancelledItems(t *testing.T) {
 	ws := agendaFixture(t, "* DONE Old resolved\n* CANCELLED Also resolved\n* TODO Real work\n* TODO More work\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	if m.reviewTarget == nil || m.reviewTarget.Title != "Real work" {
 		t.Fatalf("reviewTarget = %v, want the first non-done item", m.reviewTarget)
@@ -427,7 +450,7 @@ func TestReviewEnterSkipsLeadingDoneAndCancelledItems(t *testing.T) {
 func TestReviewAllItemsDoneLeavesNilTarget(t *testing.T) {
 	ws := agendaFixture(t, "* DONE One\n* CANCELLED Two\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	if m.reviewTarget != nil {
 		t.Errorf("reviewTarget = %v, want nil (every inbox item is done)", m.reviewTarget)
@@ -437,7 +460,7 @@ func TestReviewAllItemsDoneLeavesNilTarget(t *testing.T) {
 func TestReviewMarkingTargetDoneAdvancesToNextPendingItem(t *testing.T) {
 	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 	first := m.reviewTarget
 
 	m = sendKey(m, "g")
@@ -456,7 +479,7 @@ func TestReviewMarkingTargetDoneAdvancesToNextPendingItem(t *testing.T) {
 func TestReviewMarkingTargetDoneWithNoOtherPendingItemsLeavesNilTarget(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Only item\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "c")
@@ -474,7 +497,7 @@ func TestReviewBulkStatusChangeAdvancesPastTarget(t *testing.T) {
 	// on Third, exactly as if they'd been marked done individually.
 	ws := agendaFixture(t, "* TODO First\n* TODO Second\n* TODO Third\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "c")
@@ -490,7 +513,7 @@ func TestReviewBulkStatusChangeAdvancesPastTarget(t *testing.T) {
 func TestReviewNextCommandSkipsDoneItems(t *testing.T) {
 	ws := agendaFixture(t, "* TODO First\n* DONE Skipped\n* TODO Third\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 	if m.reviewTarget.Title != "First" {
 		t.Fatalf("fixture assumption broken: reviewTarget = %v", m.reviewTarget)
 	}
@@ -507,7 +530,7 @@ func TestReviewNextCommandSkipsDoneItems(t *testing.T) {
 func TestReviewPrevCommandSkipsDoneItems(t *testing.T) {
 	ws := agendaFixture(t, "* TODO First\n* CANCELLED Skipped\n* TODO Third\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 	// Manually advance to Third first, then step back with :prev.
 	f := m.findInboxFile()
 	m.reviewTarget = f.Headlines[2]
@@ -524,7 +547,7 @@ func TestReviewPrevCommandSkipsDoneItems(t *testing.T) {
 func TestReviewNextCommandAtLastItemShowsMessage(t *testing.T) {
 	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 	f := m.findInboxFile()
 	m.reviewTarget = f.Headlines[1] // already the last item
 
@@ -543,7 +566,7 @@ func TestReviewNextCommandAtLastItemShowsMessage(t *testing.T) {
 func TestReviewPrevCommandAtFirstItemShowsMessage(t *testing.T) {
 	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	m = sendKey(m, ":")
 	m = typeKeys(m, "prev")
@@ -560,7 +583,7 @@ func TestReviewPrevCommandAtFirstItemShowsMessage(t *testing.T) {
 func TestNextAndPrevCommandsNoopOutsideReviewView(t *testing.T) {
 	ws := agendaFixture(t, "* TODO First\n* TODO Second\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	// Not entering review view — plain outline view.
+	// Review is off.
 
 	m = sendKey(m, ":")
 	m = typeKeys(m, "next")
@@ -570,14 +593,14 @@ func TestNextAndPrevCommandsNoopOutsideReviewView(t *testing.T) {
 		t.Errorf("view after :next outside review = %v, want unchanged outlineView", m.view)
 	}
 	if m.message == "" {
-		t.Error("expected a message explaining :next only works in review view")
+		t.Error("expected a message explaining :next only works while reviewing")
 	}
 }
 
 func TestWithInboxFileOption(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Custom inbox item\n")
 	m := New(ws, WithInboxFile("agenda.org"))
-	m.enterReviewView()
+	m.activateReview()
 
 	if m.reviewTarget == nil || m.reviewTarget.Title != "Custom inbox item" {
 		t.Errorf("reviewTarget = %v, want the item from the custom inbox file", m.reviewTarget)
@@ -587,7 +610,7 @@ func TestWithInboxFileOption(t *testing.T) {
 func TestReviewPageHeightAccountsForInfoBuffer(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+10
 
 	out := m.View()

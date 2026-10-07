@@ -16,7 +16,6 @@ type viewKind int
 const (
 	outlineView viewKind = iota
 	agendaView
-	reviewView
 	configView
 	logView
 	diffView
@@ -57,8 +56,7 @@ type viewSpec struct {
 	folds bool
 
 	// outlineRows reports whether the view's rows are the full outline,
-	// every loaded file in full (outlineView itself, and reviewView,
-	// which merely adds an info-buffer panel on top of the same rows).
+	// every loaded file in full (outlineView itself).
 	// editor.go uses this to decide whether a freshly captured entry is
 	// already visible where the cursor is, or needs an explicit switch to
 	// the outline to bring it into focus.
@@ -95,13 +93,6 @@ func init() {
 			build:       (*Model).appendOutlineRows,
 			folds:       true,
 			outlineRows: true,
-		},
-		reviewView: {
-			command:     "review",
-			build:       (*Model).appendOutlineRows,
-			folds:       true,
-			outlineRows: true,
-			open:        (*Model).enterReviewView,
 		},
 		agendaView: {
 			command: "agenda",
@@ -204,7 +195,7 @@ func (m *Model) openView(k viewKind) {
 // appendOutlineRows appends the full outline: every loaded file (except
 // the calendar and meeting-tags files, which have views of their own)
 // followed by its headlines. Reference files have :reference instead.
-// Shared by the outline and review views, and by search's fully expanded
+// Used by the outline, and by search's fully expanded
 // copy of either (ignoreFold).
 func (m *Model) appendOutlineRows(dst *[]row, ignoreFold bool) {
 	for _, f := range m.ws.Files {

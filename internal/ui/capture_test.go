@@ -178,10 +178,10 @@ func TestCaptureWorksFromAgendaView(t *testing.T) {
 	}
 }
 
-func TestCaptureWorksFromReviewView(t *testing.T) {
+func TestCaptureWorksWhileReviewing(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	before := len(findInboxHeadlines(t, m))
 
 	m = sendKey(m, "g")
@@ -267,24 +267,21 @@ func TestCaptureFromCalendarViewSwitchesToOutline(t *testing.T) {
 	}
 }
 
-// TestCaptureFromReviewViewStaysInReview checks the flip side of the
-// two tests above: reviewView's rows are the very same full-outline
-// listing outlineView itself shows (see viewSpec.outlineRows) — plus a
-// pinned info-buffer panel — so the newly captured entry is already
-// right there under the cursor once the editor session commits, with
-// no need (and no reason) to switch views out from under an in-progress
-// review session.
-func TestCaptureFromReviewViewStaysInReview(t *testing.T) {
+// TestCaptureWhileReviewingStaysInOutline checks that capturing with
+// the "%" register on doesn't switch views: the outline already shows the
+// newly captured entry right under the cursor once the editor session
+// commits, and the review session carries on undisturbed.
+func TestCaptureWhileReviewingStaysInOutline(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "C")
 	m = commitCapture(t, m, "Buy stamps\n")
 
-	if m.view != reviewView {
-		t.Fatalf("view after capture = %v, want reviewView (unchanged)", m.view)
+	if m.view != outlineView || !m.reviewActive {
+		t.Fatalf("view after capture = %v, reviewActive = %v, want the outline with review still on", m.view, m.reviewActive)
 	}
 	h := m.currentHeadline()
 	if h == nil || h.Title != "Buy stamps" {

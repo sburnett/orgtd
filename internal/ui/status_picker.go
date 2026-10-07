@@ -198,7 +198,7 @@ func (m *Model) currentStatusIndex() int {
 // takes over instead: per org-mode, the keyword never actually changes
 // and the repeating timestamp(s) advance rather than the item closing.
 // See buildStatusChangeAction, which does the actual work (shared with
-// visual-mode R's bulk apply). In review view, this also advances past
+// visual-mode R's bulk apply). While :review is on, this also advances past
 // the pinned target if it just became DONE/CANCELLED (see
 // advanceReviewTargetIfDone).
 func (m *Model) applyStatus(keyword string) {

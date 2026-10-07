@@ -131,7 +131,7 @@
 # dirty_icon    = "+"    # unsaved changes
 # dirty_color   = "9"
 # mark_color    = "212"  # a vim-style mark's own letter ("m<letter>") — no matching icon, since the glyph is the letter itself
-# review_icon  = "●"    # the :review view's pinned inbox item
+# review_icon  = "●"    # the :review pinned inbox item
 # review_color = "212"
 # lock_icon     = "◆"    # locked by an in-flight :format-links batch
 # lock_color    = "208"

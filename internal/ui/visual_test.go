@@ -293,7 +293,7 @@ func TestVisualModeDeleteInReviewViewAdvancesReviewTarget(t *testing.T) {
 	}
 	ws := &workspace.Workspace{Dir: "review-fixture", Files: []*org.File{inbox}}
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	if m.reviewTarget == nil || m.reviewTarget.Title != "A" {
 		t.Fatalf("reviewTarget = %v, want A", m.reviewTarget)
 	}

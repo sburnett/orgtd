@@ -193,7 +193,8 @@ type Model struct {
 	clock func() time.Time
 
 	view         viewKind
-	reviewTarget *org.Headline // the inbox item currently pinned for review, in reviewView; nil if the inbox is empty
+	reviewActive bool          // the "%" register is on (:review): the inbox's current pending item is pinned in reviewTarget, in every view
+	reviewTarget *org.Headline // the inbox item currently pinned for review while reviewActive; nil if the inbox has nothing pending
 
 	// hideDoneEnabled is whether stale DONE/CANCELLED items are currently
 	// hidden from the outline (after cfg.HideDoneAfterHours): off by

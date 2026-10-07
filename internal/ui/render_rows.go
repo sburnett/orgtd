@@ -74,14 +74,14 @@ func (m Model) gutter(dirty bool, bg lipgloss.TerminalColor) string {
 // or agenda view alike — a column of its own, separate from gutter's
 // dirty marker, so a row that's both marked (or the review target) and
 // dirty shows both indicators at once instead of one hiding the other:
-// the review target's marker (review view only, m.cfg.Icons.ReviewIcon/
+// the review target's marker (while :review is on, m.cfg.Icons.ReviewIcon/
 // reviewColor — default "●", "212") takes priority over a mark's
 // letter (m.cfg.Icons.MarkColor — default "212"; there's no configurable icon for
 // a mark, since its glyph is always the letter it was set with), since a
 // row can't be both; blank if neither applies. bg is the background it's
 // rendered with (see gutter).
 func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
-	if m.view == reviewView && h == m.reviewTarget {
+	if m.reviewActive && h == m.reviewTarget {
 		icon := orDefault(m.cfg.Icons.ReviewIcon, defaultReviewIcon)
 		color := orDefault(m.cfg.Icons.ReviewColor, defaultReviewColor)
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)

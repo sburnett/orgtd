@@ -82,7 +82,7 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 		// must see the removal to skip past the deleted entry, not just
 		// re-read the same one that's about to go).
 		for _, t := range targets {
-			if m.view == reviewView && t.h == m.reviewTarget {
+			if m.reviewActive && t.h == m.reviewTarget {
 				m.advanceReviewTarget()
 			}
 			org.Walk([]*org.Headline{t.h}, m.clearMarksFor)
@@ -133,7 +133,7 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 // to descendants on its own, so every headline given is changed
 // independently, not just the topmost ones (callers don't
 // topmost-filter). Grouped into one undo step per file touched, same as
-// deleteHeadlineSet. In review view, also advances past the pinned
+// deleteHeadlineSet. While :review is on, also advances past the pinned
 // target if it just became DONE/CANCELLED (see
 // advanceReviewTargetIfDone).
 func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, label string) {
@@ -228,7 +228,7 @@ func (m *Model) deleteHeadline() {
 	m.storeRegister([]*org.Headline{h}, true)
 	m.pushUndoKeepingCursor(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
 
-	if m.view == reviewView && h == m.reviewTarget {
+	if m.reviewActive && h == m.reviewTarget {
 		m.advanceReviewTarget()
 	}
 	// dd removes h's whole subtree, so a mark on any descendant (not
@@ -239,7 +239,7 @@ func (m *Model) deleteHeadline() {
 // yankHeadline ("yy") copies the current headline (and its whole
 // subtree) into the register for pasting elsewhere with p/P — unlike
 // dd, it leaves the original untouched (in the outline, the agenda, or
-// review view — wherever the cursor happens to be). The register holds
+// the calendar — wherever the cursor happens to be). The register holds
 // an independent snapshot taken now, so later edits to the original
 // before pasting aren't reflected in what gets pasted.
 func (m *Model) yankHeadline() {

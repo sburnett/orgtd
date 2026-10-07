@@ -173,7 +173,7 @@ func TestYankWorksOnAgendaItem(t *testing.T) {
 func TestYankWorksInReviewView(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterReviewView()
+	m.activateReview()
 	m = sendKey(m, "g")
 	m = sendKey(m, "c") // jump to the real row of the review target
 
@@ -181,7 +181,7 @@ func TestYankWorksInReviewView(t *testing.T) {
 	m = sendKey(m, "y")
 
 	if len(m.register) != 1 || m.register[0].Title != m.reviewTarget.Title {
-		t.Errorf("register after yy in review view = %v, want a copy of the review target %v", m.register, m.reviewTarget)
+		t.Errorf("register after yy while reviewing = %v, want a copy of the review target %v", m.register, m.reviewTarget)
 	}
 }
 

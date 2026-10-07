@@ -936,7 +936,7 @@ func TestFinishEditFileClearsMarksAndReviewTargetOnThatFile(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
-	m.enterReviewView()
+	m.activateReview()
 	oldFile := m.ws.Files[0]
 
 	if err := os.WriteFile(oldFile.Path, []byte("#+TITLE: Inbox\n\n* TODO Something else entirely\n"), 0644); err != nil {

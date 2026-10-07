@@ -217,8 +217,8 @@ func (m *Model) infoBufferHeight() int {
 //     (or just "<title>  <url>" if no time could be resolved — see
 //     calendarEventEntry.hasWhen).
 //
-//   - "Registers:" — the read-only "%" register (the review target, in
-//     reviewView) and whatever's queued in the unnamed paste register
+//   - "Registers:" — the read-only "%" register (the review target,
+//     while :review is on) and whatever's queued in the unnamed paste register
 //     (see registerPinnedLines), one row per entry up to
 //     maxRegisterPinnedLines.
 //
