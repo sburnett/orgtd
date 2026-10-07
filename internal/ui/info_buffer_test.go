@@ -13,7 +13,7 @@ import (
 // TestInfoBufferEmptyWhenNothingApplies guards infoBufferHeight/
 // infoBufferLines' "collapses to nothing" convention: a plain entry, in
 // normal mode, with no ambiguous tag/command completion pending, no
-// clarify target, no active marks, and nothing queued in the register,
+// review target, no active marks, and nothing queued in the register,
 // contributes zero lines and zero height — so it never costs a
 // permanent row on screen.
 func TestInfoBufferEmptyWhenNothingApplies(t *testing.T) {

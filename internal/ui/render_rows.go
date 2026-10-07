@@ -70,20 +70,20 @@ func (m Model) gutter(dirty bool, bg lipgloss.TerminalColor) string {
 	return bgSpan(bg, " ")
 }
 
-// markColumn is a headline row's mark/clarify gutter column, in outline
+// markColumn is a headline row's mark/review gutter column, in outline
 // or agenda view alike — a column of its own, separate from gutter's
-// dirty marker, so a row that's both marked (or the clarify target) and
+// dirty marker, so a row that's both marked (or the review target) and
 // dirty shows both indicators at once instead of one hiding the other:
-// the clarify target's marker (clarify view only, m.cfg.Icons.ClarifyIcon/
-// clarifyColor — default "●", "212") takes priority over a mark's
+// the review target's marker (review view only, m.cfg.Icons.ReviewIcon/
+// reviewColor — default "●", "212") takes priority over a mark's
 // letter (m.cfg.Icons.MarkColor — default "212"; there's no configurable icon for
 // a mark, since its glyph is always the letter it was set with), since a
 // row can't be both; blank if neither applies. bg is the background it's
 // rendered with (see gutter).
 func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
-	if m.view == clarifyView && h == m.clarifyTarget {
-		icon := orDefault(m.cfg.Icons.ClarifyIcon, defaultClarifyIcon)
-		color := orDefault(m.cfg.Icons.ClarifyColor, defaultClarifyColor)
+	if m.view == reviewView && h == m.reviewTarget {
+		icon := orDefault(m.cfg.Icons.ReviewIcon, defaultReviewIcon)
+		color := orDefault(m.cfg.Icons.ReviewColor, defaultReviewColor)
 		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Background(bg).Render(icon)
 	}
 	if letter, ok := m.markLetterFor(h); ok {
@@ -95,7 +95,7 @@ func (m Model) markColumn(h *org.Headline, bg lipgloss.TerminalColor) string {
 
 // lockColumn is a headline row's :format-links gutter column — a column
 // of its own (see gutter, markColumn), so it shows up alongside the
-// dirty marker and any mark/clarify pin rather than hiding them. Its
+// dirty marker and any mark/review pin rather than hiding them. Its
 // character and color come from m.cfg.Icons.LockIcon/lockColor (default "◆", the
 // U+25C6 BLACK DIAMOND, "208"; see WithLockIcon and the config file's
 // [icons] section) while h is locked (see m.immutable), blank otherwise.

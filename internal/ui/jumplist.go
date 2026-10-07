@@ -60,7 +60,7 @@ type jumpEntry struct {
 // pushJump records the cursor's current position onto the jump list —
 // vim calls this "before a large move", and orgtd applies it in the
 // same spirit: gg/G, {/}, a confirmed search, jumping to a mark or to
-// the clarify target, and switching views (see switchToView) entirely,
+// the review target, and switching views (see switchToView) entirely,
 // since that already resets the cursor to row 0 with no way back
 // otherwise. Deliberately not called for ordinary j/k or fold/edit
 // commands — recording those would make the list useless clutter

@@ -71,7 +71,7 @@ func WithAgendaDays(days int) Option {
 	}
 }
 
-// WithInboxFile sets the base file name :clarify treats as the inbox
+// WithInboxFile sets the base file name :review treats as the inbox
 // (e.g. "inbox.org", the default). name == "" is treated as the
 // default.
 func WithInboxFile(name string) Option {
@@ -175,17 +175,17 @@ func WithMarkColor(color string) Option {
 	}
 }
 
-// WithClarifyIcon sets the character and color of the marker on
-// :clarify's pinned inbox item, both in the gutter and pinned in the
+// WithReviewIcon sets the character and color of the marker on
+// :review's pinned inbox item, both in the gutter and pinned in the
 // info buffer at the bottom of the screen (default: "●", color "212").
 // An empty icon or color leaves that half at its default.
-func WithClarifyIcon(icon, color string) Option {
+func WithReviewIcon(icon, color string) Option {
 	return func(m *Model) {
 		if icon != "" {
-			m.cfg.Icons.ClarifyIcon = icon
+			m.cfg.Icons.ReviewIcon = icon
 		}
 		if color != "" {
-			m.cfg.Icons.ClarifyColor = color
+			m.cfg.Icons.ReviewColor = color
 		}
 	}
 }

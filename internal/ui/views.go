@@ -16,7 +16,7 @@ type viewKind int
 const (
 	outlineView viewKind = iota
 	agendaView
-	clarifyView
+	reviewView
 	configView
 	logView
 	diffView
@@ -57,7 +57,7 @@ type viewSpec struct {
 	folds bool
 
 	// outlineRows reports whether the view's rows are the full outline,
-	// every loaded file in full (outlineView itself, and clarifyView,
+	// every loaded file in full (outlineView itself, and reviewView,
 	// which merely adds an info-buffer panel on top of the same rows).
 	// editor.go uses this to decide whether a freshly captured entry is
 	// already visible where the cursor is, or needs an explicit switch to
@@ -72,7 +72,7 @@ type viewSpec struct {
 	enter func(m *Model)
 
 	// open is what the view's ":command" does. Nil means switchToView —
-	// views that need to prepare something first (clarify pins its
+	// views that need to prepare something first (review pins its
 	// target, calendar lands on the current meeting, diff runs git) set
 	// it.
 	open func(m *Model)
@@ -81,10 +81,6 @@ type viewSpec struct {
 	// terminal width when built (:help's glamour output), so a resize
 	// while it's open needs a rebuild rather than just a new page size.
 	rebuildOnResize bool
-
-	// info returns extra lines for the info buffer while the view is
-	// showing (clarify's pinned inbox item). Nil means none.
-	info func(m *Model) []string
 }
 
 // viewSpecs is indexed by viewKind. Populated in init rather than as a
@@ -100,13 +96,12 @@ func init() {
 			folds:       true,
 			outlineRows: true,
 		},
-		clarifyView: {
-			command:     "clarify",
+		reviewView: {
+			command:     "review",
 			build:       (*Model).appendOutlineRows,
 			folds:       true,
 			outlineRows: true,
-			open:        (*Model).enterClarifyView,
-			info:        (*Model).clarifyInfoLines,
+			open:        (*Model).enterReviewView,
 		},
 		agendaView: {
 			command: "agenda",
@@ -209,7 +204,7 @@ func (m *Model) openView(k viewKind) {
 // appendOutlineRows appends the full outline: every loaded file (except
 // the calendar and meeting-tags files, which have views of their own)
 // followed by its headlines. Reference files have :reference instead.
-// Shared by the outline and clarify views, and by search's fully expanded
+// Shared by the outline and review views, and by search's fully expanded
 // copy of either (ignoreFold).
 func (m *Model) appendOutlineRows(dst *[]row, ignoreFold bool) {
 	for _, f := range m.ws.Files {

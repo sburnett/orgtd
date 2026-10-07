@@ -149,7 +149,7 @@ func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 // startCapture (:capture, "gC") appends a blank top-level headline to
 // the end of the inbox file and opens it in $EDITOR — a dedicated
 // quick-add path, distinct from o/O, that always targets the inbox
-// regardless of the current cursor position or view (agenda, clarify,
+// regardless of the current cursor position or view (agenda, review,
 // or scrolled to some other file entirely in outline). A no-op (with a
 // status message) if the inbox file isn't loaded. Once the editor
 // session commits, the outline view is focused on the newly captured

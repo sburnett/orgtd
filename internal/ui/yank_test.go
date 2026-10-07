@@ -170,18 +170,18 @@ func TestYankWorksOnAgendaItem(t *testing.T) {
 	}
 }
 
-func TestYankWorksInClarifyView(t *testing.T) {
+func TestYankWorksInReviewView(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterClarifyView()
+	m.enterReviewView()
 	m = sendKey(m, "g")
-	m = sendKey(m, "c") // jump to the real row of the clarify target
+	m = sendKey(m, "c") // jump to the real row of the review target
 
 	m = sendKey(m, "y")
 	m = sendKey(m, "y")
 
-	if len(m.register) != 1 || m.register[0].Title != m.clarifyTarget.Title {
-		t.Errorf("register after yy in clarify view = %v, want a copy of the clarify target %v", m.register, m.clarifyTarget)
+	if len(m.register) != 1 || m.register[0].Title != m.reviewTarget.Title {
+		t.Errorf("register after yy in review view = %v, want a copy of the review target %v", m.register, m.reviewTarget)
 	}
 }
 
@@ -195,7 +195,7 @@ func TestYankShowsInInfoBuffer(t *testing.T) {
 
 	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 	out := stripANSI(m.View())
-	if !strings.Contains(out, "Register:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
+	if !strings.Contains(out, "Registers:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
 		t.Fatalf("view after yy = %q, want a pinned \"Register:\" section showing the yanked entry", out)
 	}
 }
@@ -213,7 +213,7 @@ func TestDeleteAlsoShowsInPinnedRegister(t *testing.T) {
 
 	m.width, m.height = 100, len(m.rows)+m.infoBufferHeight()+3
 	out := stripANSI(m.View())
-	if !strings.Contains(out, "Register:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
+	if !strings.Contains(out, "Registers:") || !strings.Contains(out, "Call the vet about Fido's checkup") {
 		t.Fatalf("view after dd = %q, want a pinned \"Register:\" section showing the deleted entry", out)
 	}
 }

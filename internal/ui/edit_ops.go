@@ -74,13 +74,13 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 			actions[i] = &deleteAction{spliceAction{f: t.f, parent: t.parent, index: t.idx, headlines: []*org.Headline{t.h}, inTree: true}}
 		}
 		m.pushUndo(&batchAction{actions: actions})
-		// clarifyTarget/marks bookkeeping, same as dd's deleteHeadline —
-		// done after the delete is actually applied (advanceClarifyTarget
+		// reviewTarget/marks bookkeeping, same as dd's deleteHeadline —
+		// done after the delete is actually applied (advanceReviewTarget
 		// must see the removal to skip past the deleted entry, not just
 		// re-read the same one that's about to go).
 		for _, t := range targets {
-			if m.view == clarifyView && t.h == m.clarifyTarget {
-				m.advanceClarifyTarget()
+			if m.view == reviewView && t.h == m.reviewTarget {
+				m.advanceReviewTarget()
 			}
 			org.Walk([]*org.Headline{t.h}, m.clearMarksFor)
 		}
@@ -130,9 +130,9 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 // to descendants on its own, so every headline given is changed
 // independently, not just the topmost ones (callers don't
 // topmost-filter). Grouped into one undo step per file touched, same as
-// deleteHeadlineSet. In clarify view, also advances past the pinned
+// deleteHeadlineSet. In review view, also advances past the pinned
 // target if it just became DONE/CANCELLED (see
-// advanceClarifyTargetIfDone).
+// advanceReviewTargetIfDone).
 func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, label string) {
 	headlines, skipped := m.filterImmutable(headlines)
 	if len(headlines) == 0 {
@@ -158,7 +158,7 @@ func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, lab
 	if skipped > 0 {
 		m.message += fmt.Sprintf(" (%d skipped: locked by :format-links)", skipped)
 	}
-	m.advanceClarifyTargetIfDone()
+	m.advanceReviewTargetIfDone()
 }
 
 // fileHasImmutableHeadline reports whether any headline in f is
@@ -211,6 +211,9 @@ func (m *Model) filterImmutable(headlines []*org.Headline) (kept []*org.Headline
 // Matches vim's own dd: the cursor stays at the same screen position
 // (see pushUndoKeepingCursor) rather than jumping to a tree-sibling.
 func (m *Model) deleteHeadline() {
+	if m.refuseReadOnlyRegister() {
+		return
+	}
 	h := m.currentHeadline()
 	if h == nil || m.refuseIfImmutable(h) {
 		return
@@ -222,8 +225,8 @@ func (m *Model) deleteHeadline() {
 	m.register = []*org.Headline{h}
 	m.pushUndoKeepingCursor(&deleteAction{spliceAction{f: f, parent: parent, index: idx, headlines: []*org.Headline{h}, inTree: true}})
 
-	if m.view == clarifyView && h == m.clarifyTarget {
-		m.advanceClarifyTarget()
+	if m.view == reviewView && h == m.reviewTarget {
+		m.advanceReviewTarget()
 	}
 	// dd removes h's whole subtree, so a mark on any descendant (not
 	// just h itself) needs clearing too.
@@ -233,10 +236,13 @@ func (m *Model) deleteHeadline() {
 // yankHeadline ("yy") copies the current headline (and its whole
 // subtree) into the register for pasting elsewhere with p/P — unlike
 // dd, it leaves the original untouched (in the outline, the agenda, or
-// clarify view — wherever the cursor happens to be). The register holds
+// review view — wherever the cursor happens to be). The register holds
 // an independent snapshot taken now, so later edits to the original
 // before pasting aren't reflected in what gets pasted.
 func (m *Model) yankHeadline() {
+	if m.refuseReadOnlyRegister() {
+		return
+	}
 	h := m.currentHeadline()
 	if h == nil {
 		return
@@ -253,7 +259,8 @@ func (m *Model) yankHeadline() {
 // to fit the destination depth. The register itself is left untouched,
 // so it can be pasted again.
 func (m *Model) pasteHeadline(before bool) {
-	if len(m.register) == 0 {
+	contents := m.registerContents(m.activeRegister)
+	if len(contents) == 0 {
 		m.message = "Nothing to paste"
 		return
 	}
@@ -262,8 +269,8 @@ func (m *Model) pasteHeadline(before bool) {
 		return
 	}
 
-	clones := make([]*org.Headline, len(m.register))
-	for i, h := range m.register {
+	clones := make([]*org.Headline, len(contents))
+	for i, h := range contents {
 		clone := org.CloneHeadline(h)
 		clone.ShiftLevel(level - clone.Level)
 		clones[i] = clone

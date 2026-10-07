@@ -198,16 +198,16 @@ func (m *Model) currentStatusIndex() int {
 // takes over instead: per org-mode, the keyword never actually changes
 // and the repeating timestamp(s) advance rather than the item closing.
 // See buildStatusChangeAction, which does the actual work (shared with
-// visual-mode R's bulk apply). In clarify view, this also advances past
+// visual-mode R's bulk apply). In review view, this also advances past
 // the pinned target if it just became DONE/CANCELLED (see
-// advanceClarifyTargetIfDone).
+// advanceReviewTargetIfDone).
 func (m *Model) applyStatus(keyword string) {
 	h := m.currentHeadline()
 	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
 	m.pushUndo(m.buildStatusChangeAction(h, keyword))
-	m.advanceClarifyTargetIfDone()
+	m.advanceReviewTargetIfDone()
 }
 
 // statusSelectorLines renders one line per statusCandidate (the "R"

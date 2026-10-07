@@ -66,7 +66,7 @@ func (m *Model) startEditWithPlacement(placement extprog.Placement) tea.Cmd {
 				return nil
 			}
 			// Editing a whole file discards undo history for it (and
-			// clears any mark/clarify-target on its headlines) even if
+			// clears any mark/review-target on its headlines) even if
 			// the user ends up changing nothing — confirm first rather
 			// than doing that as a side effect of a single keystroke.
 			// Both i and A land here identically: there's no single
@@ -108,7 +108,7 @@ func (m *Model) startEditFile(f *org.File) tea.Cmd {
 
 // finishEditFile reloads the just-edited file from disk, replacing its
 // old *org.File wholesale — every headline pointer it held is gone, so
-// any mark, clarify-target, or dirty-marker referencing one of them is
+// any mark, review-target, or dirty-marker referencing one of them is
 // cleared (see clearRefsForFile) rather than left dangling. The
 // reloaded file itself is never marked dirty: the editor already wrote
 // it, so there's nothing more to save.
@@ -137,15 +137,15 @@ func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clearRefsForFile removes every mark, clarify-target reference, and
+// clearRefsForFile removes every mark, review-target reference, and
 // dirty marker pointing at a headline in f, plus f's own file-level
 // dirty/saved-position bookkeeping — called after f's entire headline
 // tree has been discarded and replaced (a whole-file reload), since
 // none of those old headline pointers exist anywhere anymore.
 func (m *Model) clearRefsForFile(f *org.File) {
 	org.Walk(f.Headlines, func(h *org.Headline) {
-		if m.clarifyTarget == h {
-			m.clarifyTarget = nil
+		if m.reviewTarget == h {
+			m.reviewTarget = nil
 		}
 		m.clearMarksFor(h)
 		delete(m.dirtyHeadlines, h)

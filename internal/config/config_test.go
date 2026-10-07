@@ -43,8 +43,8 @@ attendee_ignore_patterns = ["c_*@*", "*@resource.calendar.google.com"]
 dirty_icon = "*"
 dirty_color = "1"
 mark_color = "2"
-clarify_icon = "@"
-clarify_color = "3"
+review_icon = "@"
+review_color = "3"
 lock_icon = "#"
 lock_color = "4"
 meeting_icon = "%"
@@ -102,8 +102,8 @@ search_highlight_bg = "#707070"
 			DirtyIcon:    "*",
 			DirtyColor:   "1",
 			MarkColor:    "2",
-			ClarifyIcon:  "@",
-			ClarifyColor: "3",
+			ReviewIcon:   "@",
+			ReviewColor:  "3",
 			LockIcon:     "#",
 			LockColor:    "4",
 			MeetingIcon:  "%",

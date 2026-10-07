@@ -164,9 +164,10 @@ func buildNormalKeys() *keymap {
 	}), "enter")
 	km.bind(do((*Model).jumpBack), "ctrl+o")
 	km.bind(do((*Model).jumpForward), "g i", "g I")
-	km.bind(do((*Model).jumpToClarifyTarget), "g c")
-	km.addPrefix("m") // "m<letter>" sets a mark; see updateNormalMode
-	km.addPrefix("'") // "'<letter>" jumps to one
+	km.bind(do((*Model).jumpToReviewTarget), "g c")
+	km.addPrefix("\"") // "\"<register>" selects the register for the next p/P; see updateNormalMode
+	km.addPrefix("m")  // "m<letter>" sets a mark; see updateNormalMode
+	km.addPrefix("'")  // "'<letter>" jumps to one
 
 	// Folding.
 	km.bind(do((*Model).toggleFold), "tab", "z a")

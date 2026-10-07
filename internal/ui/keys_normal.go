@@ -17,6 +17,18 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.chord = ""
 	m.message = ""
 
+	// "\"<register>" names the register the next command uses (vim's own
+	// register prefix); only p/P read it today.
+	if chord == "\"" {
+		if key == "\"" || key == "%" {
+			m.pendingRegister = rune(key[0])
+		} else {
+			m.message = "Unknown register: " + key
+		}
+		m.ensureVisible()
+		return m, nil
+	}
+
 	// "m<letter>" and "'<letter>" take an arbitrary a-z argument, unlike
 	// every other chord (which pairs two fixed keys), so they can't be
 	// table entries.
@@ -55,6 +67,17 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingCount = 0
 	}
 
+	// A register prefix applies to exactly the next command; hand it to
+	// that command and clear it, so it can't leak onto a later one. (The
+	// digit branch above returns first, so "\"%3p"-style prefixes survive
+	// a count.)
+	// A key that only starts a chord ("d" of "dd") keeps it pending for
+	// the key that completes the command.
+	m.activeRegister, m.pendingRegister = m.pendingRegister, 0
 	cmd := m.runKey(normalKeys, chord, key)
+	if m.chord != "" {
+		m.pendingRegister = m.activeRegister
+	}
+	m.activeRegister = 0
 	return m, cmd
 }

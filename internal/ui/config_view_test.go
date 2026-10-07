@@ -120,7 +120,7 @@ func TestConfigViewShowsDisabledURLFormatterAndDefaults(t *testing.T) {
 		"currently off",
 		"Debug logging: off",
 		"Calendar sync: (not configured — see README's Calendar sync section)",
-		`Gutter icons: dirty "+" (#0087d7), mark (#ff87ff), clarify "●" (#ff87ff), lock "◆" (#ffaf00), meeting "▣" (#00afff)`,
+		`Gutter icons: dirty "+" (#0087d7), mark (#ff87ff), review "●" (#ff87ff), lock "◆" (#ffaf00), meeting "▣" (#00afff)`,
 		"Colors: file (#00afff), todo (#d7005f), next (#ffaf00), waiting (#875fff), someday (#767676), done (#00d75f), cancelled (#585858), tag (#00d7d7), done-title (#767676), status (#767676), timestamp (#ff87ff), error (#d7005f), body (#a8a8a8), caret (#000000 on #ffffff), highlight (#585858), panel (#303030), status-bar (#000000 on #9e9e9e), cursor-row (#204060), visual-selection (#102030), search-highlight (#3a4a3a)",
 	} {
 		if !containsSubstring(lines, want) {
@@ -157,13 +157,13 @@ func TestConfigViewReportsCustomIcons(t *testing.T) {
 	m := New(ws,
 		WithDirtyIcon("*", "1"),
 		WithMarkColor("2"),
-		WithClarifyIcon("@", "3"),
+		WithReviewIcon("@", "3"),
 		WithLockIcon("#", "4"),
 		WithMeetingIcon("%", "5"),
 	)
 	m.switchToView(configView)
 
-	if !containsSubstring(configLines(m), `Gutter icons: dirty "*" (1), mark (2), clarify "@" (3), lock "#" (4), meeting "%" (5)`) {
+	if !containsSubstring(configLines(m), `Gutter icons: dirty "*" (1), mark (2), review "@" (3), lock "#" (4), meeting "%" (5)`) {
 		t.Errorf("config view lines = %#v, want it to reflect the custom gutter icons", configLines(m))
 	}
 }

@@ -280,22 +280,22 @@ func TestVisualModeDeleteAcrossFilesUsesOneBatchPerFile(t *testing.T) {
 	}
 }
 
-// TestVisualModeDeleteInClarifyViewAdvancesClarifyTarget guards against a
-// real ordering bug hit during development: advanceClarifyTarget (which
+// TestVisualModeDeleteInReviewViewAdvancesReviewTarget guards against a
+// real ordering bug hit during development: advanceReviewTarget (which
 // just re-reads the inbox's current first top-level headline) must run
 // after the bulk delete is actually applied, not before — otherwise it
 // re-pins the very entry that's about to be removed instead of skipping
 // past it.
-func TestVisualModeDeleteInClarifyViewAdvancesClarifyTarget(t *testing.T) {
+func TestVisualModeDeleteInReviewViewAdvancesReviewTarget(t *testing.T) {
 	inbox, err := org.Parse(strings.NewReader("* A\n* B\n* C\n"), "inbox.org")
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
-	ws := &workspace.Workspace{Dir: "clarify-fixture", Files: []*org.File{inbox}}
+	ws := &workspace.Workspace{Dir: "review-fixture", Files: []*org.File{inbox}}
 	m := New(ws)
-	m.enterClarifyView()
-	if m.clarifyTarget == nil || m.clarifyTarget.Title != "A" {
-		t.Fatalf("clarifyTarget = %v, want A", m.clarifyTarget)
+	m.enterReviewView()
+	if m.reviewTarget == nil || m.reviewTarget.Title != "A" {
+		t.Fatalf("reviewTarget = %v, want A", m.reviewTarget)
 	}
 
 	m.cursor = findRow(t, m, "A")
@@ -303,8 +303,8 @@ func TestVisualModeDeleteInClarifyViewAdvancesClarifyTarget(t *testing.T) {
 	m = sendKey(m, "j") // select A and B
 	m = sendKey(m, "d")
 
-	if m.clarifyTarget == nil || m.clarifyTarget.Title != "C" {
-		t.Errorf("clarifyTarget after deleting A and B = %v, want C", m.clarifyTarget)
+	if m.reviewTarget == nil || m.reviewTarget.Title != "C" {
+		t.Errorf("reviewTarget after deleting A and B = %v, want C", m.reviewTarget)
 	}
 }
 

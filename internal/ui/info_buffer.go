@@ -17,29 +17,36 @@ import (
 // more" summary line instead.
 const maxRegisterPinnedLines = 5
 
-// registerPinnedLineCount is how many lines the register section of the
-// info buffer occupies below its own label: one per entry, or
-// maxRegisterPinnedLines plus one summary line once there are more than
-// that.
+// registerPinnedLineCount is how many lines the registers section of the
+// info buffer occupies below its own label: one for the read-only "%"
+// register (see registerContents) if it's set, plus one per unnamed
+// register entry, or maxRegisterPinnedLines plus one summary line once
+// there are more than that.
 func (m *Model) registerPinnedLineCount() int {
+	n := len(m.registerContents('%'))
 	if len(m.register) > maxRegisterPinnedLines {
-		return maxRegisterPinnedLines + 1
+		return n + maxRegisterPinnedLines + 1
 	}
-	return len(m.register)
+	return n + len(m.register)
 }
 
-// registerPinnedLines renders the register section of the info buffer:
-// a "Register:" label, then one row per queued entry (up to
-// maxRegisterPinnedLines, so a big <N>dd or visual-mode delete can't push
-// the actual outline listing off-screen), then a summary line for
-// whatever didn't fit — or nil if the register is empty. Every entry
-// shown, whether it came from a delete or a yank, is exactly what p/P
-// would paste next.
+// registerPinnedLines renders the registers section of the info buffer:
+// a "Registers:" label, then the read-only "%" register's entry (the
+// review target, with its CREATED/planning triage context), then one row
+// per entry in the unnamed register (up to maxRegisterPinnedLines, so a
+// big <N>dd or visual-mode delete can't push the actual outline listing
+// off-screen), then a summary line for whatever didn't fit — or nil if
+// every register is empty. Every entry shown is exactly what p/P (for
+// the unnamed register) or "%p/"%P (for "%") would paste.
 func (m Model) registerPinnedLines() []string {
-	if len(m.register) == 0 {
+	review := m.registerContents('%')
+	if len(m.register) == 0 && len(review) == 0 {
 		return nil
 	}
-	lines := []string{m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Register:"), m.overlayBg())}
+	lines := []string{m.padLineToWidth(m.fileStyle().Background(m.overlayBg()).Render("Registers:"), m.overlayBg())}
+	for _, h := range review {
+		lines = append(lines, m.renderPinnedRow("%", h, true))
+	}
 	shown := m.register
 	overflow := 0
 	if len(shown) > maxRegisterPinnedLines {
@@ -56,33 +63,33 @@ func (m Model) registerPinnedLines() []string {
 	return lines
 }
 
-// renderPinnedRow renders one line of the info buffer's clarify/marks/
-// register sections: marker (the clarify target's m.cfg.Icons.ClarifyIcon, or a
+// renderPinnedRow renders one line of the info buffer's review/marks/
+// register sections: marker (the review target's m.cfg.Icons.ReviewIcon, or a
 // mark's letter — the register's own callers pass a literal quote mark
 // instead) in place of the gutter/indent/fold a normal listing row would
 // have, then h's keyword and title — the same format regardless of which
 // pinned section it's in, and regardless of h's actual level in its
-// file's tree. The marker is colored with m.cfg.Icons.ClarifyColor when
-// forClarify, m.cfg.Icons.MarkColor otherwise (see WithClarifyIcon/WithMarkColor),
+// file's tree. The marker is colored with m.cfg.Icons.ReviewColor when
+// forReview, m.cfg.Icons.MarkColor otherwise (see WithReviewIcon/WithMarkColor),
 // so it matches whichever gutter column (markColumn) it echoes. The
 // whole line carries the overlay background, padded to fill the
-// terminal width. forClarify appends h's CREATED property (if it has
+// terminal width. forReview appends h's CREATED property (if it has
 // one) and any SCHEDULED/DEADLINE/CLOSED planning line (via
 // planningSummary, the same rendering the outline view itself uses) —
-// on for the clarify target, where knowing how long an item has sat in
+// on for the review target, where knowing how long an item has sat in
 // the inbox and whether it already has a date is useful triage context;
 // off for marks, which can point at any headline in the outline and
 // aren't about triage.
-func (m Model) renderPinnedRow(marker string, h *org.Headline, forClarify bool) string {
+func (m Model) renderPinnedRow(marker string, h *org.Headline, forReview bool) string {
 	markerColor := orDefault(m.cfg.Icons.MarkColor, defaultMarkColor)
-	if forClarify {
-		markerColor = orDefault(m.cfg.Icons.ClarifyColor, defaultClarifyColor)
+	if forReview {
+		markerColor = orDefault(m.cfg.Icons.ReviewColor, defaultReviewColor)
 	}
 	prefix := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(markerColor)).Background(m.overlayBg()).Render(marker) +
 		bgSpan(m.overlayBg(), "  ") +
 		joinBg(m.renderKeywordAndTitle(h, m.overlayBg()), m.overlayBg())
 	var suffix string
-	if forClarify {
+	if forReview {
 		if created := h.Properties["CREATED"]; created != "" {
 			suffix += bgSpan(m.overlayBg(), "  ") + m.timestampStyle().Background(m.overlayBg()).Render("Created: "+created)
 		}
@@ -179,18 +186,13 @@ func (m *Model) infoBufferHeight() int {
 //     (or just "<title>  <url>" if no time could be resolved — see
 //     calendarEventEntry.hasWhen).
 //
-//   - "Register:" — whatever's queued in the paste register (see
-//     registerPinnedLines), one row per entry up to
+//   - "Registers:" — the read-only "%" register (the review target, in
+//     reviewView) and whatever's queued in the unnamed paste register
+//     (see registerPinnedLines), one row per entry up to
 //     maxRegisterPinnedLines.
 //
 //   - "Active marks:" — every active vim-style mark (see setMark),
 //     sorted by letter (sortedMarkLetters), one row each.
-//
-//   - "Clarifying:" — in clarifyView, the current clarify target
-//     (rendered exactly as it appears in the listing below, via
-//     renderPinnedRow) or an empty-inbox message — kept a fixed 2 lines
-//     (label + item-or-empty-message) so the layout doesn't jump around
-//     as the inbox empties out.
 //
 //   - "Matches:" — the same idea as "Tags:" above, for command-mode
 //     ":<Tab>" completions (see completeCommand).
@@ -214,9 +216,6 @@ func (m *Model) infoBufferLines() []string {
 		for _, letter := range letters {
 			lines = append(lines, m.renderPinnedRow(string(letter), m.marks[letter], false))
 		}
-	}
-	if info := m.spec().info; info != nil {
-		lines = append(lines, info(m)...)
 	}
 	if below := modeSpecs[m.mode].infoBelow; below != nil {
 		lines = append(lines, below(m)...)

@@ -92,18 +92,18 @@ func init() {
 		}},
 		{names: []string{"toggledone"}, run: func(m *Model, _ string) tea.Cmd { m.toggleHideDone(); return nil }},
 		{names: []string{"next"}, run: func(m *Model, _ string) tea.Cmd {
-			if m.view != clarifyView {
-				m.message = ":next only works in clarify view"
+			if m.view != reviewView {
+				m.message = ":next only works in review view"
 			} else {
-				m.clarifyStep(1)
+				m.reviewStep(1)
 			}
 			return nil
 		}},
 		{names: []string{"prev"}, run: func(m *Model, _ string) tea.Cmd {
-			if m.view != clarifyView {
-				m.message = ":prev only works in clarify view"
+			if m.view != reviewView {
+				m.message = ":prev only works in review view"
 			} else {
-				m.clarifyStep(-1)
+				m.reviewStep(-1)
 			}
 			return nil
 		}},

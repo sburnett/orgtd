@@ -178,10 +178,10 @@ func TestCaptureWorksFromAgendaView(t *testing.T) {
 	}
 }
 
-func TestCaptureWorksFromClarifyView(t *testing.T) {
+func TestCaptureWorksFromReviewView(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterClarifyView()
+	m.enterReviewView()
 	before := len(findInboxHeadlines(t, m))
 
 	m = sendKey(m, "g")
@@ -267,24 +267,24 @@ func TestCaptureFromCalendarViewSwitchesToOutline(t *testing.T) {
 	}
 }
 
-// TestCaptureFromClarifyViewStaysInClarify checks the flip side of the
-// two tests above: clarifyView's rows are the very same full-outline
+// TestCaptureFromReviewViewStaysInReview checks the flip side of the
+// two tests above: reviewView's rows are the very same full-outline
 // listing outlineView itself shows (see viewSpec.outlineRows) — plus a
 // pinned info-buffer panel — so the newly captured entry is already
 // right there under the cursor once the editor session commits, with
 // no need (and no reason) to switch views out from under an in-progress
-// clarify session.
-func TestCaptureFromClarifyViewStaysInClarify(t *testing.T) {
+// review session.
+func TestCaptureFromReviewViewStaysInReview(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
-	m.enterClarifyView()
+	m.enterReviewView()
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "C")
 	m = commitCapture(t, m, "Buy stamps\n")
 
-	if m.view != clarifyView {
-		t.Fatalf("view after capture = %v, want clarifyView (unchanged)", m.view)
+	if m.view != reviewView {
+		t.Fatalf("view after capture = %v, want reviewView (unchanged)", m.view)
 	}
 	h := m.currentHeadline()
 	if h == nil || h.Title != "Buy stamps" {

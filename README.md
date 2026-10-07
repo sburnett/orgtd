@@ -4,7 +4,7 @@ A terminal UI for working through a GTD-style workflow directly on plain
 `.org` files, with vim-flavored keybindings. It's a viewer and editor —
 navigate, fold, edit, reorganize, and search your outline — plus an
 agenda view computed from `SCHEDULED`/`DEADLINE` dates and `NEXT` items,
-and a "clarify" mode for working through an inbox one item at a time.
+and a "review" mode for working through an inbox one item at a time.
 
 Every edit is applied in memory immediately; nothing touches disk until
 you `:w`. Files are otherwise your own — orgtd never manages a directory
@@ -39,7 +39,7 @@ orgtd --dir ~/org
 | `--url-formatter-prefixes` | `url_formatter_prefixes` | *(none)* | Extra bare-URL prefixes recognized beyond `http://`/`https://`, e.g. `bit.ly/` or `go/` for shortlinks — comma-separated on the flag, a TOML array in the config file. Each is only matched at a word boundary, so `go/` won't match inside `embargo/foo` |
 | `--format-links-url-formatter` | `format_links_url_formatter` | *(same as `url_formatter`)* | External program `:format-links` (see below) invokes in batch mode — called with no trailing URL argument, it should instead read URLs one per line from stdin and print the same number of formatted lines to stdout. Configured separately from `url_formatter` since a batch-capable command may differ from (or take different arguments than) whatever handles a single URL while editing |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
-| `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:clarify` treats as the inbox |
+| `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:review` treats as the inbox |
 | `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. the one `:sync-calendar` writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
 | `--meeting-tags-file` | `meeting_tags_file` | `meeting-tags.org` | Base name of the file holding durable meeting tags (see Tag-based meeting links, below) — excluded from the outline view and shown instead, as an editable outline of its own, in the `:meeting-tags` view |
 | `--hide-done-after-hours` | `hide_done_after_hours` | `24` | How many hours after a `DONE`/`CANCELLED` item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggledone` shows everything again, and toggles back |
@@ -92,7 +92,7 @@ debug = false
 # Customizes the character and color of each marker the outline draws in
 # its gutter column, to the left of every entry (see Keybindings, below,
 # for what each one means: "+" for unsaved changes, a mark's own letter,
-# "●" for the :clarify target, "◆" for a :format-links lock, "▣" for a
+# "●" for the :review target, "◆" for a :format-links lock, "▣" for a
 # meeting link, via "gM" or a shared tag). Every key here is optional and falls back
 # to the built-in glyph/color shown below when unset — delete whichever
 # lines you don't want to override.
@@ -112,8 +112,8 @@ debug = false
 dirty_icon    = "+"    # unsaved changes
 dirty_color   = "#0087d7"
 mark_color    = "#ff87ff"  # a vim-style mark's own letter ("m<letter>") — no matching icon, since the glyph is the letter itself
-clarify_icon  = "●"    # the :clarify view's pinned inbox item
-clarify_color = "#ff87ff"
+review_icon  = "●"    # the :review view's pinned inbox item
+review_color = "#ff87ff"
 lock_icon     = "◆"    # locked by an in-flight :format-links batch
 lock_color    = "#ffaf00"
 meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag
@@ -140,7 +140,7 @@ body_color              = "#a8a8a8"  # an entry's free-text body lines
 caret_fg                = "#000000"  # the command line's text-cursor caret
 caret_bg                = "#ffffff"
 highlight_bg            = "#585858"  # the highlighted candidate in an overlay list (the "R"/status picker, "gM"'s meeting picker)
-panel_bg                = "#303030"  # the info buffer (clarify/marks/register, links, meeting detail, completions, pickers)
+panel_bg                = "#303030"  # the info buffer (review/marks/register, links, meeting detail, completions, pickers)
 status_bar_fg           = "#000000"  # the one-line status bar at the bottom of the screen
 status_bar_bg           = "#9e9e9e"
 cursor_row_bg           = "#204060"  # the row under the cursor
@@ -309,12 +309,13 @@ logging is on.
   are in chronological order; a meeting with nothing linked to it is left
   out entirely, and an item linked to more than one meeting legitimately
   shows up under each.
-- **Clarify** (`:clarify`) — pins the inbox's first non-`DONE`/`CANCELLED`
-  top-level headline in the info buffer at the bottom of the screen (see
-  below), alongside its `CREATED` property (so you can see how long it's
-  been sitting there) and any
-  `SCHEDULED`/`DEADLINE` it already has, while you navigate the rest of
-  the outline to file it away; deleting the pinned item, or marking it
+- **Review** (`:review`) — pins the inbox's first non-`DONE`/`CANCELLED`
+  top-level headline in the read-only `%` register (shown in the info
+  buffer at the bottom of the screen — see below — alongside its
+  `CREATED` property, so you can see how long it's been sitting there,
+  and any `SCHEDULED`/`DEADLINE` it already has), while you navigate the
+  rest of the outline to file it away; `"%p` / `"%P` paste a copy of it
+  (see Registers, below). Deleting the pinned item, or marking it
   `DONE`/`CANCELLED`, advances to the next pending one. `:next` / `:prev`
   step to the next/previous pending inbox item manually, and `:outline`
   returns to the plain outline from either view.
@@ -394,15 +395,13 @@ from shifting position any more than it has to:
 - **Meeting** — one line per calendar meeting the current entry is
   linked to (see below for how a link is established), each showing the
   meeting's name, start time (when still resolvable), and link.
-- **Register** — whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put
-  in the paste register (see Marks, below), one row per entry.
+- **Registers** — the read-only `%` register (the `:review` view's
+  pinned inbox item, with its `CREATED` property and any
+  `SCHEDULED`/`DEADLINE`; see Registers, below), then whatever
+  `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put in the unnamed paste
+  register, one row per entry.
 - **Active marks** — every active mark (see Marks, below), sorted by
   letter, one row each — visible in every view until cleared.
-- **Clarifying** — in `:clarify` view (see below), the inbox item
-  currently pinned for clarification, alongside its `CREATED` property
-  and any `SCHEDULED`/`DEADLINE` it already has (or a message when the
-  inbox is empty) — kept a fixed two lines so the layout doesn't jump
-  around as the inbox empties out.
 - **Matches** — the same idea as **Tags** above, for command-mode (`:`)
   `Tab` completion (see Command mode, below) when more than one command
   name matches.
@@ -504,7 +503,7 @@ stop), and so on.
 | `ctrl-e` / `ctrl-y` | Scroll the view down/up by one line, like vim — the cursor stays put unless the scroll would push it off-screen, in which case it's dragged along just enough to stay visible |
 | `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise) |
 | `Enter` | In agenda view, jump to that item's real place in the outline. In calendar view, on an item attached to a meeting via `gM` (see below), same thing — a no-op on the meeting's own row, since `calendar_file` isn't part of the outline at all |
-| `ctrl-o` / `gi` | Jump back / forward through the jump list — vim's own `ctrl-o`/`ctrl-i`, tracking where you were before a "large" move: `gg`/`G`, `{`/`}`, a confirmed search (`/`/`?`, not `n`/`N` repeats), jumping to a mark (`'<letter>`) or to the clarify target (`gc`), and switching views entirely (`:agenda`, `Enter` from it, `:calendar`, `:clarify`, `:outline`, ...) — never for `j`/`k` or fold/edit commands, or the list would be useless clutter. Bound to `gi` rather than `ctrl-i`: in a plain terminal `ctrl-i` and `Tab` are the same byte, so there's no way to bind it separately from the fold-toggle key above. A no-op at either end of the list |
+| `ctrl-o` / `gi` | Jump back / forward through the jump list — vim's own `ctrl-o`/`ctrl-i`, tracking where you were before a "large" move: `gg`/`G`, `{`/`}`, a confirmed search (`/`/`?`, not `n`/`N` repeats), jumping to a mark (`'<letter>`) or to the review target (`gc`), and switching views entirely (`:agenda`, `Enter` from it, `:calendar`, `:review`, `:outline`, ...) — never for `j`/`k` or fold/edit commands, or the list would be useless clutter. Bound to `gi` rather than `ctrl-i`: in a plain terminal `ctrl-i` and `Tab` are the same byte, so there's no way to bind it separately from the fold-toggle key above. A no-op at either end of the list |
 
 ### Editing
 
@@ -521,7 +520,7 @@ stop), and so on.
 | `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
-| `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Once the editor session commits, switches to outline view with the cursor on the newly captured entry (unless already in outline or clarify view, whose listing already includes it), ready for further edits right away. Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
+| `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Once the editor session commits, switches to outline view with the cursor on the newly captured entry (unless already in outline or review view, whose listing already includes it), ready for further edits right away. Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
 | `gM` | Open a picker (type to filter by title or attendee tag — e.g. "alice" matches a meeting tagged `@alice`, same tags `:sync-calendar` stamps on for Tag-based meeting links, below — ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the info buffer's "Meeting" section — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. A linked entry (attached via `gM`, or tag-matched — see Tag-based meeting links, above) shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it's linked to a meeting is visible at a glance, in every view, without opening it |
 | `gX` | `gC` immediately followed by `gM`: capture as usual, and once the editor session commits, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion, without a separate `gM` bracketing the (possibly slow) editor round-trip. Cancelling the capture (empty or blank result, or the editor failing to run) never opens the picker; if nothing's synced yet, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
 | `gt` | Prompt for a tag and toggle it on the current entry: typing one already on the entry removes it, anything else is added. `Tab` completes against every tag already used anywhere in the workspace (extending to the longest common prefix and listing the matches, same as command-mode `:<Tab>`); an empty prompt's `Tab` lists all of them. Enter with nothing typed, or `Esc`, cancels without changes. Tags can also be added/removed by hand in `i`/edit mode (a trailing `:tag1:tag2:` on the title line) — `gt` is just the faster path for one at a time. A tag matching one on a synced calendar event automatically links the two — see Tag-based meeting links, above. On a `:calendar` entry's own row, `gt` instead records the tag in `meeting_tags_file` so it survives `:sync-calendar` (see Tag-based meeting links, above); `"recurring"` is refused there as a reserved name |
@@ -569,7 +568,7 @@ screen (see Views, above), in every view, until cleared or moved
 elsewhere.
 
 Whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put in the paste
-register stays pinned in the info buffer too, under its own "Register:"
+register stays pinned in the info buffer too, under the "Registers:"
 label, right alongside marks — so it's obvious what `p`/`P` will paste
 next even for `yy`/visual-mode `y`, which otherwise leave the screen
 looking unchanged. Capped at 5 entries shown at once (a big `<N>dd` or
@@ -577,6 +576,15 @@ visual-mode delete/yank collapses the rest into a trailing "...and N
 more" line) so a large register can't push the actual listing
 off-screen. `:clear-registers`
 empties it (and its pinned display) without needing another `dd`/`yy`.
+
+### Registers
+
+| Key | Action |
+|---|---|
+| `"<register>` | Name the register the next `p`/`P` pastes from, like vim. `""` is the unnamed register (the default, filled by `dd`/`yy`); `"%` is read-only and holds the entry `:review` is currently pinning — empty outside review view, or with nothing pending in the inbox. So `"%p` / `"%P` paste a copy of the entry being reviewed. `dd`/`yy` refuse a `"%` prefix; an unknown register name is rejected |
+
+The prefix applies to exactly the next command (and survives the first
+key of a chord, so `"%dd` is refused as a whole).
 
 ### Search
 
@@ -612,10 +620,10 @@ History doesn't persist between sessions.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` / `:reference` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
+| `:agenda` / `:review` / `:outline` / `:reference` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
 | `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is created (on disk immediately, since an empty file has no edit for `:w` to save) — add entries with `o`/`O` on its header row. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
-| `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
+| `:next` / `:prev` | Review view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
 | `:commit` | Diff view only (see Views, above) — refuses if any open file has unsaved changes (same as `:diff`; diff view's own content isn't re-diffed on every keystroke, so this is checked again here even if `:diff` already refused it once on entry), and refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; declining leaves it untracked, which makes the commit that follows fail outright, since `git commit`'s pathspec rejects a file that's never been `git add`ed at all), then runs `git commit` with a stock message ("orgtd commit"), scoped to the same files `:diff` shows, followed by `git push` — no prompt for a commit message. Refuses outside diff view too, and refuses a second `:commit` while one is already running. Unlike `:diff`, `git commit` and `git push` run in the background (same as `:format-links`/`:sync-calendar`), showing a status message while they're in flight so the rest of the app stays usable, including however long `git push` takes to reach the remote; `:w`/`:wq` refuse to write in the meantime, since the commit already captured which files and content it's committing when it started. A commit that fails for a real reason never attempts the push, but `git commit` finding nothing to commit (e.g. `:commit` run twice in a row, or after committing by hand outside orgtd) isn't treated as a failure — the push still runs, since there could be earlier local commits not yet on the remote. A failed push still leaves the commit in place locally either way. The diff data refreshes once the background run finishes either way (so it's never left showing a stale pre-commit diff), but only pulls diff view back up if you're still on it — if you've since switched to another view, finishing the commit doesn't yank you back to diff view |

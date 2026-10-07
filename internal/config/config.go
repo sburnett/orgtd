@@ -113,12 +113,12 @@ type IconsConfig struct {
 	// a fixed character.
 	MarkColor string `toml:"mark_color"`
 
-	// ClarifyIcon/ClarifyColor style the marker on :clarify's pinned
+	// ReviewIcon/ReviewColor style the marker on :review's pinned
 	// inbox item, both in the gutter and pinned in the info buffer at
 	// the bottom of the screen (default: "●", the same pink as
 	// MarkColor).
-	ClarifyIcon  string `toml:"clarify_icon"`
-	ClarifyColor string `toml:"clarify_color"`
+	ReviewIcon  string `toml:"review_icon"`
+	ReviewColor string `toml:"review_color"`
 
 	// LockIcon/LockColor style the marker on an entry currently locked
 	// by an in-flight :format-links batch (default: "◆", an orange).
@@ -186,7 +186,7 @@ type ColorsConfig struct {
 	// meeting picker (default: a grey).
 	HighlightBg string `toml:"highlight_bg"`
 
-	// PanelBg tints the info buffer (clarify/marks/register, links,
+	// PanelBg tints the info buffer (review/marks/register, links,
 	// meeting detail, tag/command-completion matches, the status and
 	// "gM" meeting pickers) (default: a dark grey).
 	PanelBg string `toml:"panel_bg"`

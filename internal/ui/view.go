@@ -72,7 +72,7 @@ func (m Model) View() string {
 	}
 
 	// Info buffer — sits directly above the status/command-line area and
-	// holds whatever might need more than one line: the clarify target,
+	// holds whatever might need more than one line: the review target,
 	// active marks, and the paste register (always, in every view, kept
 	// first since they're triage/navigation state rather than detail
 	// tied to the current entry), then links and calendar-meeting detail

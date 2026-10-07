@@ -1,7 +1,7 @@
 // Package ui implements orgtd's Bubble Tea application: a scrollable,
 // foldable outline over every org file in a workspace, with in-memory
 // editing (written to disk only on :w), derived views (agenda, calendar,
-// tags, clarify, ...), and background commands (calendar sync, link
+// tags, review, ...), and background commands (calendar sync, link
 // formatting, git commit). Nearly all behavior lives here, centered on
 // Model; see DESIGN.md §4-§5 for the runtime model and file layout.
 package ui
@@ -47,7 +47,9 @@ type Model struct {
 	// its own, consumed by the very next key whatever it is (see runKey).
 	chord string
 
-	pendingCount int // numeric prefix built up so far for "dd"/"r"/"R" (e.g. "3dd", "2R"); 0 means none typed
+	pendingRegister rune // register named by a typed "\"<register>" prefix, waiting for the p/P (or other command) that uses it; 0 means none
+	activeRegister  rune // pendingRegister as handed to the command being run right now (0 = the unnamed register); see updateNormalMode
+	pendingCount    int  // numeric prefix built up so far for "dd"/"r"/"R" (e.g. "3dd", "2R"); 0 means none typed
 
 	// pendingForceQuit is set by a ctrl+c that got refused because there
 	// were unsaved changes (see Update) — a second ctrl+c right after it
@@ -189,8 +191,8 @@ type Model struct {
 	// Nil, the default, means the real clock.
 	clock func() time.Time
 
-	view          viewKind
-	clarifyTarget *org.Headline // the inbox item currently pinned for clarification, in clarifyView; nil if the inbox is empty
+	view         viewKind
+	reviewTarget *org.Headline // the inbox item currently pinned for review, in reviewView; nil if the inbox is empty
 
 	// hideDoneEnabled is whether stale DONE/CANCELLED items are currently
 	// hidden from the outline (after cfg.HideDoneAfterHours): off by

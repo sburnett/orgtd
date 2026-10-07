@@ -134,7 +134,7 @@ func (m *Model) repeatSearch(forward bool) {
 // log, diff, help — appendAgendaRows/appendConfigRows/etc. never gate on
 // collapsed), but a fully expanded copy of the outline — every fold
 // treated as open, via appendHeadlines/appendCalendarRows's ignoreFold —
-// for the outline/clarify and calendar views. Otherwise a match inside a
+// for the outline/review and calendar views. Otherwise a match inside a
 // folded subtree, or a folded calendar event's Location/description
 // body, would be invisible to search simply because its row was never
 // built, rather than because it didn't match — unlike vim, where folding

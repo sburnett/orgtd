@@ -126,10 +126,10 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		}
 	}
 
-	line("Gutter icons: dirty %q (%s), mark (%s), clarify %q (%s), lock %q (%s), meeting %q (%s)",
+	line("Gutter icons: dirty %q (%s), mark (%s), review %q (%s), lock %q (%s), meeting %q (%s)",
 		orDefault(m.cfg.Icons.DirtyIcon, defaultDirtyIcon), orDefault(m.cfg.Icons.DirtyColor, defaultDirtyColor),
 		orDefault(m.cfg.Icons.MarkColor, defaultMarkColor),
-		orDefault(m.cfg.Icons.ClarifyIcon, defaultClarifyIcon), orDefault(m.cfg.Icons.ClarifyColor, defaultClarifyColor),
+		orDefault(m.cfg.Icons.ReviewIcon, defaultReviewIcon), orDefault(m.cfg.Icons.ReviewColor, defaultReviewColor),
 		orDefault(m.cfg.Icons.LockIcon, defaultLockIcon), orDefault(m.cfg.Icons.LockColor, defaultLockColor),
 		orDefault(m.cfg.Icons.MeetingIcon, defaultMeetingIcon), orDefault(m.cfg.Icons.MeetingColor, defaultMeetingColor))
 

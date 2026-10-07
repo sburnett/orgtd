@@ -89,14 +89,14 @@ func (m *Model) clearMarksFor(h *org.Headline) {
 	}
 }
 
-// remapHeadlineRefs keeps marks and :clarify's pin correct across an `i`
+// remapHeadlineRefs keeps marks and :review's pin correct across an `i`
 // edit (subtreeReplaceAction), which always replaces a headline with a
 // freshly parsed one — a distinct pointer, even though nothing else
 // about the edit changed. oldSet's own root (oldSet[0]) is remapped
 // directly to newSet's root (or cleared, if the edit emptied the entry
 // out entirely); anything else in oldSet — a descendant, or another
 // top-level entry when a whole file is edited at once — has no reliable
-// counterpart in the freshly-parsed tree, so its marks/clarify-target
+// counterpart in the freshly-parsed tree, so its marks/review-target
 // are cleared rather than left dangling on a headline no longer in any
 // tree. Also used, with oldSet/newSet swapped, when the edit is undone.
 func (m *Model) remapHeadlineRefs(oldSet, newSet []*org.Headline) {
@@ -109,14 +109,14 @@ func (m *Model) remapHeadlineRefs(oldSet, newSet []*org.Headline) {
 	}
 	org.Walk(oldSet, func(h *org.Headline) {
 		if h != oldRoot {
-			if m.clarifyTarget == h {
-				m.clarifyTarget = nil
+			if m.reviewTarget == h {
+				m.reviewTarget = nil
 			}
 			m.clearMarksFor(h)
 			return
 		}
-		if m.clarifyTarget == h {
-			m.clarifyTarget = newRoot
+		if m.reviewTarget == h {
+			m.reviewTarget = newRoot
 		}
 		for letter, target := range m.marks {
 			if target != h {

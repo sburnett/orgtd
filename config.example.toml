@@ -49,7 +49,7 @@
 # covers. Default: 14.
 # agenda_window_days = 14
 
-# Base name of the file :clarify treats as the inbox. Default: inbox.org.
+# Base name of the file :review treats as the inbox. Default: inbox.org.
 # inbox_file = "inbox.org"
 
 # Base name of the file (e.g. the one :sync-calendar writes, below)
@@ -110,7 +110,7 @@
 # Customizes the character and color of each marker the outline draws in
 # its gutter column, to the left of every entry (see the README's
 # Keybindings section for what each one means: "+" for unsaved changes,
-# a mark's own letter, "●" for the :clarify target, "◆" for a
+# a mark's own letter, "●" for the :review target, "◆" for a
 # :format-links lock, "▣" for a meeting link, via "gM" or a shared tag).
 # Every key here is optional and falls back to the built-in glyph/color
 # shown below when unset — delete whichever lines you don't want to
@@ -131,8 +131,8 @@
 # dirty_icon    = "+"    # unsaved changes
 # dirty_color   = "9"
 # mark_color    = "212"  # a vim-style mark's own letter ("m<letter>") — no matching icon, since the glyph is the letter itself
-# clarify_icon  = "●"    # the :clarify view's pinned inbox item
-# clarify_color = "212"
+# review_icon  = "●"    # the :review view's pinned inbox item
+# review_color = "212"
 # lock_icon     = "◆"    # locked by an in-flight :format-links batch
 # lock_color    = "208"
 # meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag

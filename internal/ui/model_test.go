@@ -930,13 +930,13 @@ func TestFinishEditFileMarksFileClean(t *testing.T) {
 	}
 }
 
-func TestFinishEditFileClearsMarksAndClarifyTargetOnThatFile(t *testing.T) {
+func TestFinishEditFileClearsMarksAndReviewTargetOnThatFile(t *testing.T) {
 	ws := loadFixtureCopy(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m = sendKey(m, "m")
 	m = sendKey(m, "a")
-	m.enterClarifyView()
+	m.enterReviewView()
 	oldFile := m.ws.Files[0]
 
 	if err := os.WriteFile(oldFile.Path, []byte("#+TITLE: Inbox\n\n* TODO Something else entirely\n"), 0644); err != nil {
@@ -948,8 +948,8 @@ func TestFinishEditFileClearsMarksAndClarifyTargetOnThatFile(t *testing.T) {
 	if _, ok := m.marks['a']; ok {
 		t.Errorf("mark 'a' survived the file being reloaded out from under it")
 	}
-	if m.clarifyTarget != nil {
-		t.Errorf("clarifyTarget = %v, want nil (its file was reloaded)", m.clarifyTarget)
+	if m.reviewTarget != nil {
+		t.Errorf("reviewTarget = %v, want nil (its file was reloaded)", m.reviewTarget)
 	}
 }
 
@@ -1732,7 +1732,7 @@ func TestDirtyGutterIsLeftmostAndConsistentAcrossRows(t *testing.T) {
 	itemLine := stripANSI(m.renderRow(m.rows[itemIdx]))
 	nestedLine := stripANSI(m.renderRow(m.rows[nestedIdx]))
 
-	// Column 0 is the mark/clarify column, column 1 is the :format-links
+	// Column 0 is the mark/review column, column 1 is the :format-links
 	// lock column, column 2 is the "attached to a meeting" column, column
 	// 3 is the dirty marker — four separate columns (see
 	// markColumn/lockColumn/meetingColumn/gutter) so a row that's marked,

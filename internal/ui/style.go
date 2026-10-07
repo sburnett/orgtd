@@ -64,7 +64,7 @@ const (
 	// inverting video the way a plain terminal cursor block does.
 	defaultHighlightBg = "#585858"
 
-	// defaultPanelBg tints the info buffer (clarify/marks/register,
+	// defaultPanelBg tints the info buffer (review/marks/register,
 	// links, meeting detail, tag/command-completion matches, the status
 	// and "gM" meeting pickers) — wildcharm's Pmenu: its popup-menu
 	// panel color.
@@ -187,7 +187,7 @@ func (m Model) cursorStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Background(lipgloss.Color(orDefault(m.cfg.Colors.HighlightBg, defaultHighlightBg)))
 }
 
-// overlayBg is the background tint for the info buffer (clarify/marks/
+// overlayBg is the background tint for the info buffer (review/marks/
 // register, links, meeting detail, tag/command-completion matches, the
 // status and "gM" meeting pickers).
 func (m Model) overlayBg() lipgloss.TerminalColor {
@@ -356,15 +356,15 @@ func (m Model) renderTagsSuffix(h *org.Headline, tags []string, query string, bg
 // through New() at all. See dirtyIcon/dirtyColor and friends, above, and
 // orDefault, below. Colors are drawn from the wildcharm dark palette
 // (see the package doc comment above the style vars, near fileStyle) —
-// dirty's blue matches its "Changed" highlight, mark/clarify share its
+// dirty's blue matches its "Changed" highlight, mark/review share its
 // magenta Identifier/Question color, lock takes its orange Type/Warning
 // color, and meeting takes its blue Statement/Directory color.
 const (
 	defaultDirtyIcon    = "+"
 	defaultDirtyColor   = "#0087d7"
 	defaultMarkColor    = "#ff87ff"
-	defaultClarifyIcon  = "●"
-	defaultClarifyColor = "#ff87ff"
+	defaultReviewIcon   = "●"
+	defaultReviewColor  = "#ff87ff"
 	defaultLockIcon     = "◆"
 	defaultLockColor    = "#ffaf00"
 	defaultMeetingIcon  = "▣"
