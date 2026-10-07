@@ -1,6 +1,10 @@
 package workspace
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sburnett/orgtd/internal/org"
@@ -66,5 +70,42 @@ func TestLocateToleratesDetachedHeadlines(t *testing.T) {
 	parent.Children = []*org.Headline{child}
 	if f, p, idx := ws.Locate(child); f != nil || p != parent || idx != 0 {
 		t.Errorf("Locate(detached child) = (%v, %v, %d), want (nil, parent, 0)", f, p, idx)
+	}
+}
+
+func TestLoadIncludesReferenceSubdirectoryOnly(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"a.org", "reference/r.org", "reference/deeper/x.org", "other/y.org"} {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("* hello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range ws.Files {
+		rel, _ := filepath.Rel(dir, f.Path)
+		got = append(got, rel+"="+strconv.FormatBool(ws.IsReference(f)))
+	}
+	want := "a.org=false reference/r.org=true"
+	if strings.Join(got, " ") != want {
+		t.Errorf("files = %v, want %q", got, want)
+	}
+}
+
+func TestLoadWorksWithoutAReferenceDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.org"), []byte("* hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := Load(dir)
+	if err != nil || len(ws.Files) != 1 {
+		t.Fatalf("Load = %v files, err %v; want 1 file, nil", len(ws.Files), err)
 	}
 }

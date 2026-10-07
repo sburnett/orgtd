@@ -39,6 +39,9 @@ func (m *Model) agendaEntries(today time.Time, windowDays int) []agendaEntry {
 		entries = append(entries, agendaEntry{h: h, label: label, date: date, repeater: orgdate.RepeaterCookie(ts), missed: missed})
 	}
 	for _, f := range m.ws.Files {
+		if m.ws.IsReference(f) {
+			continue
+		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
 			if org.IsDoneKeyword(h.Keyword) || h.Keyword == "SOMEDAY" {
 				return
@@ -74,6 +77,9 @@ func agendaSection(date, today time.Time) string {
 func (m *Model) nextActionHeadlines() []*org.Headline {
 	var next []*org.Headline
 	for _, f := range m.ws.Files {
+		if m.ws.IsReference(f) {
+			continue
+		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
 			if h.Keyword == "NEXT" {
 				next = append(next, h)

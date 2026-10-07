@@ -124,6 +124,9 @@ func (m *Model) appendCalendarHeadlines(dst *[]row, headlines []*org.Headline, i
 // hand-edited) or an unparseable one is never hidden — there's no age to
 // judge it by.
 func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
+	if m.view == referenceView {
+		return false // reference material has no task state to age out
+	}
 	if !m.hideDoneEnabled || !org.IsDoneKeyword(h.Keyword) || h.Closed == nil {
 		return false
 	}

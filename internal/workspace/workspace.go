@@ -6,7 +6,9 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,31 +16,32 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
-// Workspace holds every org file found directly in a directory.
+// ReferenceDir is the one subdirectory of the workspace directory whose
+// *.org files are loaded too: reference material (see IsReference), kept
+// out of the task views.
+const ReferenceDir = "reference"
+
+// Workspace holds every org file found directly in a directory, plus
+// those directly in its reference/ subdirectory.
 type Workspace struct {
 	Dir   string
 	Files []*org.File // sorted by Path
 }
 
-// Load discovers *.org files directly inside dir and parses each of them.
-// It is non-recursive: subdirectories, including the UI's scratch/ buffer
-// directory, are never scanned.
+// Load discovers *.org files directly inside dir, and directly inside
+// dir's reference/ subdirectory (if it exists), and parses each of them.
+// Neither scan is recursive: any other subdirectory, including the UI's
+// scratch/ buffer directory, is never scanned.
 func Load(dir string) (*Workspace, error) {
-	entries, err := os.ReadDir(dir)
+	paths, err := orgPaths(dir)
 	if err != nil {
-		return nil, fmt.Errorf("workspace: reading %s: %w", dir, err)
+		return nil, err
 	}
-
-	var paths []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if filepath.Ext(e.Name()) != ".org" {
-			continue
-		}
-		paths = append(paths, filepath.Join(dir, e.Name()))
+	refPaths, err := orgPaths(filepath.Join(dir, ReferenceDir))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
 	}
+	paths = append(paths, refPaths...)
 	sort.Strings(paths)
 
 	ws := &Workspace{Dir: dir}
@@ -50,6 +53,33 @@ func Load(dir string) (*Workspace, error) {
 		ws.Files = append(ws.Files, f)
 	}
 	return ws, nil
+}
+
+// orgPaths lists the *.org files directly inside dir (not its
+// subdirectories).
+func orgPaths(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("workspace: reading %s: %w", dir, err)
+	}
+	var paths []string
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".org" {
+			continue
+		}
+		paths = append(paths, filepath.Join(dir, e.Name()))
+	}
+	return paths, nil
+}
+
+// IsReference reports whether f lives in the workspace's reference/
+// subdirectory — reference material in GTD's sense: information with no
+// action attached, which the UI shows only in :reference (and, by tag,
+// alongside meetings and in :tags) and never treats as tasks. A file is
+// told apart by its directory, not its name, so reference/inbox.org is
+// not the inbox.
+func (w *Workspace) IsReference(f *org.File) bool {
+	return filepath.Clean(filepath.Dir(f.Path)) == filepath.Join(filepath.Clean(w.Dir), ReferenceDir)
 }
 
 // FileOf returns the loaded file that h's tree belongs to — found by

@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"path/filepath"
-
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -10,7 +8,7 @@ import (
 // inbox (see WithInboxFile), or nil if it isn't loaded.
 func (m *Model) findInboxFile() *org.File {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.InboxFile {
+		if m.isNamedFile(f, m.cfg.InboxFile) {
 			return f
 		}
 	}

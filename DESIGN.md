@@ -100,8 +100,12 @@ wanted byte-exact output via raw spans; that was not built.)
 
 ### internal/workspace
 
-`Load(dir)` parses every `*.org` directly inside `dir` (non-recursive,
-sorted by path). `AcquireLock(dir)` takes an OS-level advisory lock
+`Load(dir)` parses every `*.org` directly inside `dir`, plus those
+directly inside `dir/reference/` (`ReferenceDir`) — nothing else is
+scanned — sorted by path. `IsReference(f)` tells a reference file by its
+directory; reference files are ordinary `*org.File`s in `Files`, so
+editing, undo, dirty tracking, `:w` and `:diff`/`:commit` need no special
+casing. `AcquireLock(dir)` takes an OS-level advisory lock
 (`.orgtd.lock`) so two instances can't race to overwrite the same files.
 There is no file watching: the directory is read once at startup, plus
 explicit reloads (see `finishEditFile` and `finishSyncCalendar` in ui).
@@ -235,7 +239,7 @@ builder, whether its rows fold, the empty-state message, what Enter does,
 any `open` preparation (clarify, calendar, diff), and info-buffer lines —
 and the rest of the package asks the spec instead of switching on
 `m.view`. The views are outline, agenda, clarify, config, log, diff, help,
-calendar, meetingTags and tags. A `row` (`row.go`) carries a `kind`
+calendar, meetingTags, tags and reference. A `row` (`row.go`) carries a `kind`
 (`rowHeadline`, `rowFile`, `rowBody`, `rowSection`, `rowText`,
 `rowAgendaItem`, `rowMeetingHeader`, `rowCalendarEvent`,
 `rowMeetingTagsRecord`, `rowCalendarLinked`, `rowTagsItem`) that says
@@ -249,6 +253,19 @@ Views that are derived (agenda, tags, calendar's linked items) show the
 same headline pointer in more than one row; `sameRow` exists to tell
 those rows apart (search `n`/`N` depends on it), which is why `row`
 carries fields such as `meetingItemTitle` and `linkedFromEvent`.
+
+**Reference files** (`reference/*.org`) are in `m.ws.Files` like any
+other, and a view decides what it shows of them: `:reference`
+(`appendReferenceRows`) is the only view that lists them as an outline,
+and it ignores task state (no stale-DONE hiding in `hiddenAsStaleDone`,
+keyword/planning left plain in `renderRowWithBg`, `r`/`R`/`gd` refused by
+`refuseTaskStateInReference`); the plain outline skips them
+(`isNonOutlineFile`) and the agenda's date and Next Actions sections skip
+them. `:tags` and the meetings index (so `:calendar`'s linked items, the
+gutter's ▣ marker and the agenda's Meetings section) deliberately include
+them — tags are how reference is surfaced. Any lookup of a special file by
+base name goes through `m.isNamedFile`, which excludes reference files, so
+`reference/inbox.org` is never the inbox.
 
 Special files, by base name from config: the **inbox** file (capture
 target, `:clarify` source), the **calendar** file (excluded from the

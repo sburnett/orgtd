@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -51,7 +50,7 @@ func (m *Model) collectFormatLinksTargets() ([]*formatLinksTarget, []string) {
 	var targets []*formatLinksTarget
 	var urls []string
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.CalendarFile {
+		if m.isNamedFile(f, m.cfg.CalendarFile) {
 			continue
 		}
 		org.Walk(f.Headlines, func(h *org.Headline) {

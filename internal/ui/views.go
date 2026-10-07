@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
+
+	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/workspace"
 )
 
 // viewKind identifies a view: one way of listing the workspace's entries
@@ -22,6 +24,7 @@ const (
 	calendarView
 	meetingTagsView
 	tagsView
+	referenceView
 
 	numViews // not a view: the number of views, sizing viewSpecs
 )
@@ -137,6 +140,15 @@ func init() {
 			empty:   func(*Model) string { return "No tags found. :outline to go back." },
 			enter:   (*Model).jumpToSource,
 		},
+		referenceView: {
+			command: "reference",
+			label:   "reference",
+			build:   (*Model).appendReferenceRows,
+			folds:   true,
+			empty: func(m *Model) string {
+				return fmt.Sprintf("No org files found in %s/. :outline to go back.", workspace.ReferenceDir)
+			},
+		},
 		configView: {
 			command: "config",
 			label:   "config",
@@ -196,14 +208,38 @@ func (m *Model) openView(k viewKind) {
 
 // appendOutlineRows appends the full outline: every loaded file (except
 // the calendar and meeting-tags files, which have views of their own)
-// followed by its headlines. Shared by the outline and clarify views, and
-// by search's fully expanded copy of either (ignoreFold).
+// followed by its headlines. Reference files have :reference instead.
+// Shared by the outline and clarify views, and by search's fully expanded
+// copy of either (ignoreFold).
 func (m *Model) appendOutlineRows(dst *[]row, ignoreFold bool) {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.CalendarFile || filepath.Base(f.Path) == m.cfg.MeetingTagsFile {
+		if m.isNonOutlineFile(f) {
 			continue
 		}
 		*dst = append(*dst, row{kind: rowFile, file: f})
 		m.appendHeadlines(dst, f.Headlines, ignoreFold)
 	}
+}
+
+// appendReferenceRows appends the reference view's rows: the outline's
+// own shape (a file header row, then its foldable headlines), but over
+// only the files in reference/. Task state doesn't apply to reference
+// material, so see referenceView's special cases elsewhere: no stale-DONE
+// hiding (hiddenAsStaleDone) and keyword/planning left unstyled
+// (renderRowWithBg).
+func (m *Model) appendReferenceRows(dst *[]row, ignoreFold bool) {
+	for _, f := range m.ws.Files {
+		if !m.ws.IsReference(f) {
+			continue
+		}
+		*dst = append(*dst, row{kind: rowFile, file: f})
+		m.appendHeadlines(dst, f.Headlines, ignoreFold)
+	}
+}
+
+// isNonOutlineFile reports whether f is one the plain outline leaves out
+// because another view shows it: the calendar file (:calendar), the
+// meeting-tags file (:meeting-tags), or reference material (:reference).
+func (m *Model) isNonOutlineFile(f *org.File) bool {
+	return m.ws.IsReference(f) || m.isNamedFile(f, m.cfg.CalendarFile) || m.isNamedFile(f, m.cfg.MeetingTagsFile)
 }

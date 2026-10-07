@@ -254,11 +254,19 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
+// isNamedFile reports whether f is the workspace file whose base name is
+// name — one of the configured special files (inbox, calendar,
+// meeting-tags), which live directly in the org directory: a file of the
+// same name in reference/ is just reference material, not that file.
+func (m *Model) isNamedFile(f *org.File, name string) bool {
+	return filepath.Base(f.Path) == name && !m.ws.IsReference(f)
+}
+
 // findCalendarFile returns the workspace file calendarView shows (see
 // WithCalendarFile), or nil if it isn't loaded.
 func (m *Model) findCalendarFile() *org.File {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.CalendarFile {
+		if m.isNamedFile(f, m.cfg.CalendarFile) {
 			return f
 		}
 	}
@@ -273,7 +281,7 @@ func (m *Model) findCalendarFile() *org.File {
 // calendar file's own workspace entry).
 func (m *Model) findMeetingTagsFile() *org.File {
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.MeetingTagsFile {
+		if m.isNamedFile(f, m.cfg.MeetingTagsFile) {
 			return f
 		}
 	}

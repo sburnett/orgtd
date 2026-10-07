@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,7 +20,7 @@ import (
 func (m *Model) gitFiles() []*org.File {
 	files := make([]*org.File, 0, len(m.ws.Files))
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.CalendarFile {
+		if m.isNamedFile(f, m.cfg.CalendarFile) {
 			continue
 		}
 		files = append(files, f)

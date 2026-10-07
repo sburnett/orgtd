@@ -186,12 +186,18 @@ func buildNormalKeys() *keymap {
 	km.bind(do((*Model).startMeetingPicker), "g M")
 	km.bind(do((*Model).startTagPrompt), "g t")
 	km.bind(do(func(m *Model) {
-		m.startSetDeadline()
 		m.pendingCount = 0
+		if m.refuseTaskStateInReference() {
+			return
+		}
+		m.startSetDeadline()
 	}), "g d")
 	km.bind(do(func(m *Model) {
 		count := m.pendingCount
 		m.pendingCount = 0
+		if m.refuseTaskStateInReference() {
+			return
+		}
 		if m.currentHeadline() != nil {
 			m.mode = selectMode
 			if count > 1 {
@@ -245,6 +251,9 @@ func buildVisualKeys() *keymap {
 	km.bind(do((*Model).deleteVisualSelection), "d")
 	km.bind(do((*Model).yankVisualSelection), "y")
 	km.bind(do(func(m *Model) {
+		if m.refuseTaskStateInReference() {
+			return
+		}
 		if headlines := m.visualSelectedHeadlines(); len(headlines) > 0 {
 			m.mode = selectMode
 			m.selectModeTargets = headlines

@@ -210,11 +210,15 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		fold = bgSpan(bg, glyph)
 	}
 
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
+	title := m.renderKeywordAndTitle(h, bg)
+	if m.view == referenceView {
+		title = m.renderPlainTitle(h, bg)
+	}
+	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(title, bg)
 
 	suffix := m.renderTagsSuffix(h, h.Tags, query, bg)
 
-	if ts := planningSummary(h); ts != "" {
+	if ts := planningSummary(h); ts != "" && m.view != referenceView {
 		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(ts)
 	}
 
@@ -249,6 +253,22 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 	base = m.fadeIfImmutable(base, h).Background(bg)
 	parts = append(parts, m.renderTitleForDisplay(h.Title, base, query))
 	return parts
+}
+
+// renderPlainTitle is renderKeywordAndTitle for a reference entry:
+// task state doesn't apply to reference material, so a leading keyword
+// (or priority) is shown as ordinary title text — unstyled, and a
+// DONE/CANCELLED one not struck through — rather than as a state.
+func (m Model) renderPlainTitle(h *org.Headline, bg lipgloss.TerminalColor) []string {
+	title := h.Title
+	if h.Priority != "" {
+		title = fmt.Sprintf("[#%s] %s", h.Priority, title)
+	}
+	if h.Keyword != "" {
+		title = h.Keyword + " " + title
+	}
+	base := m.fadeIfImmutable(lipgloss.NewStyle(), h).Background(bg)
+	return []string{m.renderTitleForDisplay(title, base, m.activeSearchQuery())}
 }
 
 // renderAgendaItemRow renders one agenda item row: keyword/priority/

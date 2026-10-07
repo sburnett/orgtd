@@ -50,7 +50,12 @@ orgtd --dir ~/org
 `:config` shows the current, effective value of everything above.
 
 Every `.org` file directly inside `--dir` is loaded, sorted alphabetically.
-Subdirectories are not scanned.
+The one subdirectory that's scanned too is `reference/` (its `.org` files
+only, not its own subdirectories) — reference material in GTD's sense,
+information with no action attached; see the Reference view, below. Any
+other subdirectory is not scanned. `reference/` is created by hand (there's
+no setting for its name), and, like the rest of `--dir`, is read once at
+startup, so a file added to it while orgtd is running needs a restart.
 
 orgtd takes an exclusive lock on `--dir` for as long as it's running (a
 `.orgtd.lock` file inside it), so a second orgtd instance accidentally
@@ -211,6 +216,27 @@ logging is on.
   sits in the outline, so entries `o`/`O` capture straight to a meeting
   (see Keybindings, below) keep showing up in the order they were
   actually captured even after being filed away somewhere else entirely.
+- **Reference** (`:reference`) — the outline's counterpart for reference
+  material: every `.org` file in `reference/` (see above), shown exactly
+  like the outline — a header row per file, then its foldable headlines
+  and body text, with `i`, `o`, `dd`, `p`, `>>`, marks, search, `gt` and
+  every other editing command working the same — but with task state
+  ignored. A headline's TODO keyword is shown as ordinary title text
+  (unstyled, never struck through) and its `SCHEDULED`/`DEADLINE`/`CLOSED`
+  dates aren't shown; stale `DONE` entries are never hidden (see
+  `:toggledone`); and `r`/`R`/`gd` refuse with a message rather than set
+  state that nothing would use. Reference entries never appear in the
+  plain outline, and the agenda's Overdue/Due Today/Upcoming/Next Actions
+  sections skip them, so nothing in `reference/` is ever mistaken for a
+  task. Tags are how reference material surfaces elsewhere: an entry
+  tagged `@alice` or `kubernetes` shows up in `:tags` under that tag like
+  any other entry, and — since a shared tag links an entry to a calendar
+  event (see Tag-based meeting links, below) — nested under every
+  matching meeting in `:calendar` (and in the agenda's Meetings section),
+  so the runbook or notes you need are right there when the meeting is.
+  (A reference entry marked `DONE`/`CANCELLED` is still excluded from
+  meeting links, as with any entry.) A file in `reference/` is never one
+  of the special files above: `reference/inbox.org` isn't the inbox.
 - **Meeting tags** (`:meeting-tags`) — every entry in `meeting_tags_file`
   (default `meeting-tags.org`; see Tag-based meeting links, below), an
   ordinary foldable/editable outline (same `i`, `dd`, `r`, marks, etc. as
@@ -240,7 +266,9 @@ logging is on.
   one — its ID(s) no longer match
   anything currently synced (a deleted/recreated series, or a one-off
   event that's aged out of the sync window).
-- **Tags** (`:tags`) — every entry, across every file (`calendar_file` and
+- **Tags** (`:tags`) — every entry, across every file (including those in
+  `reference/`, which is how reference material is found by topic;
+  `calendar_file` and
   `meeting_tags_file` excluded, same as the outline view above — a synced
   calendar event's own attendee/`recurring` tags, and a meeting-tags.org
   record's own tag, aren't outline entries to catalog here), grouped
@@ -581,7 +609,7 @@ History doesn't persist between sessions.
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:clarify` / `:outline` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
+| `:agenda` / `:clarify` / `:outline` / `:reference` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:next` / `:prev` | Clarify view only: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |

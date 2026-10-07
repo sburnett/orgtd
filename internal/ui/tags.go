@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -22,16 +21,20 @@ import (
 // headline carrying that tag, ordered by CREATED (oldest first, same as
 // linkedMeetingItems — see orgdate.CreatedTime) rather than by file/tree
 // position. An entry with more than one tag legitimately appears once
-// under each. Subject to the same stale-DONE hiding as the outline (see
-// hiddenAsStaleDone) — :toggledone affects this view the same way.
+// under each — reference entries (see workspace.Workspace.IsReference)
+// included, which is how reference material gets surfaced by topic.
+// Subject to the same stale-DONE hiding as the outline (see
+// hiddenAsStaleDone) — :toggledone affects this view the same way —
+// except for reference entries, which have no task state to age out.
 func (m *Model) appendTagsRows(dst *[]row) {
 	byTag := make(map[string][]*org.Headline)
 	for _, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.CalendarFile || filepath.Base(f.Path) == m.cfg.MeetingTagsFile {
+		if m.isNamedFile(f, m.cfg.CalendarFile) || m.isNamedFile(f, m.cfg.MeetingTagsFile) {
 			continue
 		}
+		isRef := m.ws.IsReference(f)
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			if m.hiddenAsStaleDone(h) {
+			if !isRef && m.hiddenAsStaleDone(h) {
 				return
 			}
 			for _, tag := range h.Tags {

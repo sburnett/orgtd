@@ -96,7 +96,7 @@ func (m Model) finishSyncCalendar(msg syncCalendarMsg) (tea.Model, tea.Cmd) {
 
 	replaced := false
 	for i, f := range m.ws.Files {
-		if filepath.Base(f.Path) == m.cfg.CalendarFile {
+		if m.isNamedFile(f, m.cfg.CalendarFile) {
 			m.clearRefsForFile(f)
 			m.ws.Files[i] = msg.result.File
 			replaced = true

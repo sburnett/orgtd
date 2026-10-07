@@ -7,6 +7,19 @@ import (
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
+// refuseTaskStateInReference reports whether the current view is
+// :reference, where TODO state and deadlines are deliberately ignored
+// (see appendReferenceRows) — setting one there would have no visible
+// effect, so r/R and gd refuse with a message instead of silently doing
+// something invisible.
+func (m *Model) refuseTaskStateInReference() bool {
+	if m.view != referenceView {
+		return false
+	}
+	m.message = "Reference entries have no task state or deadline — see :outline"
+	return true
+}
+
 // startSetDeadline opens the deadline-entry prompt ("gd") for the
 // current headline, pre-filled with its existing deadline if any. A
 // no-op on file rows.
