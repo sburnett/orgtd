@@ -199,7 +199,9 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
 	indent := m.indentGuides(h.Parent, h.Level, m.guideScope(), bg)
 
-	fold := bgSpan(bg, " ")
+	// A leaf gets a small dot in the arrow's column, so every row has
+	// something sitting where its own guide would hang from.
+	fold := bgSpan(bg, "·") // U+00B7 MIDDLE DOT
 	if hasFoldableContent(h) {
 		glyph := "▼" // U+25BC BLACK DOWN-POINTING TRIANGLE (full-size; ▾ is a dedicated "small" variant)
 		if m.collapsed[h] {
