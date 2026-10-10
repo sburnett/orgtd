@@ -430,6 +430,10 @@ func TestWrapBodyLine(t *testing.T) {
 		{"anything", 0, []string{"anything"}},
 		{"one two three four", 9, []string{"one two", "three", "four"}},
 		{"abcdefghij", 4, []string{"abcd", "efgh", "ij"}},
+		// Indentation is kept, and continuations hang under the text.
+		{"  nested item", 40, []string{"  nested item"}},
+		{"\t- aa bb cc dd", 12, []string{"    - aa bb", "      cc dd"}},
+		{"1. aa bb cc dd", 8, []string{"1. aa bb", "   cc dd"}},
 		// A link is atomic and counts as its description, not its syntax.
 		{"see [[https://example.com/long/path][the doc]] now", 14, []string{"see [[https://example.com/long/path][the doc]]", "now"}},
 		{"see [[https://example.com/long/path][a b c]] now", 8, []string{"see", "[[https://example.com/long/path][a b c]]", "now"}},

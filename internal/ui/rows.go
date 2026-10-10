@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -156,14 +157,51 @@ func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
 	}
 }
 
+// listMarkerRe matches the bullet or number of a plain-list item, plus
+// the space(s) after it, at the start of an already-unindented line.
+var listMarkerRe = regexp.MustCompile(`^([-+*]|\d+[.)])\s+`)
+
 // wrapBodyLine splits line into segments no wider than width columns as
 // displayed (an org link counts as just its display text, see
 // renderTitleForDisplay, and is never split), breaking at spaces and
 // hard-breaking a plain word that is itself too wide. A non-positive
-// width, or a line that already fits, comes back as is. The line's
-// leading/trailing whitespace is dropped, as rendering trims it anyway.
+// width, or a line that already fits, comes back as is.
+//
+// The line's leading indentation is kept (a tab counts as four spaces),
+// so a nested list stays nested, and a wrapped continuation is indented
+// to line up under the text after the line's list marker, if it has
+// one. Trailing whitespace is dropped.
 func wrapBodyLine(line string, width int) []string {
-	line = strings.TrimSpace(line)
+	line = strings.TrimRight(line, " \t")
+	rest := strings.TrimLeft(line, " \t")
+	lead := strings.ReplaceAll(line[:len(line)-len(rest)], "\t", "    ")
+	if width <= 0 || len(lead)+displayWidth(rest) <= width {
+		return []string{lead + rest}
+	}
+
+	// The text after the indentation and any list marker is what wraps;
+	// the marker only appears on the first segment.
+	marker := listMarkerRe.FindString(rest)
+	rest = rest[len(marker):]
+	hang := min(len(lead)+len(marker), width/2)
+	firstPrefix := lead + marker
+	if len(lead)+len(marker) > hang {
+		firstPrefix = strings.Repeat(" ", hang)
+	}
+	segs := wrapWords(rest, width-hang)
+	for i, seg := range segs {
+		if i == 0 {
+			segs[i] = firstPrefix + seg
+		} else {
+			segs[i] = strings.Repeat(" ", hang) + seg
+		}
+	}
+	return segs
+}
+
+// wrapWords is the word-wrapping core of wrapBodyLine, for text with no
+// leading indentation.
+func wrapWords(line string, width int) []string {
 	if width <= 0 || displayWidth(line) <= width {
 		return []string{line}
 	}

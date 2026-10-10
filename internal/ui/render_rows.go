@@ -535,7 +535,7 @@ func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := m.indentGuides(owner, r.level, m.guideScope(), bg)
 	blanks := bgSpan(bg, "     ") + indent + bgSpan(bg, "  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
 	style := m.fadeIfImmutable(m.bodyStyle(), r.headline).Background(bg)
-	return blanks + m.renderTitleForDisplay(strings.TrimSpace(r.text), style, m.activeSearchQuery())
+	return blanks + m.renderTitleForDisplay(expandLeadingTabs(strings.TrimRight(r.text, " \t")), style, m.activeSearchQuery())
 }
 
 func planningSummary(h *org.Headline) string {
@@ -612,4 +612,12 @@ func (m Model) indentGuides(innermost *org.Headline, level int, scope *org.Headl
 		}
 	}
 	return b.String()
+}
+
+// expandLeadingTabs replaces tabs in s's leading whitespace with four
+// spaces — a terminal would otherwise advance to its own tab stop — so
+// an indented body line (a nested list, say) keeps its indentation.
+func expandLeadingTabs(s string) string {
+	rest := strings.TrimLeft(s, " \t")
+	return strings.ReplaceAll(s[:len(s)-len(rest)], "\t", "    ") + rest
 }
