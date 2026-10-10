@@ -165,6 +165,21 @@ func (m *Model) hasFoldableContent(h *org.Headline) bool {
 	return false
 }
 
+// visibleDescendantCount is how many descendant headlines of h are
+// currently shown or would be on unfolding it: every child and
+// grandchild, minus any stale DONE one (see hiddenAsStaleDone) and its
+// whole subtree.
+func (m *Model) visibleDescendantCount(h *org.Headline) int {
+	n := 0
+	for _, c := range h.Children {
+		if m.hiddenAsStaleDone(c) {
+			continue
+		}
+		n += 1 + m.visibleDescendantCount(c)
+	}
+	return n
+}
+
 // hasAnyContent is hasFoldableContent without the hidden-children
 // filter: whether h has any children or body at all, shown or not.
 func hasAnyContent(h *org.Headline) bool {

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -388,5 +389,33 @@ func TestBodyLineRendersLinkAsDescription(t *testing.T) {
 	out := stripANSI(m.renderBodyLineWithBg(r, lipgloss.NoColor{}))
 	if !strings.Contains(out, "see the docs now") || strings.Contains(out, "[[") || strings.Contains(out, "example.com") {
 		t.Errorf("body line = %q, want link shown as its description only", out)
+	}
+}
+
+func TestFoldedHeadlineShowsDescendantCount(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	var idx int
+	found := false
+	for i, r := range m.rows {
+		if r.kind == rowHeadline && len(r.headline.Children) > 0 {
+			idx, found = i, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("fixture has no headline with children")
+	}
+	h := m.rows[idx].headline
+	want := fmt.Sprintf("(%d)", m.visibleDescendantCount(h))
+
+	if line := stripANSI(m.renderRow(m.rows[idx])); strings.Contains(line, want) {
+		t.Errorf("unfolded row = %q, must not show a descendant count", line)
+	}
+	m.cursor = idx
+	m = sendKey(m, "z")
+	m = sendKey(m, "c")
+	if line := stripANSI(m.renderRow(m.rows[idx])); !strings.Contains(line, want) {
+		t.Errorf("folded row = %q, want descendant count %s", line, want)
 	}
 }

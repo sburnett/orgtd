@@ -216,6 +216,13 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	}
 	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(title, bg)
 
+	// A folded entry shows how many descendants it's hiding.
+	if m.hasFoldableContent(h) && m.collapsed[h] {
+		if n := m.visibleDescendantCount(h); n > 0 {
+			prefix += bgSpan(bg, " ") + m.statusStyle().Background(bg).Render(fmt.Sprintf("(%d)", n))
+		}
+	}
+
 	suffix := m.renderTagsSuffix(h, h.Tags, query, bg)
 
 	if ts := planningSummary(h); ts != "" && m.view != referenceView {
