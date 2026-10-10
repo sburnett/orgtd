@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 func TestForwardSearchIncrementallyJumpsAsYouType(t *testing.T) {
@@ -473,5 +475,76 @@ func TestSearchInHelpViewFindsReadmeText(t *testing.T) {
 	}
 	if m.rows[m.cursor].kind != rowText || !strings.Contains(m.rows[m.cursor].text, "unique-marker-xyz") {
 		t.Errorf("cursor landed on %+v, want the matching help row", m.rows[m.cursor])
+	}
+}
+
+func TestWrappedBodyLineHighlightsMatchAcrossWrapPoint(t *testing.T) {
+	var rows []row
+	m := &Model{width: 30}
+	h := &org.Headline{Title: "x", Level: 1, Body: []string{"alpha beta gamma delta epsilon zeta eta theta"}}
+	m.appendBodyLines(&rows, h)
+	// Find a wrap point and query the two words on either side of it.
+	first, second := strings.Fields(rows[0].text), strings.Fields(rows[1].text)
+	query := first[len(first)-1] + " " + second[0]
+
+	got0 := rows[0].wrap.matchRanges(0, query)
+	got1 := rows[0].wrap.matchRanges(1, query)
+	if len(got0) != 1 || len(got1) != 1 {
+		t.Fatalf("ranges = %v / %v, want one in each row", got0, got1)
+	}
+	if s := rows[0].text[got0[0][0]:got0[0][1]]; s != first[len(first)-1] {
+		t.Errorf("row 0 highlights %q, want %q", s, first[len(first)-1])
+	}
+	if s := rows[1].text[got1[0][0]:got1[0][1]]; s != second[0] {
+		t.Errorf("row 1 highlights %q, want %q", s, second[0])
+	}
+	if r := rows[0].wrap.matchRanges(0, "zzz"); len(r) != 0 {
+		t.Errorf("unrelated query highlighted %v", r)
+	}
+}
+
+// The cursor never rests on a body line (it snaps to the owning entry's
+// title row), so a match inside an entry's body used to leave "n"
+// restarting from the title row and finding the same body line forever.
+func TestRepeatSearchStepsPastMatchesInEntryBodies(t *testing.T) {
+	m := New(loadDemo(t))
+	m = sendKey(m, "/")
+	m = typeKeys(m, "the")
+	m = sendKey(m, "enter")
+
+	var total int
+	if _, err := fmt.Sscanf(m.message, "[1/%d]", &total); err != nil {
+		t.Fatalf("message after search = %q, want [1/N]", m.message)
+	}
+	for want := 2; want <= total+1; want++ {
+		m = sendKey(m, "n")
+		wantMsg := fmt.Sprintf("[%d/%d]", (want-1)%total+1, total)
+		if m.message != wantMsg {
+			t.Fatalf("after %d presses of n, message = %q, want %q (stuck on an entry body match?)", want-1, m.message, wantMsg)
+		}
+	}
+}
+
+func TestEntryWithManyMatchesIsOneSearchMatch(t *testing.T) {
+	m := &Model{width: 30, collapsed: map[*org.Headline]bool{}}
+	h := &org.Headline{Title: "gamma title", Level: 1, Body: []string{
+		"alpha beta gamma delta epsilon zeta eta theta",
+		"gamma",
+		"gamma",
+	}}
+	other := &org.Headline{Title: "unrelated", Level: 1, Body: []string{"nothing here"}}
+	var rows []row
+	m.appendHeadlines(&rows, []*org.Headline{h, other}, true)
+
+	// An entry is one search match, however many of its lines (title or
+	// body, wrapped or not) contain the query.
+	for _, q := range []string{"gamma", "beta gamma", "gamma delta epsilon", "theta"} {
+		if _, total := searchMatchStats(rows, q, rows[0]); total != 1 {
+			t.Errorf("query %q matched %d rows, want 1 (one entry)", q, total)
+		}
+	}
+	next, ok := findMatch(rows, rows[0], "gamma", true)
+	if !ok || !sameRow(next, rows[0]) {
+		t.Errorf("repeat from the only matching entry = %+v (ok=%v), want that same entry", next.headline, ok)
 	}
 }

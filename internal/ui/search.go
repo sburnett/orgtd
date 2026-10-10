@@ -99,6 +99,8 @@ func (m *Model) performIncrementalSearch() {
 			}
 			index, total := searchMatchStats(rows, m.searchQuery, target)
 			m.message = fmt.Sprintf("[%d/%d]", index, total)
+			m.ensureVisible()
+			return
 		} else {
 			m.message = fmt.Sprintf("No match for %q", m.searchQuery)
 		}
@@ -119,11 +121,13 @@ func (m *Model) repeatSearch(forward bool) {
 	rows := m.searchRows()
 	if target, ok := findMatch(rows, from, m.lastSearchQuery, forward); ok {
 		m.revealRow(target)
+		m.revealBodyMatch(target, m.lastSearchQuery)
 		if idx := indexOfRow(m.rows, target); idx >= 0 {
 			m.cursor = idx
 		}
 		index, total := searchMatchStats(rows, m.lastSearchQuery, target)
 		m.message = fmt.Sprintf("[%d/%d]", index, total)
+		m.ensureVisible()
 	} else {
 		m.message = fmt.Sprintf("No match for %q", m.lastSearchQuery)
 	}
@@ -165,9 +169,8 @@ func indexOfRow(rows []row, target row) int {
 // revealRow unfolds whatever's necessary so target's row — found via
 // searchRows, which searches the full outline regardless of fold state —
 // actually appears in m.rows: every ancestor of its headline (so the
-// headline's own row is reachable at all), and the headline itself too
-// when target is one of its own body lines (gated on collapsed[h] the
-// same as its children — see appendBodyLines/appendHeadlines). A no-op
+// headline's own row is reachable at all; see revealBodyMatch for the
+// entry's own body). A no-op
 // for a view with no folding to begin with (agenda, config, log, diff,
 // help), and for the common case where target was already visible (no
 // folds in the way). Deliberately doesn't restore folds it opens if the
@@ -182,10 +185,6 @@ func (m *Model) revealRow(target row) {
 		return
 	}
 	changed := false
-	if target.kind == rowBody && m.collapsed[h] {
-		m.collapsed[h] = false
-		changed = true
-	}
 	for p := h.Parent; p != nil; p = p.Parent {
 		if m.collapsed[p] {
 			m.collapsed[p] = false
@@ -254,4 +253,22 @@ func (m *Model) startSearch(forward bool) {
 	m.searchOrigin = m.cursor
 	m.searchQuery = ""
 	m.message = ""
+}
+
+// revealBodyMatch unfolds target's own entry when query matches only its
+// body text, not what its title line shows — the match would otherwise be
+// invisible, folded away under a title that doesn't contain it. An entry
+// whose title matches stays as folded as it was.
+func (m *Model) revealBodyMatch(target row, query string) {
+	h := target.headline
+	if h == nil || target.bodySearch == "" || !m.collapsed[h] || !m.spec().folds {
+		return
+	}
+	q := strings.ToLower(query)
+	if strings.Contains(strings.ToLower(rowTitleSearchText(target)), q) ||
+		!strings.Contains(strings.ToLower(target.bodySearch), q) {
+		return
+	}
+	m.collapsed[h] = false
+	m.rebuildRows()
 }

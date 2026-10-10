@@ -23,9 +23,21 @@ import (
 // (rather than a free function) purely so it can pass m's own
 // searchHighlightBg through to highlightMatches.
 func (m Model) renderTitleForDisplay(title string, base lipgloss.Style, query string) string {
+	return m.renderTitleSpans(title, base, func(piece string, _, _ int, st lipgloss.Style, _ bool) string {
+		return m.highlightMatches(piece, query, st)
+	})
+}
+
+// renderTitleSpans is renderTitleForDisplay's link handling with the
+// highlighting left to render: it's called once per piece — a run of
+// plain text, or a link's display text (link is true, and st is
+// underlined) — with the piece's text as displayed, the [start, end)
+// byte range it occupies in the raw title (for a link, the whole
+// "[[url][description]]" span), and the style to draw it in.
+func (m Model) renderTitleSpans(title string, base lipgloss.Style, render func(piece string, start, end int, st lipgloss.Style, link bool) string) string {
 	matches := org.LinkIndexes(title)
 	if len(matches) == 0 {
-		return m.highlightMatches(title, query, base)
+		return render(title, 0, len(title), base, false)
 	}
 	linkStyle := base.Underline(true)
 
@@ -43,13 +55,13 @@ func (m Model) renderTitleForDisplay(title string, base lipgloss.Style, query st
 			display = url
 		}
 		if start > last {
-			b.WriteString(m.highlightMatches(title[last:start], query, base))
+			b.WriteString(render(title[last:start], last, start, base, false))
 		}
-		b.WriteString(m.highlightMatches(display, query, linkStyle))
+		b.WriteString(render(display, start, end, linkStyle, true))
 		last = end
 	}
 	if last < len(title) {
-		b.WriteString(m.highlightMatches(title[last:], query, base))
+		b.WriteString(render(title[last:], last, len(title), base, false))
 	}
 	return b.String()
 }
@@ -535,7 +547,17 @@ func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 	indent := m.indentGuides(owner, r.level, m.guideScope(), bg)
 	blanks := bgSpan(bg, "     ") + indent + bgSpan(bg, "  ") // mark + lock + meeting + dirty gutter + space, then indent, then fold + space
 	style := m.fadeIfImmutable(m.bodyStyle(), r.headline).Background(bg)
-	return blanks + m.renderTitleForDisplay(expandLeadingTabs(strings.TrimRight(r.text, " \t")), style, m.activeSearchQuery())
+	text := expandLeadingTabs(strings.TrimRight(r.text, " \t"))
+	if r.wrap != nil && m.activeSearchQuery() != "" {
+		// A line that wrapped onto several rows is searched as one (see
+		// row.bodySearch), so a match can straddle a wrap point: highlight
+		// each row's share of it rather than only matches wholly inside it.
+		ranges := r.wrap.matchRanges(r.wrapSeg, m.activeSearchQuery())
+		return blanks + m.renderTitleSpans(text, style, func(piece string, start, end int, st lipgloss.Style, link bool) string {
+			return m.highlightRanges(piece, start, end, ranges, st, link)
+		})
+	}
+	return blanks + m.renderTitleForDisplay(text, style, m.activeSearchQuery())
 }
 
 func planningSummary(h *org.Headline) string {

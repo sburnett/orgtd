@@ -150,10 +150,26 @@ func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
 	// A body line is drawn after a fixed 5-column gutter, one indent
 	// step per level (2 columns), and the fold column plus its space.
 	avail := m.width - (5 + 2*(h.Level+1) + 2)
+	owner := len(*dst) - 1 // h's own row, just before its body rows
+	idx := 0
+	var lines []string
 	for _, line := range h.TrimmedBody() {
-		for _, seg := range wrapBodyLine(line, avail) {
-			*dst = append(*dst, row{headline: h, level: h.Level + 1, kind: rowBody, text: seg})
+		lines = append(lines, strings.TrimRight(line, " \t"))
+		segs := wrapBodyLine(line, avail)
+		var wrap *wrappedLine
+		if len(segs) > 1 {
+			wrap = &wrappedLine{segs: segs}
 		}
+		for i, seg := range segs {
+			*dst = append(*dst, row{headline: h, level: h.Level + 1, kind: rowBody, text: seg, bodyIdx: idx, wrap: wrap, wrapSeg: i})
+			idx++
+		}
+	}
+	// Wrapping is cosmetic, and an entry is one search match however many
+	// of its lines match: hang the whole body's text off the entry's own
+	// row rather than searching the displayed rows one by one.
+	if len(lines) > 0 && owner >= 0 && (*dst)[owner].headline == h && (*dst)[owner].kind != rowBody {
+		(*dst)[owner].bodySearch = strings.Join(lines, "\n")
 	}
 }
 

@@ -403,3 +403,38 @@ func (m Model) fadeIfImmutable(style lipgloss.Style, h *org.Headline) lipgloss.S
 	}
 	return style
 }
+
+// highlightRanges renders piece — which occupies [start, end) of the raw
+// text ranges (byte ranges, in the same coordinates) refers to — with the
+// parts inside ranges given the search highlight background, like
+// highlightMatches does for a query. A link's display text (link) is
+// highlighted whole if any range touches its raw span, since display and
+// raw offsets don't line up there.
+func (m Model) highlightRanges(piece string, start, end int, ranges [][2]int, base lipgloss.Style, link bool) string {
+	highlight := base.Background(m.searchHighlightBg())
+	if link {
+		for _, r := range ranges {
+			if r[0] < end && r[1] > start {
+				return highlight.Render(piece)
+			}
+		}
+		return base.Render(piece)
+	}
+	var b strings.Builder
+	last := 0
+	for _, r := range ranges {
+		lo, hi := max(r[0], start)-start, min(r[1], end)-start
+		if lo >= hi || lo < last {
+			continue
+		}
+		if lo > last {
+			b.WriteString(base.Render(piece[last:lo]))
+		}
+		b.WriteString(highlight.Render(piece[lo:hi]))
+		last = hi
+	}
+	if last < len(piece) {
+		b.WriteString(base.Render(piece[last:]))
+	}
+	return b.String()
+}

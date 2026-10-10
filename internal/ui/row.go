@@ -99,11 +99,15 @@ const (
 // that stand for the same headline in more than one place are told apart
 // by sameRow, using the identifying fields noted below.
 type row struct {
-	kind     rowKind
-	file     *org.File // rowFile
-	headline *org.Headline
-	level    int    // structural level used by level-aware navigation (rowLevel); file/section rows are 0
-	text     string // rowSection: the title; rowBody: the body line; rowText: the line
+	kind       rowKind
+	file       *org.File // rowFile
+	headline   *org.Headline
+	level      int          // structural level used by level-aware navigation (rowLevel); file/section rows are 0
+	bodyIdx    int          // rowBody: this row's position among its headline's body rows (wrapped segments count separately), so identical lines stay distinguishable
+	bodySearch string       // rowBody: what search matches against — the whole unwrapped body line on its first displayed segment, "" on wrapped continuations, so wrapping never changes what matches or how often
+	wrap       *wrappedLine // rowBody: the wrapped segments of the line this row belongs to, set only when it wrapped onto more than one row (see highlightRanges)
+	wrapSeg    int          // rowBody: which of wrap.segs this row shows
+	text       string       // rowSection: the title; rowBody: the body line; rowText: the line
 
 	// rowAgendaItem (date-based items; empty for a Next Actions entry).
 	agendaLabel    string    // "Scheduled" or "Deadline"
@@ -147,7 +151,7 @@ func sameRow(a, b row) bool {
 	case a.kind == rowFile || b.kind == rowFile:
 		return a.kind == b.kind && a.file == b.file
 	case a.kind == rowBody || b.kind == rowBody:
-		return a.kind == b.kind && a.headline == b.headline && a.text == b.text
+		return a.kind == b.kind && a.headline == b.headline && a.bodyIdx == b.bodyIdx
 	case a.headline != nil || b.headline != nil:
 		// Covers plain headline rows and the rowCalendarEvent variant
 		// alike — that flag doesn't change what row a headline points
@@ -189,19 +193,77 @@ func sameRow(a, b row) bool {
 // rowSearchText returns the text of r that "/"/"?" search against.
 func rowSearchText(r row) string {
 	switch {
-	case r.kind == rowSection, r.kind == rowBody, r.kind == rowText:
+	case r.kind == rowBody:
+		return "" // searched as part of its entry's own row
+	case r.kind == rowSection, r.kind == rowText:
 		return r.text
 	case r.kind == rowFile:
 		return filepath.Base(r.file.Path)
 	case r.kind == rowMeetingHeader:
 		return r.meetingTitle
 	case r.headline != nil:
-		h := r.headline
-		text := h.Keyword + " " + h.Title
-		if len(h.Tags) > 0 {
-			text += " " + strings.Join(h.Tags, " ")
+		if r.bodySearch != "" {
+			return rowTitleSearchText(r) + "\n" + r.bodySearch
 		}
-		return text
+		return rowTitleSearchText(r)
 	}
 	return ""
+}
+
+// rowTitleSearchText is the part of a headline row's searchable text that
+// is shown on its own title line: keyword, title and tags.
+func rowTitleSearchText(r row) string {
+	h := r.headline
+	text := h.Keyword + " " + h.Title
+	if len(h.Tags) > 0 {
+		text += " " + strings.Join(h.Tags, " ")
+	}
+	return text
+}
+
+// wrappedLine is a body line that wrapped onto several rows, shared by
+// all of them so each can highlight its part of a search match that
+// straddles a wrap point.
+type wrappedLine struct {
+	segs []string
+}
+
+// matchRanges returns the byte ranges within segs[seg] covered by
+// case-insensitive occurrences of query in the line as a whole — the
+// segments rejoined with one space each, standing in for the space the
+// wrap consumed, and each continuation's hanging indent dropped.
+func (w *wrappedLine) matchRanges(seg int, query string) [][2]int {
+	type span struct{ joined, lead, n int } // where a segment's content sits in the joined text, and in itself
+	spans := make([]span, len(w.segs))
+	var joined strings.Builder
+	for i, s := range w.segs {
+		content := s
+		lead := 0
+		if i > 0 {
+			content = strings.TrimLeft(s, " ")
+			lead = len(s) - len(content)
+			joined.WriteByte(' ')
+		}
+		spans[i] = span{joined.Len(), lead, len(content)}
+		joined.WriteString(content)
+	}
+	lowerJ, lowerQ := strings.ToLower(joined.String()), strings.ToLower(query)
+	if lowerQ == "" {
+		return nil
+	}
+	sp := spans[seg]
+	var out [][2]int
+	for from := 0; ; {
+		rel := strings.Index(lowerJ[from:], lowerQ)
+		if rel < 0 {
+			return out
+		}
+		a := from + rel
+		b := a + len(lowerQ)
+		lo, hi := max(a, sp.joined), min(b, sp.joined+sp.n)
+		if lo < hi {
+			out = append(out, [2]int{sp.lead + lo - sp.joined, sp.lead + hi - sp.joined})
+		}
+		from = b
+	}
 }
