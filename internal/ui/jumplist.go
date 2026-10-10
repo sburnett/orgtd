@@ -13,6 +13,7 @@ func (m *Model) jumpToSource() {
 		return
 	}
 	m.switchToView(outlineView)
+	m.revealRow(row{headline: h})
 	m.focusHeadline(h)
 }
 

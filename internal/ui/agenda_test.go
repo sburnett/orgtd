@@ -1082,3 +1082,29 @@ func TestFormatMeetingWhenShowsRangeForTimedMeeting(t *testing.T) {
 		t.Errorf("formatMeetingWhen(timed) = %q, want both start and end times", got)
 	}
 }
+
+func TestAgendaJumpToSourceUnfoldsCollapsedAncestors(t *testing.T) {
+	now := orgdate.TruncateToDate(time.Now())
+	orgText := fmt.Sprintf("* Project\n** TODO Child\n   SCHEDULED: <%s>\n", ts(now))
+	ws := agendaFixture(t, orgText)
+	m := New(ws)
+	parent := ws.Files[0].Headlines[0]
+	child := parent.Children[0]
+	m.collapsed[parent] = true
+	m.switchToView(agendaView)
+
+	for i, r := range m.rows {
+		if r.kind == rowAgendaItem {
+			m.cursor = i
+			break
+		}
+	}
+	m.jumpToSource()
+
+	if m.view != outlineView {
+		t.Fatalf("view = %v, want outlineView", m.view)
+	}
+	if got := m.currentHeadline(); got != child {
+		t.Errorf("cursor headline = %v, want the child under the folded parent", got)
+	}
+}
