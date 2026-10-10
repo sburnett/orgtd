@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
@@ -144,9 +146,121 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 // collapsed[h] flag as h's children (see appendHeadlines): one fold
 // toggle shows or hides both together.
 func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
+	// A body line is drawn after a fixed 5-column gutter, one indent
+	// step per level (2 columns), and the fold column plus its space.
+	avail := m.width - (5 + 2*(h.Level+1) + 2)
 	for _, line := range h.TrimmedBody() {
-		*dst = append(*dst, row{headline: h, level: h.Level + 1, kind: rowBody, text: line})
+		for _, seg := range wrapBodyLine(line, avail) {
+			*dst = append(*dst, row{headline: h, level: h.Level + 1, kind: rowBody, text: seg})
+		}
 	}
+}
+
+// wrapBodyLine splits line into segments no wider than width columns as
+// displayed (an org link counts as just its display text, see
+// renderTitleForDisplay, and is never split), breaking at spaces and
+// hard-breaking a plain word that is itself too wide. A non-positive
+// width, or a line that already fits, comes back as is. The line's
+// leading/trailing whitespace is dropped, as rendering trims it anyway.
+func wrapBodyLine(line string, width int) []string {
+	line = strings.TrimSpace(line)
+	if width <= 0 || displayWidth(line) <= width {
+		return []string{line}
+	}
+
+	// Tokens are words and whole links, each with its displayed width.
+	type token struct {
+		raw   string
+		w     int
+		space bool // preceded by whitespace
+		link  bool
+	}
+	var toks []token
+	pending := false // whitespace seen since the last token
+	addPlain := func(text string) {
+		for _, r := range text {
+			if r == ' ' || r == '\t' {
+				pending = true
+				continue
+			}
+			if n := len(toks); n > 0 && !pending && !toks[n-1].link {
+				// Continues the previous plain word.
+				toks[n-1].raw += string(r)
+				toks[n-1].w += lipgloss.Width(string(r))
+				continue
+			}
+			toks = append(toks, token{raw: string(r), w: lipgloss.Width(string(r)), space: pending})
+			pending = false
+		}
+	}
+	last := 0
+	for _, span := range org.LinkIndexes(line) {
+		addPlain(line[last:span[0]])
+		raw := line[span[0]:span[1]]
+		toks = append(toks, token{raw: raw, w: displayWidth(raw), space: pending, link: true})
+		pending = false
+		last = span[1]
+	}
+	addPlain(line[last:])
+
+	var out []string
+	cur, curW := "", 0
+	flush := func() {
+		if cur != "" {
+			out = append(out, cur)
+		}
+		cur, curW = "", 0
+	}
+	for _, t := range toks {
+		sep := 0
+		if cur != "" && t.space {
+			sep = 1
+		}
+		if cur != "" && curW+sep+t.w > width {
+			flush()
+			sep = 0
+		}
+		if t.w > width && !t.link {
+			// A single word wider than the row: break it by characters.
+			for _, r := range t.raw {
+				rw := lipgloss.Width(string(r))
+				if curW+rw > width {
+					flush()
+				}
+				cur += string(r)
+				curW += rw
+			}
+			continue
+		}
+		if sep == 1 {
+			cur += " "
+			curW++
+		}
+		cur += t.raw
+		curW += t.w
+	}
+	flush()
+	if len(out) == 0 {
+		return []string{line}
+	}
+	return out
+}
+
+// displayWidth is the width of s as drawn by renderTitleForDisplay: each
+// org link shown as its description (or its URL), the rest verbatim.
+func displayWidth(s string) int {
+	w := 0
+	last := 0
+	for _, span := range org.LinkIndexes(s) {
+		w += lipgloss.Width(s[last:span[0]])
+		disp := s[span[2]:span[3]]
+		if span[4] >= 0 && span[5] > span[4] {
+			disp = s[span[4]:span[5]]
+		}
+		w += lipgloss.Width(disp)
+		last = span[1]
+	}
+	return w + lipgloss.Width(s[last:])
 }
 
 // hasFoldableContent reports whether h has anything a fold command

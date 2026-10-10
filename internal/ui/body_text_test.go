@@ -419,3 +419,25 @@ func TestFoldedHeadlineShowsDescendantCount(t *testing.T) {
 		t.Errorf("folded row = %q, want descendant count %s", line, want)
 	}
 }
+
+func TestWrapBodyLine(t *testing.T) {
+	cases := []struct {
+		line  string
+		width int
+		want  []string
+	}{
+		{"short", 20, []string{"short"}},
+		{"anything", 0, []string{"anything"}},
+		{"one two three four", 9, []string{"one two", "three", "four"}},
+		{"abcdefghij", 4, []string{"abcd", "efgh", "ij"}},
+		// A link is atomic and counts as its description, not its syntax.
+		{"see [[https://example.com/long/path][the doc]] now", 14, []string{"see [[https://example.com/long/path][the doc]]", "now"}},
+		{"see [[https://example.com/long/path][a b c]] now", 8, []string{"see", "[[https://example.com/long/path][a b c]]", "now"}},
+	}
+	for _, c := range cases {
+		got := wrapBodyLine(c.line, c.width)
+		if strings.Join(got, "|") != strings.Join(c.want, "|") {
+			t.Errorf("wrapBodyLine(%q, %d) = %q, want %q", c.line, c.width, got, c.want)
+		}
+	}
+}

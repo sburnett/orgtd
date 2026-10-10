@@ -295,8 +295,18 @@ func (m *Model) findMeetingTagsFile() *org.File {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		widthChanged := m.width != msg.Width
 		m.width = msg.Width
 		m.height = msg.Height
+		if widthChanged && !m.spec().rebuildOnResize {
+			// Body lines are wrapped to the width when rows are built
+			// (see appendBodyLines), so keep the cursor on its entry.
+			h := m.currentHeadline()
+			m.rebuildRows()
+			if h != nil {
+				m.focusHeadline(h)
+			}
+		}
 		if m.spec().rebuildOnResize {
 			// Unlike every other view, help view's rows are pre-wrapped
 			// to a specific width by glamour (see appendHelpRows) rather
