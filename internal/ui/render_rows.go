@@ -202,7 +202,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	// A leaf gets a small dot in the arrow's column, so every row has
 	// something sitting where its own guide would hang from.
 	fold := bgSpan(bg, "·") // U+00B7 MIDDLE DOT
-	if hasFoldableContent(h) {
+	if m.hasFoldableContent(h) {
 		glyph := "▼" // U+25BC BLACK DOWN-POINTING TRIANGLE (full-size; ▾ is a dedicated "small" variant)
 		if m.collapsed[h] {
 			glyph = "▶" // U+25B6 BLACK RIGHT-POINTING TRIANGLE (full-size; ▸ is a dedicated "small" variant)
@@ -405,7 +405,7 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 	indent := bgSpan(bg, strings.Repeat("  ", min(r.level, 1)))
 
 	fold := bgSpan(bg, " ")
-	if hasFoldableContent(h) {
+	if m.hasFoldableContent(h) {
 		glyph := "▼"
 		if m.collapsed[h] {
 			glyph = "▶"

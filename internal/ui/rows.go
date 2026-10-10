@@ -150,7 +150,23 @@ func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
 }
 
 // hasFoldableContent reports whether h has anything a fold command
-// could show or hide: children, a body, or both.
-func hasFoldableContent(h *org.Headline) bool {
+// could show or hide: a body, or at least one child that isn't hidden
+// (see hiddenAsStaleDone) — a headline whose only children are stale
+// DONE ones has nothing to expand.
+func (m *Model) hasFoldableContent(h *org.Headline) bool {
+	if len(h.TrimmedBody()) > 0 {
+		return true
+	}
+	for _, c := range h.Children {
+		if !m.hiddenAsStaleDone(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyContent is hasFoldableContent without the hidden-children
+// filter: whether h has any children or body at all, shown or not.
+func hasAnyContent(h *org.Headline) bool {
 	return len(h.Children) > 0 || len(h.TrimmedBody()) > 0
 }

@@ -19,7 +19,7 @@ func (m *Model) takeCount() int {
 // to whichever of the two it picks.
 func (m *Model) toggleFold() {
 	h := m.currentHeadline()
-	if h != nil && hasFoldableContent(h) && m.collapsed[h] {
+	if h != nil && m.hasFoldableContent(h) && m.collapsed[h] {
 		m.foldOpen()
 		return
 	}
@@ -32,7 +32,7 @@ func (m *Model) toggleFold() {
 func (m *Model) foldOpen() {
 	n := m.takeCount()
 	h := m.currentHeadline()
-	if h == nil || !hasFoldableContent(h) {
+	if h == nil || !m.hasFoldableContent(h) {
 		return
 	}
 	openLevels(m.collapsed, h, n)
@@ -50,7 +50,7 @@ func (m *Model) foldClose() {
 		if h == nil {
 			return
 		}
-		if !hasFoldableContent(h) || m.collapsed[h] {
+		if !m.hasFoldableContent(h) || m.collapsed[h] {
 			h = h.Parent
 			if h == nil {
 				return
@@ -74,7 +74,7 @@ func (m *Model) cursorToHeadline(h *org.Headline) {
 
 // openLevels uncollapses h and, while levels remain, its descendants.
 func openLevels(collapsed map[*org.Headline]bool, h *org.Headline, levels int) {
-	if hasFoldableContent(h) {
+	if hasAnyContent(h) {
 		collapsed[h] = false
 	}
 	if levels > 1 {
@@ -89,7 +89,7 @@ func openLevels(collapsed map[*org.Headline]bool, h *org.Headline, levels int) {
 func (m *Model) foldOpenAll() {
 	m.pendingCount = 0
 	h := m.currentHeadline()
-	if h == nil || !hasFoldableContent(h) {
+	if h == nil || !m.hasFoldableContent(h) {
 		return
 	}
 	setCollapsedRecursive(m.collapsed, h, false)
@@ -103,7 +103,7 @@ func (m *Model) foldOpenAll() {
 func (m *Model) foldCloseAll() {
 	m.pendingCount = 0
 	h := m.currentHeadline()
-	if h == nil || !hasFoldableContent(h) {
+	if h == nil || !m.hasFoldableContent(h) {
 		return
 	}
 	setCollapsedRecursive(m.collapsed, h, true)
@@ -116,7 +116,7 @@ func (m *Model) foldCloseAll() {
 func (m *Model) foldToggleAll() {
 	m.pendingCount = 0
 	h := m.currentHeadline()
-	if h == nil || !hasFoldableContent(h) {
+	if h == nil || !m.hasFoldableContent(h) {
 		return
 	}
 	setCollapsedRecursive(m.collapsed, h, !m.collapsed[h])
@@ -127,7 +127,7 @@ func (m *Model) foldToggleAll() {
 // descendant of h that has foldable content (a headline with neither
 // children nor a body has nothing to fold, so it's left out of the map).
 func setCollapsedRecursive(collapsed map[*org.Headline]bool, h *org.Headline, value bool) {
-	if hasFoldableContent(h) {
+	if hasAnyContent(h) {
 		collapsed[h] = value
 	}
 	for _, c := range h.Children {
