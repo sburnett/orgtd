@@ -1108,3 +1108,22 @@ func TestAgendaJumpToSourceUnfoldsCollapsedAncestors(t *testing.T) {
 		t.Errorf("cursor headline = %v, want the child under the folded parent", got)
 	}
 }
+
+func TestDemoteUnfoldsFoldedNewParent(t *testing.T) {
+	ws := agendaFixture(t, "* Project\n** Existing\n* Mover\n")
+	m := New(ws)
+	parent := ws.Files[0].Headlines[0]
+	mover := ws.Files[0].Headlines[1]
+	m.collapsed[parent] = true
+	m.rebuildRows()
+	m.focusHeadline(mover)
+
+	m.demoteHeadline()
+
+	if m.collapsed[parent] {
+		t.Errorf("new parent still folded after demote")
+	}
+	if got := m.currentHeadline(); got != mover {
+		t.Errorf("cursor headline = %v, want the demoted entry", got)
+	}
+}

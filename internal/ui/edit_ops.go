@@ -317,6 +317,9 @@ func (m *Model) demoteHeadline() {
 	}
 	prevSibling := org.Siblings{File: f, Parent: parent}.List()[idx-1]
 
+	// Unfold the new parent so the demoted entry stays visible.
+	delete(m.collapsed, prevSibling)
+
 	m.pushUndo(&reparentAction{
 		h: h, f: f,
 		oldParent: parent, oldIndex: idx,
