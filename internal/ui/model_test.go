@@ -1787,7 +1787,14 @@ func TestViewPadsStatusBarToBottomOfScreen(t *testing.T) {
 	}
 
 	statusLine := lines[len(lines)-2]
-	wantStatus := fmt.Sprintf("item 1/%d", total)
+	// The status counts entries, not rows: body lines belong to their entry.
+	entries := 0
+	for _, r := range m.rows {
+		if r.kind != rowBody {
+			entries++
+		}
+	}
+	wantStatus := fmt.Sprintf("item 1/%d", entries)
 	if !strings.Contains(statusLine, wantStatus) {
 		t.Errorf("status line = %q, want it to contain %q", statusLine, wantStatus)
 	}
@@ -1802,5 +1809,26 @@ func TestViewPadsStatusBarToBottomOfScreen(t *testing.T) {
 		if lines[i] != "" {
 			t.Errorf("line %d = %q, want blank padding", i, lines[i])
 		}
+	}
+}
+
+// "item N/M" counts every entry in the view, including ones hidden inside
+// folds, and ignores body lines — so folding never changes it.
+func TestStatusItemCountIgnoresFoldsAndBodyLines(t *testing.T) {
+	m := New(loadFixture(t))
+	m.width, m.height = 100, 40
+	before := m.normalStatusLine()
+
+	for i, r := range m.rows {
+		if r.kind == rowHeadline && len(r.headline.Children) > 0 {
+			m.cursor = i
+			m = sendKey(m, "z")
+			m = sendKey(m, "c")
+			break
+		}
+	}
+	m.cursor = 0
+	if after := m.normalStatusLine(); after != before {
+		t.Errorf("status after folding = %q, want unchanged %q", after, before)
 	}
 }

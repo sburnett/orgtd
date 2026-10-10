@@ -117,7 +117,30 @@ func (m *Model) normalStatusLine() string {
 	if label := m.spec().label; label != "" {
 		place = label
 	}
-	return fmt.Sprintf(" %s  —  item %d/%d", place, m.cursor+1, len(m.rows))
+	pos, total := m.entryPosition()
+	return fmt.Sprintf(" %s  —  item %d/%d", place, pos, total)
+}
+
+// entryPosition is the cursor's 1-based position among every entry in the
+// view and the total number of them — counting entries hidden inside
+// folds (the view's full, unfolded listing, see searchRows) but not body
+// lines, which are part of their entry rather than items of their own.
+func (m *Model) entryPosition() (pos, total int) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return 0, 0
+	}
+	rows := m.searchRows()
+	cur := indexOfRow(rows, m.rows[m.cursor])
+	for i, r := range rows {
+		if r.kind == rowBody {
+			continue
+		}
+		total++
+		if i <= cur {
+			pos = total
+		}
+	}
+	return pos, total
 }
 
 // statusHeight is how many lines the bottom area occupies in total: the
