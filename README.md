@@ -146,7 +146,7 @@ status_bar_fg           = "#000000"  # the one-line status bar at the bottom of 
 status_bar_bg           = "#9e9e9e"
 cursor_row_bg           = "#204060"  # the row under the cursor
 visual_selection_bg     = "#102030"  # the rest of a visual-mode selection, besides the cursor's own row
-search_highlight_bg     = "#3a4a3a"  # every match of the active search term (vim's 'hlsearch')
+search_highlight_bg     = "#ffd75f"  # every match of the active search term (vim's 'hlsearch'), drawn with black text
 ```
 
 The built-in color scheme (`[colors]` and `[icons]` above) matches the

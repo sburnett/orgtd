@@ -105,8 +105,9 @@ const (
 	// defaultSearchHighlightBg marks every occurrence of the active
 	// search term (see activeSearchQuery) — vim's 'hlsearch' — layered on
 	// top of whatever background (if any) a segment already carries.
-	// Wildcharm's own Search background.
-	defaultSearchHighlightBg = "#3a4a3a"
+	// A bright yellow, drawn with black text (see searchHighlightStyle) so
+	// matches stand out against any row background.
+	defaultSearchHighlightBg = "#ffd75f"
 )
 
 // shortcutStyle is the one piece of styling with no configurable color
@@ -236,6 +237,12 @@ func (m Model) searchHighlightBg() lipgloss.TerminalColor {
 	return lipgloss.Color(orDefault(m.cfg.Colors.SearchHighlightBg, defaultSearchHighlightBg))
 }
 
+// searchHighlightStyle is base with the search-highlight background and
+// black text, so a match stays readable whatever color base's text is.
+func (m Model) searchHighlightStyle(base lipgloss.Style) lipgloss.Style {
+	return base.Background(m.searchHighlightBg()).Foreground(lipgloss.Color("#000000"))
+}
+
 // bgSpan renders s with only a background color — no other styling —
 // for the plain-text gaps (join separators, padding) inside a
 // background-tinted line, so they don't leave un-tinted holes once an
@@ -258,7 +265,7 @@ func (m Model) highlightMatches(s, query string, base lipgloss.Style) string {
 	}
 	lowerS := strings.ToLower(s)
 	lowerQ := strings.ToLower(query)
-	highlight := base.Background(m.searchHighlightBg())
+	highlight := m.searchHighlightStyle(base)
 
 	var b strings.Builder
 	last := 0
@@ -411,7 +418,7 @@ func (m Model) fadeIfImmutable(style lipgloss.Style, h *org.Headline) lipgloss.S
 // highlighted whole if any range touches its raw span, since display and
 // raw offsets don't line up there.
 func (m Model) highlightRanges(piece string, start, end int, ranges [][2]int, base lipgloss.Style, link bool) string {
-	highlight := base.Background(m.searchHighlightBg())
+	highlight := m.searchHighlightStyle(base)
 	if link {
 		for _, r := range ranges {
 			if r[0] < end && r[1] > start {
