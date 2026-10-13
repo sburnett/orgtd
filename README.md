@@ -382,7 +382,7 @@ from shifting position any more than it has to:
   `(attached)` for one already attached to the target entry — with the
   currently highlighted one in reverse video.
 - **Links** — every org-mode link literally in the current entry's
-  title.
+  title or body.
 - **Meeting** — one line per calendar meeting the current entry is
   linked to (see below for how a link is established), each showing the
   meeting's name, start time (when still resolvable), and link.

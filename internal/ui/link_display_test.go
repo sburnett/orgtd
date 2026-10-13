@@ -370,3 +370,15 @@ func TestStatusBarLinksIgnoreTerminalWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestLinksInEntryIncludesBody(t *testing.T) {
+	h := &org.Headline{
+		Title: "See [[https://a.example.com][A]]",
+		Body:  []string{"text", "more [[https://b.example.com][B]]"},
+	}
+	got := linksInEntry(h)
+	want := []string{"https://a.example.com", "https://b.example.com"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("linksInEntry = %v, want %v", got, want)
+	}
+}

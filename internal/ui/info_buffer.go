@@ -163,6 +163,16 @@ func linksInTitle(title string) []string {
 	return urls
 }
 
+// linksInEntry returns the URL of every org-mode link in h's title and
+// then its body, in order.
+func linksInEntry(h *org.Headline) []string {
+	urls := linksInTitle(h.Title)
+	for _, line := range h.Body {
+		urls = append(urls, linksInTitle(line)...)
+	}
+	return urls
+}
+
 // maxInfoBufferLines caps how many lines any one section of the info
 // buffer (see infoBufferLines) shows before collapsing the rest into an
 // "...and N more" summary line — same convention as the register's own
@@ -208,7 +218,7 @@ func (m *Model) infoBufferHeight() int {
 //     renderMeetingPicker, which only showed the highlighted one.
 //
 //   - "Links:" — every org-mode link literally in the current entry's
-//     title (linksInTitle). Shown in every mode, not just when it
+//     title or body (linksInEntry). Shown in every mode, not just when it
 //     wouldn't otherwise fit on the status line — unlike the old
 //     normalStatusLines, this doesn't depend on terminal width at all.
 //
@@ -237,7 +247,7 @@ func (m *Model) infoBufferLines() []string {
 		lines = append(lines, above(m)...)
 	}
 	if h := m.currentHeadline(); h != nil {
-		lines = m.appendInfoSection(lines, "Links:", linksInTitle(h.Title))
+		lines = m.appendInfoSection(lines, "Links:", linksInEntry(h))
 		lines = m.appendInfoSection(lines, "Meeting:", m.calendarEventDisplayLines(h))
 	}
 	lines = append(lines, m.registerPinnedLines()...)
