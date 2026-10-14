@@ -91,7 +91,7 @@ func init() {
 			return nil
 		}},
 		{names: []string{"review"}, run: func(m *Model, _ string) tea.Cmd { m.toggleReview(); return nil }},
-		{names: []string{"toggledone"}, run: func(m *Model, _ string) tea.Cmd { m.toggleHideDone(); return nil }},
+		{names: []string{"toggleclosed"}, run: func(m *Model, _ string) tea.Cmd { m.toggleHideClosed(); return nil }},
 		{names: []string{"next"}, run: func(m *Model, _ string) tea.Cmd {
 			if !m.reviewActive {
 				m.message = ":next only works while reviewing (:review)"

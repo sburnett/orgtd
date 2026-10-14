@@ -111,7 +111,7 @@ func TestSelectModeShowsCandidatesInInfoBufferNotOnPromptLine(t *testing.T) {
 	if !strings.Contains(last, "Set status") {
 		t.Errorf("command line = %q, want the \"Set status\" prefix", last)
 	}
-	for _, c := range statusCandidates {
+	for _, c := range m.statusCandidates() {
 		if strings.Contains(last, c.label) {
 			t.Errorf("command line = %q, candidate %q should not appear here anymore", last, c.label)
 		}
@@ -124,7 +124,7 @@ func TestSelectModeShowsCandidatesInInfoBufferNotOnPromptLine(t *testing.T) {
 	if !containsSubstring(bufLines, "Status:") {
 		t.Errorf("info buffer missing \"Status:\" section: %#v", bufLines)
 	}
-	for _, c := range statusCandidates {
+	for _, c := range m.statusCandidates() {
 		if !containsSubstring(bufLines, c.label) {
 			t.Errorf("info buffer missing candidate %q: %#v", c.label, bufLines)
 		}

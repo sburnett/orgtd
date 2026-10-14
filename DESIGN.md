@@ -197,7 +197,7 @@ including its known weak points, so changes can be made deliberately.
 | `options.go` | `WithConfig` (what `main` uses) and a few single-setting `With…` options, mostly for tests |
 | `views.go` | The `viewKind`s and the `viewSpecs` registry — everything that varies per view |
 | `row.go` | The `row` type and its `rowKind`s, `sameRow`, `rowSearchText` |
-| `rows.go` | `rebuildRows` and the outline's row building (fold, hide-done, body lines) |
+| `rows.go` | `rebuildRows` and the outline's row building (fold, hide-closed, body lines) |
 | `nav.go`, `fold.go` | Cursor motions, viewport/scrolling; fold commands |
 | `modes.go` | The `mode`s and the `modeSpecs` registry — each mode's key handler, prompt row, and info-buffer sections |
 | `keymap.go` | The `keymap` type and the `normalKeys`/`visualKeys` tables: what every key and two-key chord does, and the dispatch (`runKey`) |
@@ -417,8 +417,8 @@ not exist, so don't look for them in the code:
   integrated; there is no Docs/Drive/Meet client. Capture-time meeting
   attachment is `gX`/`gM`, and `o`/`O` in `:calendar`.
 - **Review ("snippets") mode** over completed items by day/week/month.
-  Done items are only hidden after `hide_done_after_hours`
-  (`:toggledone`).
+  Done items are only hidden after `hide_closed_after_hours`
+  (`:toggleclosed`).
 - **Background calendar polling and `R`/`:refresh`.** Sync is manual
   (`:sync-calendar`).
 - **`.orgtd/` tool-managed directory, `agenda.org` output, `:ID:` and

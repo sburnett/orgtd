@@ -138,13 +138,13 @@ func TestTagsViewHidesStaleDoneEntriesWhenToggled(t *testing.T) {
 		Headlines: []*org.Headline{stale},
 	})
 	m := New(ws)
-	m.hideDoneEnabled = true
-	m.cfg.HideDoneAfterHours = 24
+	m.hideClosedEnabled = true
+	m.cfg.HideClosedAfterHours = 24
 	m.switchToView(tagsView)
 
 	for _, r := range m.rows {
 		if r.headline == stale {
-			t.Errorf("stale DONE entry shown in tagsView while hide-done is enabled")
+			t.Errorf("stale DONE entry shown in tagsView while hide-closed is enabled")
 		}
 	}
 }

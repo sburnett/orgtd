@@ -15,6 +15,7 @@ import (
 
 	orgtd "github.com/sburnett/orgtd"
 	"github.com/sburnett/orgtd/internal/config"
+	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/ui"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -52,8 +53,8 @@ func main() {
 		}
 		// Deliberately not the whole config: it holds the Google OAuth
 		// client secret.
-		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q hide_done_after_hours=%d",
-			cfg.OrgDir, cfg.Editor, cfg.URLFormatter, cfg.URLFormatterPrefixes, cfg.FormatLinksURLFormatter, cfg.AgendaWindowDays, cfg.InboxFile, cfg.CalendarFile, cfg.MeetingTagsFile, cfg.HideDoneAfterHours)
+		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q hide_closed_after_hours=%d",
+			cfg.OrgDir, cfg.Editor, cfg.URLFormatter, cfg.URLFormatterPrefixes, cfg.FormatLinksURLFormatter, cfg.AgendaWindowDays, cfg.InboxFile, cfg.CalendarFile, cfg.MeetingTagsFile, cfg.HideClosedAfterHours)
 	} else {
 		log.SetOutput(io.Discard)
 	}
@@ -74,6 +75,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer lock.Release()
+
+	var active, done []string
+	for _, k := range cfg.Keywords {
+		if k.Done {
+			done = append(done, k.Name)
+		} else {
+			active = append(active, k.Name)
+		}
+	}
+	org.SetKeywords(active, done)
 
 	ws, err := workspace.Load(cfg.OrgDir)
 	if err != nil {

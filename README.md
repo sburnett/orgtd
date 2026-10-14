@@ -42,7 +42,7 @@ orgtd --dir ~/org
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:review` treats as the inbox |
 | `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. the one `:sync-calendar` writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
 | `--meeting-tags-file` | `meeting_tags_file` | `meeting-tags.org` | Base name of the file holding durable meeting tags (see Tag-based meeting links, below) — excluded from the outline view and shown instead, as an editable outline of its own, in the `:meeting-tags` view |
-| `--hide-done-after-hours` | `hide_done_after_hours` | `24` | How many hours after a `DONE`/`CANCELLED` item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggledone` shows everything again, and toggles back |
+| `--hide-closed-after-hours` | `hide_closed_after_hours` | `24` | How many hours after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggleclosed` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
 | `--debug` | `debug` | *(off)* | Log debug info (see Debug log, below) to `debug.log` next to the config file |
 | `--config` | — | `$XDG_CONFIG_HOME/orgtd/config.toml` (or `~/.config/orgtd/config.toml`) | Path to the config file below |
@@ -86,7 +86,7 @@ agenda_window_days = 14
 inbox_file = "inbox.org"
 calendar_file = "calendar.org"
 meeting_tags_file = "meeting-tags.org"
-hide_done_after_hours = 24
+hide_closed_after_hours = 24
 debug = false
 
 # Customizes the character and color of each marker the outline draws in
@@ -147,6 +147,39 @@ status_bar_bg           = "#9e9e9e"
 cursor_row_bg           = "#204060"  # the row under the cursor
 visual_selection_bg     = "#102030"  # the rest of a visual-mode selection, besides the cursor's own row
 search_highlight_bg     = "#ffd75f"  # every match of the active search term (vim's 'hlsearch'), drawn with black text
+
+# The TODO keywords: one [[keywords]] table each, in the order the
+# "r"/"R" status picker lists them. Omit every one to get the built-in
+# set shown here; if you define any, they replace the built-in set
+# entirely (so list DONE-style states too). Existing files keep working
+# only for keywords still listed here — a headline starting with an
+# unlisted word is read as plain title text.
+[[keywords]]
+name     = "TODO"      # as written in a headline: non-empty, no spaces
+shortcut = "t"         # one character that picks it in the status picker; derived from the name's first free letter if omitted ("j", "k" and "-" are reserved)
+color    = "#d7005f"   # ANSI code or hex RGB; optional (a built-in name falls back to its [colors] key, e.g. todo_color)
+bold     = true
+[[keywords]]
+name     = "NEXT"
+shortcut = "n"
+bold     = true
+agenda   = "next"      # listed in the agenda's Next Actions section, dated or not
+[[keywords]]
+name     = "WAITING"
+shortcut = "w"
+bold     = true
+[[keywords]]
+name     = "SOMEDAY"
+shortcut = "s"
+agenda   = "skip"      # never shown in the agenda's Overdue/Due Today/Upcoming
+[[keywords]]
+name     = "DONE"
+shortcut = "d"
+done     = true        # a finished state: stamps CLOSED, strikes through the title, skipped by the agenda and :review
+[[keywords]]
+name     = "CANCELLED"
+shortcut = "c"
+done     = true
 ```
 
 The built-in color scheme (`[colors]` and `[icons]` above) matches the
@@ -175,9 +208,9 @@ logging is on.
 
 - **Outline** (default) — every loaded file except `calendar_file` (see
   the `:calendar` view, below), its headlines, and any free-text body
-  underneath them, all foldable. A `DONE`/`CANCELLED` headline (and its
+  underneath them, all foldable. A headline with a `CLOSED` stamp (and its
   whole subtree) whose `CLOSED` timestamp is older than
-  `hide_done_after_hours` (default 24) is hidden — `:toggledone` shows
+  `hide_closed_after_hours` (default 24) is hidden — `:toggleclosed` shows
   everything again, and toggles back.
 - **Calendar** (`:calendar`) — every event in `calendar_file` (default
   `calendar.org`; see Calendar sync, below), grouped under one flush-left
@@ -225,7 +258,7 @@ logging is on.
   ignored. A headline's TODO keyword is shown as ordinary title text
   (unstyled, never struck through) and its `SCHEDULED`/`DEADLINE`/`CLOSED`
   dates aren't shown; stale `DONE` entries are never hidden (see
-  `:toggledone`); and `r`/`R`/`gd` refuse with a message rather than set
+  `:toggleclosed`); and `r`/`R`/`gd` refuse with a message rather than set
   state that nothing would use. Reference entries never appear in the
   plain outline, and the agenda's Overdue/Due Today/Upcoming/Next Actions
   sections skip them, so nothing in `reference/` is ever mistaken for a
@@ -280,8 +313,8 @@ logging is on.
   eventually filed away doesn't reshuffle the order it was actually
   captured in. An entry with more than one tag appears once under each,
   and a `DONE`/`CANCELLED` entry stale enough to be hidden from the
-  outline (see `hide_done_after_hours`, above) is hidden here too,
-  subject to the same `:toggledone`. Each row is flat — title, tags, and
+  outline (see `hide_closed_after_hours`, above) is hidden here too,
+  subject to the same `:toggleclosed`. Each row is flat — title, tags, and
   a `[file › parent]` place tag, same shape as an agenda item or one of
   `:calendar`'s linked items — rather than a foldable subtree, since the
   same entry can legitimately appear more than once across the whole
@@ -312,7 +345,7 @@ logging is on.
   shows up under each.
 - **Config** (`:config`) — a read-only listing of every configurable
   setting's current, effective value (after flags/config
-  file/built-in-default resolution), including whether hide-done
+  file/built-in-default resolution), including whether hide-closed
   filtering is currently on or off. `:outline` returns to the outline.
 - **Log** (`:log`) — a read-only, chronological list of every external
   command orgtd has run since it started (`$EDITOR`, and any configured
@@ -510,7 +543,7 @@ stop), and so on.
 | `ctrl-d` / `ctrl-u` | Half-page down / up |
 | `Page Down` / `Page Up` | Full-page down / up |
 | `ctrl-e` / `ctrl-y` | Scroll the view down/up by one line, like vim — the cursor stays put unless the scroll would push it off-screen, in which case it's dragged along just enough to stay visible |
-| `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise). A folded entry shows how many descendants it hides, as a muted `(N)` after its title (entries hidden by `hide_done_after_hours` aren't counted) |
+| `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise). A folded entry shows how many descendants it hides, as a muted `(N)` after its title (entries hidden by `hide_closed_after_hours` aren't counted) |
 | `Enter` | In agenda view, jump to that item's real place in the outline. In calendar view, on an item attached to a meeting via `gM` (see below), same thing — a no-op on the meeting's own row, since `calendar_file` isn't part of the outline at all |
 | `ctrl-o` / `gi` | Jump back / forward through the jump list — vim's own `ctrl-o`/`ctrl-i`, tracking where you were before a "large" move: `gg`/`G`, `{`/`}`, a confirmed search (`/`/`?`, not `n`/`N` repeats), jumping to a mark (`'<letter>`) or to the review target (`gc`, which switches to the outline if the current view doesn't show it), and switching views entirely (`:agenda`, `Enter` from it, `:calendar`, `:outline`, ...) — never for `j`/`k` or fold/edit commands, or the list would be useless clutter. Bound to `gi` rather than `ctrl-i`: in a plain terminal `ctrl-i` and `Tab` are the same byte, so there's no way to bind it separately from the fold-toggle key above. A no-op at either end of the list |
 
@@ -527,7 +560,7 @@ stop), and so on.
 | `<N>yy` / `<N>Y` | Yank the current entry and the next N-1 entries and their subtrees, as a group pasted back together by a single `p`/`P` — the yank counterpart of `<N>dd`. A count of 1 (or none) is plain `yy` |
 | `p` / `P` | Paste the unnamed register's contents (or the one named by a `"<register>` prefix); a count repeats it (`3p`) after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`/`y`), all of them are pasted together, in the same order they were deleted/yanked in |
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
-| `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut) |
+| `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut — configurable, see `[[keywords]]`) |
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Once the editor session commits, switches to outline view with the cursor on the newly captured entry (unless already in the outline, whose listing already includes it), ready for further edits right away. Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
@@ -654,7 +687,7 @@ History doesn't persist between sessions.
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
 | `:noh` / `:nohlsearch` | See Search, above |
-| `:toggledone` | Toggle hiding stale `DONE`/`CANCELLED` items in the outline view on/off — see Views, above |
+| `:toggleclosed` | Toggle hiding stale items (any entry whose `CLOSED` stamp is older than `hide_closed_after_hours`) in the outline view on/off — see Views, above |
 
 Plain `q` does **not** quit — only `:q`/`:quit` do. `ctrl-c` quits
 immediately if there's nothing unsaved; with unsaved changes it refuses
@@ -668,8 +701,10 @@ two `ctrl-c`s in a row, not just two at some point in the session.
 orgtd reads and writes a practical subset of org-mode: headlines with
 stars/TODO-keyword/priority/title/tags, `SCHEDULED`/`DEADLINE`/`CLOSED`
 planning lines, `:PROPERTIES:` drawers, and free-text body content.
-TODO keywords are fixed: `TODO`, `NEXT`, `WAITING`, `SOMEDAY` (active),
-`DONE`, `CANCELLED` (done — stamps `CLOSED` automatically).
+TODO keywords default to `TODO`, `NEXT`, `WAITING`, `SOMEDAY` (active),
+`DONE`, `CANCELLED` (done — stamps `CLOSED` automatically), and are
+configurable, along with their picker shortcuts and colors, via
+`[[keywords]]` in the config file (see Config file, above).
 
 Marking an item with a repeating `SCHEDULED`/`DEADLINE` (a trailing
 cookie like `+1w`, `++1w`, or `.+1w`) as done matches org-mode: the

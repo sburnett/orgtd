@@ -18,31 +18,39 @@ import (
 	"strings"
 )
 
-// ActiveKeywords are TODO-class states that represent unfinished work.
+// ActiveKeywords are the default TODO-class states that represent
+// unfinished work. See SetKeywords to replace them.
 var ActiveKeywords = []string{"TODO", "NEXT", "WAITING", "SOMEDAY"}
 
-// DoneKeywords are TODO-class states that represent finished work.
+// DoneKeywords are the default TODO-class states that represent finished
+// work.
 var DoneKeywords = []string{"DONE", "CANCELLED"}
 
-var keywordSet = func() map[string]bool {
-	m := make(map[string]bool)
-	for _, k := range ActiveKeywords {
-		m[k] = true
+var (
+	keywordSet = map[string]bool{}
+	doneSet    = map[string]bool{}
+)
+
+func init() { SetKeywords(ActiveKeywords, DoneKeywords) }
+
+// SetKeywords replaces the recognized TODO keywords. It's process-global
+// and not synchronized, so call it once at startup, before parsing any
+// file.
+func SetKeywords(active, done []string) {
+	keywordSet = make(map[string]bool)
+	doneSet = make(map[string]bool)
+	for _, k := range active {
+		keywordSet[k] = true
 	}
-	for _, k := range DoneKeywords {
-		m[k] = true
+	for _, k := range done {
+		keywordSet[k] = true
+		doneSet[k] = true
 	}
-	return m
-}()
+}
 
 // IsDoneKeyword reports whether keyword is one of the "done" states.
 func IsDoneKeyword(keyword string) bool {
-	for _, k := range DoneKeywords {
-		if k == keyword {
-			return true
-		}
-	}
-	return false
+	return doneSet[keyword]
 }
 
 // Timestamp is a parsed org timestamp, e.g. "<2026-09-10 Thu>" or
@@ -67,7 +75,7 @@ func (t *Timestamp) String() string {
 // Headline is one node in an org outline tree.
 type Headline struct {
 	Level    int
-	Keyword  string // "", or one of ActiveKeywords/DoneKeywords
+	Keyword  string // "", or one of the configured keywords (see SetKeywords)
 	Priority string // e.g. "A", "" if none
 	Title    string // headline text, keyword/priority/tags stripped
 	Tags     []string

@@ -43,13 +43,13 @@ type Config struct {
 	// the built-in default, meeting-tags.org.
 	MeetingTagsFile string `toml:"meeting_tags_file"`
 
-	// HideDoneAfterHours is how many hours after a DONE/CANCELLED
+	// HideClosedAfterHours is how many hours after a DONE/CANCELLED
 	// headline's CLOSED timestamp it's hidden from the outline view (the
-	// feature can still be toggled off at runtime with :toggledone,
+	// feature can still be toggled off at runtime with :toggleclosed,
 	// regardless of this value). Zero means "not set", per this
 	// package's own zero-value convention, and falls back to the
 	// built-in default of 24.
-	HideDoneAfterHours int `toml:"hide_done_after_hours"`
+	HideClosedAfterHours int `toml:"hide_closed_after_hours"`
 
 	// URLFormatterPrefixes are extra bare-URL prefixes recognized beyond
 	// the built-in http:// and https://, e.g. "bit.ly/" for a shortlink
@@ -92,6 +92,120 @@ type Config struct {
 	// unrelated settings rather than something that belongs at the top
 	// level.
 	Colors ColorsConfig `toml:"colors"`
+
+	// Keywords is the set of TODO keywords, in the order the status
+	// picker lists them — one "[[keywords]]" table per keyword. Empty
+	// falls back to DefaultKeywords. When set, it replaces the built-in
+	// set entirely rather than adding to it.
+	Keywords []KeywordConfig `toml:"keywords"`
+}
+
+// Agenda roles a KeywordConfig can have (its Agenda field).
+const (
+	// AgendaNext lists every headline with the keyword under the
+	// agenda's "Next Actions" section, dated or not.
+	AgendaNext = "next"
+	// AgendaSkip keeps headlines with the keyword out of the agenda's
+	// dated sections (Overdue/Due Today/Upcoming) entirely.
+	AgendaSkip = "skip"
+)
+
+// KeywordConfig is one "[[keywords]]" table: a TODO keyword, the
+// single-key shortcut that selects it in the status picker, and how it
+// looks and behaves.
+type KeywordConfig struct {
+	// Name is the keyword as written in a headline, e.g. "TODO". It
+	// must be non-empty, contain no whitespace, and be unique.
+	Name string `toml:"name"`
+
+	// Shortcut is the one character that selects this keyword in the
+	// status picker. Empty derives one from Name (its first letter not
+	// already taken); see Normalize. "j", "k" and "-" are reserved.
+	Shortcut string `toml:"shortcut"`
+
+	// Color is an ANSI code or hex RGB string. Empty falls back to the
+	// matching [colors] key for a built-in keyword name (todo_color,
+	// ...), then the built-in color, and is otherwise uncolored.
+	Color string `toml:"color"`
+
+	// Bold renders the keyword in bold.
+	Bold bool `toml:"bold"`
+
+	// Done marks a finished state: entering it stamps CLOSED, and the
+	// entry's title is struck through, hidden after
+	// hide_closed_after_hours, and skipped by the agenda and :review.
+	Done bool `toml:"done"`
+
+	// Agenda is "", AgendaNext or AgendaSkip.
+	Agenda string `toml:"agenda"`
+}
+
+// DefaultKeywords returns the built-in keyword set: TODO, NEXT, WAITING,
+// SOMEDAY (active) and DONE, CANCELLED (done). Colors are left empty so
+// the ui's own defaults and the legacy [colors] keys still apply.
+func DefaultKeywords() []KeywordConfig {
+	return []KeywordConfig{
+		{Name: "TODO", Shortcut: "t", Bold: true},
+		{Name: "NEXT", Shortcut: "n", Bold: true, Agenda: AgendaNext},
+		{Name: "WAITING", Shortcut: "w", Bold: true},
+		{Name: "SOMEDAY", Shortcut: "s", Agenda: AgendaSkip},
+		{Name: "DONE", Shortcut: "d", Done: true},
+		{Name: "CANCELLED", Shortcut: "c", Done: true},
+	}
+}
+
+// Normalize validates c.Keywords and fills in any missing shortcuts,
+// returning the first problem found. An empty list is left alone.
+func (c *Config) Normalize() error {
+	if len(c.Keywords) == 0 {
+		return nil
+	}
+	names := make(map[string]bool)
+	shortcuts := make(map[string]bool)
+	for i := range c.Keywords {
+		k := &c.Keywords[i]
+		if k.Name == "" || strings.ContainsAny(k.Name, " \t:") {
+			return fmt.Errorf("keywords[%d]: name %q must be non-empty with no whitespace or ':'", i, k.Name)
+		}
+		if names[k.Name] {
+			return fmt.Errorf("keywords[%d]: duplicate name %q", i, k.Name)
+		}
+		names[k.Name] = true
+		switch k.Agenda {
+		case "", AgendaNext, AgendaSkip:
+		default:
+			return fmt.Errorf("keyword %s: agenda must be %q or %q, got %q", k.Name, AgendaNext, AgendaSkip, k.Agenda)
+		}
+		if k.Shortcut == "" {
+			continue
+		}
+		if len([]rune(k.Shortcut)) != 1 || strings.ContainsAny(k.Shortcut, "jk-") {
+			return fmt.Errorf("keyword %s: shortcut %q must be a single character other than j, k or -", k.Name, k.Shortcut)
+		}
+		k.Shortcut = strings.ToLower(k.Shortcut)
+		if shortcuts[k.Shortcut] {
+			return fmt.Errorf("keyword %s: duplicate shortcut %q", k.Name, k.Shortcut)
+		}
+		shortcuts[k.Shortcut] = true
+	}
+	for i := range c.Keywords {
+		k := &c.Keywords[i]
+		if k.Shortcut != "" {
+			continue
+		}
+		for _, r := range strings.ToLower(k.Name) {
+			s := string(r)
+			if !shortcuts[s] && !strings.ContainsAny(s, "jk-") {
+				k.Shortcut = s
+				shortcuts[s] = true
+				break
+			}
+		}
+		if k.Shortcut == "" {
+			return fmt.Errorf("keyword %s: no free shortcut; set one explicitly", k.Name)
+		}
+	}
+	return nil
 }
 
 // IconsConfig is the "[icons]" section of the config file: the
@@ -263,11 +377,12 @@ type GcalsyncConfig struct {
 // defaults: ui.New starts from it, and ApplyDefaults fills from it.
 func Default() Config {
 	return Config{
-		AgendaWindowDays:   14,
-		InboxFile:          "inbox.org",
-		CalendarFile:       "calendar.org",
-		MeetingTagsFile:    "meeting-tags.org",
-		HideDoneAfterHours: 24,
+		AgendaWindowDays:     14,
+		InboxFile:            "inbox.org",
+		CalendarFile:         "calendar.org",
+		MeetingTagsFile:      "meeting-tags.org",
+		HideClosedAfterHours: 24,
+		Keywords:             DefaultKeywords(),
 		Gcalsync: GcalsyncConfig{
 			CalendarIDs:    []string{"primary"},
 			SyncPastDays:   1,
@@ -278,7 +393,7 @@ func Default() Config {
 
 // ApplyDefaults replaces every unset setting that has a built-in default
 // (see Default) with it, in place: a zero string, a non-positive agenda
-// window or hide-done delay, an empty calendar-ID list, or a zero sync
+// window or hide-closed delay, an empty calendar-ID list, or a zero sync
 // window. Zero is how this package says "not set" (see Load), so a
 // settings value that's gone through flag/config merging only needs this
 // once at the end to be fully resolved.
@@ -296,8 +411,11 @@ func (c *Config) ApplyDefaults() {
 	if c.MeetingTagsFile == "" {
 		c.MeetingTagsFile = d.MeetingTagsFile
 	}
-	if c.HideDoneAfterHours <= 0 {
-		c.HideDoneAfterHours = d.HideDoneAfterHours
+	if c.HideClosedAfterHours <= 0 {
+		c.HideClosedAfterHours = d.HideClosedAfterHours
+	}
+	if len(c.Keywords) == 0 {
+		c.Keywords = d.Keywords
 	}
 	if len(c.Gcalsync.CalendarIDs) == 0 {
 		c.Gcalsync.CalendarIDs = d.Gcalsync.CalendarIDs
@@ -343,6 +461,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: parsing %s: %w", path, err)
 	}
 	c.OrgDir = expandHome(c.OrgDir)
+	if err := c.Normalize(); err != nil {
+		return nil, fmt.Errorf("config: %s: %w", path, err)
+	}
 	return &c, nil
 }
 

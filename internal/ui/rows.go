@@ -41,21 +41,21 @@ func (m *Model) appendMeetingTagsRows(dst *[]row, ignoreFold bool) {
 	m.appendMeetingTagsHeadlines(dst, f.Headlines, ignoreFold)
 }
 
-// toggleHideDone flips whether stale DONE/CANCELLED items (older than
-// hideDoneAfterHours, per CLOSED) are hidden from the outline — a full
+// toggleHideClosed flips whether stale DONE/CANCELLED items (older than
+// hideClosedAfterHours, per CLOSED) are hidden from the outline — a full
 // on/off switch for the filtering, independent of the configured
 // threshold, so a stale item is never more than a ":toggledone" away.
 // Re-focuses the headline the cursor was on before the toggle, if it's
 // still present among the rebuilt rows.
-func (m *Model) toggleHideDone() {
+func (m *Model) toggleHideClosed() {
 	h := m.currentHeadline()
-	m.hideDoneEnabled = !m.hideDoneEnabled
+	m.hideClosedEnabled = !m.hideClosedEnabled
 	m.rebuildRows()
 	if h != nil {
 		m.focusHeadline(h)
 	}
-	if m.hideDoneEnabled {
-		m.message = fmt.Sprintf("Hiding DONE/CANCELLED items closed more than %dh ago", m.cfg.HideDoneAfterHours)
+	if m.hideClosedEnabled {
+		m.message = fmt.Sprintf("Hiding DONE/CANCELLED items closed more than %dh ago", m.cfg.HideClosedAfterHours)
 	} else {
 		m.message = "Showing all DONE/CANCELLED items"
 	}
@@ -120,24 +120,23 @@ func (m *Model) appendCalendarHeadlines(dst *[]row, headlines []*org.Headline, i
 }
 
 // hiddenAsStaleDone reports whether h should be omitted from the outline
-// (along with its whole subtree, and any body text) because hide-done
-// filtering is enabled (see :toggledone) and h is a DONE/CANCELLED
-// headline whose CLOSED timestamp is further than hideDoneAfterHours in
-// the past. A DONE/CANCELLED headline with no CLOSED timestamp (e.g.
+// (along with its whole subtree, and any body text) because hide-closed
+// filtering is enabled (see :toggleclosed) and h's CLOSED timestamp is further than hideClosedAfterHours in
+// the past. A headline with no CLOSED timestamp (e.g.
 // hand-edited) or an unparseable one is never hidden — there's no age to
 // judge it by.
 func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 	if m.view == referenceView {
 		return false // reference material has no task state to age out
 	}
-	if !m.hideDoneEnabled || !org.IsDoneKeyword(h.Keyword) || h.Closed == nil {
+	if !m.hideClosedEnabled || h.Closed == nil {
 		return false
 	}
 	closed, _, err := orgdate.ParseFlexible(h.Closed.Raw)
 	if err != nil {
 		return false
 	}
-	return time.Since(closed) > time.Duration(m.cfg.HideDoneAfterHours)*time.Hour
+	return time.Since(closed) > time.Duration(m.cfg.HideClosedAfterHours)*time.Hour
 }
 
 // appendBodyLines appends one row per line of h's free-text body,

@@ -714,7 +714,7 @@ func TestLowercaseRSameAsUppercaseR(t *testing.T) {
 	if m.mode != selectMode {
 		t.Fatalf("mode after r = %v, want selectMode", m.mode)
 	}
-	if got, want := statusCandidates[m.selectIndex].keyword, "WAITING"; got != want {
+	if got, want := m.statusCandidates()[m.selectIndex].keyword, "WAITING"; got != want {
 		t.Errorf("preselected keyword = %q, want %q", got, want)
 	}
 
@@ -760,7 +760,7 @@ func TestSelectModePreselectsCurrentStatus(t *testing.T) {
 	if m.mode != selectMode {
 		t.Fatalf("mode = %v, want selectMode", m.mode)
 	}
-	if got, want := statusCandidates[m.selectIndex].keyword, "WAITING"; got != want {
+	if got, want := m.statusCandidates()[m.selectIndex].keyword, "WAITING"; got != want {
 		t.Errorf("preselected keyword = %q, want %q", got, want)
 	}
 }

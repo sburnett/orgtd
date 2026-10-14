@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
@@ -43,7 +44,7 @@ func (m *Model) agendaEntries(today time.Time, windowDays int) []agendaEntry {
 			continue
 		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			if org.IsDoneKeyword(h.Keyword) || h.Keyword == "SOMEDAY" {
+			if org.IsDoneKeyword(h.Keyword) || m.keywordAgenda(h.Keyword) == config.AgendaSkip {
 				return
 			}
 			consider(h.Deadline, "Deadline", h)
@@ -67,7 +68,7 @@ func agendaSection(date, today time.Time) string {
 	}
 }
 
-// nextActionHeadlines returns every NEXT headline across the workspace,
+// nextActionHeadlines returns every headline whose keyword has agenda = "next" (NEXT by default) across the workspace,
 // in file/tree order — regardless of whether it has a SCHEDULED or
 // DEADLINE date, since NEXT is GTD's "immediately actionable" state on
 // its own merits, independent of timing. A NEXT item that also has a
@@ -81,7 +82,7 @@ func (m *Model) nextActionHeadlines() []*org.Headline {
 			continue
 		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			if h.Keyword == "NEXT" {
+			if m.keywordAgenda(h.Keyword) == config.AgendaNext {
 				next = append(next, h)
 			}
 		})
@@ -206,4 +207,11 @@ func (m *Model) appendMeetingsSection(dst *[]row) {
 			*dst = append(*dst, row{headline: h, level: 2, kind: rowAgendaItem, meetingItemTitle: mt.title, meetingItemStart: mt.start})
 		}
 	}
+}
+
+// keywordAgenda returns the configured agenda role of keyword ("" if
+// none, or if it isn't a configured keyword).
+func (m Model) keywordAgenda(keyword string) string {
+	k, _ := m.keywordConfig(keyword)
+	return k.Agenda
 }

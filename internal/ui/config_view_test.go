@@ -53,7 +53,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		WithAgendaDays(30),
 		WithInboxFile("capture.org"),
 		WithCalendarFile("my-calendar.org"),
-		WithHideDoneAfterHours(48),
+		WithHideClosedAfterHours(48),
 		WithDebug(true),
 	)
 	m.switchToView(configView)
@@ -68,7 +68,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		"Agenda window: 30 days",
 		"Inbox file: capture.org",
 		"Calendar file: my-calendar.org",
-		"Hide done after: 48 hours (currently on",
+		"Hide closed after: 48 hours (currently on",
 		"Debug logging: on",
 	} {
 		if !containsSubstring(lines, want) {
@@ -77,20 +77,20 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 	}
 }
 
-func TestConfigViewReflectsHideDoneToggle(t *testing.T) {
+func TestConfigViewReflectsHideClosedToggle(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
-	m := New(ws, WithHideDoneAfterHours(24))
+	m := New(ws, WithHideClosedAfterHours(24))
 	m.switchToView(configView)
 
 	if !containsSubstring(configLines(m), "currently on") {
-		t.Error("config view should report hide-done as on right after WithHideDoneAfterHours")
+		t.Error("config view should report hide-closed as on right after WithHideClosedAfterHours")
 	}
 
-	m.toggleHideDone()
+	m.toggleHideClosed()
 	m.switchToView(configView)
 
 	if !containsSubstring(configLines(m), "currently off") {
-		t.Error("config view should reflect hide-done being toggled off")
+		t.Error("config view should reflect hide-closed being toggled off")
 	}
 }
 

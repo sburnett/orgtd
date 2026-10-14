@@ -49,7 +49,7 @@ func TestResolveConfigKeepsEverythingTheConfigFileSets(t *testing.T) {
 		InboxFile:               "capture.org",
 		CalendarFile:            "my-calendar.org",
 		MeetingTagsFile:         "tags.org",
-		HideDoneAfterHours:      48,
+		HideClosedAfterHours:    48,
 		Editor:                  "emacsclient -t",
 		Debug:                   true,
 		Gcalsync: config.GcalsyncConfig{
@@ -59,6 +59,10 @@ func TestResolveConfigKeepsEverythingTheConfigFileSets(t *testing.T) {
 		},
 		Icons:  config.IconsConfig{DirtyIcon: "*", DirtyColor: "1", MarkColor: "2", ReviewIcon: "@", LockColor: "4", MeetingIcon: "%"},
 		Colors: config.ColorsConfig{File: "#111111", TODO: "#222222", SearchHighlightBg: "#707070"},
+		Keywords: []config.KeywordConfig{
+			{Name: "GO", Shortcut: "g", Color: "#333333", Bold: true, Agenda: config.AgendaNext},
+			{Name: "SHIPPED", Shortcut: "s", Done: true},
+		},
 	}
 	want := *cfg
 	got := resolveConfig(flags(), "", cfg)
@@ -80,21 +84,21 @@ func TestResolveConfigExplicitFlagBeatsConfigFile(t *testing.T) {
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: "flag-prefix/, other/",
 		formatLinksURLFormatter: "flag-batch-fmt",
 		agendaDays:              7, inboxFile: "flag-inbox.org", calendarFile: "flag-calendar.org",
-		meetingTagsFile: "flag-tags.org", hideDoneAfterHours: 12, editor: "vim", debug: false,
+		meetingTagsFile: "flag-tags.org", hideClosedAfterHours: 12, editor: "vim", debug: false,
 		explicit: map[string]bool{},
 	}, "dir", "url-formatter", "url-formatter-prefixes", "format-links-url-formatter", "agenda-days",
-		"inbox-file", "calendar-file", "meeting-tags-file", "hide-done-after-hours", "editor", "debug")
+		"inbox-file", "calendar-file", "meeting-tags-file", "hide-closed-after-hours", "editor", "debug")
 	cfg := &config.Config{
 		OrgDir: "/from/config", URLFormatter: "cfg-fmt", URLFormatterPrefixes: []string{"cfg-prefix/"},
 		FormatLinksURLFormatter: "cfg-batch-fmt", AgendaWindowDays: 30, InboxFile: "cfg-inbox.org",
-		CalendarFile: "cfg-calendar.org", MeetingTagsFile: "cfg-tags.org", HideDoneAfterHours: 48,
+		CalendarFile: "cfg-calendar.org", MeetingTagsFile: "cfg-tags.org", HideClosedAfterHours: 48,
 		Editor: "emacs", Debug: true,
 	}
 	got := resolveConfig(f, "/from/env", cfg)
 	want := config.Default()
 	want.OrgDir, want.URLFormatter, want.URLFormatterPrefixes = "/from/flag", "flag-fmt", []string{"flag-prefix/", "other/"}
 	want.FormatLinksURLFormatter, want.AgendaWindowDays, want.InboxFile = "flag-batch-fmt", 7, "flag-inbox.org"
-	want.CalendarFile, want.MeetingTagsFile, want.HideDoneAfterHours = "flag-calendar.org", "flag-tags.org", 12
+	want.CalendarFile, want.MeetingTagsFile, want.HideClosedAfterHours = "flag-calendar.org", "flag-tags.org", 12
 	want.Editor, want.Debug = "vim", false
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveConfig = %+v, want %+v", got, want)
@@ -107,12 +111,12 @@ func TestResolveConfigUnsetFlagsLeaveConfigFileValuesAlone(t *testing.T) {
 	cfg := &config.Config{
 		URLFormatter: "u", URLFormatterPrefixes: []string{"go/"}, FormatLinksURLFormatter: "b",
 		InboxFile: "i.org", CalendarFile: "c.org", MeetingTagsFile: "m.org", AgendaWindowDays: 9,
-		HideDoneAfterHours: 5, Editor: "e", Debug: true,
+		HideClosedAfterHours: 5, Editor: "e", Debug: true,
 	}
 	got := resolveConfig(flags(), "", cfg)
 	if got.URLFormatter != "u" || !reflect.DeepEqual(got.URLFormatterPrefixes, []string{"go/"}) || got.FormatLinksURLFormatter != "b" ||
 		got.InboxFile != "i.org" || got.CalendarFile != "c.org" || got.MeetingTagsFile != "m.org" ||
-		got.AgendaWindowDays != 9 || got.HideDoneAfterHours != 5 || got.Editor != "e" || !got.Debug {
+		got.AgendaWindowDays != 9 || got.HideClosedAfterHours != 5 || got.Editor != "e" || !got.Debug {
 		t.Errorf("an unset flag clobbered the config file: %+v", got)
 	}
 }
@@ -130,11 +134,11 @@ func TestResolveConfigOrgtdDirEnvBeatsConfigButNotExplicitFlag(t *testing.T) {
 }
 
 func TestResolveConfigZeroInConfigFileMeansUnset(t *testing.T) {
-	// AgendaWindowDays/HideDoneAfterHours of 0 is TOML's zero value for an
+	// AgendaWindowDays/HideClosedAfterHours of 0 is TOML's zero value for an
 	// absent key, not a real request for a zero-length window.
-	got := resolveConfig(flags(), "", &config.Config{AgendaWindowDays: 0, HideDoneAfterHours: 0})
-	if got.AgendaWindowDays != 14 || got.HideDoneAfterHours != 24 {
-		t.Errorf("windows = %d/%d, want the defaults 14/24", got.AgendaWindowDays, got.HideDoneAfterHours)
+	got := resolveConfig(flags(), "", &config.Config{AgendaWindowDays: 0, HideClosedAfterHours: 0})
+	if got.AgendaWindowDays != 14 || got.HideClosedAfterHours != 24 {
+		t.Errorf("windows = %d/%d, want the defaults 14/24", got.AgendaWindowDays, got.HideClosedAfterHours)
 	}
 }
 

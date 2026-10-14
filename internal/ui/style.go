@@ -135,22 +135,58 @@ func (m Model) fileStyle() lipgloss.Style {
 // lookup) — see keywordStyles' old doc comment (now folded into the
 // default* constants above) for why each keyword gets the color it does.
 func (m Model) keywordStyle(keyword string) (lipgloss.Style, bool) {
-	switch keyword {
-	case "TODO":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.TODO, defaultTODOColor))), true
-	case "NEXT":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Next, defaultNextColor))), true
-	case "WAITING":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Waiting, defaultWaitingColor))), true
-	case "SOMEDAY":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Someday, defaultSomedayColor))), true
-	case "DONE":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Done, defaultDoneColor))), true
-	case "CANCELLED":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(orDefault(m.cfg.Colors.Cancelled, defaultCancelledColor))), true
-	default:
+	k, ok := m.keywordConfig(keyword)
+	if !ok {
 		return lipgloss.Style{}, false
 	}
+	style := lipgloss.NewStyle().Bold(k.Bold)
+	if color := m.keywordColor(k); color != "" {
+		style = style.Foreground(lipgloss.Color(color))
+	}
+	return style, true
+}
+
+// keywordColor resolves k's color: its own, then the legacy [colors] key
+// for a built-in keyword name, then the built-in default for it.
+func (m Model) keywordColor(k config.KeywordConfig) string {
+	if k.Color != "" {
+		return k.Color
+	}
+	c := m.cfg.Colors
+	switch k.Name {
+	case "TODO":
+		return orDefault(c.TODO, defaultTODOColor)
+	case "NEXT":
+		return orDefault(c.Next, defaultNextColor)
+	case "WAITING":
+		return orDefault(c.Waiting, defaultWaitingColor)
+	case "SOMEDAY":
+		return orDefault(c.Someday, defaultSomedayColor)
+	case "DONE":
+		return orDefault(c.Done, defaultDoneColor)
+	case "CANCELLED":
+		return orDefault(c.Cancelled, defaultCancelledColor)
+	}
+	return ""
+}
+
+// keywords returns the configured TODO keywords, or the built-in set if
+// none were configured.
+func (m Model) keywords() []config.KeywordConfig {
+	if len(m.cfg.Keywords) == 0 {
+		return config.DefaultKeywords()
+	}
+	return m.cfg.Keywords
+}
+
+// keywordConfig looks up the configured keyword named name.
+func (m Model) keywordConfig(name string) (config.KeywordConfig, bool) {
+	for _, k := range m.keywords() {
+		if k.Name == name {
+			return k, true
+		}
+	}
+	return config.KeywordConfig{}, false
 }
 
 func (m Model) tagStyle() lipgloss.Style {

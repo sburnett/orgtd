@@ -24,7 +24,7 @@ import (
 // under each — reference entries (see workspace.Workspace.IsReference)
 // included, which is how reference material gets surfaced by topic.
 // Subject to the same stale-DONE hiding as the outline (see
-// hiddenAsStaleDone) — :toggledone affects this view the same way —
+// hiddenAsStaleDone) — :toggleclosed affects this view the same way —
 // except for reference entries, which have no task state to age out.
 func (m *Model) appendTagsRows(dst *[]row) {
 	byTag := make(map[string][]*org.Headline)

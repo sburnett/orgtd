@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 	"github.com/sburnett/orgtd/internal/workspace"
@@ -1125,5 +1126,45 @@ func TestDemoteUnfoldsFoldedNewParent(t *testing.T) {
 	}
 	if got := m.currentHeadline(); got != mover {
 		t.Errorf("cursor headline = %v, want the demoted entry", got)
+	}
+}
+
+func TestCustomKeywordsDriveParsingPickerAndAgenda(t *testing.T) {
+	org.SetKeywords([]string{"TRIAGE", "LATER", "GO"}, []string{"SHIPPED"})
+	t.Cleanup(func() { org.SetKeywords(org.ActiveKeywords, org.DoneKeywords) })
+
+	now := orgdate.TruncateToDate(time.Now())
+	ws := agendaFixture(t, fmt.Sprintf(`* TRIAGE Sort it
+  DEADLINE: <%[1]s>
+* LATER Park it
+  DEADLINE: <%[1]s>
+* SHIPPED Done it
+  DEADLINE: <%[1]s>
+* GO Do it
+`, ts(now)))
+	if got := ws.Files[0].Headlines[0].Keyword; got != "TRIAGE" {
+		t.Fatalf("keyword = %q, want TRIAGE", got)
+	}
+
+	cfg := config.Default()
+	cfg.Keywords = []config.KeywordConfig{
+		{Name: "TRIAGE", Shortcut: "t", Color: "#ff0000"},
+		{Name: "LATER", Shortcut: "l", Agenda: config.AgendaSkip},
+		{Name: "GO", Shortcut: "g", Agenda: config.AgendaNext},
+		{Name: "SHIPPED", Shortcut: "x", Done: true},
+	}
+	m := New(ws, WithConfig(cfg))
+
+	if entries := m.agendaEntries(now, 14); len(entries) != 1 || entries[0].h.Title != "Sort it" {
+		t.Errorf("agendaEntries = %+v, want only TRIAGE", entries)
+	}
+	if next := m.nextActionHeadlines(); len(next) != 1 || next[0].Title != "Do it" {
+		t.Errorf("nextActionHeadlines = %+v, want only GO", next)
+	}
+	if got := m.filteredStatusCandidates("x"); len(got) != 1 || got[0].keyword != "SHIPPED" {
+		t.Errorf("shortcut x -> %+v, want SHIPPED", got)
+	}
+	if _, ok := m.keywordStyle("TODO"); ok {
+		t.Error("TODO should no longer be a known keyword")
 	}
 }

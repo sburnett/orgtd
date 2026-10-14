@@ -178,7 +178,7 @@ type Model struct {
 	// the editor and URL formatters, :sync-calendar's Google settings, and
 	// the icon and color overrides. A Model built without New has the zero
 	// Config, i.e. nothing set. Not modified after construction; runtime
-	// state that starts from a setting (hideDoneEnabled) is kept apart.
+	// state that starts from a setting (hideClosedEnabled) is kept apart.
 	cfg config.Config
 
 	// bareURLRe is the regexp formatURLs uses to find bare URLs, compiled
@@ -196,11 +196,11 @@ type Model struct {
 	reviewActive bool          // the "%" register is on (:review): the inbox's current pending item is pinned in reviewTarget, in every view
 	reviewTarget *org.Headline // the inbox item currently pinned for review while reviewActive; nil if the inbox has nothing pending
 
-	// hideDoneEnabled is whether stale DONE/CANCELLED items are currently
-	// hidden from the outline (after cfg.HideDoneAfterHours): off by
-	// default (see New), toggled by :toggledone, turned on at startup by
-	// WithConfig/WithHideDoneAfterHours.
-	hideDoneEnabled bool
+	// hideClosedEnabled is whether stale DONE/CANCELLED items are currently
+	// hidden from the outline (after cfg.HideClosedAfterHours): off by
+	// default (see New), toggled by :toggleclosed, turned on at startup by
+	// WithConfig/WithHideClosedAfterHours.
+	hideClosedEnabled bool
 
 	// syncingCalendar guards against starting a second :sync-calendar
 	// while one is in flight — unlike :format-links, a sync never touches

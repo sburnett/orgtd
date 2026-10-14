@@ -14,17 +14,16 @@ type statusCandidate struct {
 	shortcut rune   // single-key shortcut
 }
 
-// statusCandidates lists every state selectable via R, in display order.
-// Every label starts with a distinct letter (matching its shortcut),
-// except "(none)", which uses '-' instead.
-var statusCandidates = []statusCandidate{
-	{"TODO", "TODO", 't'},
-	{"NEXT", "NEXT", 'n'},
-	{"WAITING", "WAITING", 'w'},
-	{"SOMEDAY", "SOMEDAY", 's'},
-	{"DONE", "DONE", 'd'},
-	{"CANCELLED", "CANCELLED", 'c'},
-	{"", "(none)", '-'},
+// statusCandidates lists every state selectable via R, in display order:
+// the configured keywords, then "(none)", which uses '-' as its
+// shortcut.
+func (m Model) statusCandidates() []statusCandidate {
+	kws := m.keywords()
+	out := make([]statusCandidate, 0, len(kws)+1)
+	for _, k := range kws {
+		out = append(out, statusCandidate{k.Name, k.Name, []rune(k.Shortcut)[0]})
+	}
+	return append(out, statusCandidate{"", "(none)", '-'})
 }
 
 // matchesFilter reports whether c is a candidate for the typed filter
@@ -40,8 +39,8 @@ func (c statusCandidate) matchesFilter(filter string) bool {
 }
 
 // statusCandidateIndex returns keyword's position in statusCandidates.
-func statusCandidateIndex(keyword string) int {
-	for i, c := range statusCandidates {
+func (m Model) statusCandidateIndex(keyword string) int {
+	for i, c := range m.statusCandidates() {
 		if c.keyword == keyword {
 			return i
 		}
@@ -49,9 +48,19 @@ func statusCandidateIndex(keyword string) int {
 	return -1
 }
 
-func filteredStatusCandidates(filter string) []statusCandidate {
+// A single character that is some candidate's shortcut selects only that
+// candidate, even if it's also a prefix of other labels.
+func (m Model) filteredStatusCandidates(filter string) []statusCandidate {
+	all := m.statusCandidates()
+	if len(filter) == 1 {
+		for _, c := range all {
+			if rune(filter[0]) == c.shortcut {
+				return []statusCandidate{c}
+			}
+		}
+	}
 	var out []statusCandidate
-	for _, c := range statusCandidates {
+	for _, c := range all {
 		if c.matchesFilter(filter) {
 			out = append(out, c)
 		}
@@ -117,7 +126,7 @@ func (m *Model) typeSelectChar(r rune) {
 	}
 
 	candidateFilter := strings.ToLower(m.selectFilter + string(r))
-	matches := filteredStatusCandidates(candidateFilter)
+	matches := m.filteredStatusCandidates(candidateFilter)
 	if len(matches) == 0 {
 		return
 	}
@@ -131,7 +140,7 @@ func (m *Model) typeSelectChar(r rune) {
 }
 
 func (m *Model) moveSelectHighlight(delta int) {
-	n := len(filteredStatusCandidates(m.selectFilter))
+	n := len(m.filteredStatusCandidates(m.selectFilter))
 	m.selectIndex += delta
 	if m.selectIndex < 0 {
 		m.selectIndex = 0
@@ -144,7 +153,7 @@ func (m *Model) moveSelectHighlight(delta int) {
 // applySelectedStatus applies the currently highlighted candidate and
 // always returns to normal mode.
 func (m Model) applySelectedStatus() (tea.Model, tea.Cmd) {
-	matches := filteredStatusCandidates(m.selectFilter)
+	matches := m.filteredStatusCandidates(m.selectFilter)
 	m.mode = normalMode
 	m.selectFilter = ""
 	if len(matches) == 0 {
@@ -182,7 +191,7 @@ func (m *Model) currentStatusIndex() int {
 	if h == nil {
 		return 0
 	}
-	for i, c := range statusCandidates {
+	for i, c := range m.statusCandidates() {
 		if c.keyword == h.Keyword {
 			return i
 		}
@@ -219,7 +228,7 @@ func (m *Model) applyStatus(keyword string) {
 // listed — see filteredStatusCandidates): each line is "[shortcut]
 // label", with the currently highlighted candidate in reverse video.
 func (m Model) statusSelectorLines() []string {
-	matches := filteredStatusCandidates(m.selectFilter)
+	matches := m.filteredStatusCandidates(m.selectFilter)
 	highlighted := -1
 	if len(matches) > 0 {
 		idx := m.selectIndex
@@ -229,11 +238,12 @@ func (m Model) statusSelectorLines() []string {
 		if idx >= len(matches) {
 			idx = len(matches) - 1
 		}
-		highlighted = statusCandidateIndex(matches[idx].keyword)
+		highlighted = m.statusCandidateIndex(matches[idx].keyword)
 	}
 
-	lines := make([]string, len(statusCandidates))
-	for i, c := range statusCandidates {
+	cands := m.statusCandidates()
+	lines := make([]string, len(cands))
+	for i, c := range cands {
 		text := fmt.Sprintf("[%c] %s", c.shortcut, c.label)
 		if i == highlighted {
 			lines[i] = m.cursorStyle().Render(" " + text)

@@ -109,7 +109,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	line("Inbox file: %s", m.cfg.InboxFile)
 	line("Calendar file: %s", m.cfg.CalendarFile)
 	line("Meeting tags file: %s", m.cfg.MeetingTagsFile)
-	line("Hide done after: %d hours (currently %s — :toggledone to switch)", m.cfg.HideDoneAfterHours, onOff(m.hideDoneEnabled))
+	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
 	line("Debug logging: %s", onOff(m.cfg.Debug))
 
 	if m.cfg.Gcalsync.OAuthClientID == "" || m.cfg.Gcalsync.OAuthClientSecret == "" {
@@ -132,6 +132,22 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		orDefault(m.cfg.Icons.ReviewIcon, defaultReviewIcon), orDefault(m.cfg.Icons.ReviewColor, defaultReviewColor),
 		orDefault(m.cfg.Icons.LockIcon, defaultLockIcon), orDefault(m.cfg.Icons.LockColor, defaultLockColor),
 		orDefault(m.cfg.Icons.MeetingIcon, defaultMeetingIcon), orDefault(m.cfg.Icons.MeetingColor, defaultMeetingColor))
+
+	var kws []string
+	for _, k := range m.keywords() {
+		desc := fmt.Sprintf("%s [%s]", k.Name, k.Shortcut)
+		if k.Done {
+			desc += " done"
+		}
+		if k.Agenda != "" {
+			desc += " agenda=" + k.Agenda
+		}
+		if color := m.keywordColor(k); color != "" {
+			desc += " (" + color + ")"
+		}
+		kws = append(kws, desc)
+	}
+	line("Keywords: %s", strings.Join(kws, ", "))
 
 	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), panel-fg (%s), status-bar (%s on %s), cursor-row (%s), visual-selection (%s), search-highlight (%s)",
 		orDefault(m.cfg.Colors.File, defaultFileColor),

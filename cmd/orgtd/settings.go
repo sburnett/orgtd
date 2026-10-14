@@ -21,7 +21,7 @@ type flagValues struct {
 	formatLinksURLFormatter                                             string
 	urlFormatterPrefixes                                                string // comma-separated; see splitPrefixes
 	agendaDays                                                          int
-	hideDoneAfterHours                                                  int
+	hideClosedAfterHours                                                int
 	debug                                                               bool
 	configPath                                                          string
 	explicit                                                            map[string]bool
@@ -39,7 +39,7 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.inboxFile, "inbox-file", "", "base name of the file :review treats as the inbox (default: the config file's inbox_file, else inbox.org)")
 	fs.StringVar(&f.calendarFile, "calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
 	fs.StringVar(&f.meetingTagsFile, "meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
-	fs.IntVar(&f.hideDoneAfterHours, "hide-done-after-hours", 0, "how many hours after a DONE/CANCELLED item's CLOSED timestamp it's hidden from the outline view; :toggledone shows everything again (default: the config file's hide_done_after_hours, else 24)")
+	fs.IntVar(&f.hideClosedAfterHours, "hide-closed-after-hours", 0, "how many hours after an item's CLOSED timestamp it's hidden from the outline view; :toggleclosed shows everything again (default: the config file's hide_closed_after_hours, else 24)")
 	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
 	fs.BoolVar(&f.debug, "debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
 	fs.StringVar(&f.configPath, "config", "", "path to the TOML config file (default: "+config.DefaultPath()+")")
@@ -101,8 +101,8 @@ func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.
 	if f.explicit["meeting-tags-file"] {
 		out.MeetingTagsFile = f.meetingTagsFile
 	}
-	if f.explicit["hide-done-after-hours"] {
-		out.HideDoneAfterHours = f.hideDoneAfterHours
+	if f.explicit["hide-closed-after-hours"] {
+		out.HideClosedAfterHours = f.hideClosedAfterHours
 	}
 	if f.explicit["editor"] {
 		out.Editor = f.editor

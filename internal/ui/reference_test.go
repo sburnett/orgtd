@@ -87,7 +87,7 @@ func TestReferenceViewIgnoresTaskStateAndDeadlines(t *testing.T) {
 	ref.Keyword = "DONE"
 	ref.Closed = &org.Timestamp{Raw: "[2020-01-01 Wed 10:00]"} // long stale
 	m := New(ws)
-	m.hideDoneEnabled = true
+	m.hideClosedEnabled = true
 
 	m.switchToView(referenceView)
 	if !strings.Contains(strings.Join(rowTitles(m), "|"), "Wifi passwords") {

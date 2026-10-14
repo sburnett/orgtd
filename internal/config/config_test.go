@@ -27,7 +27,7 @@ inbox_file = "capture.org"
 calendar_file = "my-calendar.org"
 url_formatter_prefixes = ["bit.ly/", "go/"]
 format_links_url_formatter = "batch-formatter"
-hide_done_after_hours = 48
+hide_closed_after_hours = 48
 debug = true
 
 [gcalsync]
@@ -87,7 +87,7 @@ search_highlight_bg = "#707070"
 		CalendarFile:            "my-calendar.org",
 		URLFormatterPrefixes:    []string{"bit.ly/", "go/"},
 		FormatLinksURLFormatter: "batch-formatter",
-		HideDoneAfterHours:      48,
+		HideClosedAfterHours:    48,
 		Debug:                   true,
 		Gcalsync: GcalsyncConfig{
 			OAuthClientID:          "client-id",
@@ -224,16 +224,16 @@ func TestApplyDefaultsFillsOnlyUnsetSettings(t *testing.T) {
 		t.Errorf("ApplyDefaults overwrote explicitly set values: %+v", c)
 	}
 	if c.CalendarFile != d.CalendarFile || c.MeetingTagsFile != d.MeetingTagsFile ||
-		c.HideDoneAfterHours != d.HideDoneAfterHours || c.Gcalsync.SyncPastDays != d.Gcalsync.SyncPastDays {
+		c.HideClosedAfterHours != d.HideClosedAfterHours || c.Gcalsync.SyncPastDays != d.Gcalsync.SyncPastDays {
 		t.Errorf("ApplyDefaults left unset values unset: %+v", c)
 	}
 }
 
 func TestApplyDefaultsTreatsNonPositiveWindowsAsUnset(t *testing.T) {
-	c := Config{AgendaWindowDays: -2, HideDoneAfterHours: -1}
+	c := Config{AgendaWindowDays: -2, HideClosedAfterHours: -1}
 	c.ApplyDefaults()
-	if c.AgendaWindowDays != 14 || c.HideDoneAfterHours != 24 {
-		t.Errorf("non-positive settings = %d/%d, want the defaults 14/24", c.AgendaWindowDays, c.HideDoneAfterHours)
+	if c.AgendaWindowDays != 14 || c.HideClosedAfterHours != 24 {
+		t.Errorf("non-positive settings = %d/%d, want the defaults 14/24", c.AgendaWindowDays, c.HideClosedAfterHours)
 	}
 }
 
@@ -243,5 +243,69 @@ func TestDefaultIsFullyResolved(t *testing.T) {
 	d.ApplyDefaults()
 	if d.AgendaWindowDays != before.AgendaWindowDays || d.InboxFile != before.InboxFile || len(d.Gcalsync.CalendarIDs) != 1 {
 		t.Errorf("ApplyDefaults changed Default(): %+v -> %+v", before, d)
+	}
+}
+
+func TestLoadParsesKeywordsAndDerivesShortcuts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	body := `
+[[keywords]]
+name = "TODO"
+shortcut = "T"
+color = "#112233"
+bold = true
+
+[[keywords]]
+name = "TRIAGE"
+
+[[keywords]]
+name = "DROPPED"
+done = true
+agenda = "skip"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, k := range c.Keywords {
+		got = append(got, k.Name+":"+k.Shortcut)
+	}
+	if want := []string{"TODO:t", "TRIAGE:r", "DROPPED:d"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("keywords = %v, want %v", got, want)
+	}
+	if !c.Keywords[2].Done || c.Keywords[2].Agenda != AgendaSkip || c.Keywords[0].Color != "#112233" {
+		t.Errorf("fields not parsed: %+v", c.Keywords)
+	}
+}
+
+func TestLoadRejectsBadKeywords(t *testing.T) {
+	for name, body := range map[string]string{
+		"duplicate name":     "[[keywords]]\nname='A'\n[[keywords]]\nname='A'\n",
+		"duplicate shortcut": "[[keywords]]\nname='A'\nshortcut='x'\n[[keywords]]\nname='B'\nshortcut='x'\n",
+		"reserved shortcut":  "[[keywords]]\nname='A'\nshortcut='j'\n",
+		"long shortcut":      "[[keywords]]\nname='A'\nshortcut='ab'\n",
+		"space in name":      "[[keywords]]\nname='A B'\n",
+		"empty name":         "[[keywords]]\nshortcut='a'\n",
+		"bad agenda":         "[[keywords]]\nname='A'\nagenda='x'\n",
+	} {
+		path := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil {
+			t.Errorf("%s: Load succeeded, want error", name)
+		}
+	}
+}
+
+func TestApplyDefaultsFillsKeywords(t *testing.T) {
+	var c Config
+	c.ApplyDefaults()
+	if len(c.Keywords) != 6 || c.Keywords[0].Name != "TODO" {
+		t.Errorf("Keywords = %+v, want the six built-ins", c.Keywords)
 	}
 }
