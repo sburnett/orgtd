@@ -210,7 +210,44 @@ func (m Model) meetingPickerLines() []string {
 			lines[i] = bgSpan(m.overlayBg(), " "+text)
 		}
 	}
-	return lines
+	return windowPickerLines(lines, idx, maxInfoBufferLines, func(text string) string {
+		return m.statusStyle().Background(m.overlayBg()).Render(text)
+	})
+}
+
+// windowPickerLines trims lines to at most limit rows, keeping the one at
+// idx visible so the picker scrolls with the selection instead of the
+// info buffer cutting off everything past its cap. Hidden rows before and
+// after the window collapse into "...N earlier"/"...N more" summary rows,
+// which count toward limit.
+func windowPickerLines(lines []string, idx, limit int, summary func(string) string) []string {
+	if len(lines) <= limit {
+		return lines
+	}
+	size := limit - 2 // room for both summaries
+	start := idx - size/2
+	if start < 0 {
+		start = 0
+	}
+	if start > len(lines)-size {
+		start = len(lines) - size
+	}
+	end := start + size
+	// Only one summary row is needed at either end, so reclaim the spare row.
+	if start == 0 {
+		end++
+	} else if end == len(lines) {
+		start--
+	}
+	out := make([]string, 0, limit)
+	if start > 0 {
+		out = append(out, summary(fmt.Sprintf("  ...%d earlier", start)))
+	}
+	out = append(out, lines[start:end]...)
+	if end < len(lines) {
+		out = append(out, summary(fmt.Sprintf("  ...and %d more", len(lines)-end)))
+	}
+	return out
 }
 
 // renderMeetingPicker renders the "gM" picker's command-line prompt: how
