@@ -199,9 +199,14 @@ func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
 		}
 		byFile[f] = append(byFile[f], action)
 	}
+	// The batch finishes asynchronously, long after :format-links was
+	// typed, so the cursor may be anywhere — it must stay put rather than
+	// jump to whichever entry was rewritten last.
+	cur := m.currentHeadline()
 	for _, f := range order {
-		m.pushUndo(&batchAction{actions: byFile[f]})
+		m.pushUndoKeepingCursor(&batchAction{actions: byFile[f]})
 	}
+	m.focusHeadline(cur)
 	m.message = fmt.Sprintf("Formatted links for %d entries", len(msg.targets))
 	return m, nil
 }

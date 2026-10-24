@@ -530,3 +530,20 @@ func TestFinishFormatLinksIsOneUndoStepPerFile(t *testing.T) {
 		t.Errorf("one undo should revert exactly one file's change, got A formatted=%v, B formatted=%v", aFormatted, bFormatted)
 	}
 }
+
+func TestFinishFormatLinksKeepsCursorOnItsEntry(t *testing.T) {
+	script := writeBatchFakeFormatter(t, `echo "[[$line][Formatted]]"`)
+	ws := agendaFixture(t, "* TODO first https://example.com/a\n* TODO plain\n* TODO last https://example.com/b\n")
+	m := New(ws, WithURLFormatter(script))
+	m.focusHeadline(findHeadlineByTitle(t, m, "plain"))
+	want := m.currentHeadline()
+
+	cmd := m.startFormatLinks()
+	msg := cmd().(formatLinksMsg)
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if got := m.currentHeadline(); got != want {
+		t.Errorf("cursor moved to %q, want it to stay on %q", got.Title, want.Title)
+	}
+}
