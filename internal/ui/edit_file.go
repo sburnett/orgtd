@@ -65,6 +65,73 @@ func (m *Model) editFile(arg string) {
 	}
 }
 
+// reloadFile runs ":e!": re-read a file from disk, throwing away its
+// in-memory state — unsaved edits, undo history, marks — for when it
+// changed underneath orgtd (a `git pull`, another editor) and ":w" refused
+// to overwrite it. arg names the file the way ":edit" does; empty means
+// the file under the cursor.
+func (m *Model) reloadFile(arg string) {
+	var f *org.File
+	if arg == "" {
+		f = m.currentRowFile()
+		if f == nil {
+			m.message = "Usage: :e! [file] — reload a file from disk, discarding its unsaved changes"
+			return
+		}
+	} else {
+		rel, err := editTarget(arg)
+		if err != nil {
+			m.message = err.Error()
+			return
+		}
+		if f = m.loadedFile(filepath.Join(m.ws.Dir, rel)); f == nil {
+			m.message = rel + " isn't loaded — :e " + arg + " opens it"
+			return
+		}
+	}
+	name := filepath.Base(f.Path)
+	if m.fileHasImmutableHeadline(f) {
+		m.message = name + " has entries being formatted by :format-links; can't reload it yet"
+		return
+	}
+	newFile, err := org.ParseFile(f.Path)
+	if err != nil {
+		m.message = fmt.Sprintf("Could not reload %s: %v", name, err)
+		return
+	}
+	for i, wf := range m.ws.Files {
+		if wf == f {
+			m.ws.Files[i] = newFile
+			break
+		}
+	}
+	m.dropUndoFor(f)
+	m.clearRefsForFile(f)
+	m.rebuildRows()
+	m.focusFile(newFile)
+	m.recomputeDirty()
+	m.message = "Reloaded " + name + " from disk"
+}
+
+// dropUndoFor removes every undo/redo action on f from the global stacks,
+// keeping the position pointing at the same place among the rest — they
+// all refer to a tree that's been replaced, so undoing one would silently
+// edit a file nobody can see.
+func (m *Model) dropUndoFor(f *org.File) {
+	kept := m.undoStack[:0:0]
+	pos := 0
+	for i, a := range m.undoStack {
+		if a.file() == f {
+			continue
+		}
+		kept = append(kept, a)
+		if i < m.undoPos {
+			pos++
+		}
+	}
+	m.undoStack, m.undoPos = kept, pos
+}
+
 // editTarget turns :edit's argument into a path relative to the org
 // directory — "name.org" or "reference/name.org" — or an error whose text
 // is the message to show.

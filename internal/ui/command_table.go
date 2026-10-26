@@ -45,13 +45,16 @@ func init() {
 			m.message = m.writeAll()
 			return nil
 		}},
-		{names: []string{"wq"}, run: func(m *Model, _ string) tea.Cmd {
-			msg, ok := m.writeAllResult()
+		{names: []string{"w!", "write!"}, run: func(m *Model, _ string) tea.Cmd {
+			msg, _ := m.writeAllResult(true)
 			m.message = msg
-			if ok {
-				return tea.Quit
-			}
 			return nil
+		}},
+		{names: []string{"wq"}, run: func(m *Model, _ string) tea.Cmd {
+			return m.writeAndQuit(false)
+		}},
+		{names: []string{"wq!"}, run: func(m *Model, _ string) tea.Cmd {
+			return m.writeAndQuit(true)
 		}},
 		{names: []string{"q", "quit"}, run: func(m *Model, _ string) tea.Cmd {
 			if len(m.dirty) > 0 {
@@ -69,6 +72,10 @@ func init() {
 		}},
 		{names: []string{"e", "edit"}, takesArg: true, complete: (*Model).completeEditArg, run: func(m *Model, file string) tea.Cmd {
 			m.editFile(file)
+			return nil
+		}},
+		{names: []string{"e!", "edit!"}, takesArg: true, complete: (*Model).completeEditArg, run: func(m *Model, file string) tea.Cmd {
+			m.reloadFile(file)
 			return nil
 		}},
 		{names: []string{"capture"}, run: func(m *Model, _ string) tea.Cmd { return m.startCapture() }},
@@ -113,6 +120,17 @@ func init() {
 		{names: []string{"sync-calendar!"}, run: func(m *Model, _ string) tea.Cmd { return m.startSyncCalendar(true) }},
 		{names: []string{"commit"}, run: func(m *Model, _ string) tea.Cmd { return m.startCommit() }},
 	}
+}
+
+// writeAndQuit is :wq (force: :wq!): write, then quit if every write
+// succeeded.
+func (m *Model) writeAndQuit(force bool) tea.Cmd {
+	msg, ok := m.writeAllResult(force)
+	m.message = msg
+	if ok {
+		return tea.Quit
+	}
+	return nil
 }
 
 // lookupCommand finds the command line text cmd (already trimmed, not

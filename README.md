@@ -67,6 +67,25 @@ up by hand. This is an OS-level advisory lock, so it's a best-effort
 safety net rather than a hard guarantee — some filesystems (older NFS
 in particular) don't enforce it reliably.
 
+### Files changed on disk
+
+orgtd reads each file once, but remembers a hash of what it read (and of
+what it last wrote). Before `:w` writes a file, it compares the file's
+current content to that hash; if something else has rewritten it since —
+typically a `git pull` bringing in upstream commits — the write is
+refused for that file with a message naming it, rather than clobbering
+the upstream change. Content is compared, not modification time, so a
+file that was touched or rewritten with identical bytes isn't a conflict.
+A file deleted from disk counts as changed. Two ways out:
+
+- `:e!` reloads the file from disk, discarding your unsaved edits to it.
+- `:w!` overwrites the disk version with yours.
+
+Only files with unsaved edits are checked: a file you haven't touched is
+never written, so a `git pull` into it is harmless — but orgtd keeps
+showing the old content until you `:e!` it (or restart). `:sync-calendar`
+always rewrites `calendar_file` regardless.
+
 ### Config file
 
 Any setting above can also go in a TOML config file, so you don't have to
@@ -681,13 +700,16 @@ History doesn't persist between sessions.
 
 | Command | Action |
 |---|---|
-| `:w` / `:write` | Write every file with unsaved changes. Refuses while a `:commit`'s `git commit`/`git push` is still running in the background (see `:commit` below) |
-| `:wq` | Write, then quit. Same `git`-running refusal as `:w` above |
+| `:w` / `:write` | Write every file with unsaved changes. Refuses while a `:commit`'s `git commit`/`git push` is still running in the background (see `:commit` below). Also skips any file whose content on disk no longer matches what orgtd last read or wrote — e.g. a `git pull` updated it — so an upstream change is never silently overwritten (see Files changed on disk, below); the other files are still written |
+| `:w!` / `:write!` | Like `:w`, but overwrites files that changed on disk |
+| `:wq` | Write, then quit. Same refusals as `:w` above (a file changed on disk keeps orgtd open) |
+| `:wq!` | Like `:wq`, but overwrites files that changed on disk |
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
 | `:agenda` / `:outline` / `:reference` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
 | `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is created (on disk immediately, since an empty file has no edit for `:w` to save) — add entries with `o`/`O` on its header row. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
+| `:edit! [file]` / `:e! [file]` | Reload a file from disk, discarding its unsaved changes, undo history and marks — the way out when `:w` refuses because the file changed on disk. `<file>` is named as for `:edit` and must already be loaded; with none, reloads the file under the cursor |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
 | `:review` | Toggle the read-only `%` register — see Reviewing the inbox, below. The current view doesn't change. Also turned off by `:clear-registers` |
 | `:next` / `:prev` | Only while `:review` is on: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |

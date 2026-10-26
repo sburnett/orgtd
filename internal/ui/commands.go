@@ -197,7 +197,7 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 // writeAll writes every file with unwritten in-memory changes to disk,
 // returning a status-line summary.
 func (m *Model) writeAll() string {
-	msg, _ := m.writeAllResult()
+	msg, _ := m.writeAllResult(false)
 	return msg
 }
 
@@ -209,15 +209,31 @@ func (m *Model) writeAll() string {
 // against, so writing over them mid-commit could save changes that
 // either end up silently included in a commit already in flight, or
 // racing its own on-disk read of what to diff/commit next.
-func (m *Model) writeAllResult() (string, bool) {
+//
+// Unless force is set (":w!"), a file whose content on disk no longer
+// matches what orgtd last read or wrote (see org.ChangedOnDisk — e.g. a
+// `git pull` rewrote it) is skipped rather than overwritten, and reported
+// as a failure; the other dirty files are still written.
+func (m *Model) writeAllResult(force bool) (string, bool) {
 	if m.gitRunning {
 		return "Can't write while git is running in the background — see :log", false
 	}
 
-	var written, failed []string
+	var written, failed, changed []string
 	for _, f := range m.ws.Files {
 		if !m.dirty[f] {
 			continue
+		}
+		if !force {
+			stale, err := org.ChangedOnDisk(f)
+			if err != nil {
+				failed = append(failed, fmt.Sprintf("%s (%v)", filepath.Base(f.Path), err))
+				continue
+			}
+			if stale {
+				changed = append(changed, filepath.Base(f.Path))
+				continue
+			}
 		}
 		if err := org.WriteFile(f); err != nil {
 			failed = append(failed, fmt.Sprintf("%s (%v)", filepath.Base(f.Path), err))
@@ -231,6 +247,12 @@ func (m *Model) writeAllResult() (string, bool) {
 	switch {
 	case len(failed) > 0:
 		return "Failed to write " + strings.Join(failed, ", "), false
+	case len(changed) > 0:
+		msg := strings.Join(changed, ", ") + " changed on disk — :w! to overwrite it, or :e! to reload it and discard your edits"
+		if len(written) > 0 {
+			msg = "Wrote " + strings.Join(written, ", ") + "; " + msg
+		}
+		return msg, false
 	case len(written) == 0:
 		return "No changes to write", true
 	default:

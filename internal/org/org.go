@@ -11,6 +11,7 @@ package org
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -162,6 +163,7 @@ func (h *Headline) TrimmedBody() []string {
 // File is a parsed org file.
 type File struct {
 	Path      string
+	DiskHash  string   // hash of the file's bytes as last read from or written to disk; "" if never (see ChangedOnDisk)
 	Preamble  []string // lines before the first headline (e.g. #+TITLE:)
 	Headlines []*Headline
 }
@@ -182,12 +184,16 @@ var (
 
 // ParseFile reads and parses the org file at path.
 func ParseFile(path string) (*File, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	return Parse(f, path)
+	f, err := Parse(bytes.NewReader(data), path)
+	if err != nil {
+		return nil, err
+	}
+	f.DiskHash = hashContent(data)
+	return f, nil
 }
 
 // Parse reads an org file from r. path is stored on the result and used
