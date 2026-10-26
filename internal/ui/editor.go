@@ -131,9 +131,11 @@ func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 	}
+	m.dropUndoFor(msg.target)
 	m.clearRefsForFile(msg.target)
 	m.rebuildRows()
 	m.focusFile(newFile)
+	m.recomputeDirty()
 	return m, nil
 }
 

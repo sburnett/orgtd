@@ -128,3 +128,21 @@ func TestReloadNamedFileAndUnknown(t *testing.T) {
 	m.reloadFile("todo")
 	findRow(t, m, "Upstream title")
 }
+
+// TestWholeFileEditDropsUndoHistory: after "i" on a file row, the
+// edited file's old undo entries refer to a discarded tree, so they must
+// be gone — undoing one would silently edit a file nobody can see.
+func TestWholeFileEditDropsUndoHistory(t *testing.T) {
+	m, _ := diskChangeFixture(t) // one unsaved edit in the undo stack
+	oldFile := m.ws.Files[0]
+
+	updated, _ := m.Update(fileEditFinishedMsg{target: oldFile})
+	m = updated.(Model)
+
+	if len(m.undoStack) != 0 || m.undoPos != 0 {
+		t.Errorf("undo stack = %d/%d, want the edited file's history dropped", len(m.undoStack), m.undoPos)
+	}
+	if len(m.dirty) != 0 {
+		t.Errorf("dirty = %v, want clean after reload", m.dirty)
+	}
+}
