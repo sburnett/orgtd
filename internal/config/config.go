@@ -25,10 +25,9 @@ type Config struct {
 	OrgDir string `toml:"org_dir"`
 	Editor string `toml:"editor"`
 
-	// GitDir is the git repository's own directory (its .git), for a
-	// repository kept apart from OrgDir (git init --separate-git-dir).
-	// Empty means the repository lives in or above OrgDir as usual.
-	GitDir           string `toml:"git_dir"`
+	// VCSEditor is the command :vcs runs (in OrgDir) to manage version
+	// control, e.g. "gitui" or "jjui". Empty means :vcs is unavailable.
+	VCSEditor        string `toml:"vcs_editor"`
 	URLFormatter     string `toml:"url_formatter"`
 	AgendaWindowDays int    `toml:"agenda_window_days"`
 	InboxFile        string `toml:"inbox_file"`
@@ -466,7 +465,6 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: parsing %s: %w", path, err)
 	}
 	c.OrgDir = expandHome(c.OrgDir)
-	c.GitDir = expandHome(c.GitDir)
 	if err := c.Normalize(); err != nil {
 		return nil, fmt.Errorf("config: %s: %w", path, err)
 	}

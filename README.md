@@ -44,6 +44,7 @@ orgtd --dir ~/org
 | `--meeting-tags-file` | `meeting_tags_file` | `meeting-tags.org` | Base name of the file holding durable meeting tags (see Tag-based meeting links, below) — excluded from the outline view and shown instead, as an editable outline of its own, in the `:meeting-tags` view |
 | `--hide-closed-after-hours` | `hide_closed_after_hours` | `24` | How many hours after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggleclosed` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
+| `--vcs-editor` | `vcs_editor` | *(unset)* | Program `:vcs` (see below) runs in `--dir` to manage version control — e.g. `gitui` or `jjui`. May include arguments, same syntax as `editor` |
 | `--debug` | `debug` | *(off)* | Log debug info (see Debug log, below) to `debug.log` next to the config file |
 | `--config` | — | `$XDG_CONFIG_HOME/orgtd/config.toml` (or `~/.config/orgtd/config.toml`) | Path to the config file below |
 
@@ -97,7 +98,7 @@ works fine with none of it present.
 
 ```toml
 org_dir = "~/org"          # "~" is expanded
-git_dir = ""               # repository kept outside org_dir (--separate-git-dir); "~" is expanded
+vcs_editor = ""            # e.g. "gitui" or "jjui"; what :vcs launches
 editor = "emacsclient -t"  # falls back to $EDITOR, then vim, if unset
 url_formatter = ""
 url_formatter_prefixes = ["bit.ly/", "go/"]
@@ -210,15 +211,6 @@ theme, though every individual color can still be overridden as shown
 above. `:config` shows the current, effective value of every one of
 them.
 
-### Separate git directory
-
-`:diff` and `:commit` normally expect `--dir` to be the root of its git
-repository. If the repository's `.git` lives elsewhere (created with
-`git init --separate-git-dir <path>`), set `git_dir = "<path>"` in the
-config file (no flag, no environment variable). Every git command then runs
-with `--git-dir=<path> --work-tree=<dir>`, and the root-of-repository
-refusal is replaced by a check that `git_dir` really is a git repository.
-
 ### Debug log
 
 Off by default. With `--debug` (or `debug = true` in the config file),
@@ -305,7 +297,7 @@ logging is on.
   ordinary foldable/editable outline (same `i`, `dd`, `r`, marks, etc. as
   any other file) rather than something tool-managed like `calendar_file`
   — nothing ever regenerates it, so it's exactly as durable as any other
-  org file, and gets committed alongside them by `:diff`/`:commit`. A
+  org file, and is as versionable as any other file. A
   record's own row skips the indent/fold column every other headline row
   reserves — it's always effectively top-level here, and never has
   foldable content of its own in practice.
@@ -389,23 +381,6 @@ logging is on.
   invocation. Doesn't live-update — re-run `:log` to see anything logged
   since it was last opened.
   `:outline` returns to the outline.
-- **Diff** (`:diff`) — the raw `git diff HEAD` output for every file
-  currently open in the outline. Refuses outright if any of them has
-  unsaved changes — `git diff` only ever sees what's actually on disk,
-  and nothing is written until `:w`, so showing a diff anyway would
-  silently leave out whatever's still only in memory. Also refuses
-  outright unless the org directory is itself the *root* of its git
-  repository (same requirement, and the same reason, as `:commit`
-  below) — since a diff can't offer to `git add` an untracked file it
-  isn't safe to touch, showing one at all from a nested workspace (e.g.
-  this project's own `testdata/orgdir`) would just be misleading about
-  what `:commit` could actually do with it. When it does run: if any
-  open file isn't tracked by git yet, asks first (`[y/N]`) whether to
-  `git add` it — declining just leaves it out of the diff. Shows a
-  placeholder if there are no changes or no files open. Also recorded in
-  `:log`, like any other external command. `:outline` returns to the
-  outline. `:commit` (only available here — see below) commits and
-  pushes what `:diff` is showing.
 - **Help** (`:help`) — this README, rendered as terminal-styled markdown
   (via [glamour](https://github.com/charmbracelet/glamour) — headings,
   tables, code blocks and all), embedded into the binary at build time
@@ -610,9 +585,8 @@ is still recoverable by hand even if it's ever lost some other way
 other reason a round-trip through the outline doesn't end up reflecting
 it). Since `scratch/` is a subdirectory, it's never scanned as one of
 `--dir`'s own `.org` files (see above) and never shows up in the
-outline; it's also outside anything `:diff`/`:commit` touch, so it
-never gets committed automatically — it's just there on disk if you
-need to go looking.
+outline; it's just there on disk if you need to go looking (and in your VCS
+unless you ignore it).
 
 ### Visual selection
 
@@ -700,14 +674,14 @@ History doesn't persist between sessions.
 
 | Command | Action |
 |---|---|
-| `:w` / `:write` | Write every file with unsaved changes. Refuses while a `:commit`'s `git commit`/`git push` is still running in the background (see `:commit` below). Also skips any file whose content on disk no longer matches what orgtd last read or wrote — e.g. a `git pull` updated it — so an upstream change is never silently overwritten (see Files changed on disk, below); the other files are still written |
+| `:w` / `:write` | Write every file with unsaved changes. Skips any file whose content on disk no longer matches what orgtd last read or wrote — e.g. a `git pull` updated it — so an upstream change is never silently overwritten (see Files changed on disk, below); the other files are still written |
 | `:w!` / `:write!` | Like `:w`, but overwrites files that changed on disk |
 | `:wq` | Write, then quit. Same refusals as `:w` above (a file changed on disk keeps orgtd open) |
 | `:wq!` | Like `:wq`, but overwrites files that changed on disk |
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:outline` / `:reference` / `:config` / `:log` / `:diff` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
+| `:agenda` / `:outline` / `:reference` / `:config` / `:log` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
 | `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is created (on disk immediately, since an empty file has no edit for `:w` to save) — add entries with `o`/`O` on its header row. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
 | `:edit! [file]` / `:e! [file]` | Reload a file from disk, discarding its unsaved changes, undo history and marks — the way out when `:w` refuses because the file changed on disk. `<file>` is named as for `:edit` and must already be loaded; with none, reloads the file under the cursor |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |
@@ -715,7 +689,7 @@ History doesn't persist between sessions.
 | `:next` / `:prev` | Only while `:review` is on: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
-| `:commit` | Diff view only (see Views, above) — refuses if any open file has unsaved changes (same as `:diff`; diff view's own content isn't re-diffed on every keystroke, so this is checked again here even if `:diff` already refused it once on entry), and refuses unless the org directory is itself the *root* of its git repository (not merely somewhere inside one, e.g. this project's own `testdata/orgdir`), since `git push` isn't scoped to particular files — it pushes the whole current branch, which for a nested workspace would mean pushing an unrelated repository's real history. Otherwise asks about any untracked file first (same `[y/N]` prompt as `:diff`; declining leaves it untracked, which makes the commit that follows fail outright, since `git commit`'s pathspec rejects a file that's never been `git add`ed at all), then runs `git commit` with a stock message ("orgtd commit"), scoped to the same files `:diff` shows, followed by `git push` — no prompt for a commit message. Refuses outside diff view too, and refuses a second `:commit` while one is already running. Unlike `:diff`, `git commit` and `git push` run in the background (same as `:format-links`/`:sync-calendar`), showing a status message while they're in flight so the rest of the app stays usable, including however long `git push` takes to reach the remote; `:w`/`:wq` refuse to write in the meantime, since the commit already captured which files and content it's committing when it started. A commit that fails for a real reason never attempts the push, but `git commit` finding nothing to commit (e.g. `:commit` run twice in a row, or after committing by hand outside orgtd) isn't treated as a failure — the push still runs, since there could be earlier local commits not yet on the remote. A failed push still leaves the commit in place locally either way. The diff data refreshes once the background run finishes either way (so it's never left showing a stale pre-commit diff), but only pulls diff view back up if you're still on it — if you've since switched to another view, finishing the commit doesn't yank you back to diff view |
+| `:vcs` | Save every file with unsaved changes (same refusals as `:w` — if any fails, nothing is launched), run `vcs_editor` (e.g. `gitui`, `jjui`) in `--dir` with the terminal handed over, and when it exits reload every file whose content on disk changed, discarding that file's undo history and marks as `:e!` does. Files the VCS tool created or removed aren't picked up — `:e <file>` opens a new one. Refuses if `vcs_editor` isn't set |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
 | `:noh` / `:nohlsearch` | See Search, above |

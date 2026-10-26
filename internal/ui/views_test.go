@@ -36,11 +36,6 @@ func TestEveryViewHasACompleteSpec(t *testing.T) {
 func TestViewCommandsOpenTheirViews(t *testing.T) {
 	for k := range viewSpecs {
 		kind := viewKind(k)
-		if kind == diffView {
-			// Refuses unless the org dir is a git repo root; covered by
-			// the :diff tests.
-			continue
-		}
 		m := New(loadFixture(t))
 		m = typeKeys(m, ":"+viewSpecs[k].command)
 		m = sendKey(m, "enter")

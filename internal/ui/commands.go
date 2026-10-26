@@ -203,22 +203,13 @@ func (m *Model) writeAll() string {
 
 // writeAllResult is writeAll but also reports whether every write
 // succeeded (false if any file failed), so callers like :wq can decide
-// whether it's safe to proceed. Refuses outright while a :commit's git
-// commit/push is still running in the background (see gitRunning): it
-// reads the same files that commit just captured a scope/message
-// against, so writing over them mid-commit could save changes that
-// either end up silently included in a commit already in flight, or
-// racing its own on-disk read of what to diff/commit next.
+// whether it's safe to proceed.
 //
 // Unless force is set (":w!"), a file whose content on disk no longer
 // matches what orgtd last read or wrote (see org.ChangedOnDisk — e.g. a
 // `git pull` rewrote it) is skipped rather than overwritten, and reported
 // as a failure; the other dirty files are still written.
 func (m *Model) writeAllResult(force bool) (string, bool) {
-	if m.gitRunning {
-		return "Can't write while git is running in the background — see :log", false
-	}
-
 	var written, failed, changed []string
 	for _, f := range m.ws.Files {
 		if !m.dirty[f] {

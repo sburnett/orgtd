@@ -17,14 +17,14 @@ import (
 // must treat differently (an explicit flag always wins; an unset one
 // leaves whatever the config file said).
 type flagValues struct {
-	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor string
-	formatLinksURLFormatter                                             string
-	urlFormatterPrefixes                                                string // comma-separated; see splitPrefixes
-	agendaDays                                                          int
-	hideClosedAfterHours                                                int
-	debug                                                               bool
-	configPath                                                          string
-	explicit                                                            map[string]bool
+	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor, vcsEditor string
+	formatLinksURLFormatter                                                        string
+	urlFormatterPrefixes                                                           string // comma-separated; see splitPrefixes
+	agendaDays                                                                     int
+	hideClosedAfterHours                                                           int
+	debug                                                                          bool
+	configPath                                                                     string
+	explicit                                                                       map[string]bool
 }
 
 // defineFlags registers every command-line flag on fs, bound to the
@@ -41,6 +41,7 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.meetingTagsFile, "meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
 	fs.IntVar(&f.hideClosedAfterHours, "hide-closed-after-hours", 0, "how many hours after an item's CLOSED timestamp it's hidden from the outline view; :toggleclosed shows everything again (default: the config file's hide_closed_after_hours, else 24)")
 	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
+	fs.StringVar(&f.vcsEditor, "vcs-editor", "", "program :vcs runs in the org directory to manage version control, e.g. \"gitui\" or \"jjui\" (default: the config file's vcs_editor, else :vcs is unavailable)")
 	fs.BoolVar(&f.debug, "debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
 	fs.StringVar(&f.configPath, "config", "", "path to the TOML config file (default: "+config.DefaultPath()+")")
 	return f
@@ -106,6 +107,9 @@ func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.
 	}
 	if f.explicit["editor"] {
 		out.Editor = f.editor
+	}
+	if f.explicit["vcs-editor"] {
+		out.VCSEditor = f.vcsEditor
 	}
 	if f.explicit["debug"] {
 		out.Debug = f.debug

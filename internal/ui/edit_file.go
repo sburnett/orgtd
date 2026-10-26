@@ -99,18 +99,26 @@ func (m *Model) reloadFile(arg string) {
 		m.message = fmt.Sprintf("Could not reload %s: %v", name, err)
 		return
 	}
-	for i, wf := range m.ws.Files {
-		if wf == f {
-			m.ws.Files[i] = newFile
-			break
-		}
-	}
-	m.dropUndoFor(f)
-	m.clearRefsForFile(f)
+	m.swapFile(f, newFile)
 	m.rebuildRows()
 	m.focusFile(newFile)
 	m.recomputeDirty()
 	m.message = "Reloaded " + name + " from disk"
+}
+
+// swapFile replaces the loaded file old with newFile (freshly parsed from
+// disk), dropping everything that referred to old's headlines: undo
+// history, marks, the review target and dirty markers. The caller rebuilds
+// the rows.
+func (m *Model) swapFile(old, newFile *org.File) {
+	for i, wf := range m.ws.Files {
+		if wf == old {
+			m.ws.Files[i] = newFile
+			break
+		}
+	}
+	m.dropUndoFor(old)
+	m.clearRefsForFile(old)
 }
 
 // dropUndoFor removes every undo/redo action on f from the global stacks,

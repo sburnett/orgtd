@@ -39,7 +39,7 @@ const (
 	rowSection
 
 	// rowText is a plain read-only informational line (:config, :log,
-	// :diff, :help), rendered flush left and never interactive. text is
+	// :help), rendered flush left and never interactive. text is
 	// the line, which may be empty (a blank line, as :help's embedded
 	// README naturally has plenty of).
 	rowText

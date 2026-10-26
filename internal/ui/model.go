@@ -2,12 +2,11 @@
 // foldable outline over every org file in a workspace, with in-memory
 // editing (written to disk only on :w), derived views (agenda, calendar,
 // tags, review, ...), and background commands (calendar sync, link
-// formatting, git commit). Nearly all behavior lives here, centered on
+// formatting, :vcs). Nearly all behavior lives here, centered on
 // Model; see DESIGN.md §4-§5 for the runtime model and file layout.
 package ui
 
 import (
-	"fmt"
 	"path/filepath"
 	"regexp"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/extprog"
-	"github.com/sburnett/orgtd/internal/gitrepo"
 	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
@@ -163,15 +161,6 @@ type Model struct {
 	confirmMessage  string    // prompt shown in confirmMode
 	pendingFileEdit *org.File // the file to open in $EDITOR if confirmMode's prompt is accepted ("y")
 
-	// pendingUntrackedFiles/pendingUntrackedThen back a second,
-	// independent use of confirmMode: requestAddUntracked, asking
-	// whether to `git add` files :diff/:commit found aren't tracked at
-	// all yet, before continuing either way (see updateConfirmMode).
-	// Never set at the same time as pendingFileEdit — the two questions
-	// are asked from unrelated commands.
-	pendingUntrackedFiles []string
-	pendingUntrackedThen  func(m *Model) tea.Cmd
-
 	// cfg is every user setting, fully resolved (flags, config file and
 	// defaults already merged — see internal/config and cmd/orgtd): which
 	// files are the inbox/calendar/meeting-tags files, the agenda window,
@@ -207,18 +196,6 @@ type Model struct {
 	// any headline the user might be editing, so there's nothing to lock,
 	// just this one flag.
 	syncingCalendar bool
-
-	diffOutput string // combined stdout of the last :diff run (see showDiff), split into one row per line by appendDiffRows
-	diffErr    string // if the last :diff run failed, why — shown instead of diffOutput; empty means it succeeded (even if there was nothing to show)
-
-	// gitRunning is true while :commit's git commit + git push are in
-	// flight on their own goroutine (see applyCommit/finishCommitPush) —
-	// unlike :diff (fast, always synchronous), a push can block on the
-	// remote for a while, so it runs in the background like
-	// :format-links/:sync-calendar. Guards against a second :commit
-	// starting concurrently, and against :w running while the working
-	// tree git is about to commit could still change underneath it.
-	gitRunning bool
 
 	readme string // README.md's content, embedded into the binary by the caller (see WithReadme); :help shows it verbatim
 }
@@ -328,8 +305,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case syncCalendarMsg:
 		return m.finishSyncCalendar(msg)
 
-	case commitPushMsg:
-		return m.finishCommitPush(msg)
+	case vcsFinishedMsg:
+		return m.finishVCS(msg)
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -366,27 +343,9 @@ func (m Model) updateConfirmMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	accepted := msg.Type == tea.KeyRunes && (string(msg.Runes) == "y" || string(msg.Runes) == "Y")
 
 	pendingFileEdit := m.pendingFileEdit
-	untrackedFiles := m.pendingUntrackedFiles
-	untrackedThen := m.pendingUntrackedThen
 	m.mode = normalMode
 	m.confirmMessage = ""
 	m.pendingFileEdit = nil
-	m.pendingUntrackedFiles = nil
-	m.pendingUntrackedThen = nil
-
-	// requestAddUntracked's question (unlike the file-edit one below)
-	// continues either way once answered — declining just means
-	// skipping the `git add`, not abandoning the :diff/:commit that
-	// asked in the first place.
-	if untrackedThen != nil {
-		if accepted {
-			if _, err := m.repo().Add(untrackedFiles); err != nil {
-				m.message = fmt.Sprintf("git add failed: %s", gitrepo.ErrorText(err))
-				return m, nil
-			}
-		}
-		return m, untrackedThen(&m)
-	}
 
 	if !accepted {
 		return m, nil

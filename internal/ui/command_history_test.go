@@ -29,7 +29,7 @@ func TestCommandHistoryUpWalksBackThroughOlderCommands(t *testing.T) {
 	m := New(ws)
 	m = runAndReturn(m, "config")
 	m = runAndReturn(m, "log")
-	m = runAndReturn(m, "diff")
+	m = runAndReturn(m, "agenda")
 
 	m = sendKey(m, ":")
 	m = sendKey(m, "up")

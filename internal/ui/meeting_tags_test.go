@@ -356,30 +356,6 @@ func TestConfigViewShowsMeetingTagsFile(t *testing.T) {
 	}
 }
 
-// TestDiffIncludesMeetingTagsFile is the positive counterpart of
-// TestDiffExcludesCalendarFile: unlike calendar.org, meeting-tags.org is
-// durable user data (recorded via "gt"), not a regenerated cache, so it
-// participates in :diff/:commit like any other org file.
-func TestDiffIncludesMeetingTagsFile(t *testing.T) {
-	ws := gitRepoFixture(t, "meeting-tags.org", "* Old title\n", "* New title\n")
-	m := New(ws)
-
-	m.showDiff()
-
-	var sawOld, sawNew bool
-	for _, r := range m.rows {
-		if strings.Contains(r.text, "-* Old title") {
-			sawOld = true
-		}
-		if strings.Contains(r.text, "+* New title") {
-			sawNew = true
-		}
-	}
-	if !sawOld || !sawNew {
-		t.Errorf("rows = %#v, want lines showing meeting-tags.org's old and new titles", m.rows)
-	}
-}
-
 // TestMeetingTagsViewNestsMatchingOneOffEvent covers the core of this
 // file's nesting: a meeting-tags.org record naming a one-off event's ID
 // shows that synced event nested right under it, one level deeper.

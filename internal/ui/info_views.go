@@ -13,7 +13,7 @@ import (
 // content (see WithReadme), rendered through glamour into ANSI-styled
 // terminal markdown — headers, emphasis, code blocks, and (the original
 // motivation for using glamour at all) properly aligned tables — one
-// row per rendered line, same plain-text-row treatment as :log/:diff
+// row per rendered line, same plain-text-row treatment as :log
 // otherwise (no further parsing here). Falls back to the raw markdown
 // if rendering itself fails (glamour has no reason to fail on our own
 // known-good README, but every other external-ish dependency in this
@@ -110,9 +110,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	line("Calendar file: %s", m.cfg.CalendarFile)
 	line("Meeting tags file: %s", m.cfg.MeetingTagsFile)
 	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
-	if m.cfg.GitDir != "" {
-		line("Git dir: %s (separate from the org directory)", m.cfg.GitDir)
-	}
+	line("VCS editor: %s", orDefault(m.cfg.VCSEditor, "(not configured)"))
 	line("Debug logging: %s", onOff(m.cfg.Debug))
 
 	if m.cfg.Gcalsync.OAuthClientID == "" || m.cfg.Gcalsync.OAuthClientSecret == "" {

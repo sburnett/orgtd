@@ -18,7 +18,6 @@ const (
 	agendaView
 	configView
 	logView
-	diffView
 	helpView
 	calendarView
 	meetingTagsView
@@ -144,12 +143,6 @@ func init() {
 			command: "log",
 			label:   "log",
 			build:   flat((*Model).appendLogRows),
-		},
-		diffView: {
-			command: "diff",
-			label:   "diff",
-			build:   flat((*Model).appendDiffRows),
-			open:    (*Model).showDiff,
 		},
 		helpView: {
 			command:         "help",
