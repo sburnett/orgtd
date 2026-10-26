@@ -14,6 +14,11 @@
 # expanded to your home directory. Default: $ORGTD_DIR, then ~/org.
 # org_dir = "~/org"
 
+# Git repository directory, if it lives apart from org_dir (created with
+# `git init --separate-git-dir`). "~" is expanded. Used by :diff and :commit,
+# with org_dir as the work tree. Default: unset (the repository is org_dir).
+# git_dir = "~/.orgtd.git"
+
 # External editor for `i` (edit entry/file). Anything your shell would
 # accept after $EDITOR works, including extra arguments (e.g. "code --wait"),
 # a double- or single-quoted argument containing spaces, and "~" in any word

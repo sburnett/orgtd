@@ -78,6 +78,7 @@ works fine with none of it present.
 
 ```toml
 org_dir = "~/org"          # "~" is expanded
+git_dir = ""               # repository kept outside org_dir (--separate-git-dir); "~" is expanded
 editor = "emacsclient -t"  # falls back to $EDITOR, then vim, if unset
 url_formatter = ""
 url_formatter_prefixes = ["bit.ly/", "go/"]
@@ -189,6 +190,15 @@ light/dark setting, since the whole point is to render as that specific
 theme, though every individual color can still be overridden as shown
 above. `:config` shows the current, effective value of every one of
 them.
+
+### Separate git directory
+
+`:diff` and `:commit` normally expect `--dir` to be the root of its git
+repository. If the repository's `.git` lives elsewhere (created with
+`git init --separate-git-dir <path>`), set `git_dir = "<path>"` in the
+config file (no flag, no environment variable). Every git command then runs
+with `--git-dir=<path> --work-tree=<dir>`, and the root-of-repository
+refusal is replaced by a check that `git_dir` really is a git repository.
 
 ### Debug log
 

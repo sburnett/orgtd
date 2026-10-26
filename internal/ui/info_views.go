@@ -110,6 +110,9 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	line("Calendar file: %s", m.cfg.CalendarFile)
 	line("Meeting tags file: %s", m.cfg.MeetingTagsFile)
 	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
+	if m.cfg.GitDir != "" {
+		line("Git dir: %s (separate from the org directory)", m.cfg.GitDir)
+	}
 	line("Debug logging: %s", onOff(m.cfg.Debug))
 
 	if m.cfg.Gcalsync.OAuthClientID == "" || m.cfg.Gcalsync.OAuthClientSecret == "" {

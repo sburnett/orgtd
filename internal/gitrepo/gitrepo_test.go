@@ -165,3 +165,52 @@ func TestErrorTextPrefersGitStderr(t *testing.T) {
 		t.Errorf("ErrorText = %q (raw %q), want git's own stderr mentioning HEAD", text, err.Error())
 	}
 }
+
+// newSeparateRepo creates an org dir whose git repository lives in a
+// sibling directory (git init --separate-git-dir), with todo.org committed.
+func newSeparateRepo(t *testing.T) (dir, gitDir string) {
+	t.Helper()
+	base := t.TempDir()
+	dir = filepath.Join(base, "org")
+	gitDir = filepath.Join(base, "repo.git")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "init", "-q", "--separate-git-dir", gitDir)
+	r := Repo{Dir: dir, GitDir: gitDir}
+	git(t, dir, "--git-dir="+gitDir, "config", "user.email", "test@example.com")
+	git(t, dir, "--git-dir="+gitDir, "config", "user.name", "Test")
+	write(t, filepath.Join(dir, "todo.org"), "* TODO Old\n")
+	if _, err := r.Add([]string{"todo.org"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := r.Commit([]string{"todo.org"}, "initial"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	return dir, gitDir
+}
+
+func TestSeparateGitDir(t *testing.T) {
+	dir, gitDir := newSeparateRepo(t)
+	r := Repo{Dir: dir, GitDir: gitDir}
+	if reason := r.RootRefusal(); reason != "" {
+		t.Errorf("RootRefusal() = %q, want empty", reason)
+	}
+	write(t, filepath.Join(dir, "todo.org"), "* TODO New\n")
+	write(t, filepath.Join(dir, "new.org"), "* x\n")
+	out, err := r.Diff([]string{"todo.org"})
+	if err != nil || !strings.Contains(out, "+* TODO New") {
+		t.Errorf("Diff = %q, %v", out, err)
+	}
+	untracked, _ := r.Untracked([]string{"todo.org", "new.org"})
+	if len(untracked) != 1 || untracked[0] != "new.org" {
+		t.Errorf("Untracked = %v, want [new.org]", untracked)
+	}
+}
+
+func TestSeparateGitDirNotARepo(t *testing.T) {
+	r := Repo{Dir: t.TempDir(), GitDir: filepath.Join(t.TempDir(), "nope")}
+	if reason := r.RootRefusal(); !strings.Contains(reason, "isn't a git repository") {
+		t.Errorf("RootRefusal() = %q", reason)
+	}
+}

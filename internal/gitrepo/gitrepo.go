@@ -20,9 +20,31 @@ import (
 // directory, and Log (which may be nil, disabling logging) records every
 // command run. It is a plain value, safe to capture and use from a
 // background goroutine without reaching back into UI state.
+//
+// GitDir, if set, is a repository kept outside Dir (git's
+// --separate-git-dir layout): every command is then pointed at it
+// explicitly, with Dir as the work tree.
 type Repo struct {
-	Dir string
-	Log *execlog.Log
+	Dir    string
+	GitDir string
+	Log    *execlog.Log
+}
+
+// gitArgs prefixes args with whatever points git at the right repository
+// and work tree: `-C Dir` normally, plus `--git-dir`/`--work-tree` when
+// GitDir is set (made absolute so the -C doesn't reinterpret them).
+func (r Repo) gitArgs(args ...string) []string {
+	if r.GitDir == "" {
+		return append([]string{"-C", r.Dir}, args...)
+	}
+	dir, gitDir := r.Dir, r.GitDir
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if abs, err := filepath.Abs(gitDir); err == nil {
+		gitDir = abs
+	}
+	return append([]string{"-C", dir, "--git-dir=" + gitDir, "--work-tree=" + dir}, args...)
 }
 
 // run runs git with args, logged.
@@ -34,7 +56,7 @@ func (r Repo) run(args ...string) (string, error) {
 // rev-parse --show-toplevel` — or "" if Dir isn't inside a git
 // repository at all (or git itself failed).
 func (r Repo) Root() string {
-	out, err := r.run("-C", r.Dir, "rev-parse", "--show-toplevel")
+	out, err := r.run(r.gitArgs("rev-parse", "--show-toplevel")...)
 	if err != nil {
 		return ""
 	}
@@ -55,7 +77,17 @@ func (r Repo) Root() string {
 // symlinks into /private — comparing raw paths would otherwise misreport
 // plenty of genuinely rooted workspaces (anything under the system's temp
 // dir included) as nested elsewhere.
+//
+// With GitDir set there is nothing to compare: the repository was named
+// explicitly and Dir is its work tree by construction, so the only check
+// is that GitDir really is a git repository.
 func (r Repo) RootRefusal() string {
+	if r.GitDir != "" {
+		if _, err := r.run(r.gitArgs("rev-parse", "--git-dir")...); err != nil {
+			return fmt.Sprintf("git_dir %s isn't a git repository", r.GitDir)
+		}
+		return ""
+	}
 	root := r.Root()
 	if root == "" {
 		return "the org directory isn't inside a git repository"
@@ -88,8 +120,8 @@ func (r Repo) RequireRoot() error {
 // so a file that was `git add`ed but not yet committed still shows up as
 // an addition, instead of looking like nothing happened.
 func (r Repo) Diff(paths []string) (string, error) {
-	args := append([]string{"-C", r.Dir, "diff", "HEAD", "--"}, paths...)
-	return r.run(args...)
+	args := append([]string{"diff", "HEAD", "--"}, paths...)
+	return r.run(r.gitArgs(args...)...)
 }
 
 // Untracked returns the paths, among paths, that git doesn't track at all
@@ -104,8 +136,8 @@ func (r Repo) Untracked(paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	args := append([]string{"-C", r.Dir, "ls-files", "--others", "--exclude-standard", "--"}, paths...)
-	out, err := r.run(args...)
+	args := append([]string{"ls-files", "--others", "--exclude-standard", "--"}, paths...)
+	out, err := r.run(r.gitArgs(args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +154,8 @@ func (r Repo) Add(paths []string) (string, error) {
 	if err := r.RequireRoot(); err != nil {
 		return "", err
 	}
-	args := append([]string{"-C", r.Dir, "add", "--"}, paths...)
-	return r.run(args...)
+	args := append([]string{"add", "--"}, paths...)
+	return r.run(r.gitArgs(args...)...)
 }
 
 // Commit commits paths with message, from within Dir. Refuses unless Dir
@@ -134,8 +166,8 @@ func (r Repo) Commit(paths []string, message string) (string, error) {
 	if err := r.RequireRoot(); err != nil {
 		return "", err
 	}
-	args := append([]string{"-C", r.Dir, "commit", "-m", message, "--"}, paths...)
-	return r.run(args...)
+	args := append([]string{"commit", "-m", message, "--"}, paths...)
+	return r.run(r.gitArgs(args...)...)
 }
 
 // Push runs a plain `git push` from within Dir. Unlike diff and commit, a
@@ -148,7 +180,7 @@ func (r Repo) Push() (string, error) {
 	if err := r.RequireRoot(); err != nil {
 		return "", err
 	}
-	return r.run("-C", r.Dir, "push")
+	return r.run(r.gitArgs("push")...)
 }
 
 // IsNothingToCommit reports whether stdout from a failed `git commit` is

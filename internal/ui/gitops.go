@@ -44,7 +44,7 @@ func (m *Model) gitPaths() []string {
 // (see applyCommit) instead of reaching back into a Model that a
 // concurrently running Update call could be mutating.
 func (m *Model) repo() gitrepo.Repo {
-	return gitrepo.Repo{Dir: m.ws.Dir, Log: m.execLog}
+	return gitrepo.Repo{Dir: m.ws.Dir, GitDir: m.cfg.GitDir, Log: m.execLog}
 }
 
 // appendDiffRows appends the rows for :diff: the working-tree diff (see
