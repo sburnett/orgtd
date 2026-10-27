@@ -318,9 +318,20 @@ type ColorsConfig struct {
 	StatusBarBg string `toml:"status_bar_bg"`
 	StatusBarFg string `toml:"status_bar_fg"`
 
+	// StatusBarInactiveBg/StatusBarInactiveFg color the status bar of
+	// every window but the active one, once the screen is split (defaults:
+	// light grey on a dark grey, so the active window's bar stands out).
+	StatusBarInactiveBg string `toml:"status_bar_inactive_bg"`
+	StatusBarInactiveFg string `toml:"status_bar_inactive_fg"`
+
 	// CursorRowBg highlights the row under the cursor, filling the whole
 	// terminal width (default: a blue).
 	CursorRowBg string `toml:"cursor_row_bg"`
+
+	// InactiveCursorRowBg highlights the row under the cursor in every
+	// window but the active one, once the screen is split (default: a
+	// faint blue, so the bright CursorRowBg marks the active window).
+	InactiveCursorRowBg string `toml:"inactive_cursor_row_bg"`
 
 	// VisualSelectionBg highlights the part of a visual-mode selection
 	// that isn't the cursor's own entry (default: a darker tint of

@@ -12,7 +12,7 @@ func (m Model) View() string {
 		return m.splitView()
 	}
 	var b strings.Builder
-	b.WriteString(m.listing())
+	b.WriteString(m.listing(true))
 	m.writeBottom(&b, false)
 	return b.String()
 }
@@ -20,8 +20,14 @@ func (m Model) View() string {
 // listing renders the window's scrollable content area: the rows from
 // m.offset that fit, one line each (plus a blank line before each
 // section after the first), padded with blank lines to exactly fill
-// contentBudget. Every line ends in "\n".
-func (m Model) listing() string {
+// contentBudget. Every line ends in "\n". The cursor's row is
+// highlighted brightly in the active window, faintly in any other (see
+// inactiveCursorBg), so the bright one marks where keys will go.
+func (m Model) listing(active bool) string {
+	cursorBg := m.cursorBg()
+	if !active {
+		cursorBg = m.inactiveCursorBg()
+	}
 	var b strings.Builder
 	if len(m.rows) == 0 {
 		// No items to list (an empty agenda, or a workspace with no org
@@ -66,7 +72,7 @@ func (m Model) listing() string {
 			var line string
 			switch {
 			case i >= cursorStart && i <= cursorEnd:
-				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], m.cursorBg()), m.cursorBg())
+				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], cursorBg), cursorBg)
 			case i >= selStart && i <= selEnd:
 				line = m.padLineToWidth(m.renderRowWithBg(m.rows[i], m.visualSelectionBg()), m.visualSelectionBg())
 			default:
@@ -145,8 +151,8 @@ func (m Model) statusLine(active bool) string {
 	style := lipgloss.NewStyle().Bold(true).Foreground(m.statusBarFg()).Background(m.statusBarBg())
 	bg := m.statusBarBg()
 	if !active {
-		bg = lipgloss.Color(orDefault(m.cfg.Colors.Status, defaultStatusColor))
-		style = lipgloss.NewStyle().Foreground(m.statusBarFg()).Background(bg)
+		bg = m.statusBarInactiveBg()
+		style = lipgloss.NewStyle().Foreground(m.statusBarInactiveFg()).Background(bg)
 	}
 	return m.padLineToWidth(style.Render(m.normalStatusLine()), bg)
 }

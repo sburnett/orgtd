@@ -257,3 +257,26 @@ func TestInfoBufferIsPerWindowAndSplitStaysPut(t *testing.T) {
 		t.Errorf("the bottom window (not on a linked entry) shows links too")
 	}
 }
+
+func TestActiveWindowStandsOut(t *testing.T) {
+	m := newSizedModel(t, 80, 30)
+	m = runColon(m, "split")
+	active := m.statusLine(true)
+	inactive := m.statusLine(false)
+	if active == inactive {
+		t.Fatalf("active and inactive status lines look the same")
+	}
+	bgSGR := func(c lipgloss.TerminalColor) string {
+		return ansiEscapeRe.FindString(lipgloss.NewStyle().Background(c).Render("x"))
+	}
+	if bgSGR(m.cursorBg()) == bgSGR(m.inactiveCursorBg()) {
+		t.Fatalf("cursor-row colors indistinguishable under the test color profile")
+	}
+	view := m.View()
+	if n := strings.Count(view, bgSGR(m.cursorBg())); n == 0 {
+		t.Errorf("active window's cursor row isn't brightly highlighted")
+	}
+	if n := strings.Count(view, bgSGR(m.inactiveCursorBg())); n == 0 {
+		t.Errorf("inactive window's cursor row isn't faintly highlighted")
+	}
+}

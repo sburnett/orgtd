@@ -85,6 +85,13 @@ const (
 	defaultStatusBarBg = "#9e9e9e"
 	defaultStatusBarFg = "#000000"
 
+	// defaultStatusBarInactiveBg/Fg tint the status bar of every window
+	// but the active one, once the screen is split — wildcharm's
+	// StatusLineNC idea, made much darker than the active bar so which
+	// window has the cursor is obvious at a glance.
+	defaultStatusBarInactiveBg = "#4e4e4e"
+	defaultStatusBarInactiveFg = "#bcbcbc"
+
 	// defaultCursorRowBg highlights the row under the cursor, filling the
 	// whole terminal width — wildcharm's Visual (its selection color),
 	// the obvious match for "the entry you currently have selected". In
@@ -93,6 +100,12 @@ const (
 	// end of a multi-entry selection is the actual cursor is always
 	// unambiguous.
 	defaultCursorRowBg = "#204060"
+
+	// defaultInactiveCursorRowBg highlights the cursor's row in every
+	// window but the active one — defaultCursorRowBg's hue, faded most of
+	// the way to black, so each window's cursor stays findable while only
+	// the active window's is bright.
+	defaultInactiveCursorRowBg = "#1c2c3c"
 
 	// defaultVisualSelectionBg highlights the part of a visual-mode
 	// selection that isn't the cursor's own entry — wildcharm has no
@@ -249,6 +262,22 @@ func (m Model) statusBarBg() lipgloss.TerminalColor {
 
 func (m Model) statusBarFg() lipgloss.TerminalColor {
 	return lipgloss.Color(orDefault(m.cfg.Colors.StatusBarFg, defaultStatusBarFg))
+}
+
+// statusBarInactiveBg/statusBarInactiveFg tint the status bar of every
+// window but the active one (see statusLine).
+func (m Model) statusBarInactiveBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.cfg.Colors.StatusBarInactiveBg, defaultStatusBarInactiveBg))
+}
+
+func (m Model) statusBarInactiveFg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.cfg.Colors.StatusBarInactiveFg, defaultStatusBarInactiveFg))
+}
+
+// inactiveCursorBg highlights the cursor's row in every window but the
+// active one (see listing).
+func (m Model) inactiveCursorBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.cfg.Colors.InactiveCursorRowBg, defaultInactiveCursorRowBg))
 }
 
 // cursorBg highlights the row under the cursor, filling the whole
