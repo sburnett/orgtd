@@ -98,14 +98,14 @@ func (m Model) listing(active bool) string {
 // (see paneLines) — and the command line.
 func (m Model) writeBottom(b *strings.Builder, split bool) {
 	if !split {
-		m.writeInfoAndStatus(b)
+		m.writeInfoAndStatus(b, true)
 	}
 	m.writeCommandLine(b)
 }
 
 // writeInfoAndStatus writes the window's info buffer and, below it, its
-// status line.
-func (m Model) writeInfoAndStatus(b *strings.Builder) {
+// status line — styled as the active window's or not (see statusLine).
+func (m Model) writeInfoAndStatus(b *strings.Builder, active bool) {
 	// Info buffer — sits directly above the status/command-line area and
 	// holds whatever might need more than one line: the review target,
 	// active marks, and the paste register (always, in every view, kept
@@ -126,7 +126,7 @@ func (m Model) writeInfoAndStatus(b *strings.Builder) {
 	// separate row for whatever's active right now, mirroring vim's own
 	// split between the two rather than the command line ever replacing
 	// the status line.
-	b.WriteString(m.statusLine(true))
+	b.WriteString(m.statusLine(active))
 	b.WriteString("\n")
 }
 

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -261,13 +262,26 @@ func TestInfoBufferIsPerWindowAndSplitStaysPut(t *testing.T) {
 func TestActiveWindowStandsOut(t *testing.T) {
 	m := newSizedModel(t, 80, 30)
 	m = runColon(m, "split")
-	active := m.statusLine(true)
-	inactive := m.statusLine(false)
-	if active == inactive {
-		t.Fatalf("active and inactive status lines look the same")
-	}
 	bgSGR := func(c lipgloss.TerminalColor) string {
 		return ansiEscapeRe.FindString(lipgloss.NewStyle().Background(c).Render("x"))
+	}
+	if bgSGR(m.statusBarBg()) == bgSGR(m.statusBarInactiveBg()) {
+		t.Fatalf("status-bar colors indistinguishable under the test color profile")
+	}
+	// Checked on the screen as drawn: 29 rows above the command line
+	// split 15/14, so the windows' status lines are lines 15 and 29.
+	// lipgloss merges attributes into one escape ("\x1b[1;30;47m"), so
+	// look for the background's own parameter within any escape.
+	hasBg := func(line string, c lipgloss.TerminalColor) bool {
+		param := strings.TrimSuffix(strings.TrimPrefix(bgSGR(c), "\x1b["), "m")
+		return regexp.MustCompile(`\x1b\[(?:[0-9;]*;)?` + param + `m`).MatchString(line)
+	}
+	lines := strings.Split(m.View(), "\n")
+	if top := lines[14]; !hasBg(top, m.statusBarBg()) || hasBg(top, m.statusBarInactiveBg()) {
+		t.Errorf("active (top) window's status line isn't in the active colors: %q", top)
+	}
+	if bottom := lines[28]; !hasBg(bottom, m.statusBarInactiveBg()) {
+		t.Errorf("inactive (bottom) window's status line isn't in the inactive colors: %q", bottom)
 	}
 	if bgSGR(m.cursorBg()) == bgSGR(m.inactiveCursorBg()) {
 		t.Fatalf("cursor-row colors indistinguishable under the test color profile")

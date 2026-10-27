@@ -408,7 +408,7 @@ func (m Model) paneLines(p pane) []string {
 	m.width = p.w
 	m.fixedPane = &p
 	var b strings.Builder
-	m.writeInfoAndStatus(&b)
+	m.writeInfoAndStatus(&b, active)
 	bottom := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
 	listing := strings.Split(strings.TrimSuffix(m.listing(active), "\n"), "\n")
 	lines := append(listing[:min(len(listing), max(p.h-len(bottom), 0))], bottom...)
