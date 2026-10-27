@@ -51,19 +51,37 @@ func init() {
 			return nil
 		}},
 		{names: []string{"wq"}, run: func(m *Model, _ string) tea.Cmd {
-			return m.writeAndQuit(false)
+			return m.writeAndQuitWindow(false)
 		}},
 		{names: []string{"wq!"}, run: func(m *Model, _ string) tea.Cmd {
+			return m.writeAndQuitWindow(true)
+		}},
+		{names: []string{"q", "quit"}, run: func(m *Model, _ string) tea.Cmd { return m.quitWindow(false) }},
+		{names: []string{"q!", "quit!"}, run: func(m *Model, _ string) tea.Cmd { return m.quitWindow(true) }},
+		{names: []string{"qa", "qall"}, run: func(m *Model, _ string) tea.Cmd { return m.quitAll(false) }},
+		{names: []string{"qa!", "qall!"}, run: func(m *Model, _ string) tea.Cmd { return m.quitAll(true) }},
+		{names: []string{"wqa", "wqall"}, run: func(m *Model, _ string) tea.Cmd {
+			return m.writeAndQuit(false)
+		}},
+		{names: []string{"wqa!", "wqall!"}, run: func(m *Model, _ string) tea.Cmd {
 			return m.writeAndQuit(true)
 		}},
-		{names: []string{"q", "quit"}, run: func(m *Model, _ string) tea.Cmd {
-			if len(m.dirty) > 0 {
-				m.message = "Unsaved changes — :w to save, or :q! to discard them"
-				return nil
+		{names: []string{"sp", "split"}, takesArg: true, complete: (*Model).completeEditArg, run: func(m *Model, file string) tea.Cmd {
+			m.splitWindow(false)
+			if file != "" {
+				m.editFile(file)
 			}
-			return tea.Quit
+			return nil
 		}},
-		{names: []string{"q!", "quit!"}, run: func(*Model, string) tea.Cmd { return tea.Quit }},
+		{names: []string{"vs", "vsplit"}, takesArg: true, complete: (*Model).completeEditArg, run: func(m *Model, file string) tea.Cmd {
+			m.splitWindow(true)
+			if file != "" {
+				m.editFile(file)
+			}
+			return nil
+		}},
+		{names: []string{"clo", "close"}, run: func(m *Model, _ string) tea.Cmd { m.closeWindow(); return nil }},
+		{names: []string{"on", "only"}, run: func(m *Model, _ string) tea.Cmd { m.onlyWindow(); return nil }},
 		{names: []string{"undo"}, run: func(m *Model, _ string) tea.Cmd { m.undo(); return nil }},
 		{names: []string{"redo"}, run: func(m *Model, _ string) tea.Cmd { m.redo(); return nil }},
 		{names: []string{"noh", "nohlsearch"}, run: func(m *Model, _ string) tea.Cmd {
@@ -122,8 +140,8 @@ func init() {
 	}
 }
 
-// writeAndQuit is :wq (force: :wq!): write, then quit if every write
-// succeeded.
+// writeAndQuit is :wqa (force: :wqa!): write, then quit if every write
+// succeeded. Without splits it's :wq too.
 func (m *Model) writeAndQuit(force bool) tea.Cmd {
 	msg, ok := m.writeAllResult(force)
 	m.message = msg
@@ -131,6 +149,42 @@ func (m *Model) writeAndQuit(force bool) tea.Cmd {
 		return tea.Quit
 	}
 	return nil
+}
+
+// writeAndQuitWindow is :wq (force: :wq!): write, then — if every write
+// succeeded — close the window, or quit if it's the last one.
+func (m *Model) writeAndQuitWindow(force bool) tea.Cmd {
+	if m.layout == nil {
+		return m.writeAndQuit(force)
+	}
+	msg, ok := m.writeAllResult(force)
+	m.message = msg
+	if ok {
+		m.closeWindow()
+	}
+	return nil
+}
+
+// quitWindow is :q (force: :q!) and "ctrl-w q": like vim, it closes the
+// window while there are others, and only quits from the last one. Every
+// window shows the same files, so closing one never loses an edit and
+// needs no check; quitting refuses with unsaved changes unless forced.
+func (m *Model) quitWindow(force bool) tea.Cmd {
+	if m.layout != nil {
+		m.closeWindow()
+		return nil
+	}
+	return m.quitAll(force)
+}
+
+// quitAll is :qa (force: :qa!): quit, whatever windows are open —
+// refusing with unsaved changes unless forced.
+func (m *Model) quitAll(force bool) tea.Cmd {
+	if len(m.dirty) > 0 && !force {
+		m.message = "Unsaved changes — :w to save, or :q! to discard them"
+		return nil
+	}
+	return tea.Quit
 }
 
 // lookupCommand finds the command line text cmd (already trimmed, not

@@ -28,16 +28,31 @@ type Model struct {
 	collapsed      map[*org.Headline]bool
 	dirty          map[*org.File]bool     // derived from undoStack/savedPos; see recomputeDirty
 	dirtyHeadlines map[*org.Headline]bool // derived from undoStack/savedPos; see recomputeDirty
-	rows           []row
 
 	undoStack []undoAction // undoStack[:undoPos] applied, undoStack[undoPos:] available to redo
 	undoPos   int
 	savedPos  map[*org.File]int // per-file count of applied actions at that file's last successful write
 
-	cursor int
-	offset int // index of the first visible row (for scrolling)
+	// window is the active window's own state — its view, rows, cursor
+	// and scroll position, and jump list — embedded so that code reading
+	// m.cursor or m.rows works on whichever window is active. See
+	// windows.go for the others, parked in layout.
+	window
 
-	width, height int
+	// layout is the window layout tree (see layoutNode) and activeWin
+	// the leaf whose state is embedded above; prevWin is the leaf that
+	// was active before it, for "ctrl-w p". All nil while there's just
+	// the one window (no :split yet, or every other one closed), so a
+	// model that's never split renders exactly as it always has.
+	layout, activeWin, prevWin *layoutNode
+
+	// fixedPane, when set, is the pane the embedded window is being
+	// refreshed or drawn into right now, with the screen's geometry
+	// already worked out — see withWindow and paneLines. Nil otherwise,
+	// meaning the active window's pane, computed on demand.
+	fixedPane *pane
+
+	width, height int // the terminal's size
 
 	// chord is the first key of a two-key command typed so far — "g", "d",
 	// "y", "z", ">", "<", or (for the mark commands) "m" or "'" — waiting
@@ -60,15 +75,6 @@ type Model struct {
 	register []*org.Headline // last deleted (dd/<N>dd/visual d) or yanked (yy) top-level entry/entries, pasted (as copies, in the same order) by p/P; stays pinned in the info buffer at the bottom of the screen (see infoBufferLines) until overwritten by a later delete/yank
 
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned in the info buffer at the bottom of the screen (see infoBufferLines) until cleared
-
-	// jumpList/jumpPos implement vim's own jumplist (ctrl-o/"gi" here —
-	// see jumpBack/jumpForward): jumpList holds one entry per recorded
-	// "before a large move" position, oldest first; jumpPos is where in
-	// that list the cursor currently sits — equal to len(jumpList) means
-	// "live", i.e. not currently navigating the list at all. See pushJump
-	// for how entries get added.
-	jumpList []jumpEntry
-	jumpPos  int
 
 	// immutable holds every headline currently locked by an in-flight
 	// :format-links batch (see startFormatLinks/finishFormatLinks) —
@@ -181,7 +187,6 @@ type Model struct {
 	// Nil, the default, means the real clock.
 	clock func() time.Time
 
-	view         viewKind
 	reviewActive bool          // the "%" register is on (:review): the inbox's current pending item is pinned in reviewTarget, in every view
 	reviewTarget *org.Headline // the inbox item currently pinned for review while reviewActive; nil if the inbox has nothing pending
 
@@ -270,6 +275,17 @@ func (m *Model) findMeetingTagsFile() *org.File {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	if nm, ok := next.(Model); ok {
+		nm.syncWindows()
+		next = nm
+	}
+	return next, cmd
+}
+
+// update is Update for the active window; Update then brings every other
+// window up to date with whatever it changed (see syncWindows).
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		widthChanged := m.width != msg.Width

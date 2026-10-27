@@ -41,8 +41,8 @@ func (m *Model) appendHelpRows(dst *[]row) {
 // reasonable default before that first arrives — including in tests,
 // which mostly never send one at all.
 func (m *Model) helpWrapWidth() int {
-	if m.width > 0 {
-		return m.width
+	if w := m.listWidth(); w > 0 {
+		return w
 	}
 	return 80
 }

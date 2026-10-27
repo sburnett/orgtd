@@ -243,6 +243,22 @@ func buildNormalKeys() *keymap {
 	}), "V")
 	km.bind(do((*Model).undo), "u")
 	km.bind(do((*Model).redo), "ctrl+r")
+
+	// Windows (vim's "ctrl-w" commands; see windows.go).
+	km.bind(do(func(m *Model) { m.splitWindow(false) }), "ctrl+w s", "ctrl+w S", "ctrl+w ctrl+s")
+	km.bind(do(func(m *Model) { m.splitWindow(true) }), "ctrl+w v", "ctrl+w ctrl+v")
+	km.bind(do(func(m *Model) { m.moveToWindow(-1, 0) }), "ctrl+w h", "ctrl+w ctrl+h", "ctrl+w left", "ctrl+w backspace")
+	km.bind(do(func(m *Model) { m.moveToWindow(0, 1) }), "ctrl+w j", "ctrl+w ctrl+j", "ctrl+w down")
+	km.bind(do(func(m *Model) { m.moveToWindow(0, -1) }), "ctrl+w k", "ctrl+w ctrl+k", "ctrl+w up")
+	km.bind(do(func(m *Model) { m.moveToWindow(1, 0) }), "ctrl+w l", "ctrl+w ctrl+l", "ctrl+w right")
+	km.bind(do(func(m *Model) { m.cycleWindow(1) }), "ctrl+w w", "ctrl+w ctrl+w")
+	km.bind(do(func(m *Model) { m.cycleWindow(-1) }), "ctrl+w W")
+	km.bind(do(func(m *Model) { m.enterWindow(m.prevWin) }), "ctrl+w p", "ctrl+w ctrl+p")
+	km.bind(do(func(m *Model) { m.edgeWindow(false) }), "ctrl+w t", "ctrl+w ctrl+t")
+	km.bind(do(func(m *Model) { m.edgeWindow(true) }), "ctrl+w b", "ctrl+w ctrl+b")
+	km.bind(do((*Model).closeWindow), "ctrl+w c")
+	km.bind(func(m *Model) tea.Cmd { return m.quitWindow(false) }, "ctrl+w q", "ctrl+w ctrl+q")
+	km.bind(do((*Model).onlyWindow), "ctrl+w o", "ctrl+w ctrl+o")
 	return km
 }
 

@@ -210,7 +210,7 @@ func (m *Model) jumpToSubtreeBottom() {
 // room here for every boundary in the whole list would under-fill the
 // actual screen.
 func (m *Model) pageSize() int {
-	n := m.height - m.statusHeight() - m.sectionSeparatorBudget() - m.infoBufferHeight()
+	n := m.contentBudget() - m.sectionSeparatorBudget()
 	if n < 1 {
 		n = 1
 	}
@@ -225,6 +225,9 @@ func (m *Model) pageSize() int {
 // starting row, and directly as the padding target in View().
 func (m *Model) contentBudget() int {
 	n := m.height - m.statusHeight() - m.infoBufferHeight()
+	if p, ok := m.activePane(); ok {
+		n = p.h - 1 - m.infoBufferHeight() // the window's own status line and info buffer
+	}
 	if n < 1 {
 		n = 1
 	}

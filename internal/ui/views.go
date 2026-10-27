@@ -78,6 +78,12 @@ type viewSpec struct {
 	// terminal width when built (:help's glamour output), so a resize
 	// while it's open needs a rebuild rather than just a new page size.
 	rebuildOnResize bool
+
+	// static is true for a view whose rows don't depend on the workspace
+	// (:help, and :log, which only updates when reopened anyway), so an
+	// inactive window showing it is left alone rather than rebuilt after
+	// every key (see syncWindows) — :help's is costly to render.
+	static bool
 }
 
 // viewSpecs is indexed by viewKind. Populated in init rather than as a
@@ -143,12 +149,14 @@ func init() {
 			command: "log",
 			label:   "log",
 			build:   flat((*Model).appendLogRows),
+			static:  true,
 		},
 		helpView: {
 			command:         "help",
 			label:           "help",
 			build:           flat((*Model).appendHelpRows),
 			rebuildOnResize: true,
+			static:          true,
 		},
 	}
 }

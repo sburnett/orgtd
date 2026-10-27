@@ -15,7 +15,15 @@ func (m *Model) rebuildRows() {
 	// Every change to the files' contents is followed by a rebuild, so this
 	// is where the meeting index (see meetingCache) goes stale.
 	m.invalidateMeetingIndex()
+	m.buildRows()
+}
+
+// buildRows is rebuildRows without invalidating anything: it repopulates
+// m.rows from the workspace as it stands, clamping the cursor into
+// range.
+func (m *Model) buildRows() {
 	m.rows = m.rows[:0]
+	m.builtWidth = m.listWidth()
 	m.spec().build(m, &m.rows, false)
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1
@@ -148,7 +156,7 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
 	// A body line is drawn after a fixed 5-column gutter, one indent
 	// step per level (2 columns), and the fold column plus its space.
-	avail := m.width - (5 + 2*(h.Level+1) + 2)
+	avail := m.listWidth() - (5 + 2*(h.Level+1) + 2)
 	owner := len(*dst) - 1 // h's own row, just before its body rows
 	idx := 0
 	var lines []string

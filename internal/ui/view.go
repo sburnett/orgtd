@@ -8,6 +8,20 @@ import (
 )
 
 func (m Model) View() string {
+	if m.layout != nil {
+		return m.splitView()
+	}
+	var b strings.Builder
+	b.WriteString(m.listing())
+	m.writeBottom(&b, false)
+	return b.String()
+}
+
+// listing renders the window's scrollable content area: the rows from
+// m.offset that fit, one line each (plus a blank line before each
+// section after the first), padded with blank lines to exactly fill
+// contentBudget. Every line ends in "\n".
+func (m Model) listing() string {
 	var b strings.Builder
 	if len(m.rows) == 0 {
 		// No items to list (an empty agenda, or a workspace with no org
@@ -70,7 +84,22 @@ func (m Model) View() string {
 			b.WriteString("\n")
 		}
 	}
+	return b.String()
+}
 
+// writeBottom writes everything below the window: its info buffer and
+// status line — unless split, where every window draws its own of both
+// (see paneLines) — and the command line.
+func (m Model) writeBottom(b *strings.Builder, split bool) {
+	if !split {
+		m.writeInfoAndStatus(b)
+	}
+	m.writeCommandLine(b)
+}
+
+// writeInfoAndStatus writes the window's info buffer and, below it, its
+// status line.
+func (m Model) writeInfoAndStatus(b *strings.Builder) {
 	// Info buffer — sits directly above the status/command-line area and
 	// holds whatever might need more than one line: the review target,
 	// active marks, and the paste register (always, in every view, kept
@@ -91,10 +120,13 @@ func (m Model) View() string {
 	// separate row for whatever's active right now, mirroring vim's own
 	// split between the two rather than the command line ever replacing
 	// the status line.
-	statusLineStyle := lipgloss.NewStyle().Bold(true).Foreground(m.statusBarFg()).Background(m.statusBarBg())
-	b.WriteString(m.padLineToWidth(statusLineStyle.Render(m.normalStatusLine()), m.statusBarBg()))
+	b.WriteString(m.statusLine(true))
 	b.WriteString("\n")
+}
 
+// writeCommandLine writes the one command line at the bottom of the
+// screen.
+func (m Model) writeCommandLine(b *strings.Builder) {
 	// Command line — vim's own command-line/message area equivalent:
 	// whatever's active right now (a typed command, a prompt, a mode
 	// banner, or the last message), blank if there's nothing to show.
@@ -103,8 +135,20 @@ func (m Model) View() string {
 	} else if m.message != "" {
 		b.WriteString(m.errorStyle().Render(m.message))
 	}
+}
 
-	return b.String()
+// statusLine renders the window's status line (see normalStatusLine),
+// filling m.width: in the status bar's own colors for the active window,
+// or — with splits, for every other window — dimmed, like vim's
+// StatusLineNC, so which window has the cursor is clear at a glance.
+func (m Model) statusLine(active bool) string {
+	style := lipgloss.NewStyle().Bold(true).Foreground(m.statusBarFg()).Background(m.statusBarBg())
+	bg := m.statusBarBg()
+	if !active {
+		bg = lipgloss.Color(orDefault(m.cfg.Colors.Status, defaultStatusColor))
+		style = lipgloss.NewStyle().Foreground(m.statusBarFg()).Background(bg)
+	}
+	return m.padLineToWidth(style.Render(m.normalStatusLine()), bg)
 }
 
 // normalStatusLine returns the single line for the default (mode-less)

@@ -396,7 +396,11 @@ always visible regardless of mode; the command line below it — where
 visual-mode banner, and messages all appear, blank when there's nothing
 to show — is always exactly one more. Neither ever
 replaces the other, mirroring vim's own statusline-above-command-line
-layout.
+layout. With the screen split into windows (see Windows, below), each
+window has its own info buffer and status line along its bottom edge
+instead — the info buffer showing that window's current entry's links
+and meetings, marks, registers, and (in the active window) any picker
+or completion list — and the one command line sits below them all.
 
 Above both, an info buffer holds whatever might need more than one
 line, grouped into labeled sections — collapsed entirely (zero height)
@@ -588,6 +592,37 @@ it). Since `scratch/` is a subdirectory, it's never scanned as one of
 outline; it's just there on disk if you need to go looking (and in your VCS
 unless you ignore it).
 
+### Windows
+
+Like vim, the screen can be split into windows, each showing any view
+with its own cursor, scroll position and jump list (`ctrl-o`/`gi`) — e.g.
+the agenda beside the outline, or two far-apart parts of the outline at
+once. Everything else is shared: every window shows the same files, so an
+edit made in one appears in all of them right away, and folds, marks,
+registers, undo history and the last search are shared too. A new window
+opens on the same view and entry as the current one, above it (`:split`)
+or to its left (`:vsplit`), and becomes the active one. Windows split the
+space evenly; each has its own info buffer and, below it, its own status
+line, the active one's in the usual status-bar colors and the rest
+dimmed. Since each info buffer grows and shrinks inside its own window,
+the windows themselves never move as you scroll. Side-by-side windows are
+separated by a `│` column.
+
+| Key | Action |
+|---|---|
+| `ctrl-w s` / `ctrl-w S` / `ctrl-w ctrl-s` | Split the current window in two, stacked (same as `:split`) |
+| `ctrl-w v` / `ctrl-w ctrl-v` | Split the current window in two, side by side (same as `:vsplit`) |
+| `ctrl-w h` / `j` / `k` / `l` | Move to the window to the left / below / above / right (also `ctrl-w` then the `ctrl-` variant of each, or an arrow key). Where several windows border that side, the one level with the cursor is chosen |
+| `ctrl-w w` / `ctrl-w ctrl-w` / `ctrl-w W` | Move to the next / previous window, top-left to bottom-right, wrapping around |
+| `ctrl-w p` | Move to the previously active window |
+| `ctrl-w t` / `ctrl-w b` | Move to the top-left / bottom-right window |
+| `ctrl-w c` | Close the current window (same as `:close`); refused for the last one |
+| `ctrl-w q` | Close the current window, or quit if it's the last one (same as `:q`) |
+| `ctrl-w o` | Close every other window (same as `:only`) |
+
+A closed window's space goes to the window above it (or to its left), or
+below (to its right) if it was the first, and the cursor goes with it.
+
 ### Visual selection
 
 | Key | Action |
@@ -676,10 +711,17 @@ History doesn't persist between sessions.
 |---|---|
 | `:w` / `:write` | Write every file with unsaved changes. Skips any file whose content on disk no longer matches what orgtd last read or wrote — e.g. a `git pull` updated it — so an upstream change is never silently overwritten (see Files changed on disk, below); the other files are still written |
 | `:w!` / `:write!` | Like `:w`, but overwrites files that changed on disk |
-| `:wq` | Write, then quit. Same refusals as `:w` above (a file changed on disk keeps orgtd open) |
+| `:wq` | Write, then quit — or, with more than one window open (see Windows, above), close the current window. Same refusals as `:w` above (a file changed on disk keeps orgtd open) |
 | `:wq!` | Like `:wq`, but overwrites files that changed on disk |
-| `:q` / `:quit` | Quit (refuses if there are unsaved changes) |
-| `:q!` / `:quit!` | Quit, discarding unsaved changes |
+| `:q` / `:quit` | Quit (refuses if there are unsaved changes) — or, with more than one window open, close the current window, as vim does; that never loses an edit, since every window shows the same files |
+| `:q!` / `:quit!` | Quit, discarding unsaved changes — or, with more than one window open, close the current window |
+| `:qa` / `:qall` | Quit, whatever windows are open (refuses if there are unsaved changes) |
+| `:qa!` / `:qall!` | Quit, discarding unsaved changes, whatever windows are open |
+| `:wqa` / `:wqall` / `:wqa!` / `:wqall!` | Write, then quit whatever windows are open — like `:wq`/`:wq!` with a single window |
+| `:split [file]` / `:sp [file]` | Split the current window in two, stacked, and — given a file, named as for `:edit` — open it in the new window. See Windows, above |
+| `:vsplit [file]` / `:vs [file]` | Same as `:split`, but side by side |
+| `:close` / `:clo` | Close the current window (refused for the last one) |
+| `:only` / `:on` | Close every window but the current one |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
 | `:agenda` / `:outline` / `:reference` / `:config` / `:log` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
 | `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is created (on disk immediately, since an empty file has no edit for `:w` to save) — add entries with `o`/`O` on its header row. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
