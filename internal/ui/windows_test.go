@@ -116,6 +116,60 @@ func TestEditInOneWindowShowsInTheOther(t *testing.T) {
 	}
 }
 
+// scrolledBottomWindow splits m, scrolls the bottom window so top is its
+// first row and cursor is its cursor row, and returns to the top window.
+func scrolledBottomWindow(t *testing.T, m Model, top, cursor string) Model {
+	t.Helper()
+	m = runColon(m, "split")
+	m = ctrlW(m, "j")
+	m.offset = findRow(t, m, top)
+	m.cursor = findRow(t, m, cursor)
+	return ctrlW(m, "k")
+}
+
+func TestEditAboveOtherWindowDoesNotScrollIt(t *testing.T) {
+	m := scrolledBottomWindow(t, newSizedModel(t, 80, 40), "Entry 50", "Entry 53")
+	m.cursor = findRow(t, m, "Entry 9")
+	m = typeKeys(m, "3dd")
+
+	m = ctrlW(m, "j")
+	if got := m.rows[m.offset].headline.Title; got != "Entry 50" {
+		t.Errorf("other window's top row = %q, want it to stay on Entry 50", got)
+	}
+	if got := m.currentHeadline().Title; got != "Entry 53" {
+		t.Errorf("other window's cursor on %q, want it to stay on Entry 53", got)
+	}
+}
+
+func TestDeletingOtherWindowsTopRowKeepsTheRest(t *testing.T) {
+	m := scrolledBottomWindow(t, newSizedModel(t, 80, 40), "Entry 50", "Entry 53")
+	m.cursor = findRow(t, m, "Entry 49")
+	m = typeKeys(m, "2dd") // Entry 49 and the other window's top row, Entry 50
+
+	m = ctrlW(m, "j")
+	if got := m.rows[m.offset].headline.Title; got != "Entry 51" {
+		t.Errorf("other window's top row = %q, want Entry 51, the first one left", got)
+	}
+	if got := m.currentHeadline().Title; got != "Entry 53" {
+		t.Errorf("other window's cursor on %q, want it to stay on Entry 53", got)
+	}
+}
+
+func TestFoldingOtherWindowsRowsKeepsItOnTheFold(t *testing.T) {
+	m := scrolledBottomWindow(t, newSizedModel(t, 80, 40),
+		"Implement the Bubble Tea viewer", "Get feedback on the keybinding scheme")
+	m.cursor = findRow(t, m, "Ship orgtd v0.1")
+	m = typeKeys(m, "zc") // hides both the other window's top row and its cursor
+
+	m = ctrlW(m, "j")
+	if got := m.rows[m.offset].headline.Title; got != "Ship orgtd v0.1" {
+		t.Errorf("other window's top row = %q, want the fold hiding it", got)
+	}
+	if got := m.currentHeadline().Title; got != "Ship orgtd v0.1" {
+		t.Errorf("other window's cursor on %q, want the fold hiding it", got)
+	}
+}
+
 func TestVsplitDrawsWindowsSideBySide(t *testing.T) {
 	m := newSizedModel(t, 81, 20)
 	m = runColon(m, "vsplit")

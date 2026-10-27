@@ -172,20 +172,57 @@ func (m *Model) listWidth() int {
 // rebuildKeepingCursor rebuilds the window's rows (see buildRows) and puts
 // the cursor back on the row it was on, if that row is still there —
 // otherwise it keeps its index, as vim does when the lines under the
-// cursor go away.
+// cursor go away. The scroll offset is kept on its row the same way, so
+// rows added or removed above the window don't shift what it shows: if
+// the top row itself went away, the first row after it that's still
+// there becomes the top, as vim adjusts 'topline'. Only if nothing that
+// was on screen is left does the offset keep its index. A row folded
+// away (see relocateRow) counts as still there, on its fold's row.
 func (m *Model) rebuildKeepingCursor() {
 	var anchor row
 	hasAnchor := m.cursor >= 0 && m.cursor < len(m.rows)
 	if hasAnchor {
 		anchor = m.rows[m.cursor]
 	}
+	// Copied, since buildRows reuses rows' backing array.
+	var shown []row
+	if m.offset >= 0 && m.offset < len(m.rows) {
+		shown = append(shown, m.rows[m.offset:m.offset+m.visibleRowCount(m.offset)]...)
+	}
 	m.buildRows()
 	if hasAnchor {
-		if i := indexOfRow(m.rows, anchor); i >= 0 {
+		if i := m.relocateRow(anchor); i >= 0 {
 			m.cursor = i
 		}
 	}
+	for _, r := range shown {
+		if i := m.relocateRow(r); i >= 0 {
+			m.offset = i
+			break
+		}
+	}
 	m.ensureVisible()
+}
+
+// relocateRow returns r's index in the rebuilt rows, or, if a fold now
+// hides it, the index of the folded headline hiding it — as vim keeps
+// the cursor on a closed fold's line. -1 if r is gone altogether.
+func (m *Model) relocateRow(r row) int {
+	if i := indexOfRow(m.rows, r); i >= 0 || r.headline == nil {
+		return i
+	}
+	h := r.headline // a body line is hidden by its own headline's fold
+	if r.kind != rowBody {
+		h = h.Parent
+	}
+	for ; h != nil; h = h.Parent {
+		if m.collapsed[h] {
+			if i := indexOfRow(m.rows, row{headline: h}); i >= 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // withWindow runs f with p's parked window swapped in as the embedded

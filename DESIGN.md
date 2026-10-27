@@ -288,7 +288,7 @@ registers, search — is shared.
 
 Two invariants follow. **Every `Update` ends with `syncWindows`**, which
 swaps each inactive window in (`withWindow`), rebuilds its rows and puts
-its cursor back on the same row — that's how an edit made in one window
+its cursor and its top row back on the same rows — that's how an edit made in one window
 reaches the others. And **a window's pane geometry comes from
 `activePane`/`listWidth`**, not `m.width`/`m.height` (the terminal):
 `contentBudget`, `pageSize` and body-line wrapping ask them. Panes are

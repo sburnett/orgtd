@@ -610,7 +610,8 @@ Like vim, the screen can be split into windows, each showing any view
 with its own cursor, scroll position and jump list (`ctrl-o`/`gi`) — e.g.
 the agenda beside the outline, or two far-apart parts of the outline at
 once. Everything else is shared: every window shows the same files, so an
-edit made in one appears in all of them right away, and folds, marks,
+edit made in one appears in all of them right away (without scrolling
+the others: rows added or removed above a window don't shift it), and folds, marks,
 registers, undo history and the last search are shared too. A new window
 opens on the same view and entry as the current one, above it (`:split`)
 or to its left (`:vsplit`), and becomes the active one. Windows split the
