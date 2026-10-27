@@ -199,24 +199,6 @@ func TestFoldLoneZIsPendingAndCancellable(t *testing.T) {
 	}
 }
 
-func TestFoldNoopOnFileRow(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	m.cursor = 0
-	if m.rows[0].file == nil {
-		t.Fatalf("fixture assumption broken: row 0 is not a file row")
-	}
-	before := len(m.rows)
-
-	for _, key := range []string{"o", "c", "a", "O", "C", "A"} {
-		m = sendKey(m, "z")
-		m = sendKey(m, key)
-	}
-	if len(m.rows) != before {
-		t.Errorf("fold commands on a file row changed row count: %d, want %d", len(m.rows), before)
-	}
-}
-
 // buildThreeLevelNesting demotes "Implement the org file parser" so it
 // becomes a genuine third-level child of "Write the design document",
 // giving fold tests real nested structure to work with (the fixture
@@ -322,5 +304,77 @@ func TestFoldToggleAllRecursive(t *testing.T) {
 	}
 	if !rowVisible(m, leaf.Title) {
 		t.Errorf("leaf not visible after zA opened everything")
+	}
+}
+
+// projectsTopLevel is projects.org's top-level headlines, each with
+// children of its own.
+var projectsTopLevel = []string{"Ship orgtd v0.1", "Quarterly planning", "Learn Go generics"}
+
+func TestSubtreeFoldsOnFileRowActOnEveryHeadline(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findFileRow(t, m, "projects.org")
+	fileRow := m.cursor
+
+	m = typeKeys(m, "zC")
+	for _, title := range projectsTopLevel {
+		if !m.collapsed[m.rows[findRow(t, m, title)].headline] {
+			t.Errorf("zC on the file row left %q open", title)
+		}
+	}
+	if rowVisible(m, "Write the design document") || rowVisible(m, "Read the generics proposal") {
+		t.Errorf("children still visible after zC on the file row")
+	}
+	if m.cursor != fileRow {
+		t.Errorf("cursor moved to row %d, want it to stay on the file row %d", m.cursor, fileRow)
+	}
+
+	m = typeKeys(m, "zO")
+	if !rowVisible(m, "Write the design document") || !rowVisible(m, "Read the generics proposal") {
+		t.Errorf("children not visible after zO on the file row")
+	}
+}
+
+func TestSubtreeFoldToggleOnFileRowIsUniform(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findFileRow(t, m, "projects.org")
+	m = typeKeys(m, "zC")
+
+	// One open among folded ones: not all folded, so zA closes them all.
+	m.cursor = findRow(t, m, "Quarterly planning")
+	m = typeKeys(m, "zo")
+	m.cursor = findFileRow(t, m, "projects.org")
+	m = typeKeys(m, "zA")
+	if rowVisible(m, "Draft the Q4 goals doc") {
+		t.Errorf("zA with one headline open didn't close it")
+	}
+
+	// All folded now, so zA opens them all.
+	m = typeKeys(m, "zA")
+	for _, title := range []string{"Write the design document", "Draft the Q4 goals doc", "Read the generics proposal"} {
+		if !rowVisible(m, title) {
+			t.Errorf("%q not visible after zA with every headline folded", title)
+		}
+	}
+}
+
+func TestSingleLevelFoldsOnFileRowDoNothing(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findFileRow(t, m, "projects.org")
+	m = typeKeys(m, "zC")
+	m.cursor = findRow(t, m, "Quarterly planning")
+	m = typeKeys(m, "zo") // a mix, so a no-op is distinguishable from either extreme
+	m.cursor = findFileRow(t, m, "projects.org")
+	want := len(m.rows)
+
+	for _, keys := range []string{"zc", "zo", "za", "2zc"} {
+		m = typeKeys(m, keys)
+		if len(m.rows) != want {
+			t.Errorf("%s on the file row changed the outline: %d rows, want %d", keys, len(m.rows), want)
+		}
+	}
+	m = sendKey(m, "tab")
+	if len(m.rows) != want {
+		t.Errorf("Tab on the file row changed the outline: %d rows, want %d", len(m.rows), want)
 	}
 }
