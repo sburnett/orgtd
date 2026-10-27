@@ -74,6 +74,12 @@ type Model struct {
 
 	register []*org.Headline // last deleted (dd/<N>dd/visual d) or yanked (yy) top-level entry/entries, pasted (as copies, in the same order) by p/P; stays pinned in the info buffer at the bottom of the screen (see infoBufferLines) until overwritten by a later delete/yank
 
+	// showRegisters is whether the info buffer lists the registers' contents
+	// (see pinnedRegisters) — off by default, toggled by :registers. The
+	// "%" register is shown regardless while :review is on, since showing
+	// it is what :review is for.
+	showRegisters bool
+
 	marks map[rune]*org.Headline // vim-style marks (letter -> headline), set by "m<letter>", jumped to by "'<letter>"; each stays pinned in the info buffer at the bottom of the screen (see infoBufferLines) until cleared
 
 	// immutable holds every headline currently locked by an in-flight

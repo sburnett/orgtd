@@ -188,6 +188,7 @@ func TestYankWorksInReviewView(t *testing.T) {
 func TestYankShowsInInfoBuffer(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
+	m.showRegisters = true // see :registers
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
 	m = sendKey(m, "y")
@@ -206,6 +207,7 @@ func TestDeleteAlsoShowsInPinnedRegister(t *testing.T) {
 	// just yy.
 	ws := loadFixture(t)
 	m := New(ws)
+	m.showRegisters = true // see :registers
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
 	m = sendKey(m, "d")
@@ -221,6 +223,7 @@ func TestDeleteAlsoShowsInPinnedRegister(t *testing.T) {
 func TestRegisterPinnedSectionIsHeightBounded(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
+	m.showRegisters = true // see :registers
 
 	// Simulate a register overflowing with more entries than a visual-mode
 	// delete or a big <N>dd could plausibly display in full — the pinned

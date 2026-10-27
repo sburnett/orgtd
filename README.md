@@ -431,7 +431,7 @@ from shifting position any more than it has to:
   `:review`, in whichever view you're in; see Reviewing the inbox, below, with its `CREATED` property and any
   `SCHEDULED`/`DEADLINE`; see Registers, below), then the unnamed paste
   register (whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last stored),
-  then every non-empty named (`a`–`z`) and numbered (`0`–`9`) register, one row per entry. The whole section is capped at 20 rows: a register that wouldn't fit whole is dropped along with the ones after it, summarized as "...and N more registers" — the numbered history goes first, so the registers you chose by name last longest.
+  then every non-empty named (`a`–`z`) and numbered (`0`–`9`) register, one row per entry. Hidden by default — `:registers` toggles showing them — except `%`, which is always shown while `:review` is on. The whole section is capped at 20 rows: a register that wouldn't fit whole is dropped along with the ones after it, summarized as "...and N more registers" — the numbered history goes first, so the registers you chose by name last longest.
 - **Active marks** — every active mark (see Marks, below), sorted by
   letter, one row each — visible in every view until cleared.
 - **Matches** — the same idea as **Tags** above, for command-mode (`:`)
@@ -648,9 +648,10 @@ Every active mark stays pinned in the info buffer at the bottom of the
 screen (see Views, above), in every view, until cleared or moved
 elsewhere.
 
-Whatever `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put in the paste
-register stays pinned in the info buffer too, under the "Registers:"
-label, right alongside marks — so it's obvious what `p`/`P` will paste
+After `:registers` (a toggle; off by default), whatever
+`dd`/`<N>dd`/visual-mode `d`/`y`/`yy` last put in the paste register
+stays pinned in the info buffer too, under the "Registers:" label, right
+alongside marks — so it's obvious what `p`/`P` will paste
 next even for `yy`/visual-mode `y`, which otherwise leave the screen
 looking unchanged. Capped at 5 entries shown at once (a big `<N>dd` or
 visual-mode delete/yank collapses the rest into a trailing "...and N
@@ -675,8 +676,10 @@ empties every register (and the pinned display) without needing another `dd`/`yy
 
 Every write except to the black hole also lands in the unnamed register (as in
 vim), so a bare `p` pastes whatever was stored last, wherever it went. An unknown register
-name is rejected. All of them are shown in the info buffer's "Registers:"
-section (see Views, above), each row starting with its register's name;
+name is rejected. `:registers` toggles showing all of them in the info
+buffer's "Registers:" section (see Views, above), each row starting with
+its register's name — hidden by default, apart from `%` while `:review`
+is on;
 `:clear-registers` empties every one. Registers last for the session,
 not across restarts.
 
@@ -733,6 +736,7 @@ History doesn't persist between sessions.
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
 | `:vcs` | Save every file with unsaved changes (same refusals as `:w` — if any fails, nothing is launched), run `vcs_editor` (e.g. `gitui`, `jjui`) in `--dir` with the terminal handed over, and when it exits reload every file whose content on disk changed, discarding that file's undo history and marks as `:e!` does. Files the VCS tool created or removed aren't picked up — `:e <file>` opens a new one. Refuses if `vcs_editor` isn't set |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
+| `:registers` / `:reg` | Toggle showing the registers' contents in the info buffer (off by default; see Registers, above). `%` is shown while `:review` is on either way |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
 | `:noh` / `:nohlsearch` | See Search, above |
 | `:toggleclosed` | Toggle hiding stale items (any entry whose `CLOSED` stamp is older than `hide_closed_after_hours`) in the outline view on/off — see Views, above |

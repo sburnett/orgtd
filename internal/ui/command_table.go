@@ -110,6 +110,15 @@ func init() {
 			m.message = "All marks deleted"
 			return nil
 		}},
+		{names: []string{"registers", "reg"}, run: func(m *Model, _ string) tea.Cmd {
+			m.showRegisters = !m.showRegisters
+			if m.showRegisters {
+				m.message = "Showing registers"
+			} else {
+				m.message = "Hiding registers"
+			}
+			return nil
+		}},
 		{names: []string{"clear-registers"}, run: func(m *Model, _ string) tea.Cmd {
 			m.clearRegisters()
 			m.message = "Registers cleared"

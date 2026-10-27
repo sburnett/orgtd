@@ -102,6 +102,7 @@ func TestCountSurvivesRegisterPrefix(t *testing.T) {
 
 func TestRegistersSectionListsNamedRegisters(t *testing.T) {
 	m := New(loadFixture(t))
+	m.showRegisters = true // see :registers
 	m.cursor = findRow(t, m, vetTitle)
 	m = typeKeys(m, `"zyy`)
 	lines := stripANSILines(m.infoBufferLines())
@@ -252,6 +253,7 @@ func TestCountedPasteRepeatsRegister(t *testing.T) {
 
 func TestRegistersSectionIsCappedOverall(t *testing.T) {
 	m := New(loadFixture(t))
+	m.showRegisters = true // see :registers
 	m.cursor = findRow(t, m, vetTitle)
 	for _, r := range "abcdefghijklmnopqrstuvwxyz" {
 		m = typeKeys(m, `"`+string(r)+`yy`)
@@ -280,5 +282,22 @@ func TestNamedRegistersOutlastNumberedHistoryWhenTruncated(t *testing.T) {
 	m.setNamedRegister('z', m.ws.Files[0].Headlines[:1])
 	if got := string(m.namedRegisterNames()); got != "z123456789" {
 		t.Errorf("names = %q, want letters before digits", got)
+	}
+}
+
+func TestRegistersHiddenUntilToggled(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, vetTitle)
+	m = typeKeys(m, "yy")
+	if lines := m.registerPinnedLines(); lines != nil {
+		t.Fatalf("registers shown by default: %q", stripANSILines(lines))
+	}
+	m = sendKey(typeKeys(m, ":registers"), "enter")
+	if lines := m.registerPinnedLines(); len(lines) == 0 {
+		t.Fatalf(":registers didn't show the register")
+	}
+	m = sendKey(typeKeys(m, ":registers"), "enter")
+	if lines := m.registerPinnedLines(); lines != nil {
+		t.Errorf("second :registers didn't hide them again: %q", stripANSILines(lines))
 	}
 }

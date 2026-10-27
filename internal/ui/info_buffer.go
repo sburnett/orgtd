@@ -32,11 +32,14 @@ type pinnedRegister struct {
 // alphabetically, then the numbered yank/delete history ("0"-"9") — the
 // order the registers section truncates from the end of (see
 // registerPinnedLines), so the registers you chose deliberately outlast
-// the automatic history.
+// the automatic history. Only "%" unless showRegisters (:registers).
 func (m Model) pinnedRegisters() []pinnedRegister {
 	var regs []pinnedRegister
 	if e := m.registerContents('%'); len(e) > 0 {
 		regs = append(regs, pinnedRegister{"%", e, true})
+	}
+	if !m.showRegisters {
+		return regs
 	}
 	if len(m.register) > 0 {
 		regs = append(regs, pinnedRegister{"\"", m.register, false})
