@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sburnett/orgtd/internal/execlog"
 )
 
@@ -191,6 +192,11 @@ func (m *Model) appendConfigRows(dst *[]row) {
 // taken right now — if a :format-links batch (or anything else) logs
 // more while this view is already open, re-run :log to see it; the view
 // itself doesn't live-update.
+//
+// An entry too wide for the window wraps onto continuation rows, indented
+// to line up under its text rather than its timestamp, so nothing past
+// the right edge (a long consent URL, an error message) is cut off. The
+// rows are rebuilt on resize, so they rewrap to the new width.
 func (m *Model) appendLogRows(dst *[]row) {
 	entries := m.execLog.Snapshot()
 	if len(entries) == 0 {
@@ -198,6 +204,38 @@ func (m *Model) appendLogRows(dst *[]row) {
 		return
 	}
 	for _, e := range entries {
-		*dst = append(*dst, row{kind: rowText, text: fmt.Sprintf("%s  %-6s  pid %-7s  %s", e.Time.Format("15:04:05.000"), e.Kind.Label(), execlog.PIDLabel(e.PID), e.Text)})
+		prefix := fmt.Sprintf("%s  %-6s  pid %-7s  ", e.Time.Format("15:04:05.000"), e.Kind.Label(), execlog.PIDLabel(e.PID))
+		for _, line := range wrapLogEntry(prefix, e.Text, m.listWidth()) {
+			*dst = append(*dst, row{kind: rowText, text: line})
+		}
 	}
+}
+
+// minLogTextWidth is the narrowest column wrapLogEntry will squeeze an
+// entry's text into beside its prefix; any narrower and it wraps the
+// whole line, prefix included, to the full width instead.
+const minLogTextWidth = 20
+
+// wrapLogEntry lays out one :log entry — prefix (timestamp, kind, pid)
+// then text — in lines no wider than width, breaking text at spaces (and
+// hard-breaking a word, such as a URL, that's too long by itself), each
+// continuation indented by prefix's width. A non-positive width (not yet
+// known) leaves it as one line.
+func wrapLogEntry(prefix, text string, width int) []string {
+	if width <= 0 || lipgloss.Width(prefix+text) <= width {
+		return []string{prefix + text}
+	}
+	hang := lipgloss.Width(prefix)
+	if width-hang < minLogTextWidth {
+		return strings.Split(ansi.Wrap(prefix+text, width, ""), "\n")
+	}
+	lines := strings.Split(ansi.Wrap(text, width-hang, ""), "\n")
+	for i := range lines {
+		if i == 0 {
+			lines[i] = prefix + lines[i]
+		} else {
+			lines[i] = strings.Repeat(" ", hang) + lines[i]
+		}
+	}
+	return lines
 }

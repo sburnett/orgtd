@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/sburnett/orgtd/internal/execlog"
 )
 
@@ -224,6 +226,87 @@ func TestLogViewNoStartEntryWhenEditorNeverStarted(t *testing.T) {
 	for _, r := range m.rows {
 		if strings.Contains(r.text, "START") {
 			t.Errorf("rows = %#v, should have no START entry when the editor's *exec.Cmd was never provided", m.rows)
+		}
+	}
+}
+
+func TestWrapLogEntry(t *testing.T) {
+	prefix := "12:00:00.000  INFO    pid -        " // 35 columns
+	text := "Opening browser for Google sign-in; if it doesn't open, visit: https://accounts.google.com/o/oauth2/auth?client_id=abc&redirect_uri=http%3A%2F%2F127.0.0.1"
+	lines := wrapLogEntry(prefix, text, 80)
+	if len(lines) < 2 {
+		t.Fatalf("lines = %q, want the entry wrapped", lines)
+	}
+	indent := strings.Repeat(" ", len(prefix))
+	var joined strings.Builder
+	for i, line := range lines {
+		if w := len(line); w > 80 {
+			t.Errorf("line %d = %q is %d columns, want at most 80", i, line, w)
+		}
+		if i == 0 {
+			if !strings.HasPrefix(line, prefix) {
+				t.Errorf("first line = %q, want it to start with the prefix", line)
+			}
+			joined.WriteString(strings.TrimPrefix(line, prefix))
+			continue
+		}
+		if !strings.HasPrefix(line, indent) || line[len(indent)] == ' ' {
+			t.Errorf("line %d = %q, want it indented exactly to line up under the text", i, line)
+		}
+		joined.WriteString(strings.TrimPrefix(line, indent))
+	}
+	// Every non-space character survives, in order — nothing is dropped
+	// at a wrap point, including the URL that had to be hard-broken.
+	strip := func(s string) string { return strings.ReplaceAll(s, " ", "") }
+	if got, want := strip(joined.String()), strip(text); got != want {
+		t.Errorf("rewrapped text = %q, want %q", got, want)
+	}
+}
+
+func TestWrapLogEntryLeavesShortOrUnsizedEntriesAlone(t *testing.T) {
+	if got := wrapLogEntry("p  ", "short", 80); len(got) != 1 || got[0] != "p  short" {
+		t.Errorf("short entry = %q, want it on one line", got)
+	}
+	long := strings.Repeat("word ", 40)
+	if got := wrapLogEntry("p  ", long, 0); len(got) != 1 {
+		t.Errorf("width 0 = %d lines, want 1 (width not known yet)", len(got))
+	}
+}
+
+func TestWrapLogEntryNarrowWindowWrapsPrefixToo(t *testing.T) {
+	prefix := strings.Repeat("x", 30) + "  "
+	for i, line := range wrapLogEntry(prefix, strings.Repeat("word ", 20), 40) {
+		if len(line) > 40 {
+			t.Errorf("line %d = %q is wider than 40", i, line)
+		}
+	}
+}
+
+func TestLogViewWrapsToWindowAndRewrapsOnResize(t *testing.T) {
+	m := New(agendaFixture(t, "* TODO x\n"))
+	m.execLog.Append(execlog.Info, 0, strings.Repeat("lorem ipsum ", 20))
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	m = updated.(Model)
+	m.switchToView(logView)
+
+	wide := len(m.rows)
+	if wide < 2 {
+		t.Fatalf("rows = %d at width 80, want the 240-column entry wrapped", wide)
+	}
+	for _, r := range m.rows {
+		if len(r.text) > 80 {
+			t.Errorf("row %q is wider than the 80-column window", r.text)
+		}
+	}
+
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 40})
+	m = updated.(Model)
+	if len(m.rows) <= wide {
+		t.Errorf("rows = %d after narrowing to 60 columns, want more than the %d at 80", len(m.rows), wide)
+	}
+	for _, r := range m.rows {
+		if len(r.text) > 60 {
+			t.Errorf("row %q is wider than the 60-column window", r.text)
 		}
 	}
 }

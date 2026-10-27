@@ -387,7 +387,10 @@ logging is on.
   marked with the process's pid (`-` if it never actually started) —
   useful for telling apart two commands that happen to run at once, e.g.
   a `:format-links` batch alongside a live in-editor formatter
-  invocation. Doesn't live-update — re-run `:log` to see anything logged
+  invocation. An entry too long for the window wraps, its continuation
+  lines indented to line up under its text, and rewraps on resize — so
+  nothing (a long URL, an error message) is cut off at the right edge.
+  Doesn't live-update — re-run `:log` to see anything logged
   since it was last opened.
   `:outline` returns to the outline.
 - **Help** (`:help`) — this README, rendered as terminal-styled markdown
