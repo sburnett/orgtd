@@ -165,8 +165,8 @@ panel_bg                = "#303030"  # the info buffer (review/marks/register, l
 panel_fg                = "#d0d0d0"  # the plain item text in the info buffer's links, meeting and completion lists
 status_bar_fg           = "#000000"  # the one-line status bar at the bottom of the screen
 status_bar_bg           = "#9e9e9e"
-status_bar_inactive_fg  = "#bcbcbc"  # the status bar of every window but the active one, once split (see Windows)
-status_bar_inactive_bg  = "#4e4e4e"
+status_bar_inactive_fg  = "#000000"  # the status bar of every window but the active one, once split (see Windows)
+status_bar_inactive_bg  = "#767676"
 cursor_row_bg           = "#204060"  # the row under the cursor
 inactive_cursor_row_bg  = "#1c2c3c"  # the row under the cursor in every window but the active one, once split
 visual_selection_bg     = "#102030"  # the rest of a visual-mode selection, besides the cursor's own row
@@ -607,7 +607,7 @@ opens on the same view and entry as the current one, above it (`:split`)
 or to its left (`:vsplit`), and becomes the active one. Windows split the
 space evenly; each has its own info buffer and, below it, its own status
 line. The active window stands out twice over: its status bar is the
-usual bright one while the others' are dark grey, and only its cursor
+usual bold one on light grey while the others' are a darker grey, and only its cursor
 row gets the bright highlight — the other windows' cursor rows are a
 faint tint, so you can still see where each one is (both configurable:
 `status_bar_inactive_fg`/`_bg` and `inactive_cursor_row_bg` under

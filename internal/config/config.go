@@ -320,7 +320,7 @@ type ColorsConfig struct {
 
 	// StatusBarInactiveBg/StatusBarInactiveFg color the status bar of
 	// every window but the active one, once the screen is split (defaults:
-	// light grey on a dark grey, so the active window's bar stands out).
+	// black on a slightly darker grey than StatusBarBg's).
 	StatusBarInactiveBg string `toml:"status_bar_inactive_bg"`
 	StatusBarInactiveFg string `toml:"status_bar_inactive_fg"`
 

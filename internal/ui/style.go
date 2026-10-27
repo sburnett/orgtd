@@ -87,10 +87,10 @@ const (
 
 	// defaultStatusBarInactiveBg/Fg tint the status bar of every window
 	// but the active one, once the screen is split — wildcharm's
-	// StatusLineNC idea, made much darker than the active bar so which
-	// window has the cursor is obvious at a glance.
-	defaultStatusBarInactiveBg = "#4e4e4e"
-	defaultStatusBarInactiveFg = "#bcbcbc"
+	// StatusLineNC idea: the same black text a step darker than the
+	// active bar (the muted status color), and not bold.
+	defaultStatusBarInactiveBg = "#767676"
+	defaultStatusBarInactiveFg = "#000000"
 
 	// defaultCursorRowBg highlights the row under the cursor, filling the
 	// whole terminal width — wildcharm's Visual (its selection color),
