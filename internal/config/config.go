@@ -385,6 +385,14 @@ type GcalsyncConfig struct {
 	// attendees Google Calendar attaches to represent a resource/room
 	// booking. Empty (the default) means no exclusions.
 	AttendeeIgnorePatterns []string `toml:"attendee_ignore_patterns"`
+
+	// AutoSyncHours is how stale CalendarFile may get, while orgtd is
+	// running, before it syncs again on its own (see internal/ui's
+	// autoSyncTick) — at startup too, if the file on disk is already
+	// that old. Unattended syncs never open a browser: until a manual
+	// :sync-calendar has signed in once, they're skipped. Zero means the
+	// default (24); negative turns automatic syncing off entirely.
+	AutoSyncHours int `toml:"auto_sync_hours"`
 }
 
 // Default returns a Config with every setting that has a built-in default
@@ -402,6 +410,7 @@ func Default() Config {
 			CalendarIDs:    []string{"primary"},
 			SyncPastDays:   1,
 			SyncFutureDays: 14,
+			AutoSyncHours:  24,
 		},
 	}
 }
@@ -409,7 +418,7 @@ func Default() Config {
 // ApplyDefaults replaces every unset setting that has a built-in default
 // (see Default) with it, in place: a zero string, a non-positive agenda
 // window or hide-closed delay, an empty calendar-ID list, or a zero sync
-// window. Zero is how this package says "not set" (see Load), so a
+// window or auto-sync interval. Zero is how this package says "not set" (see Load), so a
 // settings value that's gone through flag/config merging only needs this
 // once at the end to be fully resolved.
 func (c *Config) ApplyDefaults() {
@@ -440,6 +449,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.Gcalsync.SyncFutureDays == 0 {
 		c.Gcalsync.SyncFutureDays = d.Gcalsync.SyncFutureDays
+	}
+	if c.Gcalsync.AutoSyncHours == 0 {
+		c.Gcalsync.AutoSyncHours = d.Gcalsync.AutoSyncHours
 	}
 }
 

@@ -113,6 +113,14 @@
 # Default: unset, meaning no exclusions.
 # attendee_ignore_patterns = ["c_*@*"]
 
+# While orgtd is running, sync automatically whenever calendar_file is
+# more than this many hours old (checked at startup against the file's
+# modification time, then every ten minutes). An automatic sync never
+# opens a browser — it's skipped until a manual :sync-calendar has
+# signed in once — and reports to :log, not the status line. Negative
+# turns it off. Default: 24.
+# auto_sync_hours = 24
+
 # Customizes the character and color of each marker the outline draws in
 # its gutter column, to the left of every entry (see the README's
 # Keybindings section for what each one means: "+" for unsaved changes,

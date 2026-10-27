@@ -244,6 +244,12 @@ logging is on.
   none is, and that row centered on screen, so you land right where the
   day already is rather than at the top — falling back to the very first
   row if nothing has started yet (every synced event is still upcoming).
+  The status bar adds when the calendar was last synced successfully
+  (`synced 14:05`, or `synced Oct 25 14:05` if not today — before this
+  session's first sync, that's `calendar_file`'s modification time; or
+  `never synced` with no file at all), plus `syncing now...` while a sync
+  is running, or `last attempt failed (see :log)` if the most recent
+  one, manual or automatic, failed — `:log` has the error.
   This is the only place `calendar_file`'s
   contents are shown, since it's excluded from the outline view (above)
   entirely. Each event shows its time before its title (`14:00-14:30
@@ -787,9 +793,17 @@ alone.
 `:sync-calendar` syncs Google Calendar events into an org file —
 `calendar_file` (see above; `calendar.org` by default), so it's
 automatically excluded from the outline view and shown instead, grouped
-by day, in the `:calendar` view. It's triggered by hand, whenever you
-want fresh calendar data — there's nothing running in the background or
-on a schedule, and it never writes anywhere except that one file.
+by day, in the `:calendar` view. It never writes anywhere except that
+one file. Run it by hand whenever you want fresh calendar data; orgtd
+also syncs on its own, while it's running, whenever that file is more
+than `gcalsync.auto_sync_hours` (default 24) old — checked at startup
+(against the file's modification time on disk, so restarting orgtd
+doesn't by itself trigger a sync) and every ten minutes after. An
+automatic sync never opens a browser: until a manual `:sync-calendar`
+has signed in to Google once, it's skipped. Its outcome, success or
+failure, goes to `:log` rather than the status line, and after a
+failure it waits an hour before trying again. Set `auto_sync_hours` to
+a negative number to turn automatic syncing off.
 `:sync-calendar!` (with a bang, same convention as `:q!`) discards any
 cached Google sign-in first, forcing the consent flow to run again —
 useful if the cached token stops working (e.g. access was revoked).
@@ -892,6 +906,7 @@ automatically linked to every meeting she's tagged as an attendee of.
    sync_future_days = 14
    attendee_tag_domains = ["example.com"]
    attendee_ignore_patterns = ["c_*@*"]
+   auto_sync_hours = 24
    ```
 
 3. Run `:sync-calendar`. The first run opens your system browser to
@@ -910,6 +925,7 @@ automatically linked to every meeting she's tagged as an attendee of.
 | `gcalsync.sync_past_days` / `gcalsync.sync_future_days` | `1` / `14` | Sync window around now |
 | `gcalsync.attendee_tag_domains` | *(none — every confirmed attendee tagged)* | Restricts `@username` attendee tags (see above) to attendees whose email domain matches one of these, e.g. `["example.com"]` to tag only coworkers and drop external guests/vendors/room calendars. Matched case-insensitively; a leading `@` is optional (`"example.com"` and `"@example.com"` behave the same) |
 | `gcalsync.attendee_ignore_patterns` | *(none — no exclusions)* | Excludes any attendee whose email matches one of these glob patterns from consideration entirely, before `attendee_tag_domains` is even checked, e.g. `["c_*@*"]` to drop the synthetic `c_...@...` attendees Google Calendar attaches to some events. Uses Go's `filepath.Match` syntax (`*` matches any run of characters, `?` a single one) and is matched case-insensitively against the whole address |
+| `gcalsync.auto_sync_hours` | `24` | Sync automatically, while orgtd is running, whenever `calendar_file` is more than this many hours old (see above). Never opens a browser — skipped until you've signed in with a manual `:sync-calendar`. Negative turns it off |
 
 There are no command-line flags for these — `:sync-calendar` only ever
 runs interactively from inside orgtd, so they're config-file only.

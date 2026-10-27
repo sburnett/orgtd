@@ -34,7 +34,16 @@ type Settings struct {
 	// represent a resource/room booking, which would otherwise each get
 	// their own meaningless tag. Empty means no exclusions.
 	AttendeeIgnorePatterns []string
+
+	// NoConsentFlow makes Sync fail with ErrNotSignedIn, rather than open
+	// the browser to Google's consent screen, if there's no cached token
+	// yet (see gcal.HTTPClient) — for unattended syncs.
+	NoConsentFlow bool
 }
+
+// ErrNotSignedIn is Sync's error when Settings.NoConsentFlow is set and
+// there's no cached Google token to sync with.
+var ErrNotSignedIn = gcal.ErrNotSignedIn
 
 // Result is one sync run's outcome: the regenerated org file (not yet
 // written to disk — the caller does that, e.g. via org.WriteFile, once
@@ -48,13 +57,13 @@ type Result struct {
 
 // Sync authenticates to the Google Calendar API (reusing a token cached
 // in the OS keychain from a previous run, or running the interactive
-// consent flow if there isn't one — see gcal.HTTPClient; onConsentURL is
-// passed straight through to it), lists every event across
+// consent flow if there isn't one, unless s.NoConsentFlow — see
+// gcal.HTTPClient; onConsentURL is passed straight through to it), lists every event across
 // s.CalendarIDs within the sync window around now, drops any event
 // running longer than ExcludeTooLong allows, and renders what's left
 // into a fresh org.File via BuildFile. It never touches disk.
 func Sync(ctx context.Context, s Settings, onConsentURL func(url string)) (Result, error) {
-	httpClient, err := gcal.HTTPClient(ctx, s.OAuthClientID, s.OAuthClientSecret, onConsentURL)
+	httpClient, err := gcal.HTTPClient(ctx, s.OAuthClientID, s.OAuthClientSecret, s.NoConsentFlow, onConsentURL)
 	if err != nil {
 		return Result{}, err
 	}

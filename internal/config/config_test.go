@@ -38,6 +38,7 @@ sync_past_days = 2
 sync_future_days = 21
 attendee_tag_domains = ["example.com", "example.org"]
 attendee_ignore_patterns = ["c_*@*", "*@resource.calendar.google.com"]
+auto_sync_hours = 6
 
 [icons]
 dirty_icon = "*"
@@ -97,6 +98,7 @@ search_highlight_bg = "#707070"
 			SyncFutureDays:         21,
 			AttendeeTagDomains:     []string{"example.com", "example.org"},
 			AttendeeIgnorePatterns: []string{"c_*@*", "*@resource.calendar.google.com"},
+			AutoSyncHours:          6,
 		},
 		Icons: IconsConfig{
 			DirtyIcon:    "*",

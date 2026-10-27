@@ -117,6 +117,11 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		line("Calendar sync: (not configured — see README's Calendar sync section)")
 	} else {
 		line("Calendar sync: %s, -%dd/+%dd window", strings.Join(m.cfg.Gcalsync.CalendarIDs, ", "), m.cfg.Gcalsync.SyncPastDays, m.cfg.Gcalsync.SyncFutureDays)
+		if m.cfg.Gcalsync.AutoSyncHours > 0 {
+			line("Automatic calendar sync: whenever %s is over %d hours old", m.cfg.CalendarFile, m.cfg.Gcalsync.AutoSyncHours)
+		} else {
+			line("Automatic calendar sync: off")
+		}
 		if len(m.cfg.Gcalsync.AttendeeTagDomains) > 0 {
 			line("Attendee tag domains: %s", strings.Join(m.cfg.Gcalsync.AttendeeTagDomains, ", "))
 		} else {

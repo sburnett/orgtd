@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -29,6 +30,11 @@ const (
 	consentTimeout = 5 * time.Minute
 )
 
+// ErrNotSignedIn is HTTPClient's error, with noConsentFlow set, when
+// there's no cached token to reuse — the user has never completed the
+// consent flow, or discarded the token since.
+var ErrNotSignedIn = errors.New("gcal: not signed in to Google yet")
+
 // HTTPClient returns an *http.Client that authenticates every request
 // with an OAuth2 token scoped to calendar.readonly, using clientID/
 // clientSecret — an installed-app OAuth2 client the caller creates
@@ -42,7 +48,12 @@ const (
 // the keychain for next time. onConsentURL, if non-nil, is called with
 // the consent URL before the browser is opened, so the caller can also
 // print it (useful if the browser can't be opened, e.g. over SSH).
-func HTTPClient(ctx context.Context, clientID, clientSecret string, onConsentURL func(url string)) (*http.Client, error) {
+//
+// With noConsentFlow set, a missing cached token is an error
+// (ErrNotSignedIn) instead — the browser is never opened — for
+// unattended syncs, where popping up a consent screen out of nowhere
+// would be far too intrusive.
+func HTTPClient(ctx context.Context, clientID, clientSecret string, noConsentFlow bool, onConsentURL func(url string)) (*http.Client, error) {
 	if clientID == "" || clientSecret == "" {
 		return nil, fmt.Errorf("gcal: oauth client id/secret not configured")
 	}
@@ -56,6 +67,12 @@ func HTTPClient(ctx context.Context, clientID, clientSecret string, onConsentURL
 
 	tok, err := tokenFromKeyring()
 	if err != nil {
+		if noConsentFlow {
+			if errors.Is(err, keyring.ErrNotFound) {
+				return nil, ErrNotSignedIn
+			}
+			return nil, fmt.Errorf("gcal: reading cached token from keychain: %w", err)
+		}
 		tok, err = runConsentFlow(ctx, cfg, onConsentURL)
 		if err != nil {
 			return nil, err

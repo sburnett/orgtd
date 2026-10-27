@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -168,7 +169,40 @@ func (m *Model) normalStatusLine() string {
 		place = label
 	}
 	pos, total := m.entryPosition()
-	return fmt.Sprintf(" %s  —  item %d/%d", place, pos, total)
+	line := fmt.Sprintf(" %s  —  item %d/%d", place, pos, total)
+	if m.view == calendarView {
+		line += "  —  " + m.calendarSyncStatus()
+	}
+	return line
+}
+
+// calendarSyncStatus summarizes, for :calendar's status line, how fresh
+// what it's showing is: when the last successful sync was (a bare time if
+// it was today, else the date too), and whether the most recent attempt,
+// manual or automatic, failed or is still running.
+func (m *Model) calendarSyncStatus() string {
+	var s string
+	switch last := m.lastCalendarSync; {
+	case last.IsZero():
+		s = "never synced"
+	case sameDay(last, m.now()):
+		s = "synced " + last.Format("15:04")
+	default:
+		s = "synced " + last.Format("Jan 2 15:04")
+	}
+	switch {
+	case m.syncingCalendar:
+		s += ", syncing now..."
+	case m.calendarSyncFailed:
+		s += ", last attempt failed (see :log)"
+	}
+	return s
+}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.In(a.Location()).Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // entryPosition is the cursor's 1-based position among every entry in the

@@ -208,6 +208,17 @@ type Model struct {
 	// just this one flag.
 	syncingCalendar bool
 
+	// lastCalendarSync is when the calendar was last synced successfully
+	// (a wall-clock time — see autoSyncTick, which seeds it from the
+	// calendar file's mtime the first time it's zero), and
+	// autoSyncRetryAt the earliest an automatic sync may be tried again
+	// after one fails (zero: no hold-off). calendarSyncFailed is whether
+	// the most recent sync attempt, manual or automatic, failed — shown,
+	// with lastCalendarSync, on :calendar's status line.
+	lastCalendarSync   time.Time
+	autoSyncRetryAt    time.Time
+	calendarSyncFailed bool
+
 	readme string // README.md's content, embedded into the binary by the caller (see WithReadme); :help shows it verbatim
 }
 
@@ -238,12 +249,18 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		opt(&m)
 	}
 	m.bareURLRe = extprog.BareURLRegexp(m.cfg.URLFormatterPrefixes)
+	m.seedLastCalendarSync()
 	m.rebuildRows()
 	return m
 }
 
+// Init kicks off automatic calendar syncing (see autoSyncTick), if it's
+// enabled, with an immediate first check.
 func (m Model) Init() tea.Cmd {
-	return nil
+	if !m.autoSyncEnabled() {
+		return nil
+	}
+	return func() tea.Msg { return autoSyncTickMsg{} }
 }
 
 // isNamedFile reports whether f is the workspace file whose base name is
@@ -326,6 +343,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case syncCalendarMsg:
 		return m.finishSyncCalendar(msg)
+
+	case autoSyncTickMsg:
+		return m.autoSyncTick()
 
 	case vcsFinishedMsg:
 		return m.finishVCS(msg)

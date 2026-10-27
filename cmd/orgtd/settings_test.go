@@ -56,6 +56,7 @@ func TestResolveConfigKeepsEverythingTheConfigFileSets(t *testing.T) {
 			OAuthClientID: "id", OAuthClientSecret: "secret",
 			CalendarIDs: []string{"primary", "team@example.com"}, SyncPastDays: 2, SyncFutureDays: 21,
 			AttendeeTagDomains: []string{"example.com"}, AttendeeIgnorePatterns: []string{"c_*@*"},
+			AutoSyncHours: 6,
 		},
 		Icons:  config.IconsConfig{DirtyIcon: "*", DirtyColor: "1", MarkColor: "2", ReviewIcon: "@", LockColor: "4", MeetingIcon: "%"},
 		Colors: config.ColorsConfig{File: "#111111", TODO: "#222222", SearchHighlightBg: "#707070"},
