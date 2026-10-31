@@ -67,7 +67,7 @@ func (m *Model) appendTagsRows(dst *[]row) {
 	}
 }
 
-// renderTagsItemRowWithBg renders one tagsView entry row: mark/lock/
+// renderTagsItemRowWithBg renders one tagsView or snippetsView entry row: mark/lock/
 // meeting/dirty gutter and keyword/title exactly as an ordinary headline
 // row, but flat (no fold column — this row doesn't support folding its
 // own children/body, same as renderCalendarLinkedItemRowWithBg) and

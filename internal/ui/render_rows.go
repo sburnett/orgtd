@@ -198,7 +198,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 		return m.renderCalendarItemRowWithBg(r, bg)
 	case rowCalendarLinked:
 		return m.renderCalendarLinkedItemRowWithBg(r, bg)
-	case rowTagsItem:
+	case rowTagsItem, rowSnippetsItem:
 		return m.renderTagsItemRowWithBg(r, bg)
 	case rowMeetingTagsRecord:
 		return m.renderMeetingTagsRecordRowWithBg(r, bg)
@@ -397,7 +397,8 @@ func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColo
 }
 
 // flatEntryContent takes apart a flat, indented entry row that says where
-// it's from: an item linked to a calendar event, or one in tagsView.
+// it's from: an item linked to a calendar event, or one in tagsView or
+// snippetsView.
 func (m Model) flatEntryContent(r row, bg lipgloss.TerminalColor) rowContent {
 	h := r.headline
 	return rowContent{

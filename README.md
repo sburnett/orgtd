@@ -39,6 +39,7 @@ orgtd --dir ~/org
 | `--url-formatter-prefixes` | `url_formatter_prefixes` | *(none)* | Extra bare-URL prefixes recognized beyond `http://`/`https://`, e.g. `bit.ly/` or `go/` for shortlinks — comma-separated on the flag, a TOML array in the config file. Each is only matched at a word boundary, so `go/` won't match inside `embargo/foo` |
 | `--format-links-url-formatter` | `format_links_url_formatter` | *(same as `url_formatter`)* | External program `:format-links` (see below) invokes in batch mode — called with no trailing URL argument, it should instead read URLs one per line from stdin and print the same number of formatted lines to stdout. Configured separately from `url_formatter` since a batch-capable command may differ from (or take different arguments than) whatever handles a single URL while editing |
 | `--agenda-days` | `agenda_window_days` | `14` | How many days ahead the agenda view's "Upcoming" section covers |
+| `--snippets-days` | `snippets_window_days` | `7` | How many days, today included, the `:snippets` view looks back over |
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:review` treats as the inbox |
 | `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. the one `:sync-calendar` writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
 | `--meeting-tags-file` | `meeting_tags_file` | `meeting-tags.org` | Base name of the file holding durable meeting tags (see Tag-based meeting links, below) — excluded from the outline view and shown instead, as an editable outline of its own, in the `:meeting-tags` view |
@@ -106,6 +107,7 @@ url_formatter = ""
 url_formatter_prefixes = ["bit.ly/", "go/"]
 format_links_url_formatter = ""  # falls back to url_formatter if unset
 agenda_window_days = 14
+snippets_window_days = 7
 inbox_file = "inbox.org"
 calendar_file = "calendar.org"
 meeting_tags_file = "meeting-tags.org"
@@ -207,6 +209,7 @@ done     = true        # a finished state: stamps CLOSED, strikes through the ti
 name     = "CANCELLED"
 shortcut = "c"
 done     = true
+snippets = "skip"      # never shown in the :snippets view
 ```
 
 The built-in color scheme (`[colors]` and `[icons]` above) matches the
@@ -376,6 +379,26 @@ logging is on.
   are in chronological order; a meeting with nothing linked to it is left
   out entirely, and an item linked to more than one meeting legitimately
   shows up under each.
+- **Snippets** (`:snippets`) — the agenda's backward-looking counterpart:
+  everything completed today or in the previous 6 days
+  (`snippets_window_days`), grouped under one flush-left header per day,
+  both the days and the entries within each day newest first; a day with
+  nothing completed is left out. An entry counts if it's in a done state
+  with a `CLOSED` stamp in the window, or if it's a repeating item whose
+  `LAST_REPEAT` is. A repeating item records only its latest completion
+  (see File format, below), so it appears at most once, on that day, and
+  still shows its active keyword; that includes a repeating item last
+  marked `CANCELLED`, which records the same thing as `DONE`. A keyword
+  with `snippets = "skip"` is left out however it was completed, as the
+  built-in `CANCELLED` is (if you define your own `[[keywords]]`, set it
+  on any you don't want here). Every completed entry gets its own row,
+  even one nested under another completed entry. `hide_closed_after_hours`
+  doesn't apply here, and neither `reference/` nor `calendar_file` nor
+  `meeting_tags_file` is included. Rows are flat, with a `[file › parent]`
+  place tag, and every per-entry command works as in `:tags`. `Enter`
+  jumps to the entry's real place in the outline; if the outline is hiding
+  it as stale, that also switches the hiding off, as `:toggleclosed`
+  does.
 - **Config** (`:config`) — a read-only listing of every configurable
   setting's current, effective value (after flags/config
   file/built-in-default resolution), including whether hide-closed
@@ -567,7 +590,7 @@ stop), and so on.
 | `Page Down` / `Page Up` | Full-page down / up |
 | `ctrl-e` / `ctrl-y` | Scroll the view down/up by one line, like vim — the cursor stays put unless the scroll would push it off-screen, in which case it's dragged along just enough to stay visible |
 | `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise). On a file's own row, `zA`/`zO`/`zC` act on every entry in the file at once (`zA` opens them all if every one is folded, closes them all otherwise); the one-level `za`/`zo`/`zc` do nothing there, since the file itself can't be folded. A folded entry shows how many descendants it hides, as a muted `(N)` after its title (entries hidden by `hide_closed_after_hours` aren't counted). An entry too wide for one line can be folded even with no body or children — see Long entries, below |
-| `Enter` | In agenda view, jump to that item's real place in the outline. In calendar view, on an item attached to a meeting via `gM` (see below), same thing — a no-op on the meeting's own row, since `calendar_file` isn't part of the outline at all |
+| `Enter` | In agenda, `:tags` or `:snippets` view, jump to that item's real place in the outline. In calendar view, on an item attached to a meeting via `gM` (see below), same thing — a no-op on the meeting's own row, since `calendar_file` isn't part of the outline at all |
 | `ctrl-o` / `gi` | Jump back / forward through the jump list — vim's own `ctrl-o`/`ctrl-i`, tracking where you were before a "large" move: `gg`/`G`, `{`/`}`, a confirmed search (`/`/`?`, not `n`/`N` repeats), jumping to a mark (`'<letter>`) or to the review target (`gc`, which switches to the outline if the current view doesn't show it), and switching views entirely (`:agenda`, `Enter` from it, `:calendar`, `:outline`, ...) — never for `j`/`k` or fold/edit commands, or the list would be useless clutter. Bound to `gi` rather than `ctrl-i`: in a plain terminal `ctrl-i` and `Tab` are the same byte, so there's no way to bind it separately from the fold-toggle key above. A no-op at either end of the list |
 
 ### Long entries
@@ -767,7 +790,7 @@ History doesn't persist between sessions.
 | `:close` / `:clo` | Close the current window (refused for the last one) |
 | `:only` / `:on` | Close every window but the current one |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
-| `:agenda` / `:outline` / `:reference` / `:config` / `:log` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
+| `:agenda` / `:snippets` / `:outline` / `:reference` / `:config` / `:log` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
 | `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is created (on disk immediately, since an empty file has no edit for `:w` to save) — add entries with `o`/`O` on its header row. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
 | `:edit! [file]` / `:e! [file]` | Reload a file from disk, discarding its unsaved changes, undo history and marks — the way out when `:w` refuses because the file changed on disk. `<file>` is named as for `:edit` and must already be loaded; with none, reloads the file under the cursor |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and open it in `$EDITOR` |

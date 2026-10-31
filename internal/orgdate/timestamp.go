@@ -211,6 +211,26 @@ func AdvanceRepeating(ts *org.Timestamp, now time.Time) (next *org.Timestamp, ok
 	return &org.Timestamp{Active: ts.Active, Raw: raw}, true
 }
 
+// CompletedTime returns when h was last completed: its CLOSED stamp if h
+// is in a done state, or its LAST_REPEAT property if it isn't, since
+// completing a repeating item records that instead and leaves the keyword
+// alone. Going by h's state means a CLOSED stamp left on an item that's
+// since been reopened by hand doesn't count. ok is false if h has neither,
+// or the stamp can't be read.
+func CompletedTime(h *org.Headline) (time.Time, bool) {
+	var raw string
+	if !org.IsDoneKeyword(h.Keyword) {
+		raw = strings.Trim(h.Properties["LAST_REPEAT"], "[]")
+	} else if h.Closed != nil {
+		raw = h.Closed.Raw
+	}
+	t, _, err := ParseFlexible(raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
 // CreatedTime parses h's CREATED property (stamped on every new entry,
 // e.g. "[2026-09-24 Thu 14:32]") back into a time.Time, for ordering
 // entries by when they were actually created rather than by their position

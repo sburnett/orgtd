@@ -4,7 +4,7 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
-// jumpToSource ("Enter" on an agenda row or a tagsView row) switches to
+// jumpToSource ("Enter" on an agenda or tagsView row) switches to
 // outline view with the cursor on that row's real headline. A no-op on a
 // row with no headline of its own (a section header).
 func (m *Model) jumpToSource() {

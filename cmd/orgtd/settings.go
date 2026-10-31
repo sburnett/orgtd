@@ -22,6 +22,7 @@ type flagValues struct {
 	urlFormatterPrefixes                                                           string // comma-separated; see splitList
 	outlineIgnoreFiles                                                             string // comma-separated; see splitList
 	agendaDays                                                                     int
+	snippetsDays                                                                   int
 	hideClosedAfterHours                                                           int
 	debug                                                                          bool
 	configPath                                                                     string
@@ -36,6 +37,7 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.urlFormatter, "url-formatter", "", "external program invoked as `<prog> <url>` to convert a bare URL, found while editing an entry, into an org-mode link (its stdout replaces the URL); disabled if empty (default: the config file's url_formatter, else disabled)")
 	fs.StringVar(&f.urlFormatterPrefixes, "url-formatter-prefixes", "", "comma-separated extra bare-URL prefixes beyond http:// and https://, e.g. \"bit.ly/,go/\" (default: the config file's url_formatter_prefixes, else none)")
 	fs.StringVar(&f.formatLinksURLFormatter, "format-links-url-formatter", "", "external program :format-links invokes in batch mode (no url argument; reads urls one per line from stdin, prints the same number of formatted lines to stdout) (default: the config file's format_links_url_formatter, else the same as -url-formatter)")
+	fs.IntVar(&f.snippetsDays, "snippets-days", 0, "how many days, today included, the :snippets view looks back over (default: the config file's snippets_window_days, else 7)")
 	fs.IntVar(&f.agendaDays, "agenda-days", 0, "how many days ahead the agenda view's \"Upcoming\" section covers (default: the config file's agenda_window_days, else 14)")
 	fs.StringVar(&f.inboxFile, "inbox-file", "", "base name of the file :review treats as the inbox (default: the config file's inbox_file, else inbox.org)")
 	fs.StringVar(&f.calendarFile, "calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
@@ -94,6 +96,9 @@ func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.
 	}
 	if f.explicit["agenda-days"] {
 		out.AgendaWindowDays = f.agendaDays
+	}
+	if f.explicit["snippets-days"] {
+		out.SnippetsWindowDays = f.snippetsDays
 	}
 	if f.explicit["inbox-file"] {
 		out.InboxFile = f.inboxFile

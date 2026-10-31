@@ -34,7 +34,7 @@ const (
 	rowBody
 
 	// rowSection is a flush-left group header: an agenda section
-	// ("Overdue"), a calendar day, or a tag name. text is its title;
+	// ("Overdue"), a calendar or snippets day, or a tag name. text is its title;
 	// headline is nil.
 	rowSection
 
@@ -92,6 +92,11 @@ const (
 	// instead), since an entry with several tags legitimately gets one row
 	// per tag, all sharing the same headline pointer.
 	rowTagsItem
+
+	// rowSnippetsItem is a row in snippetsView (see appendSnippetsRows): a
+	// completed entry under its day's section header, rendered the same
+	// flat way as rowTagsItem. An entry only ever gets one such row.
+	rowSnippetsItem
 )
 
 // row is one visible line of the current view: see rowKind for what each

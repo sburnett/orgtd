@@ -71,6 +71,16 @@ func WithAgendaDays(days int) Option {
 	}
 }
 
+// WithSnippetsDays sets how many days, today included, snippetsView looks
+// back over. days <= 0 is treated as the default (7).
+func WithSnippetsDays(days int) Option {
+	return func(m *Model) {
+		if days > 0 {
+			m.cfg.SnippetsWindowDays = days
+		}
+	}
+}
+
 // WithInboxFile sets the base file name :review treats as the inbox
 // (e.g. "inbox.org", the default). name == "" is treated as the
 // default.

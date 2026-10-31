@@ -220,7 +220,7 @@ including its known weak points, so changes can be made deliberately.
 | `meeting_links.go` | Resolving an entry's calendar-meeting links for display |
 | `undo.go` | `undoAction` types, undo/redo, dirty derivation, structural-edit helpers (`insertContext`, splice/reparent actions) |
 | `agenda.go` | Agenda computation and rows, including the Meetings section (items grouped under upcoming meetings, via the meetings index) |
-| `calendar.go`, `meeting_tags.go`, `tags.go` | The `:calendar`, `:meeting-tags` and `:tags` views |
+| `calendar.go`, `meeting_tags.go`, `tags.go`, `snippets.go` | The `:calendar`, `:meeting-tags`, `:tags` and `:snippets` views |
 | `repeat.go` | Completing a repeating item (`+1w`, `++1w`, `.+1w`) |
 | `sync_calendar.go` | `:sync-calendar` command and result application |
 | `util.go` | Tiny shared helpers |
@@ -239,10 +239,11 @@ builder, whether its rows fold, the empty-state message, what Enter does,
 any `open` preparation (calendar, diff), and info-buffer lines —
 and the rest of the package asks the spec instead of switching on
 `m.view`. The views are outline, agenda, config, log, diff, help,
-calendar, meetingTags, tags and reference. A `row` (`row.go`) carries a `kind`
+calendar, meetingTags, tags, snippets and reference. A `row` (`row.go`) carries a `kind`
 (`rowHeadline`, `rowFile`, `rowBody`, `rowSection`, `rowText`,
 `rowAgendaItem`, `rowMeetingHeader`, `rowCalendarEvent`,
-`rowMeetingTagsRecord`, `rowCalendarLinked`, `rowTagsItem`) that says
+`rowMeetingTagsRecord`, `rowCalendarLinked`, `rowTagsItem`,
+`rowSnippetsItem`) that says
 which of its fields apply and how it renders, searches and compares;
 `row.go` documents each kind. Most per-entry commands
 (`i`, `dd`, `r`, `gd`, marks) work in every headline-backed view because
@@ -443,9 +444,8 @@ not exist, so don't look for them in the code:
 - **Meeting capture from Google Docs action items.** Only Calendar is
   integrated; there is no Docs/Drive/Meet client. Capture-time meeting
   attachment is `gX`/`gM`, and `o`/`O` in `:calendar`.
-- **Review ("snippets") mode** over completed items by day/week/month.
-  Done items are only hidden after `hide_closed_after_hours`
-  (`:toggleclosed`).
+- **Browsing completions by week or month.** `:snippets` covers one
+  rolling window, `snippets_window_days`, grouped by day.
 - **Background calendar polling and `R`/`:refresh`.** Sync is manual
   (`:sync-calendar`).
 - **`.orgtd/` tool-managed directory, `agenda.org` output, `:ID:` and

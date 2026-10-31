@@ -107,6 +107,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	}
 
 	line("Agenda window: %d days", m.cfg.AgendaWindowDays)
+	line("Snippets window: %d days", m.cfg.SnippetsWindowDays)
 	line("Inbox file: %s", m.cfg.InboxFile)
 	line("Calendar file: %s", m.cfg.CalendarFile)
 	line("Meeting tags file: %s", m.cfg.MeetingTagsFile)
@@ -153,6 +154,9 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		}
 		if k.Agenda != "" {
 			desc += " agenda=" + k.Agenda
+		}
+		if k.Snippets != "" {
+			desc += " snippets=" + k.Snippets
 		}
 		if color := m.keywordColor(k); color != "" {
 			desc += " (" + color + ")"

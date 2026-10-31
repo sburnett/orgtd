@@ -23,6 +23,7 @@ const (
 	meetingTagsView
 	tagsView
 	referenceView
+	snippetsView
 
 	numViews // not a view: the number of views, sizing viewSpecs
 )
@@ -130,6 +131,15 @@ func init() {
 			build:   flat((*Model).appendTagsRows),
 			empty:   func(*Model) string { return "No tags found. :outline to go back." },
 			enter:   (*Model).jumpToSource,
+		},
+		snippetsView: {
+			command: "snippets",
+			label:   "snippets",
+			build:   flat((*Model).appendSnippetsRows),
+			empty: func(m *Model) string {
+				return fmt.Sprintf("Nothing completed in the last %d days. :outline to go back.", m.cfg.SnippetsWindowDays)
+			},
+			enter: (*Model).jumpToSnippetSource,
 		},
 		referenceView: {
 			command: "reference",

@@ -55,6 +55,10 @@
 # covers. Default: 14.
 # agenda_window_days = 14
 
+# How many days, today included, the :snippets view looks back over.
+# Default: 7.
+# snippets_window_days = 7
+
 # Base name of the file :review treats as the inbox. Default: inbox.org.
 # inbox_file = "inbox.org"
 
@@ -172,6 +176,8 @@
 #             skipped by agenda/:review
 #   agenda    "next": list under the agenda's Next Actions;
 #             "skip": keep out of Overdue/Due Today/Upcoming
+#   snippets  "skip": keep out of the :snippets view (the built-in
+#             CANCELLED has this set)
 # [[keywords]]
 # name = "TODO"
 # shortcut = "t"

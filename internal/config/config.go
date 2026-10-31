@@ -30,7 +30,12 @@ type Config struct {
 	VCSEditor        string `toml:"vcs_editor"`
 	URLFormatter     string `toml:"url_formatter"`
 	AgendaWindowDays int    `toml:"agenda_window_days"`
-	InboxFile        string `toml:"inbox_file"`
+
+	// SnippetsWindowDays is how many days, today included, the :snippets
+	// view looks back over.
+	SnippetsWindowDays int `toml:"snippets_window_days"`
+
+	InboxFile string `toml:"inbox_file"`
 
 	// CalendarFile is the base name of the file excluded from the
 	// outline view and shown instead, grouped by day, in the :calendar
@@ -109,6 +114,10 @@ type Config struct {
 	Keywords []KeywordConfig `toml:"keywords"`
 }
 
+// SnippetsSkip is the one snippets role a KeywordConfig can have (its
+// Snippets field).
+const SnippetsSkip = "skip"
+
 // Agenda roles a KeywordConfig can have (its Agenda field).
 const (
 	// AgendaNext lists every headline with the keyword under the
@@ -147,6 +156,10 @@ type KeywordConfig struct {
 
 	// Agenda is "", AgendaNext or AgendaSkip.
 	Agenda string `toml:"agenda"`
+
+	// Snippets is "" or SnippetsSkip, which keeps headlines with the
+	// keyword out of the :snippets view.
+	Snippets string `toml:"snippets"`
 }
 
 // DefaultKeywords returns the built-in keyword set: TODO, NEXT, WAITING,
@@ -159,7 +172,7 @@ func DefaultKeywords() []KeywordConfig {
 		{Name: "WAITING", Shortcut: "w", Bold: true},
 		{Name: "SOMEDAY", Shortcut: "s", Agenda: AgendaSkip},
 		{Name: "DONE", Shortcut: "d", Done: true},
-		{Name: "CANCELLED", Shortcut: "c", Done: true},
+		{Name: "CANCELLED", Shortcut: "c", Done: true, Snippets: SnippetsSkip},
 	}
 }
 
@@ -184,6 +197,9 @@ func (c *Config) Normalize() error {
 		case "", AgendaNext, AgendaSkip:
 		default:
 			return fmt.Errorf("keyword %s: agenda must be %q or %q, got %q", k.Name, AgendaNext, AgendaSkip, k.Agenda)
+		}
+		if k.Snippets != "" && k.Snippets != SnippetsSkip {
+			return fmt.Errorf("keyword %s: snippets must be %q, got %q", k.Name, SnippetsSkip, k.Snippets)
 		}
 		if k.Shortcut == "" {
 			continue
@@ -406,6 +422,7 @@ type GcalsyncConfig struct {
 func Default() Config {
 	return Config{
 		AgendaWindowDays:     14,
+		SnippetsWindowDays:   7,
 		InboxFile:            "inbox.org",
 		CalendarFile:         "calendar.org",
 		MeetingTagsFile:      "meeting-tags.org",
@@ -430,6 +447,9 @@ func (c *Config) ApplyDefaults() {
 	d := Default()
 	if c.AgendaWindowDays <= 0 {
 		c.AgendaWindowDays = d.AgendaWindowDays
+	}
+	if c.SnippetsWindowDays <= 0 {
+		c.SnippetsWindowDays = d.SnippetsWindowDays
 	}
 	if c.InboxFile == "" {
 		c.InboxFile = d.InboxFile
