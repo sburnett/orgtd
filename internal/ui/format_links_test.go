@@ -380,7 +380,8 @@ func TestBulkStatusChangeSkipsImmutableEntries(t *testing.T) {
 	m = sendKey(m, "V")
 	m = sendKey(m, "j")
 	m = sendKey(m, "R")
-	m = sendKey(m, "d") // DONE
+	m = sendKey(m, "d")     // DONE
+	m = sendKey(m, "enter") // no closing note
 
 	if lockedHeadline.Keyword != "TODO" {
 		t.Errorf("locked entry keyword = %q, want unchanged TODO", lockedHeadline.Keyword)

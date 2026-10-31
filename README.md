@@ -394,7 +394,9 @@ logging is on.
   with `snippets = "skip"` is left out however it was completed, as the
   built-in `CANCELLED` is (if you define your own `[[keywords]]`, set it
   on any you don't want here). Every completed entry gets its own row,
-  even one nested under another completed entry. `hide_closed_after_hours`
+  even one nested under another completed entry, with the closing note
+  from that completion, if it has one (see File format, below), right
+  under it. `hide_closed_after_hours`
   doesn't apply here, and neither `reference/` nor `calendar_file` nor
   `meeting_tags_file` is included. Rows are flat, with a `[file › parent]`
   place tag, and every per-entry command works as in `:tags`. `Enter`
@@ -629,8 +631,8 @@ parent before the file name.
 | `<N>yy` / `<N>Y` | Yank the current entry and the next N-1 entries and their subtrees, as a group pasted back together by a single `p`/`P` — the yank counterpart of `<N>dd`. A count of 1 (or none) is plain `yy` |
 | `p` / `P` | Paste the unnamed register's contents (or the one named by a `"<register>` prefix); a count repeats it (`3p`) after / before the current entry, re-indented to fit. If the register holds more than one entry (from `<N>dd` or a visual-mode `d`/`y`), all of them are pasted together, in the same order they were deleted/yanked in |
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
-| `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut — configurable, see `[[keywords]]`) |
-| `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry) |
+| `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut — configurable, see `[[keywords]]`). Choosing a done state for an entry that isn't already done then asks for a one-line closing note: `Enter` closes it with that note, or with none if left empty, and `Esc` cancels the state change. See File format, below |
+| `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry). A closing note is asked for once, and goes on every entry this closes |
 | `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
 | `gC` | Capture: append a new entry to the end of the inbox file and open it in `$EDITOR`, regardless of the current cursor position or view (same as `:capture`). Once the editor session commits, switches to outline view with the cursor on the newly captured entry (unless already in the outline, whose listing already includes it), ready for further edits right away. Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
 | `gM` | Open a picker (type to filter by title or attendee tag — e.g. "alice" matches a meeting tagged `@alice`, same tags `:sync-calendar` stamps on for Tag-based meeting links, below — ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the info buffer's "Meeting" section — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. A linked entry (attached via `gM`, or tag-matched — see Tag-based meeting links, above) shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it's linked to a meeting is visible at a glance, in every view, without opening it |
@@ -698,7 +700,7 @@ below (to its right) if it was the first, and the cursor goes with it.
 | `V` | Enter visual line selection at the current entry. Navigation keys (`j`/`k`, `gg`/`G`, `{`/`}`, `l`/`h`, `^`/`$`, `ctrl-d`/`ctrl-u`, `Page Down`/`Page Up`, `ctrl-e`/`ctrl-y`) extend the selection instead of just moving; `V` again or `Esc` cancels it |
 | `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one). Fills the paste register with everything deleted (top-to-bottom order preserved), so `p`/`P` pastes the whole selection back as a group |
 | `y` | (in visual mode) Yank every selected entry and its subtree into the paste register, without deleting them — the visual-mode equivalent of `yy`. Same ancestor-covers-descendant rule as `d`. Leaves normal mode afterward, same as `d`/`r`/`R` |
-| `r` / `R` | (in visual mode) Open the same status picker as normal-mode `r`/`R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched |
+| `r` / `R` | (in visual mode) Open the same status picker as normal-mode `r`/`R`, but apply the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched. A closing note is asked for once, as with `<N>r` |
 
 The cursor's own entry keeps the usual highlight color; the rest of the
 selection is shaded differently, so which end is the actual cursor is
@@ -835,6 +837,23 @@ interval from the old date (however overdue that leaves it); `++1w`
 advances however many intervals it takes to land on or after today;
 `.+1w` advances one interval from *today*, ignoring the old date
 entirely.
+
+A closing note (see `r`/`R`, above) is written the way org-mode's
+`org-log-done` set to `note` writes one: at the top of the entry's body,
+newest first, where it can be edited like any other body text. Reopening
+the item leaves it there as history.
+
+```org
+* DONE Ship the report
+  CLOSED: [2026-10-31 Sat 14:05]
+  - CLOSING NOTE [2026-10-31 Sat 14:05] \\
+    Sent to the team, follow-up next week
+```
+
+A repeating item records its note under a state-change line instead,
+since it never really closes, e.g. `- State "DONE"       from "TODO"
+[2026-10-31 Sat 14:05] \\`. With no note, nothing is added to the body
+either way.
 
 Round-tripping is format-*preserving* rather than byte-exact: body text
 and file preamble pass through untouched, but a headline, planning, or

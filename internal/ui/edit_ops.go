@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/sburnett/orgtd/internal/org"
+	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // deleteHeadlineCount implements a numeric-prefixed "dd" (e.g. "3dd"):
@@ -100,11 +101,13 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 // completing a repeating item (see repeatAdvanceForCompletion), or a
 // plain statusChangeAction otherwise — without applying or pushing it,
 // so bulk operations (visual-mode R) can batch several of these into one
-// undo step the same way applyStatus handles a single one.
-func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAction {
-	if org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword) {
+// undo step the same way applyStatus handles a single one. A non-blank
+// note is logged if h is completing, and ignored otherwise.
+func (m *Model) buildStatusChangeAction(h *org.Headline, keyword, note string) undoAction {
+	closing := org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword)
+	if closing {
 		if a := m.repeatAdvanceForCompletion(h); a != nil {
-			return a
+			return m.withClosingNote(a, h, orgdate.StateNoteHeading(keyword, h.Keyword), note)
 		}
 	}
 
@@ -116,7 +119,7 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 		newClosed = nil
 	}
 
-	return &statusChangeAction{
+	var a undoAction = &statusChangeAction{
 		h:          h,
 		f:          m.ws.FileOf(h),
 		oldKeyword: h.Keyword,
@@ -124,6 +127,10 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 		oldClosed:  h.Closed,
 		newClosed:  newClosed,
 	}
+	if closing {
+		a = m.withClosingNote(a, h, orgdate.ClosingNoteHeading, note)
+	}
+	return a
 }
 
 // applyStatusToHeadlineSet sets keyword on every headline in headlines —
@@ -136,7 +143,7 @@ func (m *Model) buildStatusChangeAction(h *org.Headline, keyword string) undoAct
 // deleteHeadlineSet. While :review is on, also advances past the pinned
 // target if it just became DONE/CANCELLED (see
 // advanceReviewTargetIfDone).
-func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, label string) {
+func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, label, note string) {
 	headlines, skipped := m.filterImmutable(headlines)
 	if len(headlines) == 0 {
 		if skipped > 0 {
@@ -152,7 +159,7 @@ func (m *Model) applyStatusToHeadlineSet(headlines []*org.Headline, keyword, lab
 		if _, ok := byFile[f]; !ok {
 			order = append(order, f)
 		}
-		byFile[f] = append(byFile[f], m.buildStatusChangeAction(h, keyword))
+		byFile[f] = append(byFile[f], m.buildStatusChangeAction(h, keyword, note))
 	}
 	for _, f := range order {
 		m.pushUndo(&batchAction{actions: byFile[f]})

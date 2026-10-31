@@ -101,6 +101,9 @@ func (m Model) updateSelectMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyRunes:
 		for _, r := range msg.Runes {
+			if m.mode != selectMode {
+				break
+			}
 			m.typeSelectChar(r)
 		}
 		return m, nil
@@ -133,9 +136,9 @@ func (m *Model) typeSelectChar(r rune) {
 	m.selectFilter = candidateFilter
 	m.selectIndex = 0
 	if len(matches) == 1 {
-		m.applyChosenStatus(matches[0].keyword, matches[0].label)
 		m.mode = normalMode
 		m.selectFilter = ""
+		m.applyChosenStatus(matches[0].keyword, matches[0].label)
 	}
 }
 
@@ -170,18 +173,31 @@ func (m Model) applySelectedStatus() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyChosenStatus applies keyword (labeled label, for the bulk status
-// message) to either selectModeTargets (set when the R picker now
-// resolving was entered from visual mode or with a numeric prefix) or
-// just the current headline otherwise — shared by applySelectedStatus
+// applyChosenStatus resolves the picker's choice of keyword (labeled
+// label, for the bulk status message), first asking for a closing note if
+// it completes anything (see closesAny) — shared by applySelectedStatus
 // (Enter) and typeSelectChar's single-match auto-apply.
 func (m *Model) applyChosenStatus(keyword, label string) {
-	if targets := m.selectModeTargets; len(targets) > 0 {
-		m.selectModeTargets = nil
-		m.applyStatusToHeadlineSet(targets, keyword, label)
+	if m.closesAny(keyword) {
+		m.mode = closingNoteMode
+		m.closingNoteKeyword = keyword
+		m.closingNoteLabel = label
 		return
 	}
-	m.applyStatus(keyword)
+	m.applyStatusToTargets(keyword, label, "")
+}
+
+// applyStatusToTargets applies keyword, logging note on every entry it
+// completes, to either selectModeTargets (set when the R picker was
+// entered from visual mode or with a numeric prefix) or just the current
+// headline otherwise.
+func (m *Model) applyStatusToTargets(keyword, label, note string) {
+	if targets := m.selectModeTargets; len(targets) > 0 {
+		m.selectModeTargets = nil
+		m.applyStatusToHeadlineSet(targets, keyword, label, note)
+		return
+	}
+	m.applyStatus(keyword, note)
 }
 
 // currentStatusIndex returns the statusCandidates index matching the
@@ -209,13 +225,14 @@ func (m *Model) currentStatusIndex() int {
 // See buildStatusChangeAction, which does the actual work (shared with
 // visual-mode R's bulk apply). While :review is on, this also advances past
 // the pinned target if it just became DONE/CANCELLED (see
-// advanceReviewTargetIfDone).
-func (m *Model) applyStatus(keyword string) {
+// advanceReviewTargetIfDone). A non-blank note is logged too, if h is
+// completing (see withClosingNote).
+func (m *Model) applyStatus(keyword, note string) {
 	h := m.currentHeadline()
 	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
-	m.pushUndo(m.buildStatusChangeAction(h, keyword))
+	m.pushUndo(m.buildStatusChangeAction(h, keyword, note))
 	m.advanceReviewTargetIfDone()
 }
 

@@ -170,12 +170,16 @@ func sendKeyCmd(m Model, key string) (Model, tea.Cmd) {
 	return updated.(Model), cmd
 }
 
-// setStatus opens the status picker (r) and picks shortcut, the same two
-// keystrokes a person would type — used throughout the test suite in
+// setStatus opens the status picker (r) and picks shortcut, the same
+// keystrokes a person would type, leaving any closing note empty — used throughout the test suite in
 // place of the old bare-cycling "r" command it replaced.
 func setStatus(m Model, shortcut string) Model {
 	m = sendKey(m, "r")
-	return sendKey(m, shortcut)
+	m = sendKey(m, shortcut)
+	if m.mode == closingNoteMode {
+		m = sendKey(m, "enter")
+	}
+	return m
 }
 
 // typeKeys sends each rune of s as a separate key press, as a real
@@ -718,7 +722,8 @@ func TestLowercaseRSameAsUppercaseR(t *testing.T) {
 		t.Errorf("preselected keyword = %q, want %q", got, want)
 	}
 
-	m = sendKey(m, "d") // shortcut for DONE
+	m = sendKey(m, "d")     // shortcut for DONE
+	m = sendKey(m, "enter") // no closing note
 	if m.mode != normalMode {
 		t.Fatalf("mode after shortcut = %v, want normalMode (auto-apply)", m.mode)
 	}
@@ -773,7 +778,8 @@ func TestSelectModeShortcutAppliesImmediately(t *testing.T) {
 	h := m.currentHeadline()
 
 	m = sendKey(m, "R")
-	m = sendKey(m, "d") // shortcut for DONE
+	m = sendKey(m, "d")     // shortcut for DONE
+	m = sendKey(m, "enter") // no closing note
 	if m.mode != normalMode {
 		t.Fatalf("mode after shortcut = %v, want normalMode (auto-apply)", m.mode)
 	}

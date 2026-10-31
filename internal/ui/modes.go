@@ -25,6 +25,7 @@ const (
 	visualMode
 	meetingPickerMode
 	tagMode
+	closingNoteMode
 
 	numModes // not a mode: the number of modes, sizing modeSpecs
 )
@@ -135,6 +136,12 @@ func init() {
 			update: Model.updateDeadlineMode,
 			prompt: func(m *Model) string {
 				return m.editedLine(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
+			},
+		},
+		closingNoteMode: {
+			update: Model.updateClosingNoteMode,
+			prompt: func(m *Model) string {
+				return m.editedLine(" Closing note (empty for none, Esc cancels): " + m.closingNoteInput)
 			},
 		},
 		confirmMode: {

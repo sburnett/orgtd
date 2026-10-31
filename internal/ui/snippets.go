@@ -42,8 +42,9 @@ func (m *Model) snippetEntries(start time.Time) []snippetEntry {
 
 // appendSnippetsRows appends the rows for snippetsView: one flush-left
 // section-header row per day with anything completed on it, most recent
-// day first, each followed by that day's entries. The window is today
-// and the SnippetsWindowDays-1 days before it.
+// day first, each followed by that day's entries and, under an entry with
+// one, its closing note. The window is today and the SnippetsWindowDays-1
+// days before it.
 func (m *Model) appendSnippetsRows(dst *[]row) {
 	start := orgdate.TruncateToDate(m.now()).AddDate(0, 0, 1-m.cfg.SnippetsWindowDays)
 	var day time.Time
@@ -53,6 +54,27 @@ func (m *Model) appendSnippetsRows(dst *[]row) {
 			*dst = append(*dst, row{kind: rowSection, text: day.Format("2006-01-02 Mon")})
 		}
 		*dst = append(*dst, row{headline: e.h, level: 1, kind: rowSnippetsItem})
+		m.appendClosingNote(dst, e.h)
+	}
+}
+
+// appendClosingNote appends h's closing note, if any, as body rows under
+// its row in snippetsView — what wrapping and j/k already do for body
+// text, and searchable the same way (see row.bodySearch).
+func (m *Model) appendClosingNote(dst *[]row, h *org.Headline) {
+	note := orgdate.ClosingNote(h)
+	if note == "" {
+		return
+	}
+	const level = 2
+	(*dst)[len(*dst)-1].bodySearch = note
+	segs := wrapBodyLine(note, m.listWidth()-(5+2*level+2))
+	var wrap *wrappedLine
+	if len(segs) > 1 {
+		wrap = &wrappedLine{segs: segs}
+	}
+	for i, seg := range segs {
+		*dst = append(*dst, row{headline: h, level: level, kind: rowBody, text: seg, bodyIdx: i, wrap: wrap, wrapSeg: i})
 	}
 }
 

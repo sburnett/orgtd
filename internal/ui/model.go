@@ -132,6 +132,10 @@ type Model struct {
 	selectFilter string // typed so far, in selectMode
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
 
+	closingNoteInput   string // typed so far, in closingNoteMode
+	closingNoteKeyword string // the state chosen in the picker, applied once closingNoteMode resolves
+	closingNoteLabel   string // that state's label, for the bulk status message
+
 	// meetingPickerTarget is the entry "gM" was invoked on, whose
 	// GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS (matching whichever the
 	// highlighted candidate is — see meetings.Meeting.Kind) is

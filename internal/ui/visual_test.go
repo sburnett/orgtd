@@ -193,7 +193,8 @@ func TestVisualModeSetStatusAppliesToEveryRowIndependently(t *testing.T) {
 	if m.mode != selectMode || len(m.selectModeTargets) != 3 {
 		t.Fatalf("mode after visual R = %v (selectModeTargets=%v), want selectMode with 3 targets", m.mode, m.selectModeTargets)
 	}
-	m = sendKey(m, "d") // "d" uniquely filters to the DONE candidate and auto-applies
+	m = sendKey(m, "d")     // "d" uniquely filters to the DONE candidate and auto-applies
+	m = sendKey(m, "enter") // no closing note
 
 	if m.mode != normalMode {
 		t.Errorf("mode after choosing a status = %v, want normalMode", m.mode)

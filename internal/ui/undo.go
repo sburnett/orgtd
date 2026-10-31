@@ -125,6 +125,27 @@ func (a *repeatAdvanceAction) revert(m *Model) *org.Headline {
 func (a *repeatAdvanceAction) file() *org.File           { return a.f }
 func (a *repeatAdvanceAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
+// closingNoteAction records logging a closing note (see withClosingNote),
+// which is prepended to h's body the way org-mode does it.
+type closingNoteAction struct {
+	h                *org.Headline
+	f                *org.File
+	oldBody, newBody []string
+}
+
+func (a *closingNoteAction) apply(m *Model) *org.Headline {
+	a.h.Body = a.newBody
+	return a.h
+}
+
+func (a *closingNoteAction) revert(m *Model) *org.Headline {
+	a.h.Body = a.oldBody
+	return a.h
+}
+
+func (a *closingNoteAction) file() *org.File           { return a.f }
+func (a *closingNoteAction) affected() []*org.Headline { return []*org.Headline{a.h} }
+
 // deadlineChangeAction records a DEADLINE change ("gd"), including
 // clearing it (newDeadline nil). Like statusChangeAction, the mutation
 // is in place, so the same headline pointer is "affected" either way.

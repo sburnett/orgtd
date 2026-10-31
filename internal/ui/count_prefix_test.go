@@ -176,7 +176,8 @@ func TestCountPrefixSetStatusAppliesToNEntriesInOneUndoStep(t *testing.T) {
 	if m.mode != selectMode || len(m.selectModeTargets) != 2 {
 		t.Fatalf("mode after 2R = %v (selectModeTargets=%v), want selectMode with 2 targets", m.mode, m.selectModeTargets)
 	}
-	m = sendKey(m, "d") // uniquely filters to DONE and auto-applies
+	m = sendKey(m, "d")     // uniquely filters to DONE and auto-applies
+	m = sendKey(m, "enter") // no closing note
 
 	if m.mode != normalMode {
 		t.Errorf("mode after choosing a status = %v, want normalMode", m.mode)
@@ -205,6 +206,7 @@ func TestCountPrefixOfOneOrZeroActsLikePlainR(t *testing.T) {
 		t.Errorf("selectModeTargets = %v, want none (a count of 1 should behave like plain R)", m.selectModeTargets)
 	}
 	m = sendKey(m, "d")
+	m = sendKey(m, "enter") // no closing note
 
 	if h := findHeadlineByTitle(t, m, "A"); h.Keyword != "DONE" {
 		t.Errorf("A keyword = %q, want DONE", h.Keyword)

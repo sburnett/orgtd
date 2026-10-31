@@ -466,7 +466,8 @@ func TestReviewMarkingTargetDoneAdvancesToNextPendingItem(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "c") // jump to the real row, so R operates on it
 	m = sendKey(m, "R")
-	m = sendKey(m, "d") // "d" uniquely filters to DONE and auto-applies
+	m = sendKey(m, "d")     // "d" uniquely filters to DONE and auto-applies
+	m = sendKey(m, "enter") // no closing note
 
 	if m.reviewTarget == first {
 		t.Fatalf("reviewTarget unchanged after marking it done")
@@ -485,6 +486,7 @@ func TestReviewMarkingTargetDoneWithNoOtherPendingItemsLeavesNilTarget(t *testin
 	m = sendKey(m, "c")
 	m = sendKey(m, "R")
 	m = sendKey(m, "d")
+	m = sendKey(m, "enter") // no closing note
 
 	if m.reviewTarget != nil {
 		t.Errorf("reviewTarget = %v, want nil (the only item is now done)", m.reviewTarget)
@@ -504,6 +506,7 @@ func TestReviewBulkStatusChangeAdvancesPastTarget(t *testing.T) {
 	m = sendKey(m, "2")
 	m = sendKey(m, "R")
 	m = sendKey(m, "d")
+	m = sendKey(m, "enter") // no closing note
 
 	if m.reviewTarget == nil || m.reviewTarget.Title != "Third" {
 		t.Errorf("reviewTarget after bulk-marking First and Second done = %v, want Third", m.reviewTarget)
