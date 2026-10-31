@@ -109,3 +109,33 @@ func TestLoadWorksWithoutAReferenceDirectory(t *testing.T) {
 		t.Fatalf("Load = %v files, err %v; want 1 file, nil", len(ws.Files), err)
 	}
 }
+
+func TestLoadSkipsIgnoredFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ReferenceDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Dangling symlinks: reading any of these would fail the whole Load.
+	for _, name := range []string{"archive-2020.org", "old.org", "reference/archive.org"} {
+		if err := os.Symlink("missing", filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "work.org"), []byte("* TODO Work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := Load(dir, "archive*.org", "old.org")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(ws.Files) != 1 || filepath.Base(ws.Files[0].Path) != "work.org" {
+		t.Errorf("Files = %v, want only work.org", ws.Files)
+	}
+}
+
+func TestLoadRejectsMalformedIgnorePattern(t *testing.T) {
+	if _, err := Load(t.TempDir(), "["); err == nil {
+		t.Error("Load with a malformed pattern = nil error, want one")
+	}
+}

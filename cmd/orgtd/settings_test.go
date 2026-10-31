@@ -49,6 +49,7 @@ func TestResolveConfigKeepsEverythingTheConfigFileSets(t *testing.T) {
 		InboxFile:               "capture.org",
 		CalendarFile:            "my-calendar.org",
 		MeetingTagsFile:         "tags.org",
+		OutlineIgnoreFiles:      []string{"archive*.org"},
 		HideClosedAfterHours:    48,
 		Editor:                  "emacsclient -t",
 		Debug:                   true,
@@ -85,10 +86,10 @@ func TestResolveConfigExplicitFlagBeatsConfigFile(t *testing.T) {
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: "flag-prefix/, other/",
 		formatLinksURLFormatter: "flag-batch-fmt",
 		agendaDays:              7, inboxFile: "flag-inbox.org", calendarFile: "flag-calendar.org",
-		meetingTagsFile: "flag-tags.org", hideClosedAfterHours: 12, editor: "vim", debug: false,
+		meetingTagsFile: "flag-tags.org", outlineIgnoreFiles: "old.org, archive*.org", hideClosedAfterHours: 12, editor: "vim", debug: false,
 		explicit: map[string]bool{},
 	}, "dir", "url-formatter", "url-formatter-prefixes", "format-links-url-formatter", "agenda-days",
-		"inbox-file", "calendar-file", "meeting-tags-file", "hide-closed-after-hours", "editor", "debug")
+		"inbox-file", "calendar-file", "meeting-tags-file", "outline-ignore-files", "hide-closed-after-hours", "editor", "debug")
 	cfg := &config.Config{
 		OrgDir: "/from/config", URLFormatter: "cfg-fmt", URLFormatterPrefixes: []string{"cfg-prefix/"},
 		FormatLinksURLFormatter: "cfg-batch-fmt", AgendaWindowDays: 30, InboxFile: "cfg-inbox.org",
@@ -100,6 +101,7 @@ func TestResolveConfigExplicitFlagBeatsConfigFile(t *testing.T) {
 	want.OrgDir, want.URLFormatter, want.URLFormatterPrefixes = "/from/flag", "flag-fmt", []string{"flag-prefix/", "other/"}
 	want.FormatLinksURLFormatter, want.AgendaWindowDays, want.InboxFile = "flag-batch-fmt", 7, "flag-inbox.org"
 	want.CalendarFile, want.MeetingTagsFile, want.HideClosedAfterHours = "flag-calendar.org", "flag-tags.org", 12
+	want.OutlineIgnoreFiles = []string{"old.org", "archive*.org"}
 	want.Editor, want.Debug = "vim", false
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("resolveConfig = %+v, want %+v", got, want)
@@ -271,8 +273,8 @@ func TestSplitPrefixes(t *testing.T) {
 		{",", nil},
 	}
 	for _, c := range cases {
-		if got := splitPrefixes(c.in); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("splitPrefixes(%q) = %#v, want %#v", c.in, got, c.want)
+		if got := splitList(c.in); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("splitList(%q) = %#v, want %#v", c.in, got, c.want)
 		}
 	}
 }

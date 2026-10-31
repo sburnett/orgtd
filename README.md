@@ -42,6 +42,7 @@ orgtd --dir ~/org
 | `--inbox-file` | `inbox_file` | `inbox.org` | Base name of the file `:review` treats as the inbox |
 | `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. the one `:sync-calendar` writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
 | `--meeting-tags-file` | `meeting_tags_file` | `meeting-tags.org` | Base name of the file holding durable meeting tags (see Tag-based meeting links, below) — excluded from the outline view and shown instead, as an editable outline of its own, in the `:meeting-tags` view |
+| `--outline-ignore-files` | `outline_ignore_files` | *(none)* | Files orgtd never loads, so their entries appear nowhere — globs (`*`, `?`, as in a shell) matched against each file's base name, in `--dir` and `reference/` alike, e.g. `archive*.org`; comma-separated on the flag, a TOML array in the config file. `:edit` refuses them too. A malformed glob stops orgtd at startup |
 | `--hide-closed-after-hours` | `hide_closed_after_hours` | `24` | How many hours after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggleclosed` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
 | `--vcs-editor` | `vcs_editor` | *(unset)* | Program `:vcs` (see below) runs in `--dir` to manage version control — e.g. `gitui` or `jjui`. May include arguments, same syntax as `editor` |
@@ -50,7 +51,8 @@ orgtd --dir ~/org
 
 `:config` shows the current, effective value of everything above.
 
-Every `.org` file directly inside `--dir` is loaded, sorted alphabetically.
+Every `.org` file directly inside `--dir` is loaded, sorted alphabetically,
+except any matching `outline_ignore_files`.
 The one subdirectory that's scanned too is `reference/` (its `.org` files
 only, not its own subdirectories) — reference material in GTD's sense,
 information with no action attached; see the Reference view, below. Any
@@ -107,6 +109,7 @@ agenda_window_days = 14
 inbox_file = "inbox.org"
 calendar_file = "calendar.org"
 meeting_tags_file = "meeting-tags.org"
+outline_ignore_files = ["archive*.org", "old.org"]
 hide_closed_after_hours = 24
 debug = false
 

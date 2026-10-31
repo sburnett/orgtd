@@ -25,6 +25,7 @@ url_formatter = "url2org"
 agenda_window_days = 30
 inbox_file = "capture.org"
 calendar_file = "my-calendar.org"
+outline_ignore_files = ["archive*.org", "old.org"]
 url_formatter_prefixes = ["bit.ly/", "go/"]
 format_links_url_formatter = "batch-formatter"
 hide_closed_after_hours = 48
@@ -86,6 +87,7 @@ search_highlight_bg = "#707070"
 		AgendaWindowDays:        30,
 		InboxFile:               "capture.org",
 		CalendarFile:            "my-calendar.org",
+		OutlineIgnoreFiles:      []string{"archive*.org", "old.org"},
 		URLFormatterPrefixes:    []string{"bit.ly/", "go/"},
 		FormatLinksURLFormatter: "batch-formatter",
 		HideClosedAfterHours:    48,

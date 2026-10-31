@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/sburnett/orgtd/internal/org"
@@ -31,13 +32,20 @@ type Workspace struct {
 // Load discovers *.org files directly inside dir, and directly inside
 // dir's reference/ subdirectory (if it exists), and parses each of them.
 // Neither scan is recursive: any other subdirectory, including the UI's
-// scratch/ buffer directory, is never scanned.
-func Load(dir string) (*Workspace, error) {
-	paths, err := orgPaths(dir)
+// scratch/ buffer directory, is never scanned. A file whose base name
+// matches one of the ignore globs (see Ignored) is skipped without being
+// read; a malformed glob is an error.
+func Load(dir string, ignore ...string) (*Workspace, error) {
+	for _, pattern := range ignore {
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("workspace: ignore pattern %q: %w", pattern, err)
+		}
+	}
+	paths, err := orgPaths(dir, ignore)
 	if err != nil {
 		return nil, err
 	}
-	refPaths, err := orgPaths(filepath.Join(dir, ReferenceDir))
+	refPaths, err := orgPaths(filepath.Join(dir, ReferenceDir), ignore)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -55,16 +63,25 @@ func Load(dir string) (*Workspace, error) {
 	return ws, nil
 }
 
+// Ignored reports whether the base name name matches one of the globs in
+// patterns (filepath.Match syntax).
+func Ignored(name string, patterns []string) bool {
+	return slices.ContainsFunc(patterns, func(pattern string) bool {
+		ok, _ := filepath.Match(pattern, name)
+		return ok
+	})
+}
+
 // orgPaths lists the *.org files directly inside dir (not its
-// subdirectories).
-func orgPaths(dir string) ([]string, error) {
+// subdirectories), leaving out any Ignored by ignore.
+func orgPaths(dir string, ignore []string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("workspace: reading %s: %w", dir, err)
 	}
 	var paths []string
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".org" {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".org" || Ignored(e.Name(), ignore) {
 			continue
 		}
 		paths = append(paths, filepath.Join(dir, e.Name()))

@@ -53,8 +53,8 @@ func main() {
 		}
 		// Deliberately not the whole config: it holds the Google OAuth
 		// client secret.
-		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q hide_closed_after_hours=%d",
-			cfg.OrgDir, cfg.Editor, cfg.URLFormatter, cfg.URLFormatterPrefixes, cfg.FormatLinksURLFormatter, cfg.AgendaWindowDays, cfg.InboxFile, cfg.CalendarFile, cfg.MeetingTagsFile, cfg.HideClosedAfterHours)
+		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q outline_ignore_files=%v hide_closed_after_hours=%d",
+			cfg.OrgDir, cfg.Editor, cfg.URLFormatter, cfg.URLFormatterPrefixes, cfg.FormatLinksURLFormatter, cfg.AgendaWindowDays, cfg.InboxFile, cfg.CalendarFile, cfg.MeetingTagsFile, cfg.OutlineIgnoreFiles, cfg.HideClosedAfterHours)
 	} else {
 		log.SetOutput(io.Discard)
 	}
@@ -86,7 +86,7 @@ func main() {
 	}
 	org.SetKeywords(active, done)
 
-	ws, err := workspace.Load(cfg.OrgDir)
+	ws, err := workspace.Load(cfg.OrgDir, cfg.OutlineIgnoreFiles...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)

@@ -36,6 +36,10 @@ func (m *Model) editFile(arg string) {
 		m.message = err.Error()
 		return
 	}
+	if workspace.Ignored(filepath.Base(rel), m.cfg.OutlineIgnoreFiles) {
+		m.message = rel + " is ignored by outline_ignore_files"
+		return
+	}
 	path := filepath.Join(m.ws.Dir, rel)
 
 	f := m.loadedFile(path)
@@ -221,7 +225,7 @@ func (m *Model) completeEditArg(partial string) []string {
 
 	var matches []string
 	for cand := range seen {
-		if strings.HasPrefix(cand, partial) {
+		if strings.HasPrefix(cand, partial) && !workspace.Ignored(filepath.Base(cand), m.cfg.OutlineIgnoreFiles) {
 			matches = append(matches, cand)
 		}
 	}

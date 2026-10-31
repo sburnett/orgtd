@@ -110,6 +110,11 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	line("Inbox file: %s", m.cfg.InboxFile)
 	line("Calendar file: %s", m.cfg.CalendarFile)
 	line("Meeting tags file: %s", m.cfg.MeetingTagsFile)
+	ignored := "(none)"
+	if len(m.cfg.OutlineIgnoreFiles) > 0 {
+		ignored = strings.Join(m.cfg.OutlineIgnoreFiles, ", ")
+	}
+	line("Ignored files: %s", ignored)
 	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
 	line("VCS editor: %s", orDefault(m.cfg.VCSEditor, "(not configured)"))
 	line("Debug logging: %s", onOff(m.cfg.Debug))

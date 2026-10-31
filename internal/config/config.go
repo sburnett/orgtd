@@ -47,6 +47,11 @@ type Config struct {
 	// the built-in default, meeting-tags.org.
 	MeetingTagsFile string `toml:"meeting_tags_file"`
 
+	// OutlineIgnoreFiles are filepath.Match globs, matched against a
+	// file's base name, for files orgtd never loads: as far as every view
+	// is concerned they don't exist (see workspace.Load).
+	OutlineIgnoreFiles []string `toml:"outline_ignore_files"`
+
 	// HideClosedAfterHours is how many hours after a DONE/CANCELLED
 	// headline's CLOSED timestamp it's hidden from the outline view (the
 	// feature can still be toggled off at runtime with :toggleclosed,

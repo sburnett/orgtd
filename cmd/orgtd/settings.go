@@ -19,7 +19,8 @@ import (
 type flagValues struct {
 	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor, vcsEditor string
 	formatLinksURLFormatter                                                        string
-	urlFormatterPrefixes                                                           string // comma-separated; see splitPrefixes
+	urlFormatterPrefixes                                                           string // comma-separated; see splitList
+	outlineIgnoreFiles                                                             string // comma-separated; see splitList
 	agendaDays                                                                     int
 	hideClosedAfterHours                                                           int
 	debug                                                                          bool
@@ -39,6 +40,7 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.inboxFile, "inbox-file", "", "base name of the file :review treats as the inbox (default: the config file's inbox_file, else inbox.org)")
 	fs.StringVar(&f.calendarFile, "calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
 	fs.StringVar(&f.meetingTagsFile, "meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
+	fs.StringVar(&f.outlineIgnoreFiles, "outline-ignore-files", "", "comma-separated globs of base file names orgtd never loads, e.g. \"archive*.org,old.org\" (default: the config file's outline_ignore_files, else none)")
 	fs.IntVar(&f.hideClosedAfterHours, "hide-closed-after-hours", 0, "how many hours after an item's CLOSED timestamp it's hidden from the outline view; :toggleclosed shows everything again (default: the config file's hide_closed_after_hours, else 24)")
 	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
 	fs.StringVar(&f.vcsEditor, "vcs-editor", "", "program :vcs runs in the org directory to manage version control, e.g. \"gitui\" or \"jjui\" (default: the config file's vcs_editor, else :vcs is unavailable)")
@@ -85,7 +87,7 @@ func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.
 		out.URLFormatter = f.urlFormatter
 	}
 	if f.explicit["url-formatter-prefixes"] {
-		out.URLFormatterPrefixes = splitPrefixes(f.urlFormatterPrefixes)
+		out.URLFormatterPrefixes = splitList(f.urlFormatterPrefixes)
 	}
 	if f.explicit["format-links-url-formatter"] {
 		out.FormatLinksURLFormatter = f.formatLinksURLFormatter
@@ -101,6 +103,9 @@ func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.
 	}
 	if f.explicit["meeting-tags-file"] {
 		out.MeetingTagsFile = f.meetingTagsFile
+	}
+	if f.explicit["outline-ignore-files"] {
+		out.OutlineIgnoreFiles = splitList(f.outlineIgnoreFiles)
 	}
 	if f.explicit["hide-closed-after-hours"] {
 		out.HideClosedAfterHours = f.hideClosedAfterHours
@@ -144,11 +149,11 @@ func debugLogPath(configFilePath string) string {
 	return filepath.Join(filepath.Dir(configFilePath), "debug.log")
 }
 
-// splitPrefixes parses the -url-formatter-prefixes flag's comma-separated
-// value ("bit.ly/,go/") into a slice, trimming whitespace around each
-// entry and dropping empty ones (so a trailing comma, or the flag simply
-// being unset, yields nil rather than a slice with a blank entry).
-func splitPrefixes(s string) []string {
+// splitList parses a comma-separated flag's value ("bit.ly/,go/") into a
+// slice, trimming whitespace around each entry and dropping empty ones (so
+// a trailing comma, or the flag simply being unset, yields nil rather than
+// a slice with a blank entry).
+func splitList(s string) []string {
 	var out []string
 	for _, p := range strings.Split(s, ",") {
 		if p = strings.TrimSpace(p); p != "" {
