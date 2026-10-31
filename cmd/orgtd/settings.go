@@ -18,7 +18,7 @@ import (
 // leaves whatever the config file said).
 type flagValues struct {
 	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor, vcsEditor string
-	formatLinksURLFormatter                                                        string
+	formatLinksURLFormatter, scratchDir                                            string
 	urlFormatterPrefixes                                                           string // comma-separated; see splitList
 	outlineIgnoreFiles                                                             string // comma-separated; see splitList
 	agendaDays                                                                     int
@@ -43,6 +43,7 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.calendarFile, "calendar-file", "", "base name of the file (e.g. the one :sync-calendar writes) excluded from the outline view and shown instead, grouped by day, in the :calendar view (default: the config file's calendar_file, else calendar.org)")
 	fs.StringVar(&f.meetingTagsFile, "meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
 	fs.StringVar(&f.outlineIgnoreFiles, "outline-ignore-files", "", "comma-separated globs of base file names orgtd never loads, e.g. \"archive*.org,old.org\" (default: the config file's outline_ignore_files, else none)")
+	fs.StringVar(&f.scratchDir, "scratch-dir", "", "directory editor buffers are written to and kept in; a leading ~ is expanded, and a relative path is relative to the org directory (default: the config file's scratch_dir, else scratch)")
 	fs.IntVar(&f.hideClosedAfterHours, "hide-closed-after-hours", 0, "how many hours after an item's CLOSED timestamp it's hidden from the outline view; :toggleclosed shows everything again (default: the config file's hide_closed_after_hours, else 24)")
 	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
 	fs.StringVar(&f.vcsEditor, "vcs-editor", "", "program :vcs runs in the org directory to manage version control, e.g. \"gitui\" or \"jjui\" (default: the config file's vcs_editor, else :vcs is unavailable)")
@@ -111,6 +112,9 @@ func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.
 	}
 	if f.explicit["outline-ignore-files"] {
 		out.OutlineIgnoreFiles = splitList(f.outlineIgnoreFiles)
+	}
+	if f.explicit["scratch-dir"] {
+		out.ScratchDir = f.scratchDir
 	}
 	if f.explicit["hide-closed-after-hours"] {
 		out.HideClosedAfterHours = f.hideClosedAfterHours

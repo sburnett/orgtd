@@ -284,6 +284,64 @@ func TestEditEntryContextAtBoundaries(t *testing.T) {
 	}
 }
 
+func TestScratchDirResolution(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory available")
+	}
+	ws := loadFixture(t)
+	absolute := t.TempDir()
+
+	cases := []struct{ setting, want string }{
+		{"", filepath.Join(ws.Dir, "scratch")}, // New's default
+		{"buffers", filepath.Join(ws.Dir, "buffers")},
+		{"../buffers", filepath.Join(filepath.Dir(ws.Dir), "buffers")},
+		{absolute, absolute},
+		{"~/buffers", filepath.Join(home, "buffers")},
+	}
+	for _, c := range cases {
+		m := New(ws)
+		if c.setting != "" {
+			m.cfg.ScratchDir = c.setting
+		}
+		if got := m.scratchDir(); got != c.want {
+			t.Errorf("scratchDir with scratch_dir=%q = %q, want %q", c.setting, got, c.want)
+		}
+	}
+}
+
+func TestLaunchEditorWritesToConfiguredScratchDirOutsideOrgDir(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.cfg.ScratchDir = filepath.Join(t.TempDir(), "not", "yet", "there")
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+
+	if _, cmd := sendKeyCmd(m, "i"); cmd == nil {
+		t.Fatalf("expected a non-nil edit command")
+	}
+
+	if got, _ := filepath.Glob(filepath.Join(m.cfg.ScratchDir, "*", "*", "*", "*.org")); len(got) != 1 {
+		t.Errorf("buffers in the configured scratch dir = %v, want exactly one", got)
+	}
+	if got, _ := filepath.Glob(filepath.Join(ws.Dir, "scratch")); len(got) != 0 {
+		t.Errorf("a scratch directory appeared inside the org dir anyway: %v", got)
+	}
+}
+
+func TestConfigViewShowsScratchDir(t *testing.T) {
+	ws := loadFixture(t)
+	m := New(ws)
+	m.switchToView(configView)
+
+	want := "Scratch directory: " + filepath.Join(ws.Dir, "scratch")
+	for _, r := range m.rows {
+		if stripANSI(r.text) == want {
+			return
+		}
+	}
+	t.Errorf(":config doesn't show %q; rows: %#v", want, m.rows)
+}
+
 func TestLaunchEditorTempFileHasContextTrailerThatDoesNotLeak(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)

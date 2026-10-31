@@ -44,6 +44,7 @@ orgtd --dir ~/org
 | `--calendar-file` | `calendar_file` | `calendar.org` | Base name of the file (e.g. the one `:sync-calendar` writes) excluded from the outline view and shown instead, grouped by day, in the `:calendar` view |
 | `--meeting-tags-file` | `meeting_tags_file` | `meeting-tags.org` | Base name of the file holding durable meeting tags (see Tag-based meeting links, below) — excluded from the outline view and shown instead, as an editable outline of its own, in the `:meeting-tags` view |
 | `--outline-ignore-files` | `outline_ignore_files` | *(none)* | Files orgtd never loads, so their entries appear nowhere — globs (`*`, `?`, as in a shell) matched against each file's base name, in `--dir` and `reference/` alike, e.g. `archive*.org`; comma-separated on the flag, a TOML array in the config file. `:edit` refuses them too. A malformed glob stops orgtd at startup |
+| `--scratch-dir` | `scratch_dir` | `scratch` | Directory every `$EDITOR` buffer is written to and kept in (see Editing, below). A leading `~` is expanded, and a relative path is relative to `--dir`, so it can live outside the org directory, e.g. `~/.local/state/orgtd/scratch`. Created when first needed |
 | `--hide-closed-after-hours` | `hide_closed_after_hours` | `24` | How many hours after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggleclosed` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched for `i` and file edits |
 | `--vcs-editor` | `vcs_editor` | *(unset)* | Program `:vcs` (see below) runs in `--dir` to manage version control — e.g. `gitui` or `jjui`. May include arguments, same syntax as `editor` |
@@ -112,6 +113,7 @@ inbox_file = "inbox.org"
 calendar_file = "calendar.org"
 meeting_tags_file = "meeting-tags.org"
 outline_ignore_files = ["archive*.org", "old.org"]
+scratch_dir = "scratch"    # "~" is expanded; relative to org_dir
 hide_closed_after_hours = 24
 debug = false
 
@@ -637,7 +639,8 @@ parent before the file name.
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
 Every `$EDITOR` session above (`i`/`A`, `o`/`O`, `gC`/`gX`) writes its
-buffer to a file under a `scratch/` directory inside `--dir`, in a
+buffer to a file under `scratch_dir` (by default, a `scratch/` directory
+inside `--dir`), in a
 dated subdirectory per day (e.g. `scratch/2026/10/02/`) and named after
 the moment the session started, down to the nanosecond (so two sessions
 started in the same second never collide) rather than a random name.
@@ -646,10 +649,11 @@ there indefinitely as a failsafe, so whatever came back from the editor
 is still recoverable by hand even if it's ever lost some other way
 (an editor crash, accidentally discarding the buffer unsaved, or any
 other reason a round-trip through the outline doesn't end up reflecting
-it). Since `scratch/` is a subdirectory, it's never scanned as one of
-`--dir`'s own `.org` files (see above) and never shows up in the
-outline; it's just there on disk if you need to go looking (and in your VCS
-unless you ignore it).
+it). Since the buffers sit in those dated subdirectories, they're never
+scanned as `--dir`'s own `.org` files (see above) and never show up in
+the outline, wherever `scratch_dir` points; they're just there on disk if
+you need to go looking (and in your VCS, if `scratch_dir` is inside
+`--dir`, unless you ignore it or point `scratch_dir` elsewhere).
 
 ### Windows
 

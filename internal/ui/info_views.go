@@ -116,6 +116,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		ignored = strings.Join(m.cfg.OutlineIgnoreFiles, ", ")
 	}
 	line("Ignored files: %s", ignored)
+	line("Scratch directory: %s", m.scratchDir())
 	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
 	line("VCS editor: %s", orDefault(m.cfg.VCSEditor, "(not configured)"))
 	line("Debug logging: %s", onOff(m.cfg.Debug))

@@ -227,7 +227,7 @@ func TestApplyDefaultsFillsOnlyUnsetSettings(t *testing.T) {
 	if c.AgendaWindowDays != 3 || c.InboxFile != "mine.org" || c.Gcalsync.SyncFutureDays != 30 || c.Gcalsync.CalendarIDs[0] != "work" {
 		t.Errorf("ApplyDefaults overwrote explicitly set values: %+v", c)
 	}
-	if c.CalendarFile != d.CalendarFile || c.MeetingTagsFile != d.MeetingTagsFile ||
+	if c.CalendarFile != d.CalendarFile || c.MeetingTagsFile != d.MeetingTagsFile || c.ScratchDir != d.ScratchDir ||
 		c.HideClosedAfterHours != d.HideClosedAfterHours || c.Gcalsync.SyncPastDays != d.Gcalsync.SyncPastDays {
 		t.Errorf("ApplyDefaults left unset values unset: %+v", c)
 	}

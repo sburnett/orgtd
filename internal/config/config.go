@@ -57,6 +57,12 @@ type Config struct {
 	// is concerned they don't exist (see workspace.Load).
 	OutlineIgnoreFiles []string `toml:"outline_ignore_files"`
 
+	// ScratchDir is where editor buffers are written and kept (see
+	// internal/ui's scratchFilePath). A leading "~" is expanded, and a
+	// relative path is relative to OrgDir. Empty falls back to the
+	// built-in default, "scratch", i.e. a subdirectory of OrgDir.
+	ScratchDir string `toml:"scratch_dir"`
+
 	// HideClosedAfterHours is how many hours after a DONE/CANCELLED
 	// headline's CLOSED timestamp it's hidden from the outline view (the
 	// feature can still be toggled off at runtime with :toggleclosed,
@@ -426,6 +432,7 @@ func Default() Config {
 		InboxFile:            "inbox.org",
 		CalendarFile:         "calendar.org",
 		MeetingTagsFile:      "meeting-tags.org",
+		ScratchDir:           "scratch",
 		HideClosedAfterHours: 24,
 		Keywords:             DefaultKeywords(),
 		Gcalsync: GcalsyncConfig{
@@ -459,6 +466,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.MeetingTagsFile == "" {
 		c.MeetingTagsFile = d.MeetingTagsFile
+	}
+	if c.ScratchDir == "" {
+		c.ScratchDir = d.ScratchDir
 	}
 	if c.HideClosedAfterHours <= 0 {
 		c.HideClosedAfterHours = d.HideClosedAfterHours

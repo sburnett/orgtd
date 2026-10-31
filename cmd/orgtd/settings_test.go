@@ -51,6 +51,7 @@ func TestResolveConfigKeepsEverythingTheConfigFileSets(t *testing.T) {
 		CalendarFile:            "my-calendar.org",
 		MeetingTagsFile:         "tags.org",
 		OutlineIgnoreFiles:      []string{"archive*.org"},
+		ScratchDir:              "~/scratch",
 		HideClosedAfterHours:    48,
 		Editor:                  "emacsclient -t",
 		Debug:                   true,
@@ -87,14 +88,14 @@ func TestResolveConfigExplicitFlagBeatsConfigFile(t *testing.T) {
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: "flag-prefix/, other/",
 		formatLinksURLFormatter: "flag-batch-fmt",
 		agendaDays:              7, snippetsDays: 3, inboxFile: "flag-inbox.org", calendarFile: "flag-calendar.org",
-		meetingTagsFile: "flag-tags.org", outlineIgnoreFiles: "old.org, archive*.org", hideClosedAfterHours: 12, editor: "vim", debug: false,
+		meetingTagsFile: "flag-tags.org", outlineIgnoreFiles: "old.org, archive*.org", scratchDir: "/flag/scratch", hideClosedAfterHours: 12, editor: "vim", debug: false,
 		explicit: map[string]bool{},
 	}, "dir", "url-formatter", "url-formatter-prefixes", "format-links-url-formatter", "agenda-days", "snippets-days",
-		"inbox-file", "calendar-file", "meeting-tags-file", "outline-ignore-files", "hide-closed-after-hours", "editor", "debug")
+		"inbox-file", "calendar-file", "meeting-tags-file", "outline-ignore-files", "scratch-dir", "hide-closed-after-hours", "editor", "debug")
 	cfg := &config.Config{
 		OrgDir: "/from/config", URLFormatter: "cfg-fmt", URLFormatterPrefixes: []string{"cfg-prefix/"},
 		FormatLinksURLFormatter: "cfg-batch-fmt", AgendaWindowDays: 30, InboxFile: "cfg-inbox.org",
-		CalendarFile: "cfg-calendar.org", MeetingTagsFile: "cfg-tags.org", HideClosedAfterHours: 48,
+		CalendarFile: "cfg-calendar.org", MeetingTagsFile: "cfg-tags.org", ScratchDir: "/cfg/scratch", HideClosedAfterHours: 48,
 		Editor: "emacs", Debug: true,
 	}
 	got := resolveConfig(f, "/from/env", cfg)
@@ -103,6 +104,7 @@ func TestResolveConfigExplicitFlagBeatsConfigFile(t *testing.T) {
 	want.FormatLinksURLFormatter, want.AgendaWindowDays, want.InboxFile = "flag-batch-fmt", 7, "flag-inbox.org"
 	want.CalendarFile, want.MeetingTagsFile, want.HideClosedAfterHours = "flag-calendar.org", "flag-tags.org", 12
 	want.SnippetsWindowDays = 3
+	want.ScratchDir = "/flag/scratch"
 	want.OutlineIgnoreFiles = []string{"old.org", "archive*.org"}
 	want.Editor, want.Debug = "vim", false
 	if !reflect.DeepEqual(got, want) {

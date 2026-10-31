@@ -165,10 +165,21 @@ func (m Model) editorCommand() string {
 	return os.Getenv("EDITOR")
 }
 
-// scratchFilePath returns a path for a new editor buffer under a
-// scratch/ directory inside the org dir, in a dated subdirectory
-// (scratch/2026/10/02) and named after the current time down to the
-// nanosecond (so two buffers opened in the same second never collide)
+// scratchDir returns the directory editor buffers go under, resolving
+// Config.ScratchDir: a leading "~" is expanded, and a relative path is
+// taken from the org dir, wherever orgtd itself was started.
+func (m Model) scratchDir() string {
+	dir := extprog.ExpandHome(m.cfg.ScratchDir)
+	if filepath.IsAbs(dir) {
+		return dir
+	}
+	return filepath.Join(m.ws.Dir, dir)
+}
+
+// scratchFilePath returns a path for a new editor buffer under
+// scratchDir, in a dated subdirectory (scratch/2026/10/02) and named
+// after the current time down to the nanosecond (so two buffers opened
+// in the same second never collide)
 // rather than randomly — so a buffer is easy to find by when it was
 // made if it's ever needed after the fact, e.g. because its content was
 // accidentally discarded instead of saved. The file itself isn't
@@ -176,7 +187,7 @@ func (m Model) editorCommand() string {
 // how (and whether) the file gets written.
 func (m *Model) scratchFilePath() (string, error) {
 	now := m.now()
-	dir := filepath.Join(m.ws.Dir, "scratch", now.Format("2006"), now.Format("01"), now.Format("02"))
+	dir := filepath.Join(m.scratchDir(), now.Format("2006"), now.Format("01"), now.Format("02"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

@@ -53,8 +53,8 @@ func main() {
 		}
 		// Deliberately not the whole config: it holds the Google OAuth
 		// client secret.
-		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d snippets_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q outline_ignore_files=%v hide_closed_after_hours=%d",
-			cfg.OrgDir, cfg.Editor, cfg.URLFormatter, cfg.URLFormatterPrefixes, cfg.FormatLinksURLFormatter, cfg.AgendaWindowDays, cfg.SnippetsWindowDays, cfg.InboxFile, cfg.CalendarFile, cfg.MeetingTagsFile, cfg.OutlineIgnoreFiles, cfg.HideClosedAfterHours)
+		log.Printf("orgtd starting: dir=%q editor=%q url_formatter=%q url_formatter_prefixes=%v format_links_url_formatter=%q agenda_days=%d snippets_days=%d inbox_file=%q calendar_file=%q meeting_tags_file=%q outline_ignore_files=%v scratch_dir=%q hide_closed_after_hours=%d",
+			cfg.OrgDir, cfg.Editor, cfg.URLFormatter, cfg.URLFormatterPrefixes, cfg.FormatLinksURLFormatter, cfg.AgendaWindowDays, cfg.SnippetsWindowDays, cfg.InboxFile, cfg.CalendarFile, cfg.MeetingTagsFile, cfg.OutlineIgnoreFiles, cfg.ScratchDir, cfg.HideClosedAfterHours)
 	} else {
 		log.SetOutput(io.Discard)
 	}
