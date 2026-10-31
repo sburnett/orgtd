@@ -17,6 +17,9 @@ import (
 	"unicode"
 
 	"github.com/olebedev/when"
+	"github.com/olebedev/when/rules"
+	"github.com/olebedev/when/rules/common"
+	"github.com/olebedev/when/rules/en"
 
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -109,6 +112,30 @@ func resolveDeadlineDate(input string, now time.Time) (t time.Time, hasTime bool
 // when it lands in the past, rather than rolled forward a year.
 var explicitYearRe = regexp.MustCompile(`\b(?:19|20)\d\d\b`)
 
+// monthDateEN is the part of when.EN that names a specific month: "sep 30"
+// and "15/2/2026", but not a relative "in 2 months".
+var monthDateEN = func() *when.Parser {
+	p := when.New(nil)
+	p.Add(en.ExactMonthDate(rules.Override), common.SlashDMY(rules.Override))
+	return p
+}()
+
+// whenBase returns the base date to give when.EN for input on today. It's
+// noon, because when.EN adds relative days as 24-hour durations: from
+// midnight, "thu" lands at 23:00 the day before if the clocks go back on
+// the way. And it's no later than the 28th for an input naming a month,
+// because when.EN keeps the base's day while changing the month: from the
+// 31st, "sep 30" passes through "Sep 31" and overflows into October.
+func whenBase(input string, today time.Time) time.Time {
+	day := today.Day()
+	if day > 28 {
+		if r, err := monthDateEN.Parse(input, today); err == nil && r != nil {
+			day = 28
+		}
+	}
+	return time.Date(today.Year(), today.Month(), day, 12, 0, 0, 0, today.Location())
+}
+
 // fuzzyDate resolves input (already trimmed) via when.EN — the English
 // rule set from github.com/olebedev/when, covering weekday names (full
 // or abbreviated — "thursday"/"thu"), month/day names ("sep 30",
@@ -130,8 +157,11 @@ var explicitYearRe = regexp.MustCompile(`\b(?:19|20)\d\d\b`)
 // Sep 30, but typed on Oct 1 (after it's passed) means next year's.
 // This never fires for a weekday phrase ("thu"), since when.EN already
 // resolves those to the next upcoming occurrence on its own.
+//
+// The result is only trusted to the day, and only given a base date that
+// sidesteps two quirks of when.EN's arithmetic: see whenBase.
 func fuzzyDate(input string, today time.Time) (time.Time, bool) {
-	r, err := when.EN.Parse(input, today)
+	r, err := when.EN.Parse(input, whenBase(input, today))
 	if err != nil || r == nil || strings.TrimSpace(r.Text) != input {
 		return time.Time{}, false
 	}

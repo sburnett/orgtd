@@ -316,6 +316,63 @@ func TestFuzzyDateRollsSameMonthDayForwardOnlyPastToday(t *testing.T) {
 	}
 }
 
+// when.EN keeps the base date's day while it changes the month, so a base
+// past the end of the named month used to overflow into the next one.
+func TestFuzzyDateNamedMonthIgnoresTodaysDayOfMonth(t *testing.T) {
+	cases := []struct {
+		today time.Time
+		input string
+		want  time.Time
+	}{
+		{time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC), "sep 30", time.Date(2027, 9, 30, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), "sep 30", time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC), "feb 3", time.Date(2027, 2, 3, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 1, 29, 0, 0, 0, 0, time.UTC), "feb 3", time.Date(2026, 2, 3, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC), "15/2/2026", time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)},
+	}
+	for _, c := range cases {
+		got, ok := fuzzyDate(c.input, c.today)
+		if !ok {
+			t.Errorf("fuzzyDate(%q) on %s did not match", c.input, c.today.Format("2006-01-02"))
+			continue
+		}
+		if !got.Equal(c.want) {
+			t.Errorf("fuzzyDate(%q) on %s = %v, want %v", c.input, c.today.Format("2006-01-02"), got, c.want)
+		}
+	}
+}
+
+// when.EN adds relative days as 24-hour durations, which from midnight
+// lands on the previous day when the clocks go back in between.
+func TestFuzzyDateRelativeDaysAcrossDSTChange(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skipf("no tzdata: %v", err)
+	}
+	cases := []struct {
+		today time.Time
+		input string
+		want  time.Time
+	}{
+		// Clocks go back on Nov 1, 2026.
+		{time.Date(2026, 10, 31, 0, 0, 0, 0, ny), "thu", time.Date(2026, 11, 5, 0, 0, 0, 0, ny)},
+		{time.Date(2026, 10, 31, 0, 0, 0, 0, ny), "tomorrow", time.Date(2026, 11, 1, 0, 0, 0, 0, ny)},
+		{time.Date(2026, 10, 30, 0, 0, 0, 0, ny), "next tuesday", time.Date(2026, 11, 3, 0, 0, 0, 0, ny)},
+		// Clocks go forward on Mar 8, 2026.
+		{time.Date(2026, 3, 6, 0, 0, 0, 0, ny), "tue", time.Date(2026, 3, 10, 0, 0, 0, 0, ny)},
+	}
+	for _, c := range cases {
+		got, ok := fuzzyDate(c.input, c.today)
+		if !ok {
+			t.Errorf("fuzzyDate(%q) on %s did not match", c.input, c.today.Format("2006-01-02"))
+			continue
+		}
+		if !got.Equal(c.want) {
+			t.Errorf("fuzzyDate(%q) on %s = %v, want %v", c.input, c.today.Format("2006-01-02"), got, c.want)
+		}
+	}
+}
+
 func TestFuzzyDateRejectsPartialMatchesAndGarbage(t *testing.T) {
 	today := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
 	for _, input := range []string{"not-a-date", "last thursday in august, 202", "", "3d"} {
