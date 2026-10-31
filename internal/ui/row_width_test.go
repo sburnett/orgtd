@@ -104,7 +104,7 @@ func TestOutlineRowTruncatesLongTitleKeepingTagsAndTimestampVisible(t *testing.T
 // with a couple dozen "@attendee" tags — see calendarDisplayTags) used
 // to render the tag list in full via fitRowLine's "suffix always wins"
 // rule, which could crowd even a short title down to nothing. The tag
-// list itself is now capped (see renderTagsSuffix/maxTagsSuffixWidth),
+// list itself is now capped (see tagsMeta/maxTagsSuffixWidth),
 // so the title stays visible on any reasonably sized terminal.
 func TestOutlineRowCapsLongTagListKeepingTitleVisible(t *testing.T) {
 	var tags []string
@@ -150,8 +150,8 @@ func TestAgendaItemRowTruncatesLongTitleKeepingPlaceAndDateVisible(t *testing.T)
 	if !strings.Contains(plain, "[agenda.org]") {
 		t.Errorf("rendered agenda row = %q, want the [file] tag still visible despite the long title", plain)
 	}
-	if !strings.Contains(plain, "Deadline:") {
-		t.Errorf("rendered agenda row = %q, want the Deadline label still visible", plain)
+	if !strings.Contains(plain, "D:") {
+		t.Errorf("rendered agenda row = %q, want the compact deadline still visible", plain)
 	}
 	if !strings.Contains(plain, "…") {
 		t.Errorf("rendered agenda row = %q, want an ellipsis marking the truncated title", plain)
@@ -182,8 +182,8 @@ func TestAgendaItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
 	if !strings.Contains(plain, "Do the thing") {
 		t.Errorf("rendered agenda row = %q, want the item's own title still visible despite the long parent title", plain)
 	}
-	if !strings.Contains(plain, "Deadline:") {
-		t.Errorf("rendered agenda row = %q, want the Deadline label still visible", plain)
+	if !strings.Contains(plain, "D:") {
+		t.Errorf("rendered agenda row = %q, want the compact deadline still visible", plain)
 	}
 	if !strings.Contains(plain, "…") {
 		t.Errorf("rendered agenda row = %q, want an ellipsis marking the truncated parent title", plain)

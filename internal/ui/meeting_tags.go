@@ -153,7 +153,7 @@ func (m *Model) appendMeetingTagsHeadlines(dst *[]row, headlines []*org.Headline
 			kind = rowMeetingTagsRecord
 		}
 		*dst = append(*dst, row{kind: kind, headline: h, level: h.Level})
-		if ignoreFold || !m.collapsed[h] {
+		if ignoreFold || !m.isFolded(h) {
 			m.appendBodyLines(dst, h)
 			if len(h.Children) > 0 {
 				m.appendMeetingTagsHeadlines(dst, h.Children, ignoreFold)
@@ -164,7 +164,7 @@ func (m *Model) appendMeetingTagsHeadlines(dst *[]row, headlines []*org.Headline
 				m.collapsed[event] = true
 			}
 			*dst = append(*dst, row{headline: event, level: h.Level + 1, kind: rowCalendarEvent})
-			if ignoreFold || !m.collapsed[event] {
+			if ignoreFold || !m.isFolded(event) {
 				m.appendBodyLines(dst, event)
 			}
 		}

@@ -374,9 +374,8 @@ func (m Model) padLineToWidth(line string, bg lipgloss.TerminalColor) string {
 	return line + bgSpan(bg, strings.Repeat(" ", pad))
 }
 
-// fitRowLine joins prefix (a headline's keyword/title, plus whatever
-// comes before it — mark/lock/gutter/indent/fold columns) to suffix
-// (trailing metadata: tags, a date, a filename, ...), truncating prefix
+// fitRowLine joins prefix (text, plus whatever comes before it) to suffix
+// (trailing metadata), truncating prefix
 // with a "…" — bg-styled like every other segment on the row, via
 // ansi.Truncate, which is ANSI/wide-rune aware so it never cuts an
 // escape code or a multi-byte glyph in half — if the combined line
@@ -403,33 +402,12 @@ func fitRowLine(prefix, suffix string, width int, bg lipgloss.TerminalColor) str
 	return ansi.Truncate(prefix, avail, bgSpan(bg, "…")) + suffix
 }
 
-// maxTagsSuffixWidth caps how wide the ":tag1:tag2:...:" portion of a
-// row's suffix (see renderTagsSuffix) is allowed to be, ellipsized
-// beyond that. fitRowLine always keeps suffix intact and shrinks prefix
-// (the title) instead — right for an ordinary tag or two, but a
-// meeting's attendee tags (see calendarDisplayTags) can run well past a
-// dozen for a large invite list, and left uncapped that would consume
-// the whole row and crowd the title down to nothing. Fixed rather than
-// proportional to m.width: the point is to guarantee the title a usable
-// share of the row on any reasonably sized terminal, not to let a wide
-// terminal grow the tag list without bound either.
+// maxTagsSuffixWidth caps how wide the ":tag1:tag2:...:" part of a
+// one-line row (see tagsMeta) is allowed to be, ellipsized beyond that:
+// a meeting's attendee tags (see calendarDisplayTags) can run well past
+// a dozen for a large invite list. Fixed rather than proportional to
+// m.width, so a wide terminal doesn't grow the tag list without bound.
 const maxTagsSuffixWidth = 40
-
-// renderTagsSuffix builds the "  :tag1:tag2:...:" suffix shared by
-// every row renderer that shows a headline's tags (the outline's own
-// default row, agenda items, calendar events and their linked items,
-// and meeting-tags.org records) — capped to maxTagsSuffixWidth (see
-// its own doc comment) rather than left to fitRowLine's usual
-// "suffix always wins" rule. tags is the tag list to render: h.Tags for
-// every caller except the calendar event row, which unions in
-// meeting-tags.org tags too (see calendarDisplayTags). Empty if tags is.
-func (m Model) renderTagsSuffix(h *org.Headline, tags []string, query string, bg lipgloss.TerminalColor) string {
-	if len(tags) == 0 {
-		return ""
-	}
-	joined := ansi.Truncate(":"+strings.Join(tags, ":")+":", maxTagsSuffixWidth, "…")
-	return bgSpan(bg, "  ") + m.highlightMatches(joined, query, m.fadeIfImmutable(m.tagStyle(), h).Background(bg))
-}
 
 // Default gutter icon characters/colors — used whenever the
 // corresponding Model field is unset, which includes both a Model built

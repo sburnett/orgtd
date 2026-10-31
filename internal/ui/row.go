@@ -109,6 +109,12 @@ type row struct {
 	wrapSeg    int          // rowBody: which of wrap.segs this row shows
 	text       string       // rowSection: the title; rowBody: the body line; rowText: the line
 
+	// rowBody standing in for a later line of a wrapped entry, rather than
+	// a body line (see appendEntryContinuations): entryLine is which line,
+	// always > 0, and continues the kind of row it continues.
+	entryLine int
+	continues rowKind
+
 	// rowAgendaItem (date-based items; empty for a Next Actions entry).
 	agendaLabel    string    // "Scheduled" or "Deadline"
 	agendaDate     time.Time // the date this row is shown for

@@ -79,7 +79,7 @@ func (m *Model) appendHeadlines(dst *[]row, headlines []*org.Headline, ignoreFol
 			continue
 		}
 		*dst = append(*dst, row{headline: h, level: h.Level})
-		if ignoreFold || !m.collapsed[h] {
+		if ignoreFold || !m.isFolded(h) {
 			m.appendBodyLines(dst, h)
 			if len(h.Children) > 0 {
 				m.appendHeadlines(dst, h.Children, ignoreFold)
@@ -115,7 +115,7 @@ func (m *Model) appendCalendarHeadlines(dst *[]row, headlines []*org.Headline, i
 			m.collapsed[h] = true
 		}
 		*dst = append(*dst, row{headline: h, level: h.Level, kind: rowCalendarEvent})
-		if ignoreFold || !m.collapsed[h] {
+		if ignoreFold || !m.isFolded(h) {
 			m.appendBodyLines(dst, h)
 			if len(h.Children) > 0 {
 				m.appendCalendarHeadlines(dst, h.Children, ignoreFold)
@@ -152,13 +152,17 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 // would sit) — shown right under h's title, before its children, the
 // same order the raw org file itself keeps them in. Subject to the same
 // collapsed[h] flag as h's children (see appendHeadlines): one fold
-// toggle shows or hides both together.
+// toggle shows or hides both together. Any later lines of h's own row,
+// if it's wrapping, come first (see appendEntryContinuations).
 func (m *Model) appendBodyLines(dst *[]row, h *org.Headline) {
 	// A body line is drawn after a fixed 5-column gutter, one indent
 	// step per level (2 columns), and the fold column plus its space.
 	avail := m.listWidth() - (5 + 2*(h.Level+1) + 2)
 	owner := len(*dst) - 1 // h's own row, just before its body rows
 	idx := 0
+	if owner >= 0 && (*dst)[owner].headline == h {
+		idx = m.appendEntryContinuations(dst, (*dst)[owner])
+	}
 	var lines []string
 	for _, line := range h.TrimmedBody() {
 		lines = append(lines, strings.TrimRight(line, " \t"))
@@ -325,10 +329,16 @@ func displayWidth(s string) int {
 }
 
 // hasFoldableContent reports whether h has anything a fold command
-// could show or hide: a body, or at least one child that isn't hidden
-// (see hiddenAsStaleDone) — a headline whose only children are stale
-// DONE ones has nothing to expand.
+// could show or hide: a body, at least one child that isn't hidden (see
+// hiddenAsStaleDone) — a headline whose only children are stale DONE
+// ones has nothing to expand — or a row too wide for one line, whose
+// remainder unfolding reveals (see overflows).
 func (m *Model) hasFoldableContent(h *org.Headline) bool {
+	return m.hasVisibleContent(h) || m.overflows(h)
+}
+
+// hasVisibleContent is hasFoldableContent leaving out the row itself.
+func (m *Model) hasVisibleContent(h *org.Headline) bool {
 	if len(h.TrimmedBody()) > 0 {
 		return true
 	}
@@ -338,6 +348,17 @@ func (m *Model) hasFoldableContent(h *org.Headline) bool {
 		}
 	}
 	return false
+}
+
+// isFolded reports whether h is folded: as last set, or by default open,
+// except that an entry whose only reason to fold is a row too wide for
+// one line starts closed — an outline's worth of long leaves stays
+// compact, and each is a Tab away from being read in full.
+func (m *Model) isFolded(h *org.Headline) bool {
+	if folded, ok := m.collapsed[h]; ok {
+		return folded
+	}
+	return !m.hasVisibleContent(h) && m.overflows(h)
 }
 
 // visibleDescendantCount is how many descendant headlines of h are
@@ -353,10 +374,4 @@ func (m *Model) visibleDescendantCount(h *org.Headline) int {
 		n += 1 + m.visibleDescendantCount(c)
 	}
 	return n
-}
-
-// hasAnyContent is hasFoldableContent without the hidden-children
-// filter: whether h has any children or body at all, shown or not.
-func hasAnyContent(h *org.Headline) bool {
-	return len(h.Children) > 0 || len(h.TrimmedBody()) > 0
 }

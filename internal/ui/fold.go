@@ -19,7 +19,7 @@ func (m *Model) takeCount() int {
 // to whichever of the two it picks.
 func (m *Model) toggleFold() {
 	h := m.currentHeadline()
-	if h != nil && m.hasFoldableContent(h) && m.collapsed[h] {
+	if h != nil && m.hasFoldableContent(h) && m.isFolded(h) {
 		m.foldOpen()
 		return
 	}
@@ -50,7 +50,7 @@ func (m *Model) foldClose() {
 		if h == nil {
 			return
 		}
-		if !m.hasFoldableContent(h) || m.collapsed[h] {
+		if !m.hasFoldableContent(h) || m.isFolded(h) {
 			h = h.Parent
 			if h == nil {
 				return
@@ -74,9 +74,7 @@ func (m *Model) cursorToHeadline(h *org.Headline) {
 
 // openLevels uncollapses h and, while levels remain, its descendants.
 func openLevels(collapsed map[*org.Headline]bool, h *org.Headline, levels int) {
-	if hasAnyContent(h) {
-		collapsed[h] = false
-	}
+	collapsed[h] = false
 	if levels > 1 {
 		for _, c := range h.Children {
 			openLevels(collapsed, c, levels-1)
@@ -143,18 +141,16 @@ func (m *Model) foldToggleAll() {
 	targets := m.subtreeFoldTargets()
 	allFolded := true
 	for _, h := range targets {
-		allFolded = allFolded && m.collapsed[h]
+		allFolded = allFolded && m.isFolded(h)
 	}
 	m.setSubtreeFolds(targets, !allFolded)
 }
 
 // setCollapsedRecursive sets collapsed[x] = value for h and every
-// descendant of h that has foldable content (a headline with neither
-// children nor a body has nothing to fold, so it's left out of the map).
+// descendant of h, leaves included: a leaf can be too wide for one line,
+// which makes it foldable too (see overflows).
 func setCollapsedRecursive(collapsed map[*org.Headline]bool, h *org.Headline, value bool) {
-	if hasAnyContent(h) {
-		collapsed[h] = value
-	}
+	collapsed[h] = value
 	for _, c := range h.Children {
 		setCollapsedRecursive(collapsed, c, value)
 	}

@@ -504,14 +504,14 @@ func (m *Model) spliceReplace(oldSet, newSet []*org.Headline) {
 	}
 	first := oldSet[0]
 
-	wasCollapsed := m.collapsed[first]
+	wasCollapsed, known := m.collapsed[first]
 	org.Walk(oldSet, func(h *org.Headline) { delete(m.collapsed, h) })
 
 	for _, n := range newSet {
 		n.Parent = first.Parent
 	}
-	if wasCollapsed && len(newSet) > 0 {
-		m.collapsed[newSet[0]] = true
+	if known && len(newSet) > 0 {
+		m.collapsed[newSet[0]] = wasCollapsed
 	}
 
 	if f, parent, idx := m.ws.Locate(first); idx >= 0 {

@@ -1,9 +1,7 @@
 package ui
 
 import (
-	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -77,26 +75,5 @@ func (m *Model) appendTagsRows(dst *[]row) {
 // wherever it actually does in the outline and wouldn't otherwise be
 // placeable from its title alone.
 func (m Model) renderTagsItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
-	h := r.headline
-	query := m.activeSearchQuery()
-	indent := bgSpan(bg, strings.Repeat("  ", r.level))
-
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + bgSpan(bg, " ") + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
-
-	tags := m.renderTagsSuffix(h, h.Tags, query, bg)
-	place := func(parentMaxWidth int) string {
-		return bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, parentMaxWidth)))
-	}
-
-	suffix := tags + place(-1)
-	if m.width > 0 && lipgloss.Width(prefix)+lipgloss.Width(suffix) > m.width {
-		overhead := lipgloss.Width(tags) + lipgloss.Width(place(0))
-		parentBudget := m.width - lipgloss.Width(prefix) - overhead
-		if parentBudget < 0 {
-			parentBudget = 0
-		}
-		suffix = tags + place(parentBudget)
-	}
-
-	return fitRowLine(prefix, suffix, m.width, bg)
+	return m.fitOneLine(m.flatEntryContent(r, bg), bg)
 }

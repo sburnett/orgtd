@@ -207,41 +207,7 @@ func (m Model) renderRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	}
 
 	// rowHeadline: an ordinary outline entry.
-
-	h := r.headline
-	indent := m.indentGuides(h.Parent, h.Level, m.guideScope(), bg)
-
-	// A leaf gets a small dot in the arrow's column, so every row has
-	// something sitting where its own guide would hang from.
-	fold := bgSpan(bg, "·") // U+00B7 MIDDLE DOT
-	if m.hasFoldableContent(h) {
-		glyph := "▼" // U+25BC BLACK DOWN-POINTING TRIANGLE (full-size; ▾ is a dedicated "small" variant)
-		if m.collapsed[h] {
-			glyph = "▶" // U+25B6 BLACK RIGHT-POINTING TRIANGLE (full-size; ▸ is a dedicated "small" variant)
-		}
-		fold = bgSpan(bg, glyph)
-	}
-
-	title := m.renderKeywordAndTitle(h, bg)
-	if m.view == referenceView {
-		title = m.renderPlainTitle(h, bg)
-	}
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ") + joinBg(title, bg)
-
-	// A folded entry shows how many descendants it's hiding.
-	if m.hasFoldableContent(h) && m.collapsed[h] {
-		if n := m.visibleDescendantCount(h); n > 0 {
-			prefix += bgSpan(bg, " ") + m.statusStyle().Background(bg).Render(fmt.Sprintf("(%d)", n))
-		}
-	}
-
-	suffix := m.renderTagsSuffix(h, h.Tags, query, bg)
-
-	if ts := planningSummary(h); ts != "" && m.view != referenceView {
-		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(ts)
-	}
-
-	return fitRowLine(prefix, suffix, m.width, bg)
+	return m.entryLines(r, bg)[0]
 }
 
 // renderKeywordAndTitle renders h's keyword, priority, and title (with
@@ -296,48 +262,18 @@ func (m Model) renderPlainTitle(h *org.Headline, bg lipgloss.TerminalColor) []st
 // parent — see agendaPlace) it's from and the date/label (Scheduled or
 // Deadline) it's shown for.
 //
-// The parent-title portion of that "[...]" tag is left full-width
-// unless the row doesn't already fit. When it doesn't, the row's own
-// title first gets its full natural width reserved (so a short title
-// is never truncated just because the parent tag is long), and
-// whatever's left over goes to the parent tag — maximizing how much of
-// each shows given the other. Only once the parent tag has been shrunk
-// to nothing and the row still doesn't fit does the row's own title
-// give way too (see fitRowLine), exactly like any other row.
+// When the row doesn't fit, the title keeps its share and the rest is
+// divided between the other parts (see fitOneLine, allocateRow), with the
+// parent's title the first part of the "[...]" tag to go.
 func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
-
-	tags := m.renderTagsSuffix(h, h.Tags, m.activeSearchQuery(), bg)
-
-	timestamp := m.fadeIfImmutable(m.timestampStyle(), h).Background(bg)
-	dateSuffix := func(place string) string {
-		if r.agendaLabel == "" {
-			// A Next Actions entry: no date to show, just where it's from.
-			return bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]", place))
-		}
-		label := r.agendaLabel
-		if r.agendaMissed > 0 {
-			label = fmt.Sprintf("%s (%dx)", label, r.agendaMissed)
-		}
-		date := r.agendaDate.Format("2006-01-02 Mon")
-		if r.agendaRepeater != "" {
-			date += " " + r.agendaRepeater
-		}
-		return bgSpan(bg, "  ") + timestamp.Render(fmt.Sprintf("[%s]  %s: %s", place, label, date))
-	}
-
-	suffix := tags + dateSuffix(m.agendaPlace(h, -1))
-	if m.width > 0 && lipgloss.Width(prefix)+lipgloss.Width(suffix) > m.width {
-		overhead := lipgloss.Width(tags) + lipgloss.Width(dateSuffix(m.agendaPlace(h, 0)))
-		parentBudget := m.width - lipgloss.Width(prefix) - overhead
-		if parentBudget < 0 {
-			parentBudget = 0
-		}
-		suffix = tags + dateSuffix(m.agendaPlace(h, parentBudget))
-	}
-
-	return fitRowLine(prefix, suffix, m.width, bg)
+	metas := append(m.tagsMeta(h, h.Tags, bg), m.placeMeta(h, bg)...)
+	metas = append(metas, m.agendaDateMeta(r, bg)...)
+	return m.fitOneLine(rowContent{
+		lead:  m.gutterColumns(h, bg),
+		title: joinBg(m.renderKeywordAndTitle(h, bg), bg),
+		metas: metas,
+	}, bg)
 }
 
 // agendaPlace returns the "[...]" tag content shown on an agenda row for
@@ -351,14 +287,14 @@ func (m Model) renderAgendaItemRowWithBg(r row, bg lipgloss.TerminalColor) strin
 //
 // parentMaxWidth caps how much of the parent title is included
 // (ellipsized with ansi.Truncate past that); a negative value leaves it
-// full-width. See renderAgendaItemRowWithBg, the only caller, for how
-// that cap is chosen.
+// full-width, and 0 leaves it out, along with the separator. See
+// placeMeta, the only caller, for how that cap is chosen.
 func (m Model) agendaPlace(h *org.Headline, parentMaxWidth int) string {
 	fileName := ""
 	if f := m.ws.FileOf(h); f != nil {
 		fileName = filepath.Base(f.Path)
 	}
-	if h.Parent == nil {
+	if h.Parent == nil || parentMaxWidth == 0 {
 		return fileName
 	}
 	parentTitle := h.Parent.Title
@@ -419,27 +355,7 @@ func isMidnight(t time.Time) bool {
 // renderCalendarLinkedItemRowWithBg's r.level-based indent, just capped
 // rather than passed through raw).
 func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
-	h := r.headline
-	query := m.activeSearchQuery()
-	indent := bgSpan(bg, strings.Repeat("  ", min(r.level, 1)))
-
-	fold := bgSpan(bg, " ")
-	if m.hasFoldableContent(h) {
-		glyph := "▼"
-		if m.collapsed[h] {
-			glyph = "▶"
-		}
-		fold = bgSpan(bg, glyph)
-	}
-
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + fold + bgSpan(bg, " ")
-	if when := calendarItemTime(h); when != "" {
-		prefix += m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(when) + bgSpan(bg, "  ")
-	}
-	prefix += joinBg(m.renderKeywordAndTitle(h, bg), bg)
-
-	suffix := m.renderTagsSuffix(h, m.calendarDisplayTags(h), query, bg)
-	return fitRowLine(prefix, suffix, m.width, bg)
+	return m.entryLines(r, bg)[0]
 }
 
 // renderMeetingTagsRecordRowWithBg renders a meeting-tags.org record's
@@ -454,15 +370,11 @@ func (m Model) renderCalendarItemRowWithBg(r row, bg lipgloss.TerminalColor) str
 // title.
 func (m Model) renderMeetingTagsRecordRowWithBg(r row, bg lipgloss.TerminalColor) string {
 	h := r.headline
-	query := m.activeSearchQuery()
-
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
-
-	suffix := m.renderTagsSuffix(h, h.Tags, query, bg)
-	if ts := planningSummary(h); ts != "" {
-		suffix += bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(ts)
-	}
-	return fitRowLine(prefix, suffix, m.width, bg)
+	return m.fitOneLine(rowContent{
+		lead:  m.gutterColumns(h, bg),
+		title: joinBg(m.renderKeywordAndTitle(h, bg), bg),
+		metas: append(m.tagsMeta(h, h.Tags, bg), m.planningMeta(h, bg)...),
+	}, bg)
 }
 
 // renderCalendarLinkedItemRowWithBg renders one item linked to a
@@ -481,28 +393,18 @@ func (m Model) renderMeetingTagsRecordRowWithBg(r row, bg lipgloss.TerminalColor
 // the same budget-driven truncation of the parent title (see
 // renderAgendaItemRowWithBg) when the row doesn't fit at full width.
 func (m Model) renderCalendarLinkedItemRowWithBg(r row, bg lipgloss.TerminalColor) string {
+	return m.fitOneLine(m.flatEntryContent(r, bg), bg)
+}
+
+// flatEntryContent takes apart a flat, indented entry row that says where
+// it's from: an item linked to a calendar event, or one in tagsView.
+func (m Model) flatEntryContent(r row, bg lipgloss.TerminalColor) rowContent {
 	h := r.headline
-	query := m.activeSearchQuery()
-	indent := bgSpan(bg, strings.Repeat("  ", r.level))
-
-	prefix := m.markColumn(h, bg) + m.lockColumn(h, bg) + m.meetingColumn(h, bg) + m.gutter(m.dirtyHeadlines[h], bg) + bgSpan(bg, " ") + indent + bgSpan(bg, " ") + bgSpan(bg, " ") + joinBg(m.renderKeywordAndTitle(h, bg), bg)
-
-	tags := m.renderTagsSuffix(h, h.Tags, query, bg)
-	place := func(parentMaxWidth int) string {
-		return bgSpan(bg, "  ") + m.fadeIfImmutable(m.timestampStyle(), h).Background(bg).Render(fmt.Sprintf("[%s]", m.agendaPlace(h, parentMaxWidth)))
+	return rowContent{
+		lead:  m.gutterColumns(h, bg) + bgSpan(bg, strings.Repeat("  ", r.level)+"  "),
+		title: joinBg(m.renderKeywordAndTitle(h, bg), bg),
+		metas: append(m.tagsMeta(h, h.Tags, bg), m.placeMeta(h, bg)...),
 	}
-
-	suffix := tags + place(-1)
-	if m.width > 0 && lipgloss.Width(prefix)+lipgloss.Width(suffix) > m.width {
-		overhead := lipgloss.Width(tags) + lipgloss.Width(place(0))
-		parentBudget := m.width - lipgloss.Width(prefix) - overhead
-		if parentBudget < 0 {
-			parentBudget = 0
-		}
-		suffix = tags + place(parentBudget)
-	}
-
-	return fitRowLine(prefix, suffix, m.width, bg)
 }
 
 // calendarItemTime renders h's GCAL_START/GCAL_END as just the time of
@@ -537,6 +439,9 @@ func sameLocalDay(a, b time.Time) bool {
 // addressable item — that state lives on the headline's own row), shown
 // in a muted style so it doesn't compete visually with real entries.
 func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
+	if r.entryLine > 0 {
+		return m.renderEntryContinuation(r, bg)
+	}
 	// Guides run through a body line too, including its owner's own (the
 	// column its children's fold arrows would hang from), when it has
 	// children below.
@@ -561,6 +466,11 @@ func (m Model) renderBodyLineWithBg(r row, bg lipgloss.TerminalColor) string {
 }
 
 func planningSummary(h *org.Headline) string {
+	return strings.Join(planningParts(h), "  ")
+}
+
+// planningParts is one "LABEL: <timestamp>" per planning date h has.
+func planningParts(h *org.Headline) []string {
 	var parts []string
 	if h.Scheduled != nil {
 		parts = append(parts, "SCHEDULED: "+h.Scheduled.String())
@@ -571,7 +481,7 @@ func planningSummary(h *org.Headline) string {
 	if h.Closed != nil {
 		parts = append(parts, "CLOSED: "+h.Closed.String())
 	}
-	return strings.Join(parts, "  ")
+	return parts
 }
 
 const (

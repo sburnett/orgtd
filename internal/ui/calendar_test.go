@@ -559,7 +559,7 @@ func TestCalendarLinkedItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
 // internal/calendarsync/convert.go), and renderCalendarItemRowWithBg
 // used to show that list in full via fitRowLine's "suffix always wins"
 // rule, which could crowd even a short meeting title off the row
-// entirely. The tag list is now capped (see renderTagsSuffix), so the
+// entirely. The tag list is now capped (see tagsMeta), so the
 // title stays visible.
 func TestCalendarViewCapsLongAttendeeTagListKeepingTitleVisible(t *testing.T) {
 	ws := loadFixture(t)

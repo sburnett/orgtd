@@ -563,9 +563,30 @@ stop), and so on.
 | `ctrl-d` / `ctrl-u` | Half-page down / up |
 | `Page Down` / `Page Up` | Full-page down / up |
 | `ctrl-e` / `ctrl-y` | Scroll the view down/up by one line, like vim — the cursor stays put unless the scroll would push it off-screen, in which case it's dragged along just enough to stay visible |
-| `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise). On a file's own row, `zA`/`zO`/`zC` act on every entry in the file at once (`zA` opens them all if every one is folded, closes them all otherwise); the one-level `za`/`zo`/`zc` do nothing there, since the file itself can't be folded. A folded entry shows how many descendants it hides, as a muted `(N)` after its title (entries hidden by `hide_closed_after_hours` aren't counted) |
+| `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise). On a file's own row, `zA`/`zO`/`zC` act on every entry in the file at once (`zA` opens them all if every one is folded, closes them all otherwise); the one-level `za`/`zo`/`zc` do nothing there, since the file itself can't be folded. A folded entry shows how many descendants it hides, as a muted `(N)` after its title (entries hidden by `hide_closed_after_hours` aren't counted). An entry too wide for one line can be folded even with no body or children — see Long entries, below |
 | `Enter` | In agenda view, jump to that item's real place in the outline. In calendar view, on an item attached to a meeting via `gM` (see below), same thing — a no-op on the meeting's own row, since `calendar_file` isn't part of the outline at all |
 | `ctrl-o` / `gi` | Jump back / forward through the jump list — vim's own `ctrl-o`/`ctrl-i`, tracking where you were before a "large" move: `gg`/`G`, `{`/`}`, a confirmed search (`/`/`?`, not `n`/`N` repeats), jumping to a mark (`'<letter>`) or to the review target (`gc`, which switches to the outline if the current view doesn't show it), and switching views entirely (`:agenda`, `Enter` from it, `:calendar`, `:outline`, ...) — never for `j`/`k` or fold/edit commands, or the list would be useless clutter. Bound to `gi` rather than `ctrl-i`: in a plain terminal `ctrl-i` and `Tab` are the same byte, so there's no way to bind it separately from the fold-toggle key above. A no-op at either end of the list |
+
+### Long entries
+
+An entry that doesn't fit on one line is laid out one of two ways. Folded,
+it stays on one line: its dates switch to a short form (`S:10-31`,
+`D:11-02`, `C:10-30`, with the year only if it isn't this year), then the
+title keeps its full width up to about 60% of the row, and tags and dates
+share what's left, ellipsized as needed, with any share one part doesn't
+use going to the others. Unfolded, nothing is cut: title, tags and dates
+each wrap within a column of their own, all starting on the first line,
+so a long title never pushes the tags down. Tags break between tags, and
+dates stack one per line in their full form. A wrapped entry's extra lines
+belong to it the way its body lines do, so `j`/`k` step over them.
+
+A leaf too wide for one line gets a fold arrow, and unlike any other
+entry it starts folded, so long leaves don't stretch the outline; `Tab`
+shows it whole. Widen the window until it fits and the arrow goes away.
+The agenda, `:tags`, the items linked under a `:calendar` event and
+`:meeting-tags` records have no fold to open, so they stay on one line
+with the same division of space; their `[file › parent]` tag loses the
+parent before the file name.
 
 ### Editing
 
