@@ -421,7 +421,7 @@ func TestAgendaViewInsertsBlankLineBetweenSectionsButNotBeforeTheFirst(t *testin
 	ws := agendaFixture(t, orgText)
 	m := New(ws)
 	m.switchToView(agendaView)
-	m.width, m.height = 100, len(m.rows)+m.sectionSeparatorBudget()+3
+	m.width, m.height = 100, 2*len(m.rows)+3
 
 	out := stripANSI(m.View())
 	lines := strings.Split(out, "\n")
@@ -445,30 +445,6 @@ func TestAgendaViewInsertsBlankLineBetweenSectionsButNotBeforeTheFirst(t *testin
 	}
 	if lines[blankBeforeUpcoming] != "" {
 		t.Errorf("line before 'Upcoming' = %q, want a blank separator line", lines[blankBeforeUpcoming])
-	}
-}
-
-func TestSectionSeparatorBudgetZeroInOutlineView(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	if got := m.sectionSeparatorBudget(); got != 0 {
-		t.Errorf("sectionSeparatorBudget in outline view = %d, want 0", got)
-	}
-}
-
-func TestSectionSeparatorBudgetMatchesSectionCountMinusOne(t *testing.T) {
-	now := orgdate.TruncateToDate(time.Now())
-	orgText := fmt.Sprintf(`* TODO Overdue item
-  DEADLINE: <%s>
-* TODO Upcoming item
-  DEADLINE: <%s>
-`, ts(now.AddDate(0, 0, -1)), ts(now.AddDate(0, 0, 1)))
-	ws := agendaFixture(t, orgText)
-	m := New(ws)
-	m.switchToView(agendaView)
-
-	if got := m.sectionSeparatorBudget(); got != 1 {
-		t.Errorf("sectionSeparatorBudget with 2 sections = %d, want 1", got)
 	}
 }
 

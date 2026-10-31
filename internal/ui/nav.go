@@ -1,9 +1,9 @@
 package ui
 
 // moveCursor moves the cursor by delta entries — not delta rows — for
-// j/k and the half-page scroll (ctrl+d/ctrl+u) alike: an entry's body
-// lines are part of the entry, not separately steppable rows of their
-// own, so they're always skipped over and never landed on.
+// j/k: an entry's body lines are part of the entry, not separately
+// steppable rows of their own, so they're always skipped over and never
+// landed on. Paging counts rows instead; see movePage.
 func (m *Model) moveCursor(delta int) {
 	if len(m.rows) == 0 {
 		return
@@ -194,35 +194,83 @@ func (m *Model) jumpToSubtreeBottom() {
 	}
 }
 
-// pageSize is a rough, static estimate of how many rows a page holds,
-// reserving a full-list worst-case amount of room for section-separator
-// blank lines (see sectionSeparatorBudget) alongside the bottom status/
-// command-line area (see statusHeight). Used only as a scroll-jump
-// size (ctrl-d/ctrl-u/PageUp/PageDown) — close enough for "move roughly
-// one screen's worth of rows". The actual visible window (used by
-// View(), ensureVisible, and scrollView) is computed precisely instead,
-// by contentBudget/visibleRowCount: pageSize's static reservation is
-// only ever a lower bound on what really fits (safe for a jump size,
-// since jumping a little short of a full screen is harmless), but it
-// can be far too conservative when a view has many more section
-// boundaries than fit on one page (e.g. :calendar with more days than
-// rows available) — most of them live on other pages, so reserving
-// room here for every boundary in the whole list would under-fill the
-// actual screen.
+// pageSize is how many rows the window shows from its current top row —
+// how far Page Down moves, so the row after the last one visible becomes
+// the new top row. See prevPageSize for Page Up.
 func (m *Model) pageSize() int {
-	n := m.contentBudget() - m.sectionSeparatorBudget()
-	if n < 1 {
-		n = 1
+	return m.visibleRowCount(m.offset)
+}
+
+// prevPageSize is pageSize looking backward: how many rows the page ending
+// just above the window holds, which section-separator blank lines can
+// make differ from pageSize. With less than a page above the window, it's
+// the size of the first page, so Page Up still moves the cursor a full
+// page rather than only as far as the window can scroll.
+func (m *Model) prevPageSize() int {
+	top := m.offset
+	for top > 0 && top-1+m.visibleRowCount(top-1) >= m.offset {
+		top--
 	}
-	return n
+	if top == 0 {
+		return m.visibleRowCount(0)
+	}
+	return m.offset - top
+}
+
+// movePage moves the cursor rows rows down (dir>0) or up (dir<0) and
+// scrolls the window by the same amount, so a jump of a page or less never
+// skips past anything unseen (ctrl-d/ctrl-u/PageUp/PageDown). Unlike
+// moveCursor this counts rows, body lines included, since a page is a
+// measure of what's on screen. The cursor can't rest on a body line, so a
+// move landing inside an entry settles on whichever nearby entry start
+// stays within the distance; only when the nearest entry in that direction
+// is itself too tall does it go further, so the keys never get stuck.
+func (m *Model) movePage(dir, rows int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	target := m.cursor + dir*rows
+	target = max(0, min(target, len(m.rows)-1))
+	if dir > 0 {
+		target = m.entryStart(target)
+		if target <= m.cursor {
+			target = m.cursor
+			if next := m.entryEnd(m.cursor) + 1; next < len(m.rows) {
+				target = next
+			}
+		}
+	} else if next := m.entryEnd(target) + 1; m.rows[target].kind == rowBody && next < m.cursor {
+		target = next
+	} else {
+		target = m.entryStart(target)
+	}
+
+	offset := m.offset + target - m.cursor
+	if last := m.lastPageOffset(); offset > last {
+		offset = max(m.offset, last)
+	}
+	m.cursor, m.offset = target, max(offset, 0)
+}
+
+// lastPageOffset returns the top row of the last full page: the smallest
+// offset that still shows the last row.
+func (m *Model) lastPageOffset() int {
+	offset := len(m.rows) - 1
+	for offset > 0 && offset-1+m.visibleRowCount(offset-1) >= len(m.rows) {
+		offset--
+	}
+	return offset
 }
 
 // contentBudget is exactly how many terminal lines the scrollable
 // content area may occupy: the screen height minus the info buffer and
-// the bottom status/command-line area — with no separate reservation
-// for section-separator blank lines, unlike pageSize. Used by
-// visibleRowCount to work out precisely how many rows fit from a given
-// starting row, and directly as the padding target in View().
+// the bottom status/command-line area, section-separator blank lines
+// included. Used by visibleRowCount to work out precisely how many rows
+// fit from a given starting row, and directly as the padding target in
+// View().
 func (m *Model) contentBudget() int {
 	n := m.height - m.statusHeight() - m.infoBufferHeight()
 	if p, ok := m.activePane(); ok {
@@ -239,8 +287,7 @@ func (m *Model) contentBudget() int {
 // prints before every section-header row after the first one shown (2
 // lines total for such a row, 1 for every other row) — so a page always
 // shows as many rows as truly fit, rather than reserving room for every
-// section boundary in the whole list up front (see pageSize). 0 if
-// start is out of range.
+// section boundary in the whole list up front. 0 if start is out of range.
 func (m *Model) visibleRowCount(start int) int {
 	if start < 0 || start >= len(m.rows) {
 		return 0
@@ -281,9 +328,9 @@ func (m *Model) ensureVisible() {
 	}
 	// Nudge offset forward one row at a time until the cursor's entry
 	// end is within the window visibleRowCount(offset) actually shows
-	// from there — precise, since (unlike a static pageSize-based jump)
-	// it accounts for however many section-separator blank lines really
-	// fall within that specific window. Capped at m.cursor: if the
+	// from there — precise, since it accounts for however many
+	// section-separator blank lines really fall within that specific
+	// window. Capped at m.cursor: if the
 	// entry itself is taller than a page, showing all of it is
 	// impossible either way, so this stops advancing once the cursor's
 	// own row would be pushed out, rather than scrolling past it to

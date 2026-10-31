@@ -292,7 +292,7 @@ swaps each inactive window in (`withWindow`), rebuilds its rows and puts
 its cursor and its top row back on the same rows — that's how an edit made in one window
 reaches the others. And **a window's pane geometry comes from
 `activePane`/`listWidth`**, not `m.width`/`m.height` (the terminal):
-`contentBudget`, `pageSize` and body-line wrapping ask them. Panes are
+`contentBudget` and body-line wrapping ask them. Panes are
 laid out from the terminal size alone; each window's info buffer and
 status line are drawn inside its own pane (`paneLines`), so its listing
 gets what's left. `withWindow` and `View` record which pane a

@@ -1784,7 +1784,7 @@ func TestViewPadsStatusBarToBottomOfScreen(t *testing.T) {
 	out := m.View()
 	lines := strings.Split(out, "\n")
 
-	// pageSize() reserves two lines at the bottom — the status line and,
+	// contentBudget() reserves two lines at the bottom — the status line and,
 	// below it, a command line (see statusHeight) — so the output should
 	// have exactly m.height lines: (height-2) item/blank lines, then the
 	// status line, then a blank (idle) command line.

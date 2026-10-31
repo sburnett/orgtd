@@ -134,25 +134,6 @@ func (m Model) renderPinnedRow(marker string, h *org.Headline, forReview bool) s
 	return m.padLineToWidth(fitRowLine(prefix, suffix, m.width, m.overlayBg()), m.overlayBg())
 }
 
-// sectionSeparatorBudget is how many blank separator lines a full render
-// could need — one before every section-header row after the first (see
-// View). Reserving this many rows of the page for them, even though any
-// single page may show fewer section boundaries than the full list has,
-// is always safe: unused reservation just becomes ordinary bottom
-// padding, exactly like when there are fewer than a page of items.
-func (m *Model) sectionSeparatorBudget() int {
-	n := 0
-	for _, r := range m.rows {
-		if r.kind == rowSection {
-			n++
-		}
-	}
-	if n == 0 {
-		return 0
-	}
-	return n - 1
-}
-
 // linksInTitle returns the URL of every org-mode link in title, in order.
 func linksInTitle(title string) []string {
 	links := org.ParseLinks(title)

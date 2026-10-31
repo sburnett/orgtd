@@ -282,7 +282,7 @@ func manyDaysCalendarFile(dir string, n int) *org.File {
 // TestCalendarViewStatusBarStaysAtBottomWhenPaginated is a regression
 // test: with more day-separators than fit on one screen, only some of
 // them actually render on any given page, which used to be fewer than
-// sectionSeparatorBudget() reserved room for — the padding loop filled
+// a full-list reservation left room for — the padding loop filled
 // only up to `page` (computed using the full-list budget) rather than
 // the content area's true remaining space, so the rendered output fell
 // short of m.height and the status bar sat above the bottom of the
@@ -318,7 +318,7 @@ func TestCalendarViewStatusBarStaysAtBottomWhenPaginated(t *testing.T) {
 // the status bar's position (see TestCalendarViewStatusBarStaysAtBottomWhenPaginated)
 // by padding to contentBudget alone left the underlying problem
 // unfixed — the render window itself (end, in View()) was still sized
-// off pageSize()/sectionSeparatorBudget(), a full-list worst-case
+// off a full-list worst-case
 // reservation that shrinks drastically once a view has many more
 // section boundaries than fit on one page, so far fewer real rows were
 // shown than the screen could actually hold (the rest of the space
@@ -363,7 +363,7 @@ func TestVisibleRowCountCoversWholeListWhenItFits(t *testing.T) {
 	ws.Files = append(ws.Files, manyDaysCalendarFile(ws.Dir, 2))
 	m := New(ws)
 	m.switchToView(calendarView)
-	m.width, m.height = 100, len(m.rows)+m.sectionSeparatorBudget()+3
+	m.width, m.height = 100, 2*len(m.rows)+3
 
 	if got := m.visibleRowCount(0); got != len(m.rows) {
 		t.Errorf("visibleRowCount(0) = %d, want %d (the whole list, since the screen is tall enough)", got, len(m.rows))
