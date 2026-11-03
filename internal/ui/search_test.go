@@ -639,3 +639,67 @@ func TestSearchEscClosesFoldsItOpened(t *testing.T) {
 		t.Errorf("cursor = %v, want it back at the origin", got)
 	}
 }
+
+// foldedParserBody folds "Implement the org file parser" (whose body
+// reads "Headlines, planning lines, properties, body text.") and puts the
+// cursor just above it: "te" then first matches only that folded-away
+// body, but "tea" moves on to the title "Implement the Bubble Tea
+// viewer".
+func foldedParserBody(t *testing.T) (Model, *org.Headline) {
+	t.Helper()
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, "Implement the org file parser")
+	m = sendKey(m, "tab")
+	parser := m.currentHeadline()
+	if !m.collapsed[parser] {
+		t.Fatalf("fixture assumption broken: entry didn't fold")
+	}
+	m.cursor = findRow(t, m, "Write the design document")
+	return m, parser
+}
+
+func TestIncrementalSearchClosesBodyOnceQueryMovesOn(t *testing.T) {
+	m, parser := foldedParserBody(t)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "te")
+	if got := m.currentHeadline(); got != parser {
+		t.Fatalf("cursor = %v, want the entry whose body matches", got)
+	}
+	if m.collapsed[parser] {
+		t.Fatalf("entry should unfold to show its matching body")
+	}
+
+	m = typeKeys(m, "a")
+	if got := m.currentHeadline(); got == nil || got.Title != "Implement the Bubble Tea viewer" {
+		t.Fatalf("cursor = %v, want the later title match", got)
+	}
+	if !m.collapsed[parser] {
+		t.Errorf("body opened for an earlier, shorter query should fold again")
+	}
+}
+
+func TestSearchEnterKeepsBodyOpenedForMatch(t *testing.T) {
+	m, parser := foldedParserBody(t)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "te")
+	m, _ = sendKeyCmd(m, "enter")
+	if m.collapsed[parser] {
+		t.Errorf("confirmed search should leave its match's body open")
+	}
+}
+
+func TestSearchEscFoldsBodyItOpened(t *testing.T) {
+	m, parser := foldedParserBody(t)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "te")
+	m = sendKey(m, "esc")
+	if !m.collapsed[parser] {
+		t.Errorf("cancelled search should fold the body it opened")
+	}
+	if got := m.currentHeadline(); got == nil || got.Title != "Write the design document" {
+		t.Errorf("cursor = %v, want it back at the origin", got)
+	}
+}

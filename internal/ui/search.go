@@ -83,8 +83,9 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // — called after every keystroke in searchMode. Leaves the cursor at
 // searchOrigin if the query is empty or matches nothing.
 //
-// A match inside a folded subtree is unfolded to reveal it, but only
-// provisionally: the folds opened are remembered in searchOpened, and
+// A match inside a folded subtree is unfolded to reveal it — and so is
+// the matching entry itself, when only its folded-away body matches —
+// but only provisionally: the folds opened are remembered in searchOpened, and
 // any of them the next keystroke's match doesn't also need are closed
 // again — so a short prefix like "e" matching something unrelated
 // doesn't leave its subtree sprawled open once the query has moved on.
@@ -115,16 +116,20 @@ func (m *Model) performIncrementalSearch() {
 	}
 
 	// Work out the folds this match needs open — its collapsed
-	// ancestors, plus any this search already opened for it — before
-	// touching any, so a fold that stays needed from one keystroke to the
-	// next is left alone rather than closed and reopened (each change
-	// costs a rebuild).
+	// ancestors, and its own entry when only its body matches (see
+	// bodyOnlyMatch), plus any of those this search already opened —
+	// before touching any, so a fold that stays needed from one keystroke
+	// to the next is left alone rather than closed and reopened (each
+	// change costs a rebuild).
 	opened := map[*org.Headline]bool{}
-	if found && m.spec().folds && target.headline != nil {
-		for p := target.headline.Parent; p != nil; p = p.Parent {
+	if h := target.headline; found && m.spec().folds && h != nil {
+		for p := h.Parent; p != nil; p = p.Parent {
 			if m.collapsed[p] || m.searchOpened[p] {
 				opened[p] = true
 			}
+		}
+		if (m.isFolded(h) || m.searchOpened[h]) && bodyOnlyMatch(target, m.searchQuery) {
+			opened[h] = true
 		}
 	}
 	changed := false
@@ -346,19 +351,27 @@ func (m *Model) startSearch(forward bool) {
 }
 
 // revealBodyMatch unfolds target's own entry when query matches only its
-// body text, not what its title line shows — the match would otherwise be
-// invisible, folded away under a title that doesn't contain it. An entry
-// whose title matches stays as folded as it was.
+// body text, not what its title line shows (see bodyOnlyMatch) — the
+// match would otherwise be invisible, folded away under a title that
+// doesn't contain it. An entry whose title matches stays as folded as it
+// was.
 func (m *Model) revealBodyMatch(target row, query string) {
 	h := target.headline
-	if h == nil || target.bodySearch == "" || !m.collapsed[h] || !m.spec().folds {
-		return
-	}
-	q := strings.ToLower(query)
-	if strings.Contains(strings.ToLower(rowTitleSearchText(target)), q) ||
-		!strings.Contains(strings.ToLower(target.bodySearch), q) {
+	if h == nil || !m.spec().folds || !m.isFolded(h) || !bodyOnlyMatch(target, query) {
 		return
 	}
 	m.collapsed[h] = false
 	m.rebuildRows()
+}
+
+// bodyOnlyMatch reports whether query matches target's body text but
+// not its title line — the case where the entry has to be unfolded for
+// the match to be visible at all.
+func bodyOnlyMatch(target row, query string) bool {
+	if target.headline == nil || target.bodySearch == "" {
+		return false
+	}
+	q := strings.ToLower(query)
+	return !strings.Contains(strings.ToLower(rowTitleSearchText(target)), q) &&
+		strings.Contains(strings.ToLower(target.bodySearch), q)
 }
