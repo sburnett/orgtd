@@ -176,6 +176,12 @@ type Model struct {
 	searchQuery   string // typed so far, in searchMode
 	searchForward bool   // true for "/" (forward), false for "?" (backward)
 	searchOrigin  int    // cursor position when the search started, restored on Esc
+	// searchOpened holds the folds the in-progress incremental search
+	// has opened to reveal its current match — closed again as soon as
+	// the query moves on to a match that doesn't need them, or the
+	// search is cancelled, and kept open only once Enter confirms it
+	// (see performIncrementalSearch).
+	searchOpened map[*org.Headline]bool
 
 	lastSearchQuery   string // most recently confirmed search, repeated by n/N
 	lastSearchForward bool   // that search's direction ("n" repeats it, "N" reverses it)

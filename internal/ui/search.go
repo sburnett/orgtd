@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // activeSearchQuery is the search term row rendering should highlight
@@ -23,6 +24,7 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.mode = normalMode
+		m.closeSearchFolds()
 		m.cursor = m.searchOrigin
 		m.searchQuery = ""
 		m.message = ""
@@ -43,6 +45,7 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.searchQuery = ""
+		m.searchOpened = nil // confirmed: the folds it opened stay open
 		return m, nil
 
 	case tea.KeyBackspace:
@@ -52,6 +55,7 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r := []rune(m.searchQuery)
 		if len(r) == 0 {
 			m.mode = normalMode
+			m.closeSearchFolds()
 			m.cursor = m.searchOrigin
 			m.message = ""
 			m.ensureVisible()
@@ -77,35 +81,106 @@ func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // performIncrementalSearch re-jumps the cursor from searchOrigin to the
 // nearest match of the query typed so far, in searchForward's direction
 // — called after every keystroke in searchMode. Leaves the cursor at
-// searchOrigin if the query is empty or matches nothing. A match inside
-// a folded subtree is unfolded to reveal it (see revealRow), which
-// rebuilds m.rows and so shifts row indices — searchOrigin is
-// re-resolved by identity afterward so it keeps naming the same row
-// (rather than whatever now sits at its old index) for the rest of the
-// incremental search, and for Esc/backspace-to-empty reverting to it.
+// searchOrigin if the query is empty or matches nothing.
+//
+// A match inside a folded subtree is unfolded to reveal it, but only
+// provisionally: the folds opened are remembered in searchOpened, and
+// any of them the next keystroke's match doesn't also need are closed
+// again — so a short prefix like "e" matching something unrelated
+// doesn't leave its subtree sprawled open once the query has moved on.
+// Enter keeps whatever the final match needed open; Esc closes them all.
+// Opening and closing folds rebuilds m.rows and so shifts row indices —
+// searchOrigin is re-resolved by identity afterward so it keeps naming
+// the same row (rather than whatever now sits at its old index) for the
+// rest of the incremental search, and for Esc/backspace-to-empty
+// reverting to it.
 func (m *Model) performIncrementalSearch() {
-	m.cursor = m.searchOrigin
 	m.message = ""
-	if m.searchQuery != "" && m.searchOrigin >= 0 && m.searchOrigin < len(m.rows) {
-		origin := m.rows[m.searchOrigin]
+	if m.searchOrigin < 0 || m.searchOrigin >= len(m.rows) {
+		m.cursor = m.searchOrigin
+		m.ensureVisible()
+		return
+	}
+	origin := m.rows[m.searchOrigin]
+	var target row
+	found := false
+	if m.searchQuery != "" {
 		rows := m.searchRows()
-		if target, ok := findMatch(rows, origin, m.searchQuery, m.searchForward); ok {
-			m.revealRow(target)
-			if idx := indexOfRow(m.rows, origin); idx >= 0 {
-				m.searchOrigin = idx
-			}
-			if idx := indexOfRow(m.rows, target); idx >= 0 {
-				m.cursor = idx
-			}
+		if target, found = findMatch(rows, origin, m.searchQuery, m.searchForward); found {
 			index, total := searchMatchStats(rows, m.searchQuery, target)
 			m.message = fmt.Sprintf("[%d/%d]", index, total)
-			m.ensureVisible()
-			return
 		} else {
 			m.message = fmt.Sprintf("No match for %q", m.searchQuery)
 		}
 	}
+
+	// Work out the folds this match needs open — its collapsed
+	// ancestors, plus any this search already opened for it — before
+	// touching any, so a fold that stays needed from one keystroke to the
+	// next is left alone rather than closed and reopened (each change
+	// costs a rebuild).
+	opened := map[*org.Headline]bool{}
+	if found && m.spec().folds && target.headline != nil {
+		for p := target.headline.Parent; p != nil; p = p.Parent {
+			if m.collapsed[p] || m.searchOpened[p] {
+				opened[p] = true
+			}
+		}
+	}
+	changed := false
+	for h := range m.searchOpened {
+		if !opened[h] {
+			m.collapsed[h] = true
+			changed = true
+		}
+	}
+	for h := range opened {
+		if m.collapsed[h] {
+			m.collapsed[h] = false
+			changed = true
+		}
+	}
+	m.searchOpened = opened
+	if changed {
+		m.rebuildRows()
+		if idx := indexOfRow(m.rows, origin); idx >= 0 {
+			m.searchOrigin = idx
+		}
+	}
+
+	m.cursor = m.searchOrigin
+	if found {
+		if idx := indexOfRow(m.rows, target); idx >= 0 {
+			m.cursor = idx
+		}
+	}
 	m.ensureVisible()
+}
+
+// closeSearchFolds closes every fold the in-progress incremental search
+// opened (see searchOpened) — for Esc and backspace-to-empty, which
+// abandon the search — re-resolving searchOrigin by identity since the
+// rebuild shifts row indices.
+func (m *Model) closeSearchFolds() {
+	if len(m.searchOpened) == 0 {
+		m.searchOpened = nil
+		return
+	}
+	var origin row
+	hasOrigin := m.searchOrigin >= 0 && m.searchOrigin < len(m.rows)
+	if hasOrigin {
+		origin = m.rows[m.searchOrigin]
+	}
+	for h := range m.searchOpened {
+		m.collapsed[h] = true
+	}
+	m.searchOpened = nil
+	m.rebuildRows()
+	if hasOrigin {
+		if idx := indexOfRow(m.rows, origin); idx >= 0 {
+			m.searchOrigin = idx
+		}
+	}
 }
 
 // repeatSearch ("n"/"N") repeats the last confirmed search from the
@@ -179,30 +254,35 @@ func indexOfRow(rows []row, target row) int {
 // searchRows, which searches the full outline regardless of fold state —
 // actually appears in m.rows: every ancestor of its headline (so the
 // headline's own row is reachable at all; see revealBodyMatch for the
-// entry's own body). A no-op
-// for a view with no folding to begin with (agenda, config, log, diff,
-// help), and for the common case where target was already visible (no
-// folds in the way). Deliberately doesn't restore folds it opens if the
-// search is later cancelled (Esc) — same as vim, which leaves a fold
-// opened by search open rather than closing it back up.
+// entry's own body). A no-op for a view with no folding to begin with
+// (agenda, config, log, diff, help), and for the common case where
+// target was already visible (no folds in the way). Folds opened this
+// way stay open; incremental search instead opens them provisionally
+// (see performIncrementalSearch).
 func (m *Model) revealRow(target row) {
-	if !m.spec().folds {
-		return
+	hiding := m.foldsHiding(target)
+	for _, h := range hiding {
+		m.collapsed[h] = false
 	}
-	h := target.headline
-	if h == nil {
-		return
-	}
-	changed := false
-	for p := h.Parent; p != nil; p = p.Parent {
-		if m.collapsed[p] {
-			m.collapsed[p] = false
-			changed = true
-		}
-	}
-	if changed {
+	if len(hiding) > 0 {
 		m.rebuildRows()
 	}
+}
+
+// foldsHiding returns the collapsed ancestors of target's headline — the
+// folds that must open for its row to appear in m.rows (see revealRow).
+// None for a view with no folding, or a row with no headline.
+func (m *Model) foldsHiding(target row) []*org.Headline {
+	if !m.spec().folds || target.headline == nil {
+		return nil
+	}
+	var hiding []*org.Headline
+	for p := target.headline.Parent; p != nil; p = p.Parent {
+		if m.collapsed[p] {
+			hiding = append(hiding, p)
+		}
+	}
+	return hiding
 }
 
 // searchMatchStats reports target's 1-based ordinal position among every
@@ -261,6 +341,7 @@ func (m *Model) startSearch(forward bool) {
 	m.searchForward = forward
 	m.searchOrigin = m.cursor
 	m.searchQuery = ""
+	m.searchOpened = nil
 	m.message = ""
 }
 

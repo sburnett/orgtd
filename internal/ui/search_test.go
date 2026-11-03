@@ -548,3 +548,94 @@ func TestEntryWithManyMatchesIsOneSearchMatch(t *testing.T) {
 		t.Errorf("repeat from the only matching entry = %+v (ok=%v), want that same entry", next.headline, ok)
 	}
 }
+
+// foldedShipOrgtd puts the cursor on "Ship orgtd v0.1" with its subtree
+// folded: "bu" first matches "Implement the Bubble Tea viewer", inside
+// the fold, but "bud" moves on to "Get budget numbers from finance",
+// outside it.
+func foldedShipOrgtd(t *testing.T) (Model, *org.Headline) {
+	t.Helper()
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, "Ship orgtd v0.1")
+	m = sendKey(m, "tab")
+	fold := m.currentHeadline()
+	if !m.collapsed[fold] {
+		t.Fatalf("fixture assumption broken: fold didn't collapse")
+	}
+	return m, fold
+}
+
+func TestIncrementalSearchClosesFoldOnceQueryMovesOn(t *testing.T) {
+	m, fold := foldedShipOrgtd(t)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "bu")
+	if got := m.currentHeadline(); got == nil || got.Title != "Implement the Bubble Tea viewer" {
+		t.Fatalf("cursor = %v, want the match inside the fold", got)
+	}
+	if m.collapsed[fold] {
+		t.Fatalf("fold should be open to show the match")
+	}
+
+	m = typeKeys(m, "d")
+	if got := m.currentHeadline(); got == nil || got.Title != "Get budget numbers from finance" {
+		t.Fatalf("cursor = %v, want the match outside the fold", got)
+	}
+	if !m.collapsed[fold] {
+		t.Errorf("fold opened for an earlier, shorter query should close again")
+	}
+
+	m = sendKey(m, "backspace")
+	if got := m.currentHeadline(); got == nil || got.Title != "Implement the Bubble Tea viewer" || m.collapsed[fold] {
+		t.Errorf("backspacing to the earlier query should reopen the fold and return to its match (cursor = %v)", got)
+	}
+}
+
+func TestIncrementalSearchClosesFoldWhenQueryStopsMatching(t *testing.T) {
+	m, fold := foldedShipOrgtd(t)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "buzzz")
+	if !m.collapsed[fold] {
+		t.Errorf("fold should close once the query no longer matches inside it")
+	}
+	if got := m.currentHeadline(); got != fold {
+		t.Errorf("cursor = %v, want it back at the origin", got)
+	}
+}
+
+func TestSearchEnterKeepsFoldOpenedForMatch(t *testing.T) {
+	m, fold := foldedShipOrgtd(t)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "bu")
+	m, _ = sendKeyCmd(m, "enter")
+	if m.collapsed[fold] {
+		t.Errorf("confirmed search should leave its match's fold open")
+	}
+	if got := m.currentHeadline(); got == nil || got.Title != "Implement the Bubble Tea viewer" {
+		t.Errorf("cursor = %v, want the confirmed match", got)
+	}
+
+	// A later search starts fresh: it doesn't treat the fold the
+	// confirmed one opened as provisional.
+	m = sendKey(m, "/")
+	m = typeKeys(m, "bud")
+	if m.collapsed[fold] {
+		t.Errorf("fold kept open by a confirmed search shouldn't be closed by the next one")
+	}
+}
+
+func TestSearchEscClosesFoldsItOpened(t *testing.T) {
+	m, fold := foldedShipOrgtd(t)
+
+	m = sendKey(m, "/")
+	m = typeKeys(m, "bu")
+	m = sendKey(m, "esc")
+	if !m.collapsed[fold] {
+		t.Errorf("cancelled search should close the fold it opened")
+	}
+	if got := m.currentHeadline(); got != fold {
+		t.Errorf("cursor = %v, want it back at the origin", got)
+	}
+}
