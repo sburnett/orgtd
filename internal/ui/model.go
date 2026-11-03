@@ -39,6 +39,12 @@ type Model struct {
 	// windows.go for the others, parked in layout.
 	window
 
+	// rowsGen counts row builds across every window (see buildRows). A
+	// build follows every change to anything rows are built from, so a
+	// window whose builtGen is still rowsGen has nothing new to show,
+	// and syncWindows can leave it alone.
+	rowsGen uint64
+
 	// layout is the window layout tree (see layoutNode) and activeWin
 	// the leaf whose state is embedded above; prevWin is the leaf that
 	// was active before it, for "ctrl-w p". All nil while there's just
@@ -234,6 +240,14 @@ func (m *Model) now() time.Time {
 		return m.clock()
 	}
 	return time.Now()
+}
+
+// minute is now to the minute, for telling whether rows were built
+// before the time last moved on: the agenda's buckets and Meetings
+// section, and hide-closed's cutoff, all depend on the time as well as
+// the files, and org timestamps go no finer than minutes.
+func (m *Model) minute() string {
+	return m.now().Format("2006-01-02 15:04")
 }
 
 // New builds a viewer model over ws. Every headline starts expanded.

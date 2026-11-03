@@ -150,8 +150,17 @@ func (m *Model) searchRows() []row {
 	if !spec.folds {
 		return m.rows
 	}
+	// Cached until the next buildRows (see window.search), which follows
+	// every change that could alter these rows. Callers only read them.
+	c := m.search
+	if c != nil && c.valid && c.width == m.listWidth() {
+		return c.rows
+	}
 	var rows []row
 	spec.build(m, &rows, true)
+	if c != nil {
+		*c = searchCache{rows: rows, width: m.listWidth(), valid: true}
+	}
 	return rows
 }
 

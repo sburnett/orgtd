@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1836,5 +1837,32 @@ func TestStatusItemCountIgnoresFoldsAndBodyLines(t *testing.T) {
 	m.cursor = 0
 	if after := m.normalStatusLine(); after != before {
 		t.Errorf("status after folding = %q, want unchanged %q", after, before)
+	}
+}
+
+// The status line's entry count is cached between frames (see
+// window.search); deleting an entry must still lower it.
+func TestStatusItemCountFollowsDeletes(t *testing.T) {
+	m := New(loadFixture(t))
+	m.width, m.height = 100, 40
+	count := regexp.MustCompile(`item \d+/(\d+)`)
+	total := func() string {
+		sm := count.FindStringSubmatch(stripANSI(m.normalStatusLine()))
+		if sm == nil {
+			t.Fatalf("no item count in %q", stripANSI(m.normalStatusLine()))
+		}
+		return sm[1]
+	}
+	before := total()
+	for i, r := range m.rows {
+		if r.kind == rowHeadline && len(r.headline.Children) == 0 {
+			m.cursor = i
+			break
+		}
+	}
+	m = sendKey(sendKey(m, "d"), "d")
+	b, _ := strconv.Atoi(before)
+	if got, want := total(), strconv.Itoa(b-1); got != want {
+		t.Errorf("total after dd = %s, want %s", got, want)
 	}
 }

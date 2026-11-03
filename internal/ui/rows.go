@@ -24,6 +24,9 @@ func (m *Model) rebuildRows() {
 func (m *Model) buildRows() {
 	m.rows = m.rows[:0]
 	m.builtWidth = m.listWidth()
+	m.rowsGen++
+	m.builtGen, m.builtAt = m.rowsGen, m.minute()
+	m.search = &searchCache{}
 	m.spec().build(m, &m.rows, false)
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1
@@ -144,7 +147,7 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 	if err != nil {
 		return false
 	}
-	return time.Since(closed) > time.Duration(m.cfg.HideClosedAfterHours)*time.Hour
+	return m.now().Sub(closed) > time.Duration(m.cfg.HideClosedAfterHours)*time.Hour
 }
 
 // appendBodyLines appends one row per line of h's free-text body,

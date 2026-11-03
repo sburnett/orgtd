@@ -250,6 +250,11 @@ which of its fields apply and how it renders, searches and compares;
 they resolve the cursor row to its real `*org.Headline` via
 `currentHeadline()` and operate on that, not on the row.
 
+`searchRows` (the fully unfolded rows that search and the status line's
+"item N/M" count scan) is cached per window in `window.search` until the
+next `buildRows`, since the status line asks for it on every frame. It's a
+pointer so `View`, which runs on a copy of the Model, can fill it.
+
 Views that are derived (agenda, tags, calendar's linked items) show the
 same headline pointer in more than one row; `sameRow` exists to tell
 those rows apart (search `n`/`N` depends on it), which is why `row`
@@ -290,7 +295,14 @@ registers, search — is shared.
 Two invariants follow. **Every `Update` ends with `syncWindows`**, which
 swaps each inactive window in (`withWindow`), rebuilds its rows and puts
 its cursor and its top row back on the same rows — that's how an edit made in one window
-reaches the others. And **a window's pane geometry comes from
+reaches the others. It skips a window when nothing has changed since its last
+build: `buildRows` bumps the shared `Model.rowsGen` and stamps the window
+with it (`builtGen`), its width and the minute (`Model.minute`: the agenda and
+hide-closed depend on the time too), so a window still matching all
+three is left alone and plain cursor motion rebuilds nothing. This leans on
+the existing rule that every change to the files, folds or view is followed
+by a rebuild: anything that changes rows without one would now go stale in
+the other windows too. And **a window's pane geometry comes from
 `activePane`/`listWidth`**, not `m.width`/`m.height` (the terminal):
 `contentBudget` and body-line wrapping ask them. Panes are
 laid out from the terminal size alone; each window's info buffer and

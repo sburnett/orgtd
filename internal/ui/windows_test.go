@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -346,5 +347,49 @@ func TestActiveWindowStandsOut(t *testing.T) {
 	}
 	if n := strings.Count(view, bgSGR(m.inactiveCursorBg())); n == 0 {
 		t.Errorf("inactive window's cursor row isn't faintly highlighted")
+	}
+}
+
+// Moving around in one window doesn't rebuild the others' rows (doing so
+// on every keypress made scrolling with a split open crawl), so their
+// cached search space survives.
+func TestMotionDoesNotRebuildOtherWindows(t *testing.T) {
+	m := newSizedModel(t, 80, 40)
+	m = runColon(m, "split")
+	m = sendKey(m, "j") // let syncWindows catch the other window up once
+	other := m.layout.leaves(nil)[1]
+	cache := other.win.search
+	if cache == nil {
+		t.Fatal("other window has no search cache")
+	}
+	m = typeKeys(m, "jjjkkj")
+	if other.win.search != cache {
+		t.Errorf("other window was rebuilt by cursor motion alone")
+	}
+}
+
+// A window left showing the agenda is rebuilt once the time moves on,
+// even with no edit anywhere, since its buckets depend on the date.
+func TestOtherWindowsAgendaRebuiltOnNewDay(t *testing.T) {
+	now := time.Date(2026, 11, 2, 23, 59, 0, 0, time.Local)
+	m := New(loadFixture(t), WithClock(func() time.Time { return now }))
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	m = updated.(Model)
+	m = runColon(m, "split")
+	m = runColon(m, "agenda")
+	m = ctrlW(m, "j") // the agenda window is now the inactive one
+	agenda := m.layout.leaves(nil)[0]
+	if agenda.win.view != agendaView {
+		t.Fatalf("top window's view = %v, want the agenda", agenda.win.view)
+	}
+	cache := agenda.win.search
+
+	now = now.Add(2 * time.Minute)
+	m = sendKey(m, "j")
+	if agenda.win.search == cache {
+		t.Errorf("agenda window wasn't rebuilt after the clock moved on")
+	}
+	if agenda.win.builtAt != "2026-11-03 00:01" {
+		t.Errorf("agenda window built at %q, want 2026-11-03 00:01", agenda.win.builtAt)
 	}
 }

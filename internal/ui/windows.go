@@ -38,6 +38,26 @@ type window struct {
 	// builtWidth is the width rows was last built for (see buildRows), so
 	// syncWindows can tell when a static view's rows need rebuilding.
 	builtWidth int
+	// builtGen is Model.rowsGen as of this window's last build, and
+	// builtAt the minute it was built in (see Model.minute) — see
+	// syncWindows.
+	builtGen uint64
+	builtAt  string
+
+	// search caches searchRows for the rows as last built: the status
+	// line's entry count asks for it on every frame, and building the
+	// whole unfolded outline each time made every keypress slow. A
+	// pointer so View, which works on a copy of the Model, can fill it;
+	// buildRows replaces it with a fresh, empty one. Nil means "don't
+	// cache" (a Model built by hand, or a just-cloned window).
+	search *searchCache
+}
+
+// searchCache holds a window's searchRows result, built for width.
+type searchCache struct {
+	rows  []row
+	width int
+	valid bool
 }
 
 // clone returns a copy of w that shares no slices with it, for a new
@@ -46,6 +66,7 @@ type window struct {
 func (w window) clone() window {
 	w.rows = slices.Clone(w.rows)
 	w.jumpList = slices.Clone(w.jumpList)
+	w.search = nil
 	return w
 }
 
@@ -244,18 +265,28 @@ func (m *Model) withWindow(p pane, f func()) {
 // syncWindows brings every inactive window up to date after Update: the
 // workspace may have changed under it, or its pane been resized. Each is
 // rebuilt with its cursor kept on the same row (see rebuildKeepingCursor)
-// — except a static view's (see viewSpec.static), whose rows don't
-// depend on the workspace, unless its width changed.
+// — except when nothing it's built from has changed since its last
+// build: same width, same minute, and no row build anywhere since (see
+// Model.rowsGen), or a static view's (see viewSpec.static), whose rows
+// don't depend on the workspace at all. Rebuilding every window on every
+// keypress made scrolling with a split open crawl.
+//
+// These rebuilds don't count as changes themselves: rowsGen is put back
+// after each, so one window catching up doesn't make the others look
+// stale on the next keypress.
 func (m *Model) syncWindows() {
+	gen := m.rowsGen
 	for _, p := range m.panes() {
 		if p.leaf == m.activeWin {
 			continue
 		}
 		m.withWindow(p, func() {
-			if m.spec().static && m.builtWidth == m.listWidth() {
+			if m.builtWidth == m.listWidth() &&
+				(m.spec().static || m.builtGen == gen && m.builtAt == m.minute()) {
 				return
 			}
 			m.rebuildKeepingCursor()
+			m.rowsGen, m.builtGen = gen, gen
 		})
 	}
 }
