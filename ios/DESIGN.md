@@ -1,0 +1,400 @@
+# orgtd for iOS — Design & Implementation Plan
+
+Status: **proposed**, not yet built. This document records the decisions
+made while designing the iOS app and the order in which to build it. The
+desktop app's own design is in [../DESIGN.md](../DESIGN.md); its
+behavior is specified by [../README.md](../README.md).
+
+## 1. Summary
+
+An iPhone app, touch-native (no vim keys), that does two things:
+
+1. **Captures** new items into the inbox — from inside the app or from
+   the iOS share sheet.
+2. **Reads** the org directory — an agenda, the inbox, and a read-only
+   outline browser.
+
+The phone never modifies an existing entry. Its only write is
+**appending new top-level entries to `inbox.org`**, committed to a
+dedicated `mobile` git branch that the user merges into `main` by hand
+on the Mac. The phone never merges and never resolves a conflict.
+
+## 2. Decisions
+
+| Topic | Decision |
+|---|---|
+| Devices / UX | iPhone only, touch-native (lists, sheets, swipe). No hardware-keyboard/vim mode |
+| File access | The org directory is a git repo; the app keeps its own clone |
+| Git host / auth | GitHub over SSH, with an ed25519 key generated on the device and stored in the Keychain; the user adds it as a **write-enabled deploy key** |
+| Phone writes | Append-only to `inbox_file` (default `inbox.org`). No edits, state changes, deletes, or IDs added to existing entries |
+| Branch | All phone changes live on `mobile`. The user merges `mobile` → `main` on the Mac with a normal merge or fast-forward (never squash/cherry-pick) |
+| Commit / push | Each capture is committed automatically; pushing only happens on an explicit **Sync** |
+| Branch upkeep | On Sync, `mobile` is rebuilt as `origin/main` + the still-unmerged captures and force-pushed (with lease) |
+| Fetch | On launch, on returning to foreground, and on Sync. Fetch is read-only and can't conflict |
+| Capture fields | Title, body, tags (autocompleted), SCHEDULED / DEADLINE. `CREATED` is stamped automatically |
+| Capture entry points | In-app and share-sheet extension. No widget, Siri, or Shortcuts for now |
+| Read views | Agenda (Overdue / Due Today / Upcoming / Next Actions), Inbox, read-only Outline browser with search |
+| Not in scope (yet) | Any mutation of existing entries, meetings/calendar, `:review`, Google integration, iPad |
+| Config | A `.orgtd.toml` committed to the org repo, read by both desktop and phone |
+| Stack | SwiftUI app + share extension; Go core compiled with `gomobile bind` |
+| Code location | This repo, under `ios/` (Xcode project) plus a Go package `mobilecore/` |
+| Distribution | Free Xcode personal-team provisioning (7-day re-signing) |
+
+## 3. Architecture
+
+```
+┌──────────────────────────── iOS app (SwiftUI) ───────────────────────────┐
+│  AgendaView   InboxView   OutlineView/SearchView   CaptureSheet   Settings│
+│        │            │              │                    │           │     │
+│        └────────────┴──────┬───────┴────────────────────┘           │     │
+│                      CoreClient (Swift wrapper, JSON decode)   KeychainKey│
+└────────────────────────────┼──────────────────────────────────────────┬──┘
+                             │ gomobile bind (Mobilecore.xcframework)   │
+┌────────────────────────────▼──────────────────────────────────────────▼──┐
+│ mobilecore (Go)                                                           │
+│   Sync / Agenda / Inbox / Outline / Search / Tags / Capture / Status      │
+│   ├── internal/gitsync   (go-git: clone, fetch, rebuild mobile, push)     │
+│   ├── internal/capturequeue (pending-capture JSON queue)                  │
+│   ├── internal/agenda    (extracted from internal/ui — shared w/ desktop) │
+│   ├── internal/workspace, internal/org, internal/orgdate, internal/config │
+└───────────────────────────────────────────────────────────────────────────┘
+        ▲
+        │ appends to queue only (no git, no Go runtime required)
+┌───────┴────────────────┐
+│ Share extension (Swift)│
+└────────────────────────┘
+```
+
+### 3.1 Why a Go core
+
+- **Behavioral parity.** Agenda bucketing, repeater math and missed
+  counts, SOMEDAY/`agenda = "skip"` handling, configurable keywords, and
+  capture rendering already exist in Go. Porting them to Swift means two
+  implementations that drift.
+- **Git.** go-git is pure Go and supports SSH (via `x/crypto/ssh`) and
+  `ForceWithLease` pushes. In Swift, the only real option is building libgit2
+  for iOS yourself, and the Swift wrappers for it are mostly unmaintained.
+- **Cost.** gomobile only bridges simple types, so `mobilecore` exposes a
+  small, coarse API whose results are JSON strings. Swift decodes them
+  into `Codable` structs.
+
+### 3.2 Storage on device
+
+All under the App Group container (shared by app + share extension; see
+§7, risk R1):
+
+```
+<group>/repo/            go-git working clone (checked out at local `mobile`)
+<group>/captures.json    pending-capture queue (source of truth, §4.1)
+<group>/sync-state.json  pushed-tip history, last fetch/sync times, last error
+```
+
+The SSH private key lives in the Keychain (shared access group), not on
+disk. Swift reads it and passes it to `mobilecore.Sync` per call.
+
+## 4. Git flow
+
+### 4.1 The capture queue is the source of truth
+
+`captures.json` holds every capture not yet known to be on `origin/main`:
+
+```json
+{
+  "id": "6F1C…",               // UUID; queue-internal, never written to org files
+  "createdAt": "2026-11-14T09:12:00-08:00",
+  "title": "Call the plumber",
+  "body": "re: kitchen sink",
+  "tags": ["home"],
+  "scheduled": null,
+  "deadline": "2026-11-18"
+}
+```
+
+The git branch is *derived* from the queue every Sync, so the phone
+never has to reason about its own commit history.
+
+### 4.2 Capture (no network)
+
+1. Append the capture to `captures.json` (share extension does only this).
+2. In the app: `mobilecore.Capture` also appends the rendered entry to
+   `inbox_file` in the working tree and commits it on local `mobile`, so
+   the read views show it immediately. ("Auto-commit, manual push.")
+
+### 4.3 Sync
+
+```
+1. fetch origin (main, mobile)
+2. for each pushed tip T recorded in sync-state.json:
+       if T is an ancestor of origin/main:
+           remove T's capture IDs from the queue; drop T from the history
+3. reset local mobile to origin/main (hard; working tree too)
+4. for each pending capture, oldest first:
+       append rendered entry to inbox_file; commit
+           message: "Capture: <title>"   author: settings name/email
+5. if local mobile == origin/main: delete remote mobile if it exists (nothing pending)
+   else: push local mobile → origin/mobile, force, with lease = last-seen origin/mobile
+6. record new tip → [capture IDs it contains] in sync-state.json
+```
+
+Properties:
+
+- `origin/mobile` always differs from `origin/main` only by lines
+  appended to the end of `inbox_file`.
+- If the user merged an *older* pushed tip (fetched before a later
+  Sync), step 2 still recognizes exactly the captures that tip held.
+- A lease failure (someone else moved `origin/mobile`) aborts the push and
+  surfaces an error. The phone never overwrites a branch it didn't write
+  last.
+- Fetch-only refresh (launch/foreground) runs steps 1–4 locally but
+  skips 5–6, so the read views always reflect current `main` + pending
+  captures without pushing.
+
+### 4.4 Rendering an appended entry
+
+The rendering must match what desktop `gC` produces (see
+`internal/ui/capture.go`, `insertHeadlineAt`):
+
+```org
+* Call the plumber                                                :home:
+  DEADLINE: <2026-11-18 Wed>
+  :PROPERTIES:
+  :CREATED:  [2026-11-14 Fri 09:12]
+  :END:
+  re: kitchen sink
+```
+
+- Render the one headline with `internal/org` and append its bytes to the
+  file's **raw** contents, after making sure the file ends in a newline. Do
+  not re-render the whole file, so the diff is purely an append.
+- `CREATED` uses the capture's `createdAt` (the moment you captured it,
+  not the moment of Sync).
+- Dates: the capture sheet offers a date picker *and* a text field
+  parsed by `orgdate` (so `3d`, `2w`, `next tue` mean exactly what `gd`
+  accepts on the desktop).
+
+### 4.5 On the Mac
+
+- Merge `mobile` into `main` normally (gitui / jjui / git).
+- **Recommended:** add to the org repo's `.gitattributes`:
+
+  ```
+  inbox.org merge=union
+  ```
+
+  When both sides appended to the end of the inbox, git keeps both sides'
+  lines automatically instead of conflicting. This is safe only because
+  the phone never edits existing lines. Use whatever `inbox_file` is set to.
+
+## 5. Read views
+
+All computed in Go from the working tree (`origin/main` + pending
+captures), returned as JSON.
+
+| View | Content | Interaction |
+|---|---|---|
+| **Agenda** | Overdue, Due Today, Upcoming (`agenda_window_days`), Next Actions, the same rules as desktop `:agenda` minus Meetings | Tap → read-only entry detail; pull-to-refresh = fetch |
+| **Inbox** | Top-level non-done headlines of `inbox_file`, in file order; pending (unpushed or unmerged) captures badged | Tap → detail. A pending capture can be **deleted or edited before it's merged**, since it's still only in the queue |
+| **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after_hours` (with a toggle), plus a separate read-only Reference section for `reference/` | Expand/collapse disclosure groups; tap → detail |
+| **Search** | Case-insensitive substring over title, tags, body, as desktop `/` | Results list → detail (opens outline at that entry) |
+| **Entry detail** | Keyword (colored per config), title, tags, dates, properties, body; org links tappable | Read-only |
+| **Status bar / Settings** | Last fetch, last successful push, number of pending captures, last error; SSH public key (copy button), repo URL, author name/email | |
+
+Editing or deleting a capture that is still pending is allowed (it isn't
+an existing entry on `main` yet). The next Sync rebuilds `mobile` from
+the queue, so this needs nothing special in git.
+
+## 6. `mobilecore` API (gomobile)
+
+All calls are synchronous; Swift runs them off the main actor. Errors are
+returned as Go `error` (bridged to Swift `throws`).
+
+```go
+package mobilecore
+
+// Setup / status
+func GenerateSSHKey() (pubKeyOpenSSH string, privKeyPEM []byte, err error)
+func Clone(groupDir, repoURL string, privKey []byte) error
+func Status(groupDir string) (json string, err error)
+
+// Git
+func Refresh(groupDir string, privKey []byte) error             // §4.3 steps 1–4
+func Sync(groupDir string, privKey []byte, authorName, authorEmail string) error // §4.3 all steps
+
+// Capture
+func Capture(groupDir, captureJSON, authorName, authorEmail string) error
+func UpdatePendingCapture(groupDir, captureJSON string) error
+func DeletePendingCapture(groupDir, id string) error
+func ParseDate(input string, nowUnix int64) (isoDate string, err error)
+func Tags(groupDir string) (json string, err error)
+
+// Read views
+func Agenda(groupDir string, nowUnix int64) (json string, err error)
+func Inbox(groupDir string) (json string, err error)
+func Outline(groupDir string, showClosed bool, nowUnix int64) (json string, err error)
+func Search(groupDir, query string) (json string, err error)
+```
+
+Time always comes in from the caller (`nowUnix`), mirroring the desktop's
+`m.now()` rule, so tests can pin the clock.
+
+The share extension does **not** link `Mobilecore.xcframework`. It
+appends to `captures.json` with a small Swift `Codable` writer (file
+coordination via `NSFileCoordinator`), which keeps it within extension
+memory limits. The app picks up new entries on next foreground (then
+`Capture`-commits them locally).
+
+## 7. Risks / open questions
+
+- **R1: App Groups on free provisioning.** The share extension needs an
+  App Group (shared container + Keychain access group). I haven't
+  confirmed whether free personal-team signing allows App Groups.
+  **Check this first (phase 0).** Fallbacks, in order: (a) expose capture as
+  an App Intent, which appears in the share sheet through Shortcuts and runs
+  inside the app, so no group is needed; (b) a paid developer account.
+- **R2: gomobile + go-git binary size / build friction.** go-git pulls a
+  sizeable dependency tree. Acceptable for a personal app, but verify
+  the xcframework builds for `ios` and `iossimulator` with the Go version
+  in `go.mod`.
+- **R3: Clone size.** go-git clones fully into memory-backed packfile
+  handling. If the org repo history is large, use a shallow clone
+  (`Depth: 1`) for `main`. The merge-detection ancestor check (§4.3 step
+  2) then needs enough depth to reach pushed tips. Deepen on demand, or
+  fall back to matching `CREATED` + title in `origin/main:inbox_file`.
+- **R4: 7-day re-signing** under free provisioning. Data survives
+  reinstall-over-top. Document "re-run from Xcode weekly".
+
+## 8. Implementation plan
+
+Each phase ends in something testable. Phases 1–2 are desktop-side
+changes that ship on their own and must keep `go test ./...` green and
+README/DESIGN.md current (per repo convention).
+
+### Phase 0 — Feasibility spike (½ day)
+
+- Minimal Xcode project in `ios/` with an app + share extension, signed
+  with the free personal team, sharing an App Group file and a Keychain
+  item. **Answers R1.**
+- `gomobile bind` of a hello-world package that imports go-git and does
+  an SSH `ls-remote` against the real repo. **Answers R2.**
+- Exit: both work on a physical iPhone, or switch to the R1 fallback.
+
+### Phase 1 — Extract `internal/agenda` (desktop refactor)
+
+- Move `agendaEntries`, `agendaSection`, `nextActionHeadlines`,
+  `keywordAgenda` (and the `agendaEntry` type) from `internal/ui/agenda.go`
+  into a pure package `internal/agenda` taking a `*workspace.Workspace`,
+  the resolved `config.Config`, and `today`. `ui` keeps only row building
+  (`appendAgendaRows` etc.) on top of it.
+- Likewise extract the outline visibility predicates the phone needs
+  (stale-`CLOSED` hiding, `outline_ignore_files`, special-file exclusion)
+  if they currently live in `ui`.
+- Move the pure parts of agenda tests to `internal/agenda`.
+- Update DESIGN.md §3 package map and dependency graph.
+- Exit: no behavior change; all tests pass.
+
+### Phase 2 — `.orgtd.toml` in the org directory (desktop feature)
+
+- `config.Load` gains a repo-level layer: `<org_dir>/.orgtd.toml`. New
+  precedence: flag > `$ORGTD_DIR` (dir only) > `~/.config/orgtd/config.toml`
+  > `<org_dir>/.orgtd.toml` > built-in default. The repo file can't set
+  `org_dir` itself (circular), or machine-local keys (`editor`,
+  `vcs_editor`, `scratch_dir`, `debug`, `[gcalsync]` secrets). Reject or
+  ignore those with a warning.
+- Note: `org_dir` must be resolved before the repo file is read, which
+  changes `resolveConfig`'s order.
+- `:config` shows which layer each value came from.
+- README "Config file" section updated; tests for precedence.
+- Exit: desktop reads keywords/inbox_file/agenda days from the repo
+  file; phone can reuse the same loader.
+
+### Phase 3 — Capture rendering & queue (Go, no git)
+
+- `internal/capturequeue`: load/save `captures.json` with atomic writes;
+  add/update/delete by ID; tolerant of entries appended by the share
+  extension.
+- A shared capture renderer used by both desktop `gC`'s template and the
+  phone, so `CREATED` format, property drawer and planning line are
+  identical. At minimum, a golden test asserting phone output == desktop
+  output for the same input.
+- `AppendEntry(path, rendered)`: raw-byte append with newline fixup.
+- Exit: unit tests incl. round-trip (append → `org.ParseFile` → same
+  fields).
+
+### Phase 4 — `internal/gitsync` (Go)
+
+- go-git wrapper: `Clone`, `Fetch`, `RebuildMobile(queue)`, `Push` with
+  `ForceWithLease`, ancestor check, pushed-tip history in
+  `sync-state.json`. SSH auth from an in-memory key (`ssh.NewPublicKeys`),
+  `known_hosts` pinned to GitHub's published host keys.
+- Tests against a local bare repo (file:// remote) in a temp dir:
+  - capture → sync → `origin/mobile` = main + appended lines only
+  - main advances → sync rebuilds on new main, still append-only
+  - user merges older tip → only that tip's captures leave the queue
+  - user merges latest tip → queue empty, remote `mobile` deleted
+  - someone else moves `origin/mobile` → lease failure, nothing pushed
+  - merge with `merge=union` of concurrent desktop+phone inbox appends
+    produces both (documents §4.5)
+- Exit: all scenarios green with `go test`.
+
+### Phase 5 — `mobilecore` package + xcframework
+
+- Thin facade over phases 1–4 implementing §6, JSON DTOs with stable
+  field names (documented in Go doc comments, mirrored as Swift
+  `Codable` structs).
+- `scripts/build-mobilecore.sh`: `gomobile bind -target=ios,iossimulator
+  -o ios/Frameworks/Mobilecore.xcframework ./mobilecore`. Add the
+  xcframework to `.gitignore`.
+- Exit: Go tests for each API call against `testdata/orgdir`; framework
+  builds.
+
+### Phase 6 — iOS app: setup & read views
+
+- Onboarding: generate key → show public key with copy button and
+  instructions (GitHub → repo → Settings → Deploy keys → allow write) →
+  enter repo SSH URL and author name/email → clone.
+- `CoreClient` actor wrapping `Mobilecore` calls off the main thread.
+- Tab bar: **Agenda**, **Inbox**, **Outline** (with search), and a
+  toolbar **+** (capture) and **Sync** button plus status line.
+- Refresh on launch / `scenePhase == .active`; pull-to-refresh on each
+  list.
+- Keyword colors from config (hex values map directly; ANSI codes
+  mapped via a 256-color table).
+- Exit: on device, the three views match desktop `:agenda`/outline for
+  the same commit.
+
+### Phase 7 — Capture UI & sync
+
+- Capture sheet: title (required), body, tags token field with
+  autocomplete from `Tags()`, SCHEDULED/DEADLINE each with a date picker
+  and a free-text field run through `ParseDate`.
+- Pending captures badged in Inbox; swipe to edit/delete while pending.
+- Sync button → `Sync`; errors shown in the status line with detail
+  sheet (lease failure, auth failure, network).
+- Exit: capture on phone → Sync → merge `mobile` on Mac → desktop orgtd
+  shows it in the inbox → phone's next Sync clears its pending badge.
+
+### Phase 8 — Share extension
+
+- Share text or URL → capture sheet prefilled (URL into body; page title
+  into title when provided by the host app) → write to `captures.json`
+  only.
+- App imports new queue entries into the working tree on foreground.
+- Exit: share from Safari → item visible as pending in app.
+
+### Phase 9 — Docs
+
+- `ios/README.md`: build prerequisites (Xcode, gomobile), phase-0 signing
+  notes, weekly re-sign, deploy-key setup, recommended `.gitattributes`.
+- Root README: mention the iOS companion, `.orgtd.toml`, and the
+  `mobile` branch workflow.
+- Root DESIGN.md: link here; add `mobilecore`, `internal/agenda`,
+  `internal/gitsync`, `internal/capturequeue` to the package map.
+
+## 9. Possible later work (explicitly deferred)
+
+- State changes / edits on the phone (would need stable `:ID:`s and
+  operation replay; see design discussion).
+- Meetings section (from `calendar.org` as last pushed by the Mac).
+- Widgets, Control Center / Action button, Siri / Shortcuts capture.
+- iPad layout and hardware-keyboard (vim-style) navigation.
+- Desktop orgtd auto-merging `mobile` during `:vcs`.
