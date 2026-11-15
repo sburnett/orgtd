@@ -166,5 +166,6 @@ App/              the app target (SwiftUI): Core/ (Go bridge, state), Views/
 ShareExtension/   the share extension (no Go; writes one JSON file per capture)
 Shared/           compiled into both targets: App Group paths, the capture model and form
 Config/           xcconfig, entitlements, the extension's Info.plist
+Icon/             the app icon's SVG sources; render.sh regenerates App/Assets.xcassets
 Frameworks/       Mobilecore.xcframework (built, gitignored)
 ```
