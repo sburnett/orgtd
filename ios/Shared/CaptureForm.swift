@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The capture form, used by both the in-app capture sheet and the share
-/// extension: title (required), body, tags with autocomplete, and
+/// The share extension's capture form (the app's inline forms have the
+/// same fields; see InlineForm): title (required), body, tags with autocomplete, and
 /// SCHEDULED/DEADLINE. `parseDate`, when given (the app has the Go core;
 /// the extension doesn't), adds a free-text date field that accepts
 /// exactly what the desktop's "gd" does ("3d", "2w", "next tue").

@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/sburnett/orgtd/internal/capture"
 )
 
 // StateOp is a change made on the phone to an existing entry — its TODO
@@ -31,6 +33,18 @@ type StateOp struct {
 	// those the user actually changed, so untouched ones (a date's
 	// repeater, say) are left exactly as written.
 	Edit *EntryEdit `json:"edit,omitempty"`
+	// Insert, when set, makes the op add a new entry rather than change
+	// one. Path and Fingerprint are then the new entry's parent's (both
+	// empty for a top-level entry), From and To are unused, and the
+	// entry goes first or last among the parent's children — or among
+	// the file's top-level entries.
+	Insert *EntryInsert `json:"insert,omitempty"`
+}
+
+// EntryInsert is a new entry an op adds.
+type EntryInsert struct {
+	Last  bool            `json:"last"`  // after the existing entries, rather than before them
+	Entry capture.Capture `json:"entry"` // rendered as a capture is, at the parent's level + 1
 }
 
 // EntryEdit is the fields an edit changes; nil means unchanged.
@@ -49,14 +63,20 @@ type EntryEdit struct {
 
 // NewTitle is the entry's title once the op is applied.
 func (o StateOp) NewTitle() string {
+	if o.Insert != nil {
+		return strings.Join(strings.Fields(o.Insert.Entry.Title), " ")
+	}
 	if o.Edit != nil && o.Edit.Title != nil {
 		return *o.Edit.Title
 	}
 	return o.Title()
 }
 
-// Title is the entry's own title (before the op).
+// Title is the entry's own title (before the op), or a new entry's.
 func (o StateOp) Title() string {
+	if o.Insert != nil {
+		return o.NewTitle()
+	}
 	if len(o.Path) == 0 {
 		return ""
 	}

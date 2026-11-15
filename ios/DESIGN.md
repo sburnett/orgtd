@@ -427,10 +427,12 @@ README/DESIGN.md current (per repo convention).
   `ForceWithLease`, which catches a move between fetch and push. go-git
   can't lease against a ref that doesn't exist, so the very first push
   relies on the pre-check alone.
-- **Pending entries in Inbox.** The working-tree inbox is the base
-  branch's inbox plus one appended headline per queued capture, in
-  order. The last `len(queue)` headlines are therefore the pending ones,
-  and no marker is written to the file.
+- **Pending captures.** The working-tree inbox is the base branch's
+  inbox plus one appended headline per queued capture, in order, so the
+  last `len(queue)` headlines are the pending ones (less any added last
+  at the inbox's top level afterwards; see "Adding entries" below). No
+  marker is written to the file. Every view marks them (`entry.Pending`,
+  `CaptureID`), so they can be edited as captures or deleted anywhere.
 - **Base branch.** It's the remote's default branch at clone time
   (recorded in `sync-state.json`), not a hard-coded `main`. The org
   directory must be the repository root.
@@ -516,3 +518,41 @@ README/DESIGN.md current (per repo convention).
     cookies (`reschedule`).
   - Commit message: "Edit: <new title>". The pending marker follows a
     renamed entry.
+- **Adding entries in the outline.** Every list in the Outline (a
+  file's top level, or an expanded entry's children) starts and ends
+  with a "New entry" row. Tapping one opens the capture fields in place,
+  and saving adds the entry first or last in that list
+  (`mobilecore.AddEntry`).
+  - **Queue.** An addition is another queued change: a `StateOp` with
+    `Insert` set (`capturequeue.EntryInsert`: first or last, and the
+    entry as a `capture.Capture`). Its title path and fingerprint are
+    the parent's, empty for a top-level entry. It shares the replay,
+    pushed-tip bookkeeping and dropping of the other changes.
+  - **Rendering.** The entry is rendered as a capture is, with CREATED
+    (as desktop `o`/`O` stamp it), at the parent's level plus one
+    (`capture.RenderAt`).
+  - **Minimal diff.** On replay, `applyInsert` splices the entry's lines
+    in and touches nothing else. First goes right after the parent's own
+    lines, or before the file's first headline. Last goes after the
+    parent's last descendant, or at the end of the file. When the line
+    before the new entry is blank, the entry gets a trailing blank line
+    too, so blank-line spacing stays even.
+  - **Stale parents.** If the parent no longer matches (renamed, edited
+    or removed on the desktop), the addition is dropped and reported
+    like any other change (`DroppedOp.Added`).
+  - **IDs.** Entry IDs are index paths, so an entry added first
+    renumbers its later siblings. `AddEntry` returns the new entry's ID,
+    and the Outline renumbers the expanded rows it holds in the same
+    update that shows the new outline (`AddSlot.shiftedForInsert`).
+  - **After adding.** A pending added entry can be edited or have its
+    state changed like any other entry: those are later ops that find it
+    after it's replayed. There's no way to delete one yet.
+  - The merge=union guard doesn't apply: an addition only adds lines.
+    Reference files take additions, without a keyword.
+- **No Inbox tab.** Once the Outline could add entries, its last
+  "New entry" row in the inbox file did everything the Inbox tab's
+  Capture button did, so the tab, the capture sheet and
+  `mobilecore.Inbox` were removed. The tabs are Outline and Agenda. A
+  pending capture's Delete moved from the Inbox's swipe action to the
+  long-press menu of any of its rows. The share extension still
+  captures as before.

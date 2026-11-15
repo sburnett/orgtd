@@ -29,7 +29,7 @@ type entry struct {
 	Properties     []property `json:"properties"`
 	Body           string     `json:"body"`               // body text, dedented
 	Children       []entry    `json:"children,omitempty"` // outline only
-	// Pending is set (in Inbox) on an entry that is a capture still in
+	// Pending is set on an entry that is a capture still in
 	// the queue — not yet merged into the base branch — with CaptureID
 	// naming it, so it can be edited or deleted.
 	Pending   bool   `json:"pending,omitempty"`
@@ -37,6 +37,9 @@ type entry struct {
 	// PendingState is set on an entry whose state was changed on the
 	// phone and isn't merged yet.
 	PendingState bool `json:"pendingState,omitempty"`
+	// PendingNew is set (with PendingState) on an entry added on the
+	// phone (AddEntry) and not merged yet.
+	PendingNew bool `json:"pendingNew,omitempty"`
 }
 
 // property is one property drawer line.
@@ -64,12 +67,6 @@ type agendaSection struct {
 type agendaResult struct {
 	Today    string          `json:"today"`
 	Sections []agendaSection `json:"sections"` // non-empty sections only, in display order
-}
-
-// inboxResult is Inbox()'s result.
-type inboxResult struct {
-	File    string  `json:"file"`
-	Entries []entry `json:"entries"`
 }
 
 // outlineFile is one file in the outline.
@@ -136,6 +133,7 @@ type droppedJSON struct {
 	Title  string `json:"title"`
 	From   string `json:"from"`
 	To     string `json:"to"`
+	Added  bool   `json:"added,omitempty"` // a new entry (To its keyword) whose parent changed
 	Reason string `json:"reason"`
 }
 

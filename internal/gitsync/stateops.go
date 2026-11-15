@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/capture"
 	"github.com/sburnett/orgtd/internal/capturequeue"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
@@ -25,6 +26,7 @@ type DroppedOp struct {
 	Title  string    `json:"title"`
 	From   string    `json:"from"`
 	To     string    `json:"to"`
+	Added  bool      `json:"added,omitempty"` // a new entry, whose parent changed, rather than a change to one
 	Reason string    `json:"reason"`
 	At     time.Time `json:"at"`
 }
@@ -85,6 +87,9 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if err != nil {
 		return err
 	}
+	if op.Insert != nil {
+		return applyInsert(p, data, f, op)
+	}
 	h, err := findEntry(f, op)
 	if err != nil {
 		return err
@@ -106,6 +111,73 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 		text += "\n"
 	}
 	return writeFileAtomic(p, []byte(text))
+}
+
+// findParent finds an insert op's parent: the first entry with the op's
+// title path whose fingerprint still matches. A top-level insert has no
+// parent (nil).
+func findParent(f *org.File, op capturequeue.StateOp) (*org.Headline, error) {
+	if len(op.Path) == 0 {
+		return nil, nil
+	}
+	var found *org.Headline
+	want := strings.Join(op.Path, "\x00")
+	org.Walk(f.Headlines, func(h *org.Headline) {
+		if found == nil && strings.Join(TitlePath(h), "\x00") == want && Fingerprint(h) == op.Fingerprint {
+			found = h
+		}
+	})
+	if found == nil {
+		return nil, ErrEntryChanged
+	}
+	return found, nil
+}
+
+// applyInsert adds an insert op's new entry to the raw file data (parsed
+// as f, at path p): first or last among its parent's children, or among
+// the file's top-level entries, without touching any other line. If the
+// line just before the new entry is blank, as between entries spaced
+// out with blank lines, the entry gets a blank line after it too, so the
+// spacing stays even.
+func applyInsert(p string, data []byte, f *org.File, op capturequeue.StateOp) error {
+	parent, err := findParent(f, op)
+	if err != nil {
+		return err
+	}
+	lines := splitLines(data)
+	level, siblings := 1, f.Headlines
+	if parent != nil {
+		level, siblings = parent.Level+1, parent.Children
+	}
+	var at int
+	switch {
+	case op.Insert.Last && len(siblings) > 0:
+		last := siblings[len(siblings)-1]
+		for len(last.Children) > 0 {
+			last = last.Children[len(last.Children)-1]
+		}
+		at = last.SrcEnd
+	case op.Insert.Last || len(siblings) == 0:
+		at = len(lines)
+		if parent != nil {
+			at = parent.SrcEnd
+		}
+	default:
+		at = siblings[0].SrcStart
+	}
+	if at > len(lines) {
+		return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.NewTitle())
+	}
+	text, err := capture.RenderAt(op.Insert.Entry, level)
+	if err != nil {
+		return err
+	}
+	entry := splitLines([]byte(text))
+	if at > 0 && at < len(lines) && strings.TrimSpace(lines[at-1]) == "" {
+		entry = append(entry, "")
+	}
+	out := append(append(append([]string{}, lines[:at]...), entry...), lines[at:]...)
+	return writeFileAtomic(p, []byte(strings.Join(out, "\n")+"\n"))
 }
 
 // patchEntry returns h's own lines (as in the file) with op applied,
@@ -402,4 +474,23 @@ func NewStateOp(file string, h *org.Headline, keyword string, at time.Time) capt
 		From:        h.Keyword,
 		To:          keyword,
 	}
+}
+
+// NewInsertOp describes adding c to file (relative to the repository
+// root, as currently checked out): first or, with last, last among
+// parent's children, or among the file's top-level entries when parent
+// is nil.
+func NewInsertOp(file string, parent *org.Headline, last bool, c capture.Capture) capturequeue.StateOp {
+	op := capturequeue.StateOp{
+		CreatedAt: c.CreatedAt,
+		File:      file,
+		Path:      []string{},
+		To:        c.Keyword,
+		Insert:    &capturequeue.EntryInsert{Last: last, Entry: c},
+	}
+	if parent != nil {
+		op.Path = TitlePath(parent)
+		op.Fingerprint = Fingerprint(parent)
+	}
+	return op
 }

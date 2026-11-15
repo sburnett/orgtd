@@ -22,12 +22,15 @@ struct Entry: Codable, Identifiable, Hashable {
     var pending: Bool?
     var captureId: String?
     var pendingState: Bool?
+    var pendingNew: Bool?
     var scheduledInput: String?
     var deadlineInput: String?
 
     var isPending: Bool { pending ?? false }
     /// Its state was changed on this phone and isn't merged yet.
     var hasPendingState: Bool { pendingState ?? false }
+    /// It was added on this phone (in the outline) and isn't merged yet.
+    var isNew: Bool { pendingNew ?? false }
     /// Reference material has no TODO state.
     var isReference: Bool { file.hasPrefix("reference/") }
 
@@ -72,11 +75,6 @@ struct AgendaResult: Codable {
     var sections: [AgendaSection]
 }
 
-struct InboxResult: Codable {
-    var file: String
-    var entries: [Entry]
-}
-
 struct OutlineFile: Codable, Hashable, Identifiable {
     var file: String
     var entries: [Entry]
@@ -107,6 +105,8 @@ struct DroppedChange: Codable, Hashable {
     var from: String
     var to: String
     var reason: String
+    /// A new entry, dropped because the entry it went under changed.
+    var added: Bool?
 }
 
 /// A server's SSH host key (mobilecore's hostKeyJSON).

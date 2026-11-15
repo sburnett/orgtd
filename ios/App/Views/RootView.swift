@@ -12,25 +12,19 @@ struct RootView: View {
     }
 }
 
-/// The three read views, each with the shared capture / sync toolbar and
-/// the tab bar floating over the content.
+/// The two read views, each with the shared settings / sync toolbar and
+/// the tab bar floating over the content. (New entries, the inbox's
+/// included, are added from the Outline.)
 struct MainTabs: View {
     @Environment(AppModel.self) private var model
-    @State private var capture: CaptureDraft?
     @State private var showSettings = false
 
     var body: some View {
         TabView {
-            tab { InboxView(capture: { capture = model.newCapture() }, edit: { capture = $0 }) }
-                .tabItem { Label("Inbox", systemImage: "tray") }
-                .badge(model.status.pending)
             tab(sync: false) { OutlineView() } // draws Sync itself, after its own buttons
                 .tabItem { Label("Outline", systemImage: "list.bullet.indent") }
             tab { AgendaView() }
                 .tabItem { Label("Agenda", systemImage: "calendar") }
-        }
-        .sheet(item: $capture) { draft in
-            CaptureSheet(draft: draft)
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsView() }
@@ -59,7 +53,9 @@ struct MainTabs: View {
 
     private var droppedMessage: String {
         let lines = model.status.dropped.map { d in
-            "“\(d.title)”: \(d.from.isEmpty ? "none" : d.from) → \(d.to.isEmpty ? "none" : d.to)"
+            d.added == true
+                ? "“\(d.title)”: new entry"
+                : "“\(d.title)”: \(d.from.isEmpty ? "none" : d.from) → \(d.to.isEmpty ? "none" : d.to)"
         }
         return "These entries changed on your computer before the phone's changes to them were merged, so the phone's changes were dropped:\n\n" + lines.joined(separator: "\n")
     }
@@ -113,7 +109,4 @@ struct SyncButton: View {
         .accessibilityLabel(model.busy ?? (model.isOffline ? "Sync (server unreachable)" : failed ? "Sync (last attempt failed)" : "Sync"))
     }
 }
-
-// A sheet's item: `id` is the capture's queue ID, nil for a new one.
-extension CaptureDraft: Identifiable {}
 

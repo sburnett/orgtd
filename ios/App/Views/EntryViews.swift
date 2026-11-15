@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// One entry as a compact list row, the same in every list (inbox,
-/// outline, agenda, search): keyword, title, an optional "(N)"
+/// One entry as a compact list row, the same in every list (outline,
+/// agenda, search): keyword, title, an optional "(N)"
 /// hidden-count, tags on the right when they fit beside the whole title
 /// (otherwise the title gets the room), and a clock for anything still
 /// pending. The title is cut to one line, or — `expanded`, for an open
@@ -262,6 +262,15 @@ struct EntryListRow: View {
             if !entry.isReference {
                 Section("Set state") { StateMenuItems(entry: entry) }
             }
+            // A capture not merged yet lives only in the queue, so it
+            // can still be taken back.
+            if let id = entry.captureId {
+                Button(role: .destructive) {
+                    Task { await model.deleteCapture(id: id) }
+                } label: {
+                    SwiftUI.Label("Delete capture", systemImage: "trash")
+                }
+            }
         }
         .onChange(of: isOpen) { _, nowOpen in
             if !nowOpen { editing = false }
@@ -307,6 +316,9 @@ struct InlineEntryDetails: View {
             }
             if entry.isPending {
                 SwiftUI.Label("Captured on this phone; not merged yet", systemImage: "clock")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else if entry.isNew {
+                SwiftUI.Label("Added on this phone; not merged yet", systemImage: "clock")
                     .font(.footnote).foregroundStyle(.secondary)
             } else if entry.hasPendingState {
                 SwiftUI.Label("Changed on this phone; not merged yet", systemImage: "clock")
@@ -364,7 +376,6 @@ struct InlineEntryEditor: View {
     @State private var loading: Bool
     @State private var saving = false
     @State private var error: String?
-    @FocusState private var titleFocused: Bool
 
     init(entry: Entry, done: @escaping () -> Void) {
         self.entry = entry
@@ -381,12 +392,53 @@ struct InlineEntryEditor: View {
     }
 
     var body: some View {
+        InlineForm(draft: $draft, keywords: entry.isReference ? nil : entry.captureId != nil ? model.captureKeywords : model.allKeywords,
+                   loading: loading, saving: saving, error: error, cancel: done) {
+            Task { await save() }
+        }
+        .task {
+            // A pending capture is still only in the queue: edit it there.
+            guard let id = entry.captureId else { return }
+            if let capture = await model.pendingCapture(id: id) { draft = capture }
+            loading = false
+        }
+    }
+
+    private func save() async {
+        saving = true
+        defer { saving = false }
+        let ok = entry.captureId != nil ? await model.updateCapture(draft) : await model.edit(entry, to: draft)
+        if ok {
+            done()
+        } else {
+            error = model.lastError
+        }
+    }
+}
+
+/// The fields of an inline form (the capture form's, laid out for a list
+/// row) with Cancel and Save under them. `keywords` nil hides the keyword
+/// picker (reference material has no state). The title takes the focus
+/// when `focusTitle` is set.
+struct InlineForm: View {
+    @Environment(AppModel.self) private var model
+    @Binding var draft: CaptureDraft
+    let keywords: [KeywordOption]?
+    var loading = false
+    let saving: Bool
+    let error: String?
+    var focusTitle = false
+    let cancel: () -> Void
+    let save: () -> Void
+    @FocusState private var titleFocused: Bool
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if loading {
                 ProgressView().frame(maxWidth: .infinity)
             } else {
-                if !entry.isReference {
-                    KeywordPicker(keyword: $draft.keyword, options: entry.captureId != nil ? model.captureKeywords : model.allKeywords)
+                if let keywords {
+                    KeywordPicker(keyword: $draft.keyword, options: keywords)
                 }
                 TextField("Title", text: $draft.title, axis: .vertical)
                     .focused($titleFocused)
@@ -405,33 +457,17 @@ struct InlineEntryEditor: View {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
             HStack {
-                Button("Cancel", action: done)
+                Button("Cancel", action: cancel)
                     .buttonStyle(.bordered)
                 Spacer()
-                Button("Save") { Task { await save() } }
+                Button("Save", action: save)
                     .buttonStyle(.borderedProminent)
                     .disabled(draft.trimmedTitle.isEmpty || saving || loading)
             }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
-        .task {
-            // A pending capture is still only in the queue: edit it there.
-            guard let id = entry.captureId else { return }
-            if let capture = await model.pendingCapture(id: id) { draft = capture }
-            loading = false
-        }
-    }
-
-    private func save() async {
-        saving = true
-        defer { saving = false }
-        let ok = entry.captureId != nil ? await model.save(draft) : await model.edit(entry, to: draft)
-        if ok {
-            done()
-        } else {
-            error = model.lastError
-        }
+        .onAppear { if focusTitle { titleFocused = true } }
     }
 }
 

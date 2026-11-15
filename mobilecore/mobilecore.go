@@ -383,6 +383,12 @@ type loaded struct {
 	// changed holds file + "\x00" + title path of every entry with a
 	// queued state change, to mark it pending.
 	changed map[string]bool
+	// added holds the same key for every entry added on the phone
+	// (AddEntry) and not merged yet.
+	added map[string]bool
+	// captures maps the entry ID of each still-pending capture to its
+	// queue ID (see markCaptures).
+	captures map[string]string
 }
 
 func changedKey(file string, path []string) string {
@@ -416,16 +422,60 @@ func load(groupDir string) (*loaded, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &loaded{cfg: cfg, warnings: warnings, ws: ws, changed: map[string]bool{}}
+	l := &loaded{cfg: cfg, warnings: warnings, ws: ws, changed: map[string]bool{}, added: map[string]bool{}, captures: map[string]string{}}
 	ops, err := capturequeue.LoadOps(opsPath(groupDir))
 	if err != nil {
 		return nil, err
 	}
+	if err := l.markCaptures(groupDir, ops); err != nil {
+		return nil, err
+	}
 	for _, o := range ops {
+		if o.Insert != nil {
+			l.added[changedKey(o.File, append(append([]string{}, o.Path...), o.NewTitle()))] = true
+			continue
+		}
+		if len(o.Path) == 0 {
+			continue
+		}
 		path := append(append([]string{}, o.Path[:len(o.Path)-1]...), o.NewTitle())
 		l.changed[changedKey(o.File, path)] = true
 	}
 	return l, nil
+}
+
+// markCaptures finds the still-pending captures among the inbox's
+// headlines, for toEntry to mark. A rebuild appends one headline per
+// queued capture, in queue order, then replays the ops, and the only ops
+// that move top-level inbox headlines are additions there: one added
+// first goes before everything, one added last after the captures. So
+// the captures are the len(queue) headlines just before the ones added
+// last.
+func (l *loaded) markCaptures(groupDir string, ops []capturequeue.StateOp) error {
+	queue, err := capturequeue.Load(queuePath(groupDir))
+	if err != nil || len(queue) == 0 {
+		return err
+	}
+	for _, f := range l.ws.Files {
+		if !l.ws.IsNamed(f, l.cfg.InboxFile) {
+			continue
+		}
+		rel := l.rel(f)
+		addedLast := 0
+		for _, o := range ops {
+			if o.Insert != nil && o.Insert.Last && o.File == rel && len(o.Path) == 0 {
+				addedLast++
+			}
+		}
+		first := len(f.Headlines) - addedLast - len(queue)
+		if first < 0 {
+			return nil
+		}
+		for i, c := range queue {
+			l.captures[rel+":"+strconv.Itoa(first+i)] = c.ID
+		}
+	}
+	return nil
 }
 
 func (l *loaded) rel(f *org.File) string {
@@ -466,7 +516,12 @@ func (l *loaded) toEntry(f *org.File, h *org.Headline, idx []int, withChildren b
 		ScheduledInput: dateInput(h.Scheduled),
 		DeadlineInput:  dateInput(h.Deadline),
 	}
-	e.PendingState = l.changed[changedKey(e.File, gitsync.TitlePath(h))]
+	if id, ok := l.captures[e.ID]; ok {
+		e.Pending, e.CaptureID = true, id
+	}
+	key := changedKey(e.File, gitsync.TitlePath(h))
+	e.PendingNew = l.added[key]
+	e.PendingState = l.changed[key] || e.PendingNew
 	e.Properties = []property{}
 	for _, k := range h.PropertyOrder {
 		e.Properties = append(e.Properties, property{Key: k, Value: h.Properties[k]})
@@ -672,6 +727,71 @@ func EditEntry(groupDir, entryID, editJSON string, nowUnix int64, authorName, au
 	return rebuild(groupDir, authorName, authorEmail)
 }
 
+// AddEntry adds a new entry, from the capture form in captureJSON (as
+// Capture takes it), to file (relative to the repository root): first or,
+// with last, last among the children of the entry parentID (an entry
+// DTO's ID), or among the file's top-level entries when parentID is "".
+// It is written as a capture is (with CREATED), at its parent's level
+// plus one. Like SetState, the addition is queued, committed locally at
+// once, replayed on every rebuild, and dropped if the parent changes on
+// the desktop first. Returns the new entry's ID.
+func AddEntry(groupDir, file, parentID string, last bool, captureJSON string, nowUnix int64, authorName, authorEmail string) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	c, err := decodeCapture(groupDir, captureJSON)
+	if err != nil {
+		return "", err
+	}
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = now(nowUnix)
+	}
+	c.ID = ""
+	l, err := load(groupDir)
+	if err != nil {
+		return "", err
+	}
+	var f *org.File
+	var parent *org.Headline
+	if parentID != "" {
+		if f, parent, err = l.lookup(parentID); err != nil {
+			return "", err
+		}
+	} else {
+		for _, cand := range l.ws.Files {
+			if l.rel(cand) == file {
+				f = cand
+			}
+		}
+		if f == nil {
+			return "", fmt.Errorf("mobilecore: no file %q", file)
+		}
+	}
+	rel := l.rel(f)
+	if rel != file {
+		return "", fmt.Errorf("mobilecore: entry %q isn't in %q", parentID, file)
+	}
+	ref := l.ws.IsReference(f)
+	if !ref && !l.isOutlineFile(f) {
+		return "", fmt.Errorf("mobilecore: %s isn't part of the outline", rel)
+	}
+	if ref && c.Keyword != "" {
+		return "", errors.New("mobilecore: reference material has no TODO state")
+	}
+	siblings, prefix := f.Headlines, rel+":"
+	if parent != nil {
+		siblings, prefix = parent.Children, parentID+"."
+	}
+	index := 0
+	if last {
+		index = len(siblings)
+	}
+	op := gitsync.NewInsertOp(rel, parent, last, c)
+	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
+		return "", err
+	}
+	return prefix + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
+}
+
 // dateInputRe picks the date and optional time out of a timestamp's
 // text, skipping the weekday and any repeater or warning cookie:
 // "2026-10-20 Tue 14:00 +1m" → "2026-10-20", "14:00".
@@ -777,47 +897,6 @@ func Agenda(groupDir string, nowUnix int64) (string, error) {
 			sec.Items = append(sec.Items, agendaItem{Entry: l.flatEntry(h)})
 		}
 		res.Sections = append(res.Sections, sec)
-	}
-	return toJSON(res)
-}
-
-// Inbox returns the inbox file's top-level, not-done headlines in file
-// order as JSON (inboxResult), marking the ones that are still-pending
-// captures. The working tree's inbox is the base branch's plus one
-// appended headline per queued capture, in queue order, so the last
-// len(queue) headlines are the pending ones.
-func Inbox(groupDir string) (string, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	l, err := load(groupDir)
-	if err != nil {
-		return "", err
-	}
-	res := inboxResult{File: l.cfg.InboxFile, Entries: []entry{}}
-	var inbox *org.File
-	for _, f := range l.ws.Files {
-		if l.ws.IsNamed(f, l.cfg.InboxFile) {
-			inbox = f
-		}
-	}
-	if inbox == nil {
-		return toJSON(res)
-	}
-	queue, err := capturequeue.Load(queuePath(groupDir))
-	if err != nil {
-		return "", err
-	}
-	firstPending := len(inbox.Headlines) - len(queue)
-	for i, h := range inbox.Headlines {
-		if org.IsDoneKeyword(h.Keyword) {
-			continue
-		}
-		e := l.toEntry(inbox, h, []int{i}, false, nil)
-		if firstPending >= 0 && i >= firstPending {
-			e.Pending = true
-			e.CaptureID = queue[i-firstPending].ID
-		}
-		res.Entries = append(res.Entries, e)
 	}
 	return toJSON(res)
 }
@@ -961,7 +1040,7 @@ func Status(groupDir string) (string, error) {
 	res.PendingStates = len(ops)
 	res.Dropped = []droppedJSON{}
 	for _, d := range s.Dropped {
-		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Reason: d.Reason})
+		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Added: d.Added, Reason: d.Reason})
 	}
 	pushed := map[string]bool{}
 	for _, t := range s.PushedTips {

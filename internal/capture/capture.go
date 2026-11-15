@@ -94,11 +94,18 @@ func (c Capture) Validate() error {
 // title (on one line),
 // tags (sanitized to org's tag syntax, duplicates and blanks dropped), a
 // planning line, a CREATED property, and the body.
-func (c Capture) Headline() (*org.Headline, error) {
+func (c Capture) Headline() (*org.Headline, error) { return c.HeadlineAt(1) }
+
+// HeadlineAt is Headline at outline level (1 for top-level), with the
+// body indented to match — for an entry added under a parent.
+func (c Capture) HeadlineAt(level int) (*org.Headline, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	h := &org.Headline{Level: 1, Keyword: strings.TrimSpace(c.Keyword), Title: strings.Join(strings.Fields(c.Title), " ")}
+	if level < 1 {
+		level = 1
+	}
+	h := &org.Headline{Level: level, Keyword: strings.TrimSpace(c.Keyword), Title: strings.Join(strings.Fields(c.Title), " ")}
 	seen := map[string]bool{}
 	for _, tag := range c.Tags {
 		tag = org.SanitizeTag(strings.TrimSpace(tag))
@@ -130,8 +137,11 @@ func (c Capture) Headline() (*org.Headline, error) {
 
 // Render is c's org text, exactly as org.RenderHeadline writes it (so a
 // later desktop save of the same file leaves it byte-identical).
-func Render(c Capture) (string, error) {
-	h, err := c.Headline()
+func Render(c Capture) (string, error) { return RenderAt(c, 1) }
+
+// RenderAt is Render at outline level (see HeadlineAt).
+func RenderAt(c Capture, level int) (string, error) {
+	h, err := c.HeadlineAt(level)
 	if err != nil {
 		return "", err
 	}

@@ -77,12 +77,6 @@ actor CoreClient {
 
     // MARK: Capture
 
-    @discardableResult
-    func capture(_ draft: CaptureDraft, author: Author) throws -> String {
-        let json = try draft.json()
-        return try CoreClient.check { MobilecoreCapture(groupDir, json, author.name, author.email, $0) }
-    }
-
     func update(_ draft: CaptureDraft, author: Author) throws {
         let json = try draft.json()
         _ = try CoreClient.check { MobilecoreUpdatePendingCapture(groupDir, json, author.name, author.email, $0) }
@@ -101,6 +95,14 @@ actor CoreClient {
         let json = try form.json()
         let now = self.now
         _ = try CoreClient.check { MobilecoreEditEntry(groupDir, entryID, json, now, author.name, author.email, $0) }
+    }
+
+    /// Adds a new entry first or last among `parentID`'s children (or
+    /// `file`'s top-level entries when nil); returns its entry ID.
+    func addEntry(_ draft: CaptureDraft, file: String, parentID: String?, last: Bool, author: Author) throws -> String {
+        let json = try draft.json()
+        let now = self.now
+        return try CoreClient.check { MobilecoreAddEntry(groupDir, file, parentID ?? "", last, json, now, author.name, author.email, $0) }
     }
 
     func dismissDropped() throws {
@@ -125,10 +127,6 @@ actor CoreClient {
     func agenda() throws -> AgendaResult {
         let now = self.now
         return try decode(AgendaResult.self) { MobilecoreAgenda(groupDir, now, $0) }
-    }
-
-    func inbox() throws -> InboxResult {
-        try decode(InboxResult.self) { MobilecoreInbox(groupDir, $0) }
     }
 
     func outline(showClosed: Bool) throws -> OutlineResult {

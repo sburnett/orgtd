@@ -373,7 +373,7 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 			if !errors.Is(err, ErrEntryChanged) {
 				return fmt.Errorf("gitsync: setting %q to %s: %w", op.Title(), op.To, err)
 			}
-			dropped = append(dropped, DroppedOp{Title: op.Title(), From: op.From, To: op.To, Reason: err.Error(), At: r.now()})
+			dropped = append(dropped, DroppedOp{Title: op.Title(), From: op.From, To: op.To, Added: op.Insert != nil, Reason: err.Error(), At: r.now()})
 			droppedIDs = append(droppedIDs, op.ID)
 			continue
 		}
@@ -384,6 +384,9 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 		msg := fmt.Sprintf("Set %s: %s → %s", op.Title(), orNone(op.From), orNone(op.To))
 		if op.Edit != nil {
 			msg = "Edit: " + op.NewTitle()
+		}
+		if op.Insert != nil {
+			msg = "Add: " + op.NewTitle()
 		}
 		if _, err := wt.Commit(msg, &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
 			return fmt.Errorf("gitsync: committing state change %q: %w", op.Title(), err)

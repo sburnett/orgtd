@@ -10,7 +10,7 @@ struct OnboardingView: View {
         @Bindable var model = model
         Form {
             Section {
-                Text("orgtd keeps its own clone of your org repository, fetched over SSH from any git server you can reach. It only ever appends new items to your inbox, on a separate “mobile” branch you merge on your computer.")
+                Text("orgtd keeps its own clone of your org repository, fetched over SSH from any git server you can reach. Everything it writes goes on a separate “mobile” branch you merge on your computer.")
                     .font(.callout)
             }
             Section("1. SSH key") {

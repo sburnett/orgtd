@@ -120,18 +120,18 @@ func TestAgendaMatchesDesktopBuckets(t *testing.T) {
 	}
 }
 
-func TestCaptureShowsAsPendingInInboxAndSurvivesRefresh(t *testing.T) {
+func TestCaptureShowsAsPendingAndSurvivesRefresh(t *testing.T) {
 	g, _ := setup(t)
 	id, err := Capture(g, `{"title":"Call the plumber","tags":["home"],"deadline":"2026-11-18","createdAt":"2026-11-14T09:12:00-08:00"}`, "Phone", "p@x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := decode[inboxResult](t)(Inbox(g))
-	last := in.Entries[len(in.Entries)-1]
+	in := inboxEntries(t, g)
+	last := in[len(in)-1]
 	if last.Title != "Call the plumber" || !last.Pending || last.CaptureID != id || last.Deadline != "2026-11-18 Wed" {
 		t.Errorf("last inbox entry = %+v", last)
 	}
-	for _, e := range in.Entries[:len(in.Entries)-1] {
+	for _, e := range in[:len(in)-1] {
 		if e.Pending {
 			t.Errorf("%q marked pending", e.Title)
 		}
@@ -152,6 +152,42 @@ func TestCaptureShowsAsPendingInInboxAndSurvivesRefresh(t *testing.T) {
 	}
 }
 
+// inboxEntries is inbox.org's top-level entries, as the outline has them.
+func inboxEntries(t *testing.T, g string) []entry {
+	t.Helper()
+	for _, f := range decode[outlineResult](t)(Outline(g, true, fixtureNow)).Files {
+		if f.File == "inbox.org" {
+			return f.Entries
+		}
+	}
+	t.Fatal("no inbox.org in the outline")
+	return nil
+}
+
+func TestPendingCapturesAreMarkedAmongAddedEntries(t *testing.T) {
+	g, _ := setup(t)
+	for _, add := range []struct {
+		title string
+		last  bool
+	}{{"Added first", false}, {"Added last", true}} {
+		if _, err := AddEntry(g, "inbox.org", "", add.last, captureJSON(t, "", add.title), fixtureNow, "P", "p@x"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id, err := Capture(g, `{"title":"Captured"}`, "P", "p@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range inboxEntries(t, g) {
+		if (e.Title == "Captured") != (e.CaptureID == id) || e.Pending != (e.Title == "Captured") {
+			t.Errorf("%q: pending %v, captureId %q", e.Title, e.Pending, e.CaptureID)
+		}
+	}
+	if e := findEntry(t, g, "Captured"); e.CaptureID != id {
+		t.Errorf("search result for the capture = %+v", e)
+	}
+}
+
 func TestEditAndDeletePendingCapture(t *testing.T) {
 	g, _ := setup(t)
 	id, err := Capture(g, `{"title":"Typo"}`, "P", "p@x")
@@ -165,15 +201,15 @@ func TestEditAndDeletePendingCapture(t *testing.T) {
 	if c["title"] != "Fixed" || c["createdAt"] == "0001-01-01T00:00:00Z" {
 		t.Errorf("updated capture = %v (createdAt should be kept)", c)
 	}
-	in := decode[inboxResult](t)(Inbox(g))
-	if in.Entries[len(in.Entries)-1].Title != "Fixed" {
+	in := inboxEntries(t, g)
+	if in[len(in)-1].Title != "Fixed" {
 		t.Errorf("inbox didn't pick up the edit")
 	}
 	if err := DeletePendingCapture(g, id, "P", "p@x"); err != nil {
 		t.Fatal(err)
 	}
-	in = decode[inboxResult](t)(Inbox(g))
-	for _, e := range in.Entries {
+	in = inboxEntries(t, g)
+	for _, e := range in {
 		if e.Pending || e.Title == "Fixed" {
 			t.Errorf("deleted capture still in inbox: %+v", e)
 		}
@@ -194,8 +230,8 @@ func TestShareExtensionCapturesAreImportedOnRefresh(t *testing.T) {
 	if err := Refresh(g, nil, "P", "p@x"); err != nil {
 		t.Fatal(err)
 	}
-	in := decode[inboxResult](t)(Inbox(g))
-	last := in.Entries[len(in.Entries)-1]
+	in := inboxEntries(t, g)
+	last := in[len(in)-1]
 	if last.Title != "Shared link" || last.CaptureID != "ABC" || last.Body != "https://example.com" {
 		t.Errorf("imported entry = %+v", last)
 	}
@@ -305,8 +341,8 @@ func TestStatusBeforeClone(t *testing.T) {
 	if st.Cloned || len(st.Keywords) != 6 {
 		t.Errorf("status = %+v", st)
 	}
-	if _, err := Inbox(t.TempDir()); err == nil {
-		t.Error("Inbox with no clone succeeded")
+	if _, err := Outline(t.TempDir(), true, fixtureNow); err == nil {
+		t.Error("Outline with no clone succeeded")
 	}
 }
 
@@ -325,8 +361,6 @@ func TestResultsHaveNoNullArrays(t *testing.T) {
 	}
 	s, err := Agenda(g, fixtureNow)
 	check("Agenda", s, err)
-	s, err = Inbox(g)
-	check("Inbox", s, err)
 	s, err = Outline(g, true, fixtureNow)
 	check("Outline", s, err)
 	s, err = Search(g, "a")
@@ -379,8 +413,8 @@ func TestCaptureKeywordMustBeAConfiguredActiveKeyword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := decode[inboxResult](t)(Inbox(g))
-	last := in.Entries[len(in.Entries)-1]
+	in := inboxEntries(t, g)
+	last := in[len(in)-1]
 	if last.Keyword != "NEXT" || last.Title != "Next thing" || last.CaptureID != id {
 		t.Errorf("captured entry = %+v", last)
 	}
@@ -535,5 +569,108 @@ func TestDateInputSkipsWeekdayAndCookies(t *testing.T) {
 		if got := dateInput(&org.Timestamp{Raw: raw}); got != want {
 			t.Errorf("dateInput(%q) = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+func captureJSON(t *testing.T, keyword, title string) string {
+	t.Helper()
+	return editJSON(t, map[string]any{"keyword": keyword, "title": title, "tags": []string{}})
+}
+
+func TestAddEntryFirstAndLastAtEveryLevel(t *testing.T) {
+	g, _ := setup(t)
+	fan := findEntry(t, g, "Replace the bathroom fan") // personal.org:0.0, three children
+	for _, tc := range []struct {
+		file, parent string
+		last         bool
+		title, id    string
+	}{
+		{"personal.org", fan.ID, false, "Find the old receipt", fan.ID + ".0"},
+		{"personal.org", fan.ID, true, "Recaulk around it", fan.ID + ".4"}, // after the first add
+		{"personal.org", "", false, "Top of personal", "personal.org:0"},
+		{"work.org", "", true, "Bottom of work", ""},
+	} {
+		id, err := AddEntry(g, tc.file, tc.parent, tc.last, captureJSON(t, "TODO", tc.title), fixtureNow, "P", "p@x")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.title, err)
+		}
+		e := findEntry(t, g, tc.title)
+		if tc.id != "" && id != tc.id {
+			t.Errorf("%s: returned id %q, want %q", tc.title, id, tc.id)
+		}
+		if e.ID != id || !e.PendingNew || !e.PendingState || e.Keyword != "TODO" {
+			t.Errorf("%s: returned %q, entry %+v", tc.title, id, e)
+		}
+	}
+	// The top-level add moved the fan to personal.org:1.0.
+	o := decode[outlineResult](t)(Outline(g, true, fixtureNow))
+	var kids []string
+	for _, f := range o.Files {
+		if f.File != "personal.org" {
+			continue
+		}
+		for _, c := range f.Entries[1].Children[0].Children {
+			kids = append(kids, c.Title)
+		}
+		if f.Entries[0].Title != "Top of personal" {
+			t.Errorf("personal.org's first entry = %q", f.Entries[0].Title)
+		}
+	}
+	want := "Find the old receipt|Measure the duct opening|Order a 110 CFM fan|Install it (needs a second pair of hands)|Recaulk around it"
+	if strings.Join(kids, "|") != want {
+		t.Errorf("fan's children = %v", kids)
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 4 {
+		t.Errorf("pendingStates = %d", st.PendingStates)
+	}
+}
+
+func TestAddedEntryCanBeEditedBeforeMerging(t *testing.T) {
+	g, _ := setup(t)
+	id, err := AddEntry(g, "work.org", "", true, captureJSON(t, "", "Draft"), fixtureNow, "P", "p@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := findEntry(t, g, "Draft")
+	if e.ID != id {
+		t.Fatalf("id %q vs %q", e.ID, id)
+	}
+	form := formFor(e)
+	form["title"] = "Final"
+	form["keyword"] = "NEXT"
+	if err := EditEntry(g, e.ID, editJSON(t, form), fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshLocal(g, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	if after := findEntry(t, g, "Final"); after.Keyword != "NEXT" || !after.PendingState {
+		t.Errorf("after edit: %+v", after)
+	}
+}
+
+func TestAddEntryRefusals(t *testing.T) {
+	g, _ := setup(t)
+	ref := decode[outlineResult](t)(Outline(g, true, fixtureNow)).Reference[0]
+	if _, err := AddEntry(g, ref.File, "", true, captureJSON(t, "TODO", "x"), fixtureNow, "P", "p@x"); err == nil {
+		t.Error("keyword in reference/ accepted")
+	}
+	if _, err := AddEntry(g, ref.File, "", true, captureJSON(t, "", "A note"), fixtureNow, "P", "p@x"); err != nil {
+		t.Errorf("plain entry in reference/: %v", err)
+	}
+	for name, args := range map[string][2]string{
+		"blank title":   {"work.org", ""},
+		"no such file":  {"nope.org", "x"},
+		"calendar file": {"calendar.org", "x"},
+	} {
+		if _, err := AddEntry(g, args[0], "", false, captureJSON(t, "", args[1]), fixtureNow, "P", "p@x"); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	if _, err := AddEntry(g, "work.org", "personal.org:0", false, captureJSON(t, "", "x"), fixtureNow, "P", "p@x"); err == nil {
+		t.Error("parent in another file accepted")
+	}
+	if _, err := AddEntry(g, "work.org", "", false, captureJSON(t, "DONE", "x"), fixtureNow, "P", "p@x"); err == nil {
+		t.Error("done keyword accepted")
 	}
 }

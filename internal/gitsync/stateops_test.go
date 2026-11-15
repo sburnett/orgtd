@@ -10,6 +10,7 @@ import (
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/sburnett/orgtd/internal/capture"
 	"github.com/sburnett/orgtd/internal/capturequeue"
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -280,4 +281,116 @@ func gitLog(t *testing.T, dir string) string {
 	var msgs []string
 	iter.ForEach(func(c *object.Commit) error { msgs = append(msgs, c.Message); return nil })
 	return strings.Join(msgs, "\n")
+}
+
+// queueInsert queues adding an entry titled title under the entry titled
+// parent ("" for top-level), first or last, and rebuilds.
+func (f *fixture) queueInsert(file, parent, title string, last bool) {
+	f.t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.phone.Dir, file))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	var p *org.Headline
+	if parent != "" {
+		org.Walk(of.Headlines, func(x *org.Headline) {
+			if x.Title == parent {
+				p = x
+			}
+		})
+		if p == nil {
+			f.t.Fatalf("no entry %q in %s", parent, file)
+		}
+	}
+	c := capture.Capture{CreatedAt: opTime, Keyword: "TODO", Title: title, Body: "a note"}
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, NewInsertOp(file, p, last, c)); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func TestInsertAddsOnlyTheNewEntryAtEachPosition(t *testing.T) {
+	entry := func(stars, title string) string {
+		indent := strings.Repeat(" ", len(stars)+1)
+		return stars + " TODO " + title + "\n" + indent + ":PROPERTIES:\n" + indent + ":CREATED: [2026-11-14 Sat 09:30]\n" + indent + ":END:\n" + indent + "a note\n"
+	}
+	for _, tc := range []struct {
+		name, parent string
+		last         bool
+		before       string // the line the new entry goes before ("" for the end)
+		stars        string
+	}{
+		{"top first", "", false, "* Project      :proj:\n", "*"},
+		{"top last", "", true, "", "*"},
+		{"child first", "Project", false, "** TODO Write report\n", "**"},
+		{"child last", "Project", true, "*   Other   heading\n", "**"},
+		{"under a leaf", "Water plants", true, "*   Other   heading\n", "***"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOpsFixture(t)
+			f.queueInsert("work.org", tc.parent, "New thing", tc.last)
+			data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+			want := workOrg + entry(tc.stars, "New thing")
+			if tc.before != "" {
+				want = strings.Replace(workOrg, tc.before, entry(tc.stars, "New thing")+tc.before, 1)
+			}
+			if string(data) != want {
+				t.Errorf("work.org =\n%s\nwant\n%s", data, want)
+			}
+		})
+	}
+}
+
+func TestInsertKeepsBlankLineSpacing(t *testing.T) {
+	f := newFixture(t)
+	f.macCommit("spaced.org", "* One\n\n* Two\n", "spaced")
+	f.macPush()
+	f.phone.OpsPath = filepath.Join(filepath.Dir(f.phone.QueuePath), "state-ops.json")
+	if err := f.phone.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	f.queueInsert("spaced.org", "One", "Half", false) // under One: before Two, after the blank
+	f.queueInsert("spaced.org", "", "Three", true)
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "spaced.org"))
+	want := "* One\n\n** TODO Half\n   :PROPERTIES:\n   :CREATED: [2026-11-14 Sat 09:30]\n   :END:\n   a note\n\n* Two\n" +
+		"* TODO Three\n  :PROPERTIES:\n  :CREATED: [2026-11-14 Sat 09:30]\n  :END:\n  a note\n"
+	if string(data) != want {
+		t.Errorf("spaced.org =\n%q\nwant\n%q", data, want)
+	}
+}
+
+func TestInsertUnderAParentEditedOnTheDesktopIsDropped(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueInsert("work.org", "Write report", "Draft outline", false)
+	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** NEXT Write report", 1), "next")
+	f.macPush()
+	f.sync()
+	if ops := f.ops(); len(ops) != 0 {
+		t.Errorf("ops = %+v, want the stale one dropped", ops)
+	}
+	s, _ := f.phone.LoadState()
+	if len(s.Dropped) != 1 || s.Dropped[0].Title != "Draft outline" || !s.Dropped[0].Added {
+		t.Errorf("dropped = %+v", s.Dropped)
+	}
+}
+
+func TestInsertLeavesQueueWhenMerged(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueInsert("work.org", "Project", "Draft outline", true)
+	f.sync()
+	tip, _ := f.remoteRef(MobileBranch)
+	f.macFetch()
+	f.mac.Storer.SetReference(plumbingRef("main", tip))
+	f.macPush()
+	f.sync()
+	if ops := f.ops(); len(ops) != 0 {
+		t.Errorf("ops after merge = %+v", ops)
+	}
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	if n := strings.Count(string(data), "Draft outline"); n != 1 {
+		t.Errorf("new entry appears %d times after merge:\n%s", n, data)
+	}
 }

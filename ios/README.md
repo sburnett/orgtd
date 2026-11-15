@@ -1,9 +1,11 @@
 # orgtd for iOS
 
-An iPhone companion to orgtd: capture into the inbox (in the app or from
-the share sheet), read the agenda, inbox and outline, and edit entries
-(their TODO state, title, notes, tags and dates). New captures are appended to `inbox_file`, and state
-changes rewrite just the changed entry's own lines; both are committed
+An iPhone companion to orgtd: capture into the inbox from the share
+sheet, read the outline and agenda, add entries anywhere in the outline
+(the inbox included), and edit entries (their TODO state, title, notes,
+tags and dates). Share-sheet captures are appended to `inbox_file`, new
+outline entries are inserted where you put them, and edits
+rewrite just the changed entry's own lines. All of these are committed
 to a `mobile` branch, which you merge on your computer.
 The design is in [DESIGN.md](DESIGN.md).
 
@@ -124,12 +126,27 @@ either.
 
 ## Day to day
 
-- **Capture**, the large button at the bottom of the Inbox, captures: an optional keyword (your configured, not-done
-  keywords; new captures start with the one you used last), title,
-  notes, tags (autocompleted from your files), and
-  SCHEDULED/DEADLINE dates. You can pick a date, or type one the way
-  desktop `gd` accepts (`3d`, `2w`, `next tue`). Saving commits locally
-  and needs no network.
+- **Adding entries:** every list in Outline (a file's top level, and
+  the children of each expanded entry) starts and ends with a
+  **New entry** row. To capture into the inbox, use the one at the end
+  of the inbox file. Tap one to fill in, right there: an optional
+  keyword (your configured, not-done keywords; it starts with the one
+  you used last), title, notes, tags (autocompleted from your files),
+  and SCHEDULED/DEADLINE dates. You can pick a date, or type one the
+  way desktop `gd` accepts (`3d`, `2w`, `next tue`).
+  - Saving adds the entry first or last in that list, one level below
+    its parent, with a CREATED stamp as desktop `o`/`O` gives it. It
+    commits locally and needs no network.
+  - The new entry shows a clock until it's merged, and you can edit it
+    or change its state meanwhile. It can't be deleted from the phone
+    yet.
+  - Like an edit, an addition is dropped (and you're told) if the entry
+    it goes under changed on your computer before you merged.
+  - Reference files take new entries too, without a keyword.
+- **Share sheet:** share a link or text to orgtd to capture it into the
+  inbox with the same fields. Until it's merged it shows a clock;
+  editing it edits the capture, and long-press → **Delete capture**
+  takes it back.
 - The app fetches on launch, when it returns to the foreground, and on
   pull-to-refresh. Fetching never pushes.
 - **Away from the server** (no network, or out of range of a server on
@@ -152,9 +169,7 @@ either.
   refused. The Sync button shows a spinner while it works, and an
   exclamation mark if it fails; Settings (the gear) has the details,
   including when the app last fetched and pushed.
-- In Inbox, captures that aren't merged yet show a clock. Swipe one to
-  edit or delete it.
-- **Details in place:** tap any entry in Inbox, Outline or Agenda to
+- **Details in place:** tap any entry in Outline or Agenda to
   open its details right there in the list, under its parent and above
   its children: full title, dates, notes (links tappable), tags and
   properties. Tap it again, or open another, to close it.

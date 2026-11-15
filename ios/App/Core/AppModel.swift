@@ -19,7 +19,6 @@ final class AppModel {
     private(set) var publicKey: String?
     private(set) var status = StatusResult.empty
     private(set) var agenda: AgendaResult?
-    private(set) var inbox: InboxResult?
     private(set) var outline: OutlineResult?
     private(set) var tags: [String] = []
     private(set) var busy: String?        // what's running, for the Sync button
@@ -62,7 +61,8 @@ final class AppModel {
         status.keywords.filter { !$0.done }.map { KeywordOption(name: $0.name, color: $0.color) }
     }
 
-    /// A blank capture, starting with the keyword last captured with.
+    /// A blank capture (or new outline entry), starting with the keyword
+    /// last used for one.
     func newCapture() -> CaptureDraft {
         CaptureDraft(keyword: KeywordsCache.last(in: captureKeywords))
     }
@@ -109,7 +109,6 @@ final class AppModel {
     func removeClone() async {
         await run("Removing…") { try await self.core.removeClone() }
         agenda = nil
-        inbox = nil
         outline = nil
         await reloadStatus()
     }
@@ -186,14 +185,11 @@ final class AppModel {
 
     // MARK: Captures
 
-    func save(_ draft: CaptureDraft) async -> Bool {
-        if draft.id == nil { KeywordsCache.remember(draft.keyword) }
+    /// Saves an edit to a still-pending capture (made here or from the
+    /// share sheet), which lives only in the queue until it's merged.
+    func updateCapture(_ draft: CaptureDraft) async -> Bool {
         let ok = await run("Saving…") {
-            if draft.id == nil {
-                try await self.core.capture(draft, author: self.author)
-            } else {
-                try await self.core.update(draft, author: self.author)
-            }
+            try await self.core.update(draft, author: self.author)
         }
         await reloadAll()
         return ok
@@ -221,6 +217,27 @@ final class AppModel {
     func edit(_ entry: Entry, to form: CaptureDraft) async -> Bool {
         let ok = await run("Saving…") {
             try await self.core.editEntry(entryID: entry.id, form: form, author: self.author)
+        }
+        await reloadAll()
+        return ok
+    }
+
+    /// Adds a new entry first or last among `parentID`'s children (or
+    /// `file`'s top-level entries when nil), committed locally at once.
+    /// Entry IDs are index paths, so adding one first renumbers its
+    /// siblings: `placed` gets the new entry's ID in the same main-actor
+    /// turn that publishes the reloaded outline, so a view can renumber
+    /// the IDs it holds without a frame showing the wrong ones. Returns
+    /// whether it worked (the form shows lastError otherwise).
+    func addEntry(_ draft: CaptureDraft, file: String, parentID: String?, last: Bool, placed: (String) -> Void) async -> Bool {
+        KeywordsCache.remember(draft.keyword)
+        var newID = ""
+        let ok = await run("Saving…") {
+            newID = try await self.core.addEntry(draft, file: file, parentID: parentID, last: last, author: self.author)
+        }
+        if ok, let o = try? await core.outline(showClosed: showClosed) {
+            outline = o
+            placed(newID)
         }
         await reloadAll()
         return ok
@@ -268,7 +285,6 @@ final class AppModel {
         guard status.cloned else { return }
         do {
             agenda = try await core.agenda()
-            inbox = try await core.inbox()
             outline = try await core.outline(showClosed: showClosed)
             tags = try await core.tags()
             TagsCache.save(tags)
