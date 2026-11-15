@@ -117,22 +117,65 @@ final class AppModel {
 
     // MARK: Git
 
+    // Automatic fetches (on returning to the foreground) are rationed: at
+    // most one a minute, and after a failure to reach the server, one
+    // after 1, 5, 15, then every 30 minutes. Pull-to-refresh and Sync are
+    // the user asking, so they always try. Nothing ever retries on its
+    // own, and nothing runs in the background.
+    private static let minAutoFetchInterval: TimeInterval = 60
+    private static let offlineBackoff: [TimeInterval] = [60, 5 * 60, 15 * 60, 30 * 60]
+    private var nextAutoFetch = Date.distantPast
+    private var consecutiveFailures = 0
+
+    /// The latest network failure was the server being unreachable
+    /// (offline, away from its network), not a real problem.
+    var isOffline: Bool {
+        (lastError ?? status.lastError).contains("can't reach the git server")
+    }
+
+    /// On returning to the foreground: always fold in share-extension
+    /// captures and rebuild (no network); fetch too if the back-off allows.
+    func onForeground() async {
+        guard isSetUp else { await reloadStatus(); return }
+        if Date() >= nextAutoFetch {
+            await refresh()
+            return
+        }
+        await run("Updating…") {
+            try await self.core.refreshLocal(author: self.author)
+        }
+        await reloadAll()
+    }
+
     /// Fetch, fold in share-extension captures, and rebuild — never pushes.
     func refresh() async {
         guard isSetUp else { await reloadStatus(); return }
-        await run("Fetching…") {
+        let ok = await run("Fetching…") {
             try await self.core.refresh(key: Keychain.load(), author: self.author)
         }
+        noteNetworkResult(ok)
         await reloadAll()
     }
 
     /// Refresh, then push the pending captures to origin/mobile.
     func sync() async {
         guard isSetUp else { return }
-        await run("Syncing…") {
+        let ok = await run("Syncing…") {
             try await self.core.sync(key: Keychain.load(), author: self.author)
         }
+        noteNetworkResult(ok)
         await reloadAll()
+    }
+
+    private func noteNetworkResult(_ ok: Bool) {
+        if ok || !isOffline {
+            consecutiveFailures = 0
+            nextAutoFetch = Date().addingTimeInterval(Self.minAutoFetchInterval)
+        } else {
+            let delays = Self.offlineBackoff
+            nextAutoFetch = Date().addingTimeInterval(delays[min(consecutiveFailures, delays.count - 1)])
+            consecutiveFailures += 1
+        }
     }
 
     // MARK: Captures

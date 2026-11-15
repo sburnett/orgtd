@@ -129,11 +129,13 @@ func (r *Repo) recordError(err error) error {
 // host key the user confirmed, which r.Auth must already be pinned to —
 // for later connections.
 func (r *Repo) Clone(url string, hostKey HostKey) error {
-	repo, err := git.PlainClone(r.Dir, false, &git.CloneOptions{URL: url, Auth: r.Auth, RemoteName: remoteName})
+	ctx, cancel := withTimeout(CloneTimeout)
+	defer cancel()
+	repo, err := git.PlainCloneContext(ctx, r.Dir, false, &git.CloneOptions{URL: url, Auth: r.Auth, RemoteName: remoteName, ProxyOptions: r.proxy()})
 	if err != nil {
 		os.RemoveAll(r.Dir)
 		os.Mkdir(r.Dir, 0o755) // keep the (possibly protection-classed) directory
-		return fmt.Errorf("gitsync: cloning %s: %w", url, err)
+		return fmt.Errorf("gitsync: cloning %s: %w", url, unreachable(err))
 	}
 	head, err := repo.Head()
 	if err != nil {
@@ -180,14 +182,17 @@ func (r *Repo) Fetch() error {
 	if err != nil {
 		return err
 	}
-	err = repo.Fetch(&git.FetchOptions{
-		RemoteName: remoteName,
-		Auth:       r.Auth,
-		RefSpecs:   []gitconfig.RefSpec{"+refs/heads/*:refs/remotes/origin/*"},
-		Prune:      true,
+	ctx, cancel := withTimeout(OperationTimeout)
+	defer cancel()
+	err = repo.FetchContext(ctx, &git.FetchOptions{
+		RemoteName:   remoteName,
+		Auth:         r.Auth,
+		ProxyOptions: r.proxy(),
+		RefSpecs:     []gitconfig.RefSpec{"+refs/heads/*:refs/remotes/origin/*"},
+		Prune:        true,
 	})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return fmt.Errorf("gitsync: fetching: %w", err)
+		return fmt.Errorf("gitsync: fetching: %w", unreachable(err))
 	}
 	s.LastFetch = r.now()
 	return r.saveState(s)
@@ -358,14 +363,14 @@ func (r *Repo) Publish() error {
 
 	if local.Hash() == baseRef.Hash() {
 		if !remote.IsZero() {
-			err := repo.Push(&git.PushOptions{
+			err := r.push(repo, &git.PushOptions{
 				RemoteName:     remoteName,
 				Auth:           r.Auth,
 				RefSpecs:       []gitconfig.RefSpec{gitconfig.RefSpec(":" + dst.String())},
 				ForceWithLease: lease,
 			})
 			if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-				return fmt.Errorf("gitsync: deleting origin/%s: %w", MobileBranch, err)
+				return fmt.Errorf("gitsync: deleting origin/%s: %w", MobileBranch, unreachable(err))
 			}
 			repo.Storer.RemoveReference(remoteRef(MobileBranch))
 		}
@@ -375,14 +380,14 @@ func (r *Repo) Publish() error {
 	}
 
 	if local.Hash() != remote {
-		err := repo.Push(&git.PushOptions{
+		err := r.push(repo, &git.PushOptions{
 			RemoteName:     remoteName,
 			Auth:           r.Auth,
 			RefSpecs:       []gitconfig.RefSpec{gitconfig.RefSpec("+" + local.Name().String() + ":" + dst.String())},
 			ForceWithLease: lease,
 		})
 		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-			return fmt.Errorf("gitsync: pushing %s: %w", MobileBranch, err)
+			return fmt.Errorf("gitsync: pushing %s: %w", MobileBranch, unreachable(err))
 		}
 		if err := repo.Storer.SetReference(plumbing.NewHashReference(remoteRef(MobileBranch), local.Hash())); err != nil {
 			return err
@@ -402,6 +407,34 @@ func (r *Repo) Publish() error {
 	s.LastPushed = tip.Tip
 	s.LastPush = r.now()
 	return r.saveState(s)
+}
+
+// push is repo.Push bounded by OperationTimeout and the connection
+// deadlines.
+func (r *Repo) push(repo *git.Repository, o *git.PushOptions) error {
+	o.ProxyOptions = r.proxy()
+	ctx, cancel := withTimeout(OperationTimeout)
+	defer cancel()
+	return repo.PushContext(ctx, o)
+}
+
+// proxy routes SSH connections through deadlineProxy (see network.go);
+// local remotes, which tests use, need none.
+func (r *Repo) proxy() transport.ProxyOptions {
+	if r.Auth == nil {
+		return transport.ProxyOptions{}
+	}
+	return sshProxy
+}
+
+// RefreshLocal is Refresh without the network: it drops any captures the
+// last successful fetch showed were merged and rebuilds the working tree
+// from what was last fetched. For when a fetch isn't worth attempting.
+func (r *Repo) RefreshLocal() error {
+	if _, err := r.DropMerged(); err != nil {
+		return err
+	}
+	return r.Rebuild()
 }
 
 // Refresh brings the working tree up to date with origin's base branch

@@ -210,6 +210,23 @@ func Refresh(groupDir string, privKey []byte, authorName, authorEmail string) er
 	return r.Refresh()
 }
 
+// RefreshLocal is Refresh without touching the network: it imports
+// share-extension captures and rebuilds the working tree from what was
+// last fetched. The app calls it on every return to the foreground and
+// fetches (Refresh) only when its back-off allows.
+func RefreshLocal(groupDir, authorName, authorEmail string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := importIncoming(groupDir); err != nil {
+		return err
+	}
+	r, err := newRepo(groupDir, "", nil, authorName, authorEmail)
+	if err != nil {
+		return err
+	}
+	return r.RefreshLocal()
+}
+
 // Sync is Refresh followed by pushing local "mobile" (§4.3, all steps).
 func Sync(groupDir string, privKey []byte, authorName, authorEmail string) error {
 	mu.Lock()

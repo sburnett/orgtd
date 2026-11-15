@@ -61,6 +61,12 @@ actor CoreClient {
 
     // MARK: Git
 
+    /// Imports share-extension captures and rebuilds from what was last
+    /// fetched; never touches the network.
+    func refreshLocal(author: Author) throws {
+        _ = try CoreClient.check { MobilecoreRefreshLocal(groupDir, author.name, author.email, $0) }
+    }
+
     func refresh(key: Data?, author: Author) throws {
         _ = try CoreClient.check { MobilecoreRefresh(groupDir, key, author.name, author.email, $0) }
     }

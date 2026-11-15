@@ -78,6 +78,9 @@ struct StatusLine: View {
                 if let busy = model.busy {
                     ProgressView().controlSize(.small)
                     Text(busy)
+                } else if model.isOffline {
+                    Image(systemName: "wifi.slash")
+                    Text("Can't reach server · " + summary).lineLimit(1)
                 } else if let error = model.lastError ?? nonEmpty(model.status.lastError) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     Text(error).lineLimit(1)

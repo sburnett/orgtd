@@ -12,10 +12,11 @@ struct OrgtdApp: App {
                 .task { await model.reloadAll() }
         }
         .onChange(of: scenePhase) { _, phase in
-            // Fetch on launch and on every return to the foreground; it's
-            // read-only and also imports share-extension captures.
+            // On launch and every return to the foreground: import
+            // share-extension captures, and fetch if the back-off allows
+            // (see AppModel.onForeground).
             if phase == .active {
-                Task { await model.refresh() }
+                Task { await model.onForeground() }
             }
         }
     }

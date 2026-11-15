@@ -159,7 +159,7 @@ func ScanHostKey(url string, timeout time.Duration) (HostKey, error) {
 // privatePEM, accepting only the server whose host key is hostKey
 // (authorized_keys form, from ScanHostKey). It returns nil (no auth) for
 // a local path or file:// URL, which tests use.
-func Auth(url string, privatePEM []byte, hostKey string) (*gitssh.PublicKeys, error) {
+func Auth(url string, privatePEM []byte, hostKey string) (gitssh.AuthMethod, error) {
 	remote, ok := ParseSSHURL(url)
 	if !ok {
 		return nil, nil
@@ -177,7 +177,7 @@ func Auth(url string, privatePEM []byte, hostKey string) (*gitssh.PublicKeys, er
 	}
 	auth.HostKeyCallback = pinnedHostKey(pinned)
 	auth.HostKeyAlgorithms = hostKeyAlgorithms(pinned.Type())
-	return auth, nil
+	return timeoutAuth{auth}, nil
 }
 
 // hostKeyAlgorithms asks the server for the pinned key's own type, so it

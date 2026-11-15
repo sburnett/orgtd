@@ -131,6 +131,20 @@ either.
   and needs no network.
 - The app fetches on launch, when it returns to the foreground, and on
   pull-to-refresh. Fetching never pushes.
+- **Away from the server** (no network, or out of range of a server on
+  your home network), nothing is lost and nothing hammers the network:
+  - Each attempt gives up after 8 seconds without an answer. A server
+    that answers and then goes silent is cut off after 45 seconds of
+    silence, and a fetch or push is capped at 2 minutes overall.
+  - Automatic fetches on returning to the app happen at most once a
+    minute. After the server couldn't be reached, they wait 1, 5, 15,
+    then 30 minutes between tries. Pull-to-refresh and Sync always try
+    right away.
+  - There are no retries, timers or background activity. The app only
+    touches the network while it's open.
+  - The status line shows "Can't reach server" with when it last
+    fetched. Captures, including ones from the share sheet, still show
+    up and wait for the next sync that gets through.
 - **Sync** (↻) pushes. `mobile` is rebuilt as your main branch plus
   every capture that isn't merged yet, then force-pushed with a lease.
   If something other than this phone moved `origin/mobile`, the push is

@@ -85,8 +85,11 @@ struct SettingsView: View {
         if e.contains("changed by someone else") {
             return "Lease failure: the mobile branch on the server isn't what this phone last pushed. Merge or delete it on your computer, then sync."
         }
+        if e.contains("can't reach the git server") {
+            return "The server didn't answer (no network, or you're away from the network it's on). Nothing was lost: captures stay on the phone and are pushed on the next sync that gets through. The app tries again on its own when you reopen it, less often while the server stays unreachable."
+        }
         if e.contains("host key doesn't match") {
-            return "The server identified itself with a different host key than the one trusted at setup. If you reinstalled the server or changed its keys, remove the clone and set it up again, checking the new fingerprint. Otherwise, don't sync: someone may be impersonating the server."
+            return "Something answered at the server's address but identified itself with a different host key than the one trusted at setup, so the app refused to talk to it. If you're on another network (a café, a friend's Wi-Fi) that happens to use the same local address, that's expected and harmless: a hostname that only resolves on your network, or a VPN like Tailscale, avoids it. If you reinstalled the server or changed its keys, remove the clone and set it up again, checking the new fingerprint. Otherwise, don't sync: someone may be impersonating the server."
         }
         if e.contains("unable to authenticate") || e.contains("permission") || e.contains("handshake") {
             return "Authentication failed: check that this phone's key is in the server account's ~/.ssh/authorized_keys, and that the account can write to the repository."

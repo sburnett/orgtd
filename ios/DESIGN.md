@@ -464,3 +464,20 @@ README/DESIGN.md current (per repo convention).
   A keyword the extension sends from a stale cache isn't re-checked on
   import; if it's no longer configured, the desktop reads it as part of
   the title.
+- **Unreachable server.** The phone is often out of reach of its server
+  (one on the home network, for instance), so every network operation
+  is bounded:
+  - The TCP connect and SSH handshake give up after `ConnectTimeout`
+    (8 s), once the server has spoken, after `IdleTimeout` (45 s) of
+    silence, and overall after `OperationTimeout` (2 min; a clone,
+    10 min).
+  - go-git doesn't bound the handshake and takes no dialer, so SSH
+    connections go through a registered `x/net/proxy` scheme
+    (`orgtd-direct`) that dials directly and sets the deadlines.
+  - Failures to connect at all are reported as `ErrUnreachable`.
+  - On the Swift side, returning to the foreground always runs
+    `RefreshLocal` (import share captures and rebuild, no network). It
+    fetches only when the back-off allows: at most once a minute, and
+    after an unreachable server 1, 5, 15, then 30 minutes.
+    Pull-to-refresh and Sync always try.
+  - Nothing retries on its own or runs in the background.

@@ -479,3 +479,21 @@ func TestLeaseCatchesAMoveBetweenFetchAndPush(t *testing.T) {
 		t.Errorf("origin/mobile = %s, want it left at %s", got, theirs)
 	}
 }
+
+// setRemoteURL points the phone's clone at url.
+func setRemoteURL(t *testing.T, f *fixture, url string) {
+	t.Helper()
+	repo, err := git.PlainOpen(f.phone.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := repo.Config()
+	cfg.Remotes["origin"].URLs = []string{url}
+	if err := repo.SetConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func capturequeueAdd(f *fixture, title string) (string, error) {
+	return capturequeue.Add(f.phone.QueuePath, capture.Capture{Title: title, CreatedAt: time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)})
+}
