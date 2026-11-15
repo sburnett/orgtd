@@ -214,6 +214,10 @@ either.
   too), with reference files after the others. Files start expanded;
   **Collapse all** collapses files as well, for a list of just the
   files.
+- **Deadlines** show at the end of an Outline entry's line, folded or
+  not, as desktop orgtd shows them when space is tight: `D:11-02` (with
+  the year if it isn't this one), in the timestamp color. A long title
+  is cut short to make room.
 - **Details in place:** tap any entry in Outline to
   open its details right there in the list, under its parent and above
   its children: full title, dates, notes (links tappable), tags and

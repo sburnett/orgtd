@@ -51,6 +51,16 @@ struct CompactEntryRow: View {
                         .fixedSize()
                         .layoutValue(key: HeadlineRole.self, value: .tags)
                 }
+                // Like the desktop outline's compact planning dates; rows
+                // with a subtitle (agenda, search) already show their date.
+                if subtitle == nil, !entry.isReference, let due = OrgDate.compact(entry.deadline) {
+                    Text("D:" + due)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(model.dateColor)
+                        .fixedSize()
+                        .accessibilityLabel("Deadline \(OrgDate.display(entry.deadlineInput ?? due))")
+                        .layoutValue(key: HeadlineRole.self, value: .trail)
+                }
                 if entry.isPending || entry.hasPendingState {
                     Image(systemName: "clock.badge")
                         .font(.caption)

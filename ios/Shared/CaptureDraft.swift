@@ -106,6 +106,15 @@ enum OrgDate {
         formatter("yyyy-MM-dd HH:mm").date(from: s) ?? formatter("yyyy-MM-dd").date(from: s)
     }
 
+    /// A timestamp's date in the desktop outline's compact form: "11-02",
+    /// or "2027-01-02" outside this year. Nil for none ("").
+    static func compact(_ raw: String) -> String? {
+        let date = raw.drop { !$0.isNumber }.prefix(10)
+        guard date.count == 10 else { return raw.isEmpty ? nil : raw }
+        let thisYear = String(Calendar.current.component(.year, from: Date()))
+        return date.hasPrefix(thisYear + "-") ? String(date.dropFirst(5)) : String(date)
+    }
+
     /// "Wed Nov 18" style, for showing a stored date.
     static func display(_ s: String) -> String {
         guard let d = date(from: s) else { return s }

@@ -697,3 +697,9 @@ README/DESIGN.md current (per repo convention).
   pencil (`EntryListRow.detailActions`), showing just the entry ("No
   details" when there's nothing but the title). The Agenda has no
   swipes, so details it opens in place keep them.
+- **Deadlines on the line.** An Outline row shows its deadline at the
+  end of its line, always, in the desktop outline's compact form
+  (`D:11-02`; `OrgDate.compact`), as the title's `.trail` piece, so the
+  title truncates before it ever hides. Rows with a subtitle (Agenda,
+  search) already show their date there, and reference entries have
+  none, as on the desktop.
