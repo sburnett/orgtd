@@ -110,13 +110,6 @@ struct EntryDetailView: View {
                     }
                 }
             }
-            if let children = entry.children, !children.isEmpty {
-                Section("Children") {
-                    ForEach(children) { child in
-                        NavigationLink(value: child) { EntryRow(entry: child) }
-                    }
-                }
-            }
         }
         .navigationTitle(entry.title)
         .navigationBarTitleDisplayMode(.inline)
