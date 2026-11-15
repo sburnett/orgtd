@@ -137,6 +137,10 @@ either.
     among its siblings. A drop outside its parent's list puts it back.
     To move it under another parent, drag it next to that parent, then
     indent it.
+  - A **top-level** entry can also be dragged into another file, to its
+    top level: among that file's entries, or onto a collapsed file's
+    name, which puts it at the end of the file. This is how you file an
+    inbox item into a project file (or a reference file).
   - **Swipe** an entry right or left to indent or outdent it (below).
   - Every list showing, top level and expanded children alike, starts
     and ends with a **New entry** row, for adding an entry there
@@ -171,8 +175,8 @@ either.
   - The entry shows a clock until it's merged, and the move is dropped
     (and you're told) if the entry, or for an indent the entry above
     it, changed on your computer before you merged.
-- **Deleting an entry:** tap the trash can in its open details, then
-  confirm. Like desktop `dd`, this deletes everything under it too; the
+- **Deleting an entry:** open its edit form (above), tap the trash can
+  beside **Cancel**, then confirm. Like desktop `dd`, this deletes everything under it too; the
   confirmation says how many entries that is.
   - The entry disappears at once, and is removed from the file when you
     merge.
@@ -205,10 +209,17 @@ either.
   refused. The Sync button shows a spinner while it works, and an
   exclamation mark if it fails; Settings (the gear) has the details,
   including when the app last fetched and pushed.
+- **Files** are the top level of Outline: each file's name has an
+  arrow that expands or collapses its entries (tapping the name does
+  too), with reference files after the others. Files start expanded;
+  **Collapse all** collapses files as well, for a list of just the
+  files.
 - **Details in place:** tap any entry in Outline to
   open its details right there in the list, under its parent and above
   its children: full title, dates, notes (links tappable), tags and
-  properties. Tap it again, or open another, to close it. An open
+  properties. Tap it again, or open another, to close it. In Outline,
+  editing and the state are on the swipes (below); details opened in
+  Agenda have a state menu and a pencil instead. An open
   entry's row is tinted, which sets its details apart from its children
   below. In Outline, a thin line runs down from each expanded entry's
   chevron past its last child.
@@ -216,8 +227,11 @@ either.
   to and scrolled into view, with its details open. An entry Outline
   doesn't show (closed and hidden, or in a file it leaves out) opens
   its details in the Agenda instead.
-- **Changing an entry's state:** use the state menu in its open
-  details. This works as desktop `r` does: a done state stamps
+- **Changing an entry's state:** in Outline, swipe it right: tap one of
+  the states shown (an open entry gets DONE and your first two active
+  states, a done entry your first three active ones; a full swipe sets
+  the first), or **More** for all of them. Details opened in Agenda
+  have a state menu. This works as desktop `r` does: a done state stamps
   `CLOSED`, leaving one clears it, and completing a repeating item
   advances its dates and sets `LAST_REPEAT` instead. Changed entries
   show a clock until they're merged.
@@ -228,7 +242,9 @@ either.
   - The phone won't change states in a file whose `.gitattributes`
     entry sets `merge=union`, since a union merge would duplicate the
     edited line.
-- **Editing an entry:** tap the pencil in its open details. The edit form opens in place, with
+- **Editing an entry:** in Outline, swipe it left; the edit form opens
+  in a sheet. Details opened in Agenda have a pencil that opens it in
+  place. The edit form opens in place, with
   the capture form's fields: keyword, title, notes, tags and dates.
   - Only the fields you change are written back, rewriting just those
     lines.

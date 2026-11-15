@@ -125,6 +125,14 @@ actor CoreClient {
         return try CoreClient.check { MobilecoreMoveEntry(groupDir, entryID, anchorID, after, now, author.name, author.email, $0) }
     }
 
+    /// Moves a top-level entry to another file's top level: right before
+    /// `anchorID` there or, with `after`, right after its subtree, or at
+    /// the end with no anchor; returns its new entry ID.
+    func moveEntryToFile(entryID: String, file: String, anchorID: String?, after: Bool, author: Author) throws -> String {
+        let now = self.now
+        return try CoreClient.check { MobilecoreMoveEntryToFile(groupDir, entryID, file, anchorID ?? "", after, now, author.name, author.email, $0) }
+    }
+
     func dismissDropped() throws {
         _ = try CoreClient.check { MobilecoreDismissDropped(groupDir, $0) }
     }

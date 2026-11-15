@@ -207,13 +207,16 @@ extension View {
 /// rows (its children) below it. In the outline it also draws `guides`:
 /// a thin vertical line at each x (from the row's leading edge), one per
 /// level of nesting, which join up across rows into the tree's branches.
+/// `plain` is for a plain-style list (the outline), whose rows sit on the
+/// screen's own background rather than a grouped list's card.
 struct EntryRowBackground: View {
     var isOpen: Bool
     var guides: [CGFloat] = []
+    var plain = false
 
     var body: some View {
         ZStack {
-            Color(.secondarySystemGroupedBackground)
+            Color(plain ? .systemBackground : .secondarySystemGroupedBackground)
             if isOpen {
                 Color.accentColor.opacity(0.1)
             }
@@ -232,8 +235,8 @@ struct EntryRowBackground: View {
 extension View {
     /// The row background of an entry row (see EntryRowBackground). It
     /// must be on the row itself, not nested inside it, to take effect.
-    func entryRowBackground(isOpen: Bool, guides: [CGFloat] = []) -> some View {
-        listRowBackground(EntryRowBackground(isOpen: isOpen, guides: guides))
+    func entryRowBackground(isOpen: Bool, guides: [CGFloat] = [], plain: Bool = false) -> some View {
+        listRowBackground(EntryRowBackground(isOpen: isOpen, guides: guides, plain: plain))
     }
 }
 
@@ -254,8 +257,8 @@ struct KeywordBadge: View {
 /// and above its children — and which the pencil there turns into its
 /// edit form. `open` is the list's one open row (opening another closes
 /// it); `key` tells this row apart (the agenda can show an entry twice).
-/// The details also delete the entry (after a confirmation; `deleted`
-/// runs once it's gone). A long press runs `longPress`, if given.
+/// The edit form also deletes the entry (after a confirmation;
+/// `deleted` runs once it's gone). A long press runs `longPress`, if given.
 struct EntryListRow: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
@@ -269,6 +272,9 @@ struct EntryListRow: View {
     var longPress: (() -> Void)? = nil
     /// Whether a tap on the line opens and closes the details.
     var tappable = true
+    /// Whether the details have the state menu and pencil — not where
+    /// swipe actions offer them (the Outline).
+    var detailActions = true
     /// Runs on a tap of the line instead of opening the details, if given.
     var tapped: (() -> Void)? = nil
     @State private var editing = false
@@ -299,9 +305,9 @@ struct EntryListRow: View {
                 Spacer().frame(height: 4)
                 Group {
                     if editing {
-                        InlineEntryEditor(entry: entry) { withAnimation(.snappy(duration: 0.2)) { editing = false } }
+                        InlineEntryEditor(entry: entry, deleted: deleted) { withAnimation(.snappy(duration: 0.2)) { editing = false } }
                     } else {
-                        InlineEntryDetails(entry: entry, deleted: deleted) { withAnimation(.snappy(duration: 0.2)) { editing = true } }
+                        InlineEntryDetails(entry: entry, edit: detailActions ? { withAnimation(.snappy(duration: 0.2)) { editing = true } } : nil)
                     }
                 }
                 .transition(.opacity)
@@ -321,15 +327,19 @@ struct EntryListRow: View {
 }
 
 /// An open row's details: dates, notes (links tappable), tags,
-/// properties (always shown), pending status, and the state menu,
-/// delete button and pencil. `deleted` runs once a delete is made, for
-/// the list to renumber the IDs it holds.
+/// properties (always shown), pending status, and — given `edit` (a
+/// list with no swipe actions for them) — the state menu and pencil.
 struct InlineEntryDetails: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
-    var deleted: () -> Void = {}
-    let edit: () -> Void
-    @State private var confirmingDelete = false
+    let edit: (() -> Void)?
+
+    /// Whether there's nothing to show but the title.
+    private var isEmpty: Bool {
+        entry.scheduled.isEmpty && entry.deadline.isEmpty && entry.closed.isEmpty && entry.body.isEmpty
+            && entry.tags.isEmpty && entry.properties.isEmpty
+            && !entry.isPending && !entry.isNew && !entry.hasPendingState
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -372,78 +382,63 @@ struct InlineEntryDetails: View {
                     }
                 }
             }
-            HStack(spacing: 12) {
-                if !entry.isReference {
-                    StateMenu(entry: entry) {
-                        HStack(spacing: 4) {
-                            if entry.keyword.isEmpty {
-                                Text("No state").font(.footnote).foregroundStyle(.secondary)
-                            } else {
-                                KeywordBadge(name: entry.keyword)
+            if isEmpty && edit == nil {
+                Text("No details").font(.footnote).foregroundStyle(.secondary)
+            }
+            if let edit {
+                HStack(spacing: 12) {
+                    if !entry.isReference {
+                        StateMenu(entry: entry) {
+                            HStack(spacing: 4) {
+                                if entry.keyword.isEmpty {
+                                    Text("No state").font(.footnote).foregroundStyle(.secondary)
+                                } else {
+                                    KeywordBadge(name: entry.keyword)
+                                }
+                                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
                             }
-                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                        .accessibilityLabel("State")
                     }
-                    .accessibilityLabel("State")
+                    Spacer()
+                    Button(action: edit) {
+                        Image(systemName: "pencil")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 36, height: 30)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Edit")
                 }
-                Spacer()
-                Button(role: .destructive) {
-                    confirmingDelete = true
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 30)
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.busy != nil)
-                .accessibilityLabel("Delete")
-                Button(action: edit) {
-                    Image(systemName: "pencil")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 30)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Edit")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
-        .confirmationDialog("Delete “\(entry.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                Task { await model.deleteEntry(entry) { withAnimation(.snappy(duration: 0.2)) { deleted() } } }
-            }
-        } message: {
-            Text(deleteMessage)
-        }
-    }
-
-    private var deleteMessage: String {
-        let n = entry.descendants ?? 0
-        let under = n == 0 ? "" : " This also deletes the \(n == 1 ? "entry" : "\(n) entries") under it."
-        if entry.captureId != nil {
-            return "It was captured on this phone and isn't merged yet, so it's gone for good." + under
-        }
-        return "It's removed from \(entry.file) when you merge." + under
     }
 }
 
-/// An open row's edit form — the capture form's fields, in place.
-/// Only fields that change are written back (mobilecore.EditEntry); a
-/// still-pending capture is edited as a capture.
+/// An open row's edit form — the capture form's fields, in place, and a
+/// delete button. Only fields that change are written back
+/// (mobilecore.EditEntry); a still-pending capture is edited as a
+/// capture. `deleted` runs once a delete is made, for the list to
+/// renumber the IDs it holds.
 struct InlineEntryEditor: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
+    var deleted: () -> Void = {}
     let done: () -> Void
+    @State private var confirmingDelete = false
     @State private var draft: CaptureDraft
     @State private var loading: Bool
     @State private var saving = false
     @State private var error: String?
 
-    init(entry: Entry, done: @escaping () -> Void) {
+    init(entry: Entry, deleted: @escaping () -> Void = {}, done: @escaping () -> Void) {
         self.entry = entry
+        self.deleted = deleted
         self.done = done
         _loading = State(initialValue: entry.captureId != nil)
         _draft = State(initialValue: CaptureDraft(
@@ -458,8 +453,16 @@ struct InlineEntryEditor: View {
 
     var body: some View {
         InlineForm(draft: $draft, keywords: entry.isReference ? nil : entry.captureId != nil ? model.captureKeywords : model.allKeywords,
-                   loading: loading, saving: saving, error: error, cancel: done) {
+                   loading: loading, saving: saving, error: error, cancel: done,
+                   delete: { confirmingDelete = true }) {
             Task { await save() }
+        }
+        .confirmationDialog("Delete “\(entry.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task { await model.deleteEntry(entry) { withAnimation(.snappy(duration: 0.2)) { deleted() } } }
+            }
+        } message: {
+            Text(entry.deleteMessage)
         }
         .task {
             // A pending capture is still only in the queue: edit it there.
@@ -494,6 +497,8 @@ struct InlineForm: View {
     let error: String?
     var focusTitle = false
     let cancel: () -> Void
+    /// Shows a delete button (an existing entry's form), which runs this.
+    var delete: (() -> Void)? = nil
     let save: () -> Void
     @FocusState private var titleFocused: Bool
 
@@ -524,6 +529,15 @@ struct InlineForm: View {
             HStack {
                 Button("Cancel", action: cancel)
                     .buttonStyle(.bordered)
+                if let delete {
+                    Button(action: delete) {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                    .disabled(saving || loading || model.busy != nil)
+                    .accessibilityLabel("Delete")
+                }
                 Spacer()
                 Button("Save", action: save)
                     .buttonStyle(.borderedProminent)
@@ -632,5 +646,17 @@ enum OrgText {
             a[lower..<upper].link = url
         }
         return a
+    }
+}
+
+extension Entry {
+    /// What deleting the entry does, for a delete confirmation.
+    var deleteMessage: String {
+        let n = descendants ?? 0
+        let under = n == 0 ? "" : " This also deletes the \(n == 1 ? "entry" : "\(n) entries") under it."
+        if captureId != nil {
+            return "It was captured on this phone and isn't merged yet, so it's gone for good." + under
+        }
+        return "It's removed from \(file) when you merge." + under
     }
 }

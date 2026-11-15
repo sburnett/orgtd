@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// The outline: each file's headlines as an expandable tree, a separate
-/// Reference section, and search. A row's chevron expands or collapses
-/// its children; tapping the row opens its details (and edit form) in
-/// place. Long-pressing a row enters arranging, until Done: there,
-/// dragging a row moves it among its siblings, swiping it right or left
+/// The outline: one tree whose top layer is the files (outline files,
+/// then reference ones), each expanding to its headlines, and search. A
+/// row's chevron expands or collapses its children (a file's name does
+/// too); tapping an entry opens its details (and edit form) in place.
+/// Long-pressing an entry enters arranging, until Done: there, dragging
+/// an entry moves it among its siblings — a top-level one into any
+/// file's top level too — swiping it right or left
 /// moves it one level deeper or shallower (as desktop ">>" and "<<"
 /// do), and every list visible starts and ends with a "New entry" row,
 /// which opens a form for the new entry right where it will go. A file
@@ -15,10 +17,16 @@ struct OutlineView: View {
     @State private var query = ""
     @State private var results: [Entry] = []
     @State private var expanded: Set<String> = []
+    /// Files whose entries are hidden (files start expanded).
+    @State private var collapsedFiles: Set<String> = []
     @State private var target: String?
     @State private var open: String?
     /// Whether rows are being moved and added (see above).
     @State private var arranging = false
+    /// The entry the Edit swipe is editing, in a sheet.
+    @State private var editingEntry: Entry?
+    /// The entry the state swipe asked to change the state of.
+    @State private var settingState: Entry?
 
     var body: some View {
         @Bindable var model = model
@@ -38,16 +46,7 @@ struct OutlineView: View {
                         .compactEntryRowInsets()
                     }
                 } else if let outline = model.outline {
-                    ForEach(outline.files) { file in
-                        Section(file.file) { nodes(file.entries, file: file.file) }
-                    }
-                    if !outline.reference.isEmpty {
-                        ForEach(outline.reference) { file in
-                            Section("Reference · \(file.file.replacingOccurrences(of: "reference/", with: ""))") {
-                                nodes(file.entries, file: file.file)
-                            }
-                        }
-                    }
+                    nodes(outline)
                 }
             }
             .onChange(of: target) { _, id in
@@ -57,6 +56,9 @@ struct OutlineView: View {
             }
         }
         .compactEntryList()
+        // Edge to edge on the screen's background, not a floating card:
+        // it's one list, and the tree needs the width.
+        .listStyle(.plain)
         .navigationTitle(arranging ? "Arrange" : "Outline")
         .sensoryFeedback(.impact(weight: .medium), trigger: arranging) { _, now in now }
         .searchable(text: $query, prompt: "Search titles, tags, notes")
@@ -79,6 +81,14 @@ struct OutlineView: View {
             }
         }
         .refreshable { await model.refresh() }
+        .sheet(item: $settingState) { entry in
+            StatePickerSheet(entry: entry)
+        }
+        .sheet(item: $editingEntry) { entry in
+            EditEntrySheet(entry: entry) {
+                withAnimation(.snappy(duration: 0.2)) { renumber(Renumbering(file: entry.file, removed: entry.id, inserted: nil)) }
+            }
+        }
         .task(id: model.focus) {
             guard let id = model.focus else { return }
             model.focus = nil
@@ -98,19 +108,22 @@ struct OutlineView: View {
                 }
                 .accessibilityLabel(model.showClosed ? "Hide closed items" : "Show closed items")
 
-                // Collapses everything if anything is open; otherwise
-                // opens everything. The icon shows what a tap will do.
+                // Collapses everything, files included, if anything is
+                // open; otherwise opens everything. The icon shows what a
+                // tap will do.
                 let expandable = allExpandable
-                let anyOpen = !expanded.isDisjoint(with: expandable)
+                let files = allFiles
+                let anyOpen = !expanded.isDisjoint(with: expandable) || !files.isSubset(of: collapsedFiles)
                 Button {
                     withAnimation(.snappy(duration: 0.2)) {
                         expanded = anyOpen ? [] : expandable
+                        collapsedFiles = anyOpen ? files : []
                     }
                 } label: {
                     Image(systemName: anyOpen ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
                 }
                 .accessibilityLabel(anyOpen ? "Collapse all" : "Expand all")
-                .disabled(!query.isEmpty || expandable.isEmpty)
+                .disabled(!query.isEmpty || files.isEmpty)
             }
             // Sync in a capsule of its own, as on every other tab, so it
             // sits in exactly the same spot: grouped with the buttons above
@@ -121,7 +134,13 @@ struct OutlineView: View {
             ToolbarItem(placement: .topBarTrailing) { SyncButton() }
     }
 
-    /// Every entry in the outline that has children, i.e. everything
+    /// Every file in the outline.
+    private var allFiles: Set<String> {
+        guard let outline = model.outline else { return [] }
+        return Set((outline.files + outline.reference).map(\.file))
+    }
+
+    /// Every entry in the outline that has children, i.e. every entry
     /// "expand all" opens.
     private var allExpandable: Set<String> {
         guard let outline = model.outline else { return [] }
@@ -137,14 +156,23 @@ struct OutlineView: View {
         return ids
     }
 
-    /// The rows currently visible in `file`'s top-level `entries`: every
-    /// entry whose ancestors are all expanded, in outline order, with the
-    /// "New entry" rows (see TreeRow.visible).
-    private func nodes(_ entries: [Entry], file: String) -> some View {
-        let rows = TreeRow.visible(entries, file: file, arranging: arranging, expanded: expanded)
+    /// The rows currently visible: each file, and, if it's expanded, every
+    /// entry in it whose ancestors are all expanded, in outline order,
+    /// with the "New entry" rows (see TreeRow.outline). One list, so a
+    /// drag can cross from one file to another.
+    private func nodes(_ outline: OutlineResult) -> some View {
+        let rows = TreeRow.outline(outline, arranging: arranging, expanded: expanded, collapsedFiles: collapsedFiles)
         return ForEach(rows) { row in
             switch row.kind {
+            case .file(let file):
+                FileRowView(file: file, isExpanded: !collapsedFiles.contains(file.file)) {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        if collapsedFiles.contains(file.file) { collapsedFiles.remove(file.file) } else { collapsedFiles.insert(file.file) }
+                    }
+                }
+                .moveDisabled(true)
             case .entry(let entry):
+                let file = entry.file
                 TreeRowView(entry: entry, depth: row.depth, isExpanded: expanded.contains(entry.id), arranging: arranging, open: $open,
                             arrange: startArranging,
                             deleted: { renumber(Renumbering(file: file, removed: entry.id, inserted: nil)) }) {
@@ -152,21 +180,45 @@ struct OutlineView: View {
                         if expanded.contains(entry.id) { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
                     }
                 }
-                // Swipe right: deeper (">>"); swipe left: shallower ("<<").
+                // Arranging, swipe right: deeper (">>"); swipe left:
+                // shallower ("<<"). Otherwise, right: state; left: edit.
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    if arranging && entry.indexPath.last != 0 {
-                        Button { shift(entry, by: 1) } label: {
-                            Label("Indent", systemImage: "arrow.right.to.line")
+                    if arranging {
+                        if entry.indexPath.last != 0 {
+                            Button { shift(entry, by: 1) } label: {
+                                Label("Indent", systemImage: "arrow.right.to.line")
+                            }
+                            .tint(.indigo)
                         }
-                        .tint(.indigo)
+                    } else if !entry.isReference {
+                        // The first is the full swipe's: DONE, by default.
+                        ForEach(quickStates(for: entry), id: \.name) { k in
+                            Button {
+                                Task { await model.setState(of: entry, to: k.name) }
+                            } label: {
+                                Text(k.name)
+                            }
+                            .tint(model.keywordColor(k.name))
+                        }
+                        Button { settingState = entry } label: {
+                            Label("More", systemImage: "ellipsis")
+                        }
+                        .tint(.gray)
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    if arranging && entry.indexPath.count > 1 {
-                        Button { shift(entry, by: -1) } label: {
-                            Label("Outdent", systemImage: "arrow.left.to.line")
+                    if arranging {
+                        if entry.indexPath.count > 1 {
+                            Button { shift(entry, by: -1) } label: {
+                                Label("Outdent", systemImage: "arrow.left.to.line")
+                            }
+                            .tint(.indigo)
                         }
-                        .tint(.indigo)
+                    } else {
+                        Button { editingEntry = entry } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(.orange)
                     }
                 }
                 .moveDisabled(!arranging)
@@ -184,6 +236,21 @@ struct OutlineView: View {
         .onMove(perform: arranging ? { from, to in move(from, to: to, in: rows) } : nil)
     }
 
+    /// The states a right swipe offers as buttons, besides More (the
+    /// sheet of them all): for an open entry, the first done keyword then
+    /// the first two active ones; for a done entry, the first three
+    /// active ones, since reopening is the likely change. Never its
+    /// current state — the next one in order takes its place.
+    private func quickStates(for entry: Entry) -> [Keyword] {
+        let others = model.status.keywords.filter { $0.name != entry.keyword }
+        let active = others.filter { !$0.done }
+        if model.keyword(entry.keyword)?.done == true {
+            return Array(active.prefix(3))
+        }
+        let done = others.filter(\.done).prefix(1)
+        return Array(done) + Array(active.prefix(3 - done.count))
+    }
+
     /// Enters arranging, closing any open details or form.
     private func startArranging() {
         withAnimation(.snappy(duration: 0.2)) {
@@ -195,12 +262,17 @@ struct OutlineView: View {
     /// A drag of `rows[from]` to just before `rows[to]` (or the end):
     /// moves the entry among its siblings, before the first one at or
     /// after the drop, or after the last. A drop outside its parent's
-    /// list does nothing, and the row goes back.
+    /// list does nothing, and the row goes back. A top-level entry's
+    /// siblings are every file's top-level entries (see moveTopLevel).
     private func move(_ from: IndexSet, to: Int, in rows: [TreeRow]) {
         guard let i = from.first, case .entry(let entry) = rows[i].kind else { return }
         let path = entry.indexPath
+        if path.count == 1 {
+            moveTopLevel(entry, at: i, to: to, in: rows)
+            return
+        }
         func sibling(_ k: Int) -> Entry? {
-            guard case .entry(let e) = rows[k].kind, e.indexPath.count == path.count,
+            guard case .entry(let e) = rows[k].kind, e.file == entry.file, e.indexPath.count == path.count,
                   e.indexPath.dropLast() == path.dropLast() else { return nil }
             return e
         }
@@ -228,6 +300,53 @@ struct OutlineView: View {
             await model.moveEntry(entry, beside: anchor, after: after) { newID in
                 withAnimation(.snappy(duration: 0.2)) {
                     renumber(Renumbering(file: entry.file, removed: entry.id, inserted: newID))
+                }
+            }
+        }
+    }
+
+    /// A drag of the top-level `entry` (`rows[i]`) to just before
+    /// `rows[to]`: into the file whose rows the drop lands among, before
+    /// the first of its top-level entries at or after the drop, or after
+    /// the last — or, in a collapsed or empty file, at its end.
+    private func moveTopLevel(_ entry: Entry, at i: Int, to: Int, in rows: [TreeRow]) {
+        func isFile(_ r: TreeRow) -> Bool { if case .file = r.kind { true } else { false } }
+        func topLevel(_ k: Int) -> Entry? {
+            guard case .entry(let e) = rows[k].kind, e.indexPath.count == 1 else { return nil }
+            return e
+        }
+        guard let fileRow = rows[..<to].lastIndex(where: isFile), case .file(let dest) = rows[fileRow].kind else { return }
+        let end = rows[(fileRow + 1)...].firstIndex(where: isFile) ?? rows.count
+        let region = (fileRow + 1)..<end
+        let others = region.filter { $0 != i && topLevel($0) != nil }
+        let anchor: Entry?, after: Bool
+        if let next = others.first(where: { $0 >= to }) {
+            (anchor, after) = (topLevel(next), false)
+        } else if let last = others.last {
+            (anchor, after) = (topLevel(last), true)
+        } else {
+            (anchor, after) = (nil, false)
+        }
+        if dest.file == entry.file {
+            // Where it already is?
+            let order = region.compactMap(topLevel)
+            guard let anchor, let k = order.firstIndex(where: { $0.id == entry.id }) else { return }
+            if !after && k + 1 < order.count && order[k + 1].id == anchor.id { return }
+            if after && k == order.count - 1 { return }
+        }
+        Task {
+            await model.moveEntry(entry, toFile: dest.file, beside: anchor, after: after) { newID in
+                withAnimation(.snappy(duration: 0.2)) {
+                    if dest.file == entry.file {
+                        renumber(Renumbering(file: entry.file, removed: entry.id, inserted: newID))
+                        return
+                    }
+                    // Its own expanded rows go with it to the other file.
+                    let moved = expanded.filter { $0 == entry.id || $0.hasPrefix(entry.id + ".") }
+                        .map { newID + $0.dropFirst(entry.id.count) }
+                    renumber(Renumbering(file: entry.file, removed: entry.id, inserted: nil))
+                    renumber(Renumbering(file: dest.file, removed: nil, inserted: newID))
+                    expanded.formUnion(moved)
                 }
             }
         }
@@ -264,6 +383,7 @@ struct OutlineView: View {
     /// opens its details, and scrolls to it.
     private func reveal(_ id: String) {
         arranging = false
+        if let (file, _) = Entry.parse(id) { collapsedFiles.remove(file) }
         expanded.formUnion(Entry.ancestorIDs(of: id))
         open = id
         query = ""
@@ -352,9 +472,10 @@ extension Entry {
     }
 }
 
-/// One visible line of the tree: an entry, or a new entry's row.
+/// One visible line of the tree: a file, an entry, or a new entry's row.
 struct TreeRow: Identifiable {
     enum Kind {
+        case file(OutlineFile)
         case entry(Entry)
         case add(AddSlot)
     }
@@ -364,9 +485,24 @@ struct TreeRow: Identifiable {
 
     var id: String {
         switch kind {
+        case .file(let f): "=" + f.file // never an entry ID or a slot key
         case .entry(let e): e.id
         case .add(let slot): slot.key
         }
+    }
+
+    /// The whole outline's visible rows: each file (outline files, then
+    /// reference ones) and, unless it's collapsed, its entries' rows a
+    /// level in.
+    static func outline(_ outline: OutlineResult, arranging: Bool, expanded: Set<String>, collapsedFiles: Set<String>) -> [TreeRow] {
+        var rows: [TreeRow] = []
+        for f in outline.files + outline.reference {
+            rows.append(TreeRow(kind: .file(f), depth: 0))
+            if !collapsedFiles.contains(f.file) {
+                rows += visible(f.entries, file: f.file, arranging: arranging, expanded: expanded, depth: 1)
+            }
+        }
+        return rows
     }
 
     /// The visible rows of `file`'s list `entries` (the children of
@@ -392,7 +528,7 @@ struct TreeRow: Identifiable {
 
 /// The leading part every tree line shares: the row's inset, its depth's
 /// indentation, and the column where a chevron goes.
-private let treeRowInset: CGFloat = 6
+private let treeRowInset: CGFloat = 10
 private let treeIndent: CGFloat = 14
 private let chevronWidth: CGFloat = 28
 /// The space between the chevron's tile and the entry beside it, so a
@@ -418,6 +554,55 @@ private struct ChevronButtonStyle: ButtonStyle {
                     .padding(.vertical, 4)
                     .padding(.horizontal, 1)
             }
+    }
+}
+
+/// A file's line at the top of the tree: a chevron (every file has one —
+/// an empty file expands to its "New entry" row) and its name, which
+/// toggles it too, with how many entries it hides when collapsed.
+private struct FileRowView: View {
+    let file: OutlineFile
+    let isExpanded: Bool
+    let toggle: () -> Void
+
+    private var isReference: Bool { file.file.hasPrefix("reference/") }
+    private var name: String {
+        isReference ? "Reference · " + file.file.dropFirst("reference/".count) : file.file
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: chevronGap) {
+            Button(action: toggle) {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: chevronWidth, height: entryLineHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(ChevronButtonStyle())
+            .accessibilityLabel(isExpanded ? "Collapse \(name)" : "Expand \(name)")
+            HStack(spacing: 6) {
+                Image(systemName: isReference ? "books.vertical" : "doc.text")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if !isExpanded && !file.entries.isEmpty {
+                    Text("(\(TreeRowView.descendants(file.entries)))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: entryLineHeight)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: toggle)
+            .accessibilityAddTraits(.isHeader)
+        }
+        .listRowInsets(EdgeInsets(top: 0, leading: treeRowInset, bottom: 0, trailing: 12))
+        .entryRowBackground(isOpen: false, plain: true)
     }
 }
 
@@ -467,7 +652,7 @@ private struct TreeRowView: View {
                 .transaction { $0.animation = nil } // still while the row's details open
             }
             EntryListRow(entry: entry, key: entry.id, open: $open, hiddenCount: children.isEmpty || isExpanded ? nil : Self.descendants(children),
-                         deleted: deleted, longPress: arranging ? nil : arrange, tappable: !arranging)
+                         deleted: deleted, longPress: arranging ? nil : arrange, tappable: !arranging, detailActions: false)
             if arranging {
                 Image(systemName: "line.3.horizontal")
                     .font(.footnote.weight(.semibold))
@@ -479,7 +664,7 @@ private struct TreeRowView: View {
         .onPreferenceChange(HeadlineHeightKey.self) { headlineHeight = $0 }
         .padding(.leading, CGFloat(depth) * treeIndent)
         .listRowInsets(EdgeInsets(top: 0, leading: treeRowInset, bottom: 0, trailing: 12))
-        .entryRowBackground(isOpen: open == entry.id, guides: treeGuides(depth: depth))
+        .entryRowBackground(isOpen: open == entry.id, guides: treeGuides(depth: depth), plain: true)
     }
 
     /// How many entries a collapsed row hides, like the desktop's "(N)".
@@ -531,7 +716,7 @@ private struct AddEntryRow: View {
         .padding(.leading, CGFloat(depth) * treeIndent + chevronWidth + chevronGap)
         .padding(.bottom, isOpen ? 8 : 0)
         .listRowInsets(EdgeInsets(top: 0, leading: treeRowInset, bottom: 0, trailing: 12))
-        .entryRowBackground(isOpen: isOpen, guides: treeGuides(depth: depth))
+        .entryRowBackground(isOpen: isOpen, guides: treeGuides(depth: depth), plain: true)
         .onChange(of: isOpen) { _, nowOpen in
             if nowOpen { reset() }
         }
@@ -561,5 +746,94 @@ private struct AddEntryRow: View {
             withAnimation(.snappy(duration: 0.2)) { added(newID) }
         }
         if !ok { error = model.lastError }
+    }
+}
+
+/// The State swipe's picker: a sheet from the bottom listing every
+/// keyword (in its color, the current one checked) and None, which
+/// scrolls however many keywords there are. Picking one sets it and
+/// closes the sheet.
+private struct StatePickerSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let entry: Entry
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(model.status.keywords, id: \.name) { k in
+                        row(k.name) { KeywordBadge(name: k.name).font(.body.monospaced()) }
+                    }
+                    row("") { Text("None").foregroundStyle(.secondary) }
+                } header: {
+                    Text(entry.title).lineLimit(2).textCase(nil)
+                }
+            }
+            .navigationTitle("State")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func row<Label: View>(_ keyword: String, @ViewBuilder label: () -> Label) -> some View {
+        Button {
+            dismiss()
+            if keyword != entry.keyword {
+                Task { await model.setState(of: entry, to: keyword) }
+            }
+        } label: {
+            HStack {
+                label()
+                Spacer()
+                if keyword == entry.keyword {
+                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(keyword == entry.keyword ? .isSelected : [])
+    }
+}
+
+/// The Edit swipe's form: the same fields, Cancel/Save and Delete as an
+/// open row's edit form (InlineEntryEditor), in a sheet from the bottom
+/// just as tall as the form, so the list still shows above it (it
+/// scrolls once the form is taller than the screen allows). In place,
+/// the row would grow while the list is still finishing the swipe,
+/// which draws it in the wrong spot for most of a second before it
+/// snaps into place. `deleted` runs once a delete is made, for the list
+/// to renumber the IDs it holds.
+private struct EditEntrySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let entry: Entry
+    let deleted: () -> Void
+    /// The form's height, measured, for the sheet's own.
+    @State private var formHeight: CGFloat = 400
+
+    var body: some View {
+        ScrollView {
+            InlineEntryEditor(entry: entry, deleted: {
+                deleted()
+                dismiss()
+            }) {
+                dismiss()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 24) // clear of the drag indicator
+            .padding(.bottom, 8)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { formHeight = $0 }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .scrollBounceBehavior(.basedOnSize)
+        .presentationDetents([.height(formHeight)])
+        .presentationDragIndicator(.visible)
     }
 }

@@ -830,3 +830,58 @@ func TestMoveEntryRefusals(t *testing.T) {
 		t.Errorf("refusals queued %d changes", st.PendingStates)
 	}
 }
+
+func TestMoveEntryToFileMovesTheSubtreeBetweenFiles(t *testing.T) {
+	g, _ := setup(t)
+	flights := findEntry(t, g, "Book flights for the November offsite")
+	q4 := findEntry(t, g, "Q4 planning") // work.org:1
+	id, err := MoveEntryToFile(g, flights.ID, "work.org", q4.ID, false, fixtureNow, "P", "p@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := findEntry(t, g, flights.Title)
+	if id != "work.org:1" || moved.ID != id || moved.File != "work.org" || !moved.PendingState {
+		t.Errorf("returned %q, entry %+v", id, moved)
+	}
+	if q := findEntry(t, g, "Q4 planning"); q.ID != "work.org:2" {
+		t.Errorf("Q4 planning is %q, want it after the moved entry", q.ID)
+	}
+	inbox, _ := os.ReadFile(filepath.Join(repoDir(g), "inbox.org"))
+	work, _ := os.ReadFile(filepath.Join(repoDir(g), "work.org"))
+	if strings.Contains(string(inbox), flights.Title) {
+		t.Errorf("inbox.org still has the entry:\n%s", inbox)
+	}
+	want := "* TODO Book flights for the November offsite\n  :PROPERTIES:\n  :CREATED: [2026-10-03 Sat 09:05]\n  :END:\n* Q4 planning"
+	if !strings.Contains(string(work), want) {
+		t.Errorf("work.org doesn't have the entry right before Q4 planning:\n%s", work)
+	}
+
+	// With no anchor, it goes at the end of the file, subtree and all.
+	q4 = findEntry(t, g, "Q4 planning")
+	id, err = MoveEntryToFile(g, q4.ID, "personal.org", "", false, fixtureNow, "P", "p@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved := findEntry(t, g, "Q4 planning"); id != "personal.org:5" || moved.ID != id || moved.Descendants == 0 {
+		t.Errorf("returned %q, entry %+v", id, moved)
+	}
+}
+
+func TestMoveEntryToFileRefusals(t *testing.T) {
+	g, _ := setup(t)
+	if _, err := MoveEntryToFile(g, "personal.org:0.1", "work.org", "", false, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("moving a child to another file accepted")
+	}
+	if _, err := MoveEntryToFile(g, "personal.org:0", "personal.org", "", false, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("moving to the same file accepted")
+	}
+	if _, err := MoveEntryToFile(g, "personal.org:0", "calendar.org", "", false, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("moving to the calendar file accepted")
+	}
+	if _, err := MoveEntryToFile(g, "personal.org:0", "work.org", "work.org:0.1", false, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("anchoring to a child accepted")
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 0 {
+		t.Errorf("refusals queued %d changes", st.PendingStates)
+	}
+}

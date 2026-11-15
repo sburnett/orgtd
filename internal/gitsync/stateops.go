@@ -107,6 +107,9 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if h.Keyword != op.From {
 		return ErrEntryChanged
 	}
+	if op.Move != nil && op.Move.ToFile != "" && op.Move.ToFile != op.File {
+		return applyFileMove(dir, p, data, h, op)
+	}
 	if op.Move != nil {
 		return applyMove(p, data, f, h, op)
 	}
@@ -296,39 +299,112 @@ func applyMove(p string, data []byte, f *org.File, h *org.Headline, op capturequ
 }
 
 // reorder moves lines[start:end] (a subtree) to before line at (outside
-// it), keeping blank-line spacing even: the blank lines that separate
-// the subtree from its neighbours — after it, or, for one with none
-// after it (the file's last), before it — go with it, and go before it
-// again if it lands at the very end.
+// it), keeping blank-line spacing even (see cutSubtree and pasteSubtree).
 func reorder(lines []string, start, end, at int) []string {
+	rest, body, gap, cut := cutSubtree(lines, start, end)
+	if at >= end {
+		at -= end - cut
+	} else if at > cut {
+		at = cut
+	}
+	return pasteSubtree(rest, at, body, gap)
+}
+
+// cutSubtree takes lines[start:end] (a subtree) out of lines, with the
+// blank lines that separate it from its neighbours: those after it, or,
+// for one with none after it (the file's last), those before it. It
+// returns the remaining lines, the subtree without trailing blank lines,
+// how many blank lines separated it, and where the cut began.
+func cutSubtree(lines []string, start, end int) (rest, body []string, gap, cut int) {
 	blank := func(s string) bool { return strings.TrimSpace(s) == "" }
-	body := lines[start:end]
-	gap := 0
+	body = lines[start:end]
 	for gap < len(body) && blank(body[len(body)-1-gap]) {
 		gap++
 	}
 	body = body[:len(body)-gap]
-	cut := start
+	cut = start
 	if gap == 0 {
 		for cut > 0 && blank(lines[cut-1]) {
 			cut--
 		}
 		gap = start - cut
 	}
-	rest := append(append([]string{}, lines[:cut]...), lines[end:]...)
-	if at >= end {
-		at -= end - cut
-	} else if at > cut {
-		at = cut
-	}
+	rest = append(append([]string{}, lines[:cut]...), lines[end:]...)
+	return rest, body, gap, cut
+}
+
+// pasteSubtree puts body, a subtree cut by cutSubtree, into lines before
+// line at, followed by gap blank lines — or, at the very end, preceded by
+// them (unless lines is empty), so blank-line spacing stays even.
+func pasteSubtree(lines []string, at int, body []string, gap int) []string {
 	sep := make([]string, gap)
 	var moved []string
-	if at == len(rest) {
-		moved = append(sep, body...)
-	} else {
+	switch {
+	case at < len(lines):
 		moved = append(append([]string{}, body...), sep...)
+	case len(lines) == 0:
+		moved = body
+	default:
+		moved = append(sep, body...)
 	}
-	return append(append(append([]string{}, rest[:at]...), moved...), rest[at:]...)
+	return append(append(append([]string{}, lines[:at]...), moved...), lines[at:]...)
+}
+
+// applyFileMove moves h, a top-level entry (found for op in the raw file
+// data at path p, parsed as f), with its subtree to the top level of
+// another file, op.Move.ToFile (under dir): right before or after the
+// subtree of op.Move.Anchor there, or, with no anchor, at its end. Only
+// the subtree's lines move: org levels are the same at the top of any
+// file. Both files are written.
+func applyFileMove(dir, p string, data []byte, h *org.Headline, op capturequeue.StateOp) error {
+	if h.Parent != nil {
+		return ErrEntryChanged
+	}
+	dp := filepath.Join(dir, filepath.FromSlash(op.Move.ToFile))
+	ddata, err := os.ReadFile(dp)
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrEntryChanged
+	}
+	if err != nil {
+		return err
+	}
+	df, err := org.Parse(bytes.NewReader(ddata), dp)
+	if err != nil {
+		return err
+	}
+	dlines := splitLines(ddata)
+	at := len(dlines)
+	if op.Move.Anchor != "" {
+		var anchor *org.Headline
+		for _, s := range df.Headlines {
+			if s.Title == op.Move.Anchor && Fingerprint(s) == op.Move.AnchorFingerprint {
+				anchor = s
+				break
+			}
+		}
+		if anchor == nil {
+			return ErrEntryChanged
+		}
+		at = anchor.SrcStart
+		if op.Move.After {
+			at = subtreeEnd(anchor)
+		}
+	}
+	lines := splitLines(data)
+	start, end := h.SrcStart, subtreeEnd(h)
+	if end > len(lines) || start >= end || at > len(dlines) {
+		return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.Title())
+	}
+	rest, body, gap, _ := cutSubtree(lines, start, end)
+	out := pasteSubtree(dlines, at, body, gap)
+	text := strings.Join(rest, "\n")
+	if len(rest) > 0 && len(data) > 0 && data[len(data)-1] == '\n' {
+		text += "\n"
+	}
+	if err := writeFileAtomic(p, []byte(text)); err != nil {
+		return err
+	}
+	return writeFileAtomic(dp, []byte(strings.Join(out, "\n")+"\n"))
 }
 
 // patchEntry returns h's own lines (as in the file) with op applied,

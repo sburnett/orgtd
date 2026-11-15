@@ -74,6 +74,11 @@ type EntryMove struct {
 	Anchor            string `json:"anchor,omitempty"`
 	AnchorFingerprint string `json:"anchorFingerprint,omitempty"`
 	After             bool   `json:"after,omitempty"`
+	// ToFile, for a reorder of a top-level entry, is another file
+	// (relative to the repository root) whose top level it moves to:
+	// next to Anchor there or, with no Anchor, at its end. To is then
+	// its title path in that file.
+	ToFile string `json:"toFile,omitempty"`
 }
 
 // EntryInsert is a new entry an op adds.

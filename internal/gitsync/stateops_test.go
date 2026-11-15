@@ -722,3 +722,46 @@ func TestReorderKeepsBlankLineSpacingEven(t *testing.T) {
 		})
 	}
 }
+
+func TestFileMoveIsDroppedIfItsAnchorChanged(t *testing.T) {
+	f := newOpsFixture(t)
+	f.macCommit("other.org", "* First\n* Second\n", "other")
+	f.macPush()
+	f.sync()
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+	odata, _ := os.ReadFile(filepath.Join(f.phone.Dir, "other.org"))
+	oo, _ := org.Parse(strings.NewReader(string(odata)), "other.org")
+	h, second := of.Headlines[1], oo.Headlines[1] // "Other   heading", "Second"
+	op := NewStateOp("work.org", h, h.Keyword, opTime)
+	op.Move = &capturequeue.EntryMove{To: []string{h.Title}, ToFile: "other.org", Anchor: second.Title, AnchorFingerprint: Fingerprint(second)}
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, op); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(f.phone.Dir, "other.org"))
+	if string(got) != "* First\n*   Other   heading\n* Second\n" {
+		t.Errorf("other.org =\n%s", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org")); strings.Contains(string(got), "Other") {
+		t.Errorf("work.org still has the entry:\n%s", got)
+	}
+
+	f.macCommit("other.org", "* First\n* Second, renamed\n", "renamed")
+	f.macPush()
+	f.sync()
+	if ops := f.ops(); len(ops) != 0 {
+		t.Errorf("ops = %+v, want the move dropped", ops)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org")); !strings.Contains(string(got), "*   Other   heading") {
+		t.Errorf("work.org lost the entry when its move was dropped:\n%s", got)
+	}
+}
+
+func TestPasteSubtreeIntoAnEmptyFileAddsNoBlankLines(t *testing.T) {
+	if got := pasteSubtree(nil, 0, []string{"* A"}, 1); strings.Join(got, "\n") != "* A" {
+		t.Errorf("pasteSubtree = %q", got)
+	}
+}

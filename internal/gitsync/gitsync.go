@@ -380,6 +380,11 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 		if _, err := wt.Add(op.File); err != nil {
 			return fmt.Errorf("gitsync: staging %s: %w", op.File, err)
 		}
+		if op.Move != nil && op.Move.ToFile != "" && op.Move.ToFile != op.File {
+			if _, err := wt.Add(op.Move.ToFile); err != nil {
+				return fmt.Errorf("gitsync: staging %s: %w", op.Move.ToFile, err)
+			}
+		}
 		sig := &object.Signature{Name: r.Author.Name, Email: r.Author.Email, When: op.CreatedAt}
 		msg := fmt.Sprintf("Set %s: %s → %s", op.Title(), orNone(op.From), orNone(op.To))
 		if op.Edit != nil {
@@ -397,6 +402,8 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 				msg = "Demote: " + op.Title()
 			case op.Move.Delta < 0:
 				msg = "Promote: " + op.Title()
+			case op.Move.ToFile != "" && op.Move.ToFile != op.File:
+				msg = "Move: " + op.Title() + " → " + op.Move.ToFile
 			default:
 				msg = "Move: " + op.Title()
 			}

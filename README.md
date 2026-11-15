@@ -1030,7 +1030,8 @@ entries (TODO state, title, notes, tags, dates).
 - **What the phone writes:** new entries appended to `inbox_file`, new
   entries inserted first or last under an entry (or a file's top level)
   in the outline, entries moved a level deeper or shallower (as `>>`/`<<`
-  do), entries deleted with their subtrees (as `dd` does), and edits to
+  do), entries moved up or down among their siblings (top-level ones
+  into another file, too), entries deleted with their subtrees (as `dd` does), and edits to
   existing entries (keyword changes with `CLOSED` and repeaters
   handled as `r` does; title, notes, tags and dates), touching only the
   changed lines of that entry. Everything is

@@ -195,7 +195,7 @@ captures), returned as JSON.
 |---|---|---|
 | **Agenda** | Overdue, Due Today, Upcoming (`agenda_window_days`), Next Actions, the same rules as desktop `:agenda` minus Meetings | Tap → the entry in the Outline, details open (in place for one the Outline leaves out); pull-to-refresh = fetch |
 | **Inbox** | Top-level non-done headlines of `inbox_file`, in file order; pending (unpushed or unmerged) captures badged | Tap → details in place. A pending capture can be **deleted or edited before it's merged**, since it's still only in the queue |
-| **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after_hours` (with a toggle), plus a separate read-only Reference section for `reference/` | Chevrons expand/collapse children; tap → details in place |
+| **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after_hours` (with a toggle), plus the `reference/` files, as one tree whose top layer is the files | Chevrons expand/collapse files and children; tap → details in place |
 | **Search** | Case-insensitive substring over title, tags, body, as desktop `/` | Results list → opens the outline at that entry, details open |
 | **Entry details** | Opened in place within the list (one at a time), so the entry is seen in context: full title, dates, body with tappable org links, tags, properties, state menu and pencil | The pencil swaps the details for the edit form, also in place (see §10) |
 | **Status bar / Settings** | Last fetch, last successful push, number of pending captures, last error; SSH public key (copy button), repo URL, author name/email | |
@@ -595,9 +595,10 @@ README/DESIGN.md current (per repo convention).
   of each tab's root, so lists scroll their last rows past it, and it
   hides while the keyboard is up so it never covers a form. (Beside
   the iOS 26 floating tab bar was tried and looked out of place.)
-- **Deleting entries.** An entry's open details have a trash button
-  (it was in the long-press menu until that became arranging), after a
-  confirmation that counts what's under it (`entry.Descendants`, which
+- **Deleting entries.** An entry's edit form has a trash button beside
+  Cancel (it was in the long-press menu until that became arranging,
+  then briefly in the details and a swipe, but deleting is rare enough
+  to be a step away), after a confirmation that counts what's under it (`entry.Descendants`, which
   includes hidden closed entries). It deletes the entry with its
   subtree, as desktop `dd` does (`mobilecore.DeleteEntry`). A pending
   capture is taken out of the queue instead (`DeletePendingCapture`).
@@ -623,8 +624,8 @@ README/DESIGN.md current (per repo convention).
   - **Reordering only among siblings.** A drag moves an entry before
     the first sibling at or after the drop, or after the last one; a
     drop outside its parent's list snaps back. Moving between parents
-    is an indent or outdent, so a drop is never ambiguous about depth,
-    and one op never touches two places in the tree.
+    is an indent or outdent, so a drop is never ambiguous about depth.
+    The exception is files (below).
   - **Queue.** Another `EntryMove`, with Delta 0 and an `Anchor`: the
     sibling's title and fingerprint, and whether the entry goes before
     it or after its subtree (`mobilecore.MoveEntry`). It's named by ID,
@@ -646,3 +647,53 @@ README/DESIGN.md current (per repo convention).
   and the Outline clears it once revealed. Entries the Outline doesn't
   show (closed and hidden, or outside the outline files) keep opening
   in place.
+- **Files as the tree's top layer.** The Outline was one List section
+  per file, but SwiftUI's `onMove` can't cross sections, and filing an
+  inbox item into a project file is the move people most want. So the
+  Outline is one list: each file is a row (`FileRowView`) with a
+  chevron, like an entry with children, and its entries hang one level
+  in. Files start expanded (the view tracks `collapsedFiles`), and
+  Collapse all collapses them too. Reference files follow the others,
+  as "Reference · name".
+  - **Moving between files.** A top-level entry's siblings, for a drag,
+    are every file's top-level entries: it lands in the file whose rows
+    the drop is among, before the first top-level entry at or after
+    the drop, or after the last; in a collapsed or empty file, at the
+    end. Only top-level entries cross files, so a level never changes
+    and no stars are rewritten.
+  - **Queue.** The same reorder `EntryMove`, with `ToFile`
+    (`mobilecore.MoveEntryToFile`); with no `Anchor`, it goes at the end
+    of the file. The replay (`applyFileMove`) cuts the subtree from one
+    file and pastes it into the other, blank lines handled as for a
+    reorder, and the commit stages both. It's dropped like a reorder if
+    the entry or the anchor changed. Captures moved out of the inbox
+    stay correct: they're dropped from the queue by commit ancestry,
+    not by finding their text in the inbox.
+  - **IDs.** The entry's own expanded rows are carried to its new ID
+    by prefix; the rest is a removal in one file and an insertion in
+    the other (`Renumbering`).
+- **Swipe actions.** Outside arranging (where swipes indent and
+  outdent), swiping an Outline entry right offers its state, and left
+  offers Edit. A swipe action can only be a plain button, so right
+  shows up to three states as buttons, in their keyword colors
+  (`quickStates`: for an open entry the first done keyword, which the
+  full swipe sets, then the first two active ones; for a done entry the
+  first three active ones; never the current state), and More, which
+  opens a bottom sheet listing the keywords (`StatePickerSheet`; a confirmation
+  dialog showed as a popover whose arrow pointed nowhere useful, and
+  wouldn't scroll well with many keywords); Edit opens the edit form in a
+  sheet (`EditEntrySheet`, wrapping the in-place `InlineEntryEditor`).
+  It first opened the form in place, but the list keeps a row in its
+  swipe state for about 0.7s after a swipe button is tapped, well after
+  the buttons have gone, and a row that grows then is drawn in the
+  wrong place (over the rows above it) until it snaps into position.
+  Deferring the change (to the next run-loop turn, or by 350ms) or
+  making it without animation didn't help — all were checked frame by
+  frame in the simulator — so the form opens where the row doesn't
+  resize. Delete is
+  in the edit form, not a swipe: it's rare, and shouldn't be one
+  gesture away. Reference entries have no state, so no right swipe.
+  With both on swipes, the Outline's details lost their state menu and
+  pencil (`EntryListRow.detailActions`), showing just the entry ("No
+  details" when there's nothing but the title). The Agenda has no
+  swipes, so details it opens in place keep them.

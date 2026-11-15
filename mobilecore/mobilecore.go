@@ -440,7 +440,11 @@ func load(groupDir string) (*loaded, error) {
 			continue
 		}
 		if o.Move != nil {
-			l.changed[changedKey(o.File, o.Move.To)] = true
+			file := o.File
+			if o.Move.ToFile != "" {
+				file = o.Move.ToFile
+			}
+			l.changed[changedKey(file, o.Move.To)] = true
 			continue
 		}
 		if o.Delete != nil {
@@ -950,6 +954,73 @@ func MoveEntry(groupDir, entryID, anchorID string, after bool, nowUnix int64, au
 		return "", err
 	}
 	return entryID[:dot+1] + strconv.Itoa(newIndex), rebuild(groupDir, authorName, authorEmail)
+}
+
+// MoveEntryToFile moves the top-level entry entryID (an entry DTO's ID),
+// with its subtree, to the top level of another outline or reference
+// file, destFile (relative to the repository root): right before the
+// top-level entry anchorID there or, with after, right after its
+// subtree — or, with anchorID "", at the end of the file. Like
+// MoveEntry, it's queued and dropped if the entry or the anchor changes
+// on the desktop first. Returns the entry's new ID.
+func MoveEntryToFile(groupDir, entryID, destFile, anchorID string, after bool, nowUnix int64, authorName, authorEmail string) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	l, err := load(groupDir)
+	if err != nil {
+		return "", err
+	}
+	f, h, err := l.lookup(entryID)
+	if err != nil {
+		return "", err
+	}
+	if h.Parent != nil {
+		return "", errors.New("mobilecore: only top-level entries can move to another file")
+	}
+	var df *org.File
+	for _, cand := range l.ws.Files {
+		if l.rel(cand) == destFile {
+			df = cand
+		}
+	}
+	if df == nil {
+		return "", fmt.Errorf("mobilecore: no file %q", destFile)
+	}
+	if df == f {
+		return "", errors.New("mobilecore: the entry is already in that file")
+	}
+	for _, x := range []*org.File{f, df} {
+		rel := l.rel(x)
+		if !l.ws.IsReference(x) && !l.isOutlineFile(x) {
+			return "", fmt.Errorf("mobilecore: %s isn't part of the outline", rel)
+		}
+		if gitsync.UnionMerged(repoDir(groupDir), rel) {
+			return "", fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate moved entries; remove that line (on your computer) to move entries there from the phone", rel)
+		}
+	}
+	move := &capturequeue.EntryMove{To: []string{h.Title}, ToFile: destFile, After: after}
+	index := len(df.Headlines)
+	if anchorID != "" {
+		af, anchor, err := l.lookup(anchorID)
+		if err != nil {
+			return "", err
+		}
+		if af != df || anchor.Parent != nil {
+			return "", errors.New("mobilecore: an entry moved to another file goes next to one of its top-level entries")
+		}
+		move.Anchor, move.AnchorFingerprint = anchor.Title, gitsync.Fingerprint(anchor)
+		dot := strings.LastIndexAny(anchorID, ":.")
+		index, _ = strconv.Atoi(anchorID[dot+1:])
+		if after {
+			index++
+		}
+	}
+	op := gitsync.NewStateOp(l.rel(f), h, h.Keyword, now(nowUnix))
+	op.Move = move
+	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
+		return "", err
+	}
+	return destFile + ":" + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
 }
 
 // AddEntryBeside adds a new entry, from the capture form in captureJSON

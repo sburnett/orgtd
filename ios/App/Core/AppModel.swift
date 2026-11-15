@@ -309,9 +309,20 @@ final class AppModel {
     /// that publishes the reloaded outline. A failure is shown as an
     /// alert.
     func moveEntry(_ entry: Entry, beside anchor: Entry, after: Bool, placed: (String) -> Void) async {
+        await moveEntry(entry, toFile: entry.file, beside: anchor, after: after, placed: placed)
+    }
+
+    /// Moves `entry` like `moveEntry(_:beside:after:placed:)`, but into
+    /// `file`, for a top-level entry: next to `anchor`, one of the file's
+    /// top-level entries, or with none at the end of the file.
+    func moveEntry(_ entry: Entry, toFile file: String, beside anchor: Entry?, after: Bool, placed: (String) -> Void) async {
         var newID = ""
         let ok = await run("Saving…") {
-            newID = try await self.core.moveEntry(entryID: entry.id, anchorID: anchor.id, after: after, author: self.author)
+            if file == entry.file, let anchor {
+                newID = try await self.core.moveEntry(entryID: entry.id, anchorID: anchor.id, after: after, author: self.author)
+            } else {
+                newID = try await self.core.moveEntryToFile(entryID: entry.id, file: file, anchorID: anchor?.id, after: after, author: self.author)
+            }
         }
         if ok, let o = try? await core.outline(showClosed: showClosed) {
             outline = o
