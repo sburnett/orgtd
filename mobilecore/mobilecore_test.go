@@ -674,3 +674,46 @@ func TestAddEntryRefusals(t *testing.T) {
 		t.Error("done keyword accepted")
 	}
 }
+
+func TestShiftEntryReturnsTheNewIDAndMarksItPending(t *testing.T) {
+	g, _ := setup(t)
+	for _, tc := range []struct {
+		title  string
+		delta  int
+		wantID string
+		level  int
+	}{
+		// personal.org:0.0 is "Replace the bathroom fan", with three children.
+		{"Schedule furnace maintenance before it gets cold", 1, "personal.org:0.0.3", 3},
+		{"Order a 110 CFM fan", -1, "personal.org:0.1", 2},
+	} {
+		e := findEntry(t, g, tc.title)
+		id, err := ShiftEntry(g, e.ID, tc.delta, fixtureNow, "P", "p@x")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.title, err)
+		}
+		after := findEntry(t, g, tc.title)
+		if id != tc.wantID || after.ID != id || after.Level != tc.level || !after.PendingState {
+			t.Errorf("%s: returned %q, entry %+v", tc.title, id, after)
+		}
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 2 {
+		t.Errorf("pendingStates = %d", st.PendingStates)
+	}
+}
+
+func TestShiftEntryRefusals(t *testing.T) {
+	g, _ := setup(t)
+	if _, err := ShiftEntry(g, "personal.org:0", 1, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("demoting a first entry accepted")
+	}
+	if _, err := ShiftEntry(g, "personal.org:0", -1, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("promoting a top-level entry accepted")
+	}
+	if _, err := ShiftEntry(g, "personal.org:0.1", 2, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("moving two levels accepted")
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 0 {
+		t.Errorf("refusals queued %d changes", st.PendingStates)
+	}
+}

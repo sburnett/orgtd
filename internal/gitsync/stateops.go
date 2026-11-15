@@ -27,6 +27,7 @@ type DroppedOp struct {
 	From   string    `json:"from"`
 	To     string    `json:"to"`
 	Added  bool      `json:"added,omitempty"` // a new entry, whose parent changed, rather than a change to one
+	Move   int       `json:"move,omitempty"`  // a demote (1) or promote (-1), rather than a keyword change
 	Reason string    `json:"reason"`
 	At     time.Time `json:"at"`
 }
@@ -97,6 +98,9 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if h.Keyword != op.From {
 		return ErrEntryChanged
 	}
+	if op.Move != nil {
+		return applyMove(p, data, f, h, op)
+	}
 	lines := splitLines(data)
 	if h.SrcEnd > len(lines) || h.SrcStart >= h.SrcEnd {
 		return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.Title())
@@ -152,11 +156,7 @@ func applyInsert(p string, data []byte, f *org.File, op capturequeue.StateOp) er
 	var at int
 	switch {
 	case op.Insert.Last && len(siblings) > 0:
-		last := siblings[len(siblings)-1]
-		for len(last.Children) > 0 {
-			last = last.Children[len(last.Children)-1]
-		}
-		at = last.SrcEnd
+		at = subtreeEnd(siblings[len(siblings)-1])
 	case op.Insert.Last || len(siblings) == 0:
 		at = len(lines)
 		if parent != nil {
@@ -178,6 +178,67 @@ func applyInsert(p string, data []byte, f *org.File, op capturequeue.StateOp) er
 	}
 	out := append(append(append([]string{}, lines[:at]...), entry...), lines[at:]...)
 	return writeFileAtomic(p, []byte(strings.Join(out, "\n")+"\n"))
+}
+
+// subtreeEnd is the line just after h's last descendant (or h itself).
+func subtreeEnd(h *org.Headline) int {
+	for len(h.Children) > 0 {
+		h = h.Children[len(h.Children)-1]
+	}
+	return h.SrcEnd
+}
+
+// applyMove moves h (found for op in the raw file data, parsed as f, at
+// path p) one level, as desktop ">>"/"<<" do, changing only the stars of
+// its subtree's headline lines. A demote makes h the last child of its
+// previous sibling, which it already follows in the file, so nothing
+// moves. A promote makes h the next sibling of its parent, so h's
+// subtree moves to after the parent's, past any later siblings, which
+// stay where they are. Indentation of planning, drawer and body lines
+// is left as written: org reads it either way.
+func applyMove(p string, data []byte, f *org.File, h *org.Headline, op capturequeue.StateOp) error {
+	lines := splitLines(data)
+	start, end := h.SrcStart, subtreeEnd(h)
+	if end > len(lines) || start >= end {
+		return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.Title())
+	}
+	var heads []int
+	org.Walk([]*org.Headline{h}, func(x *org.Headline) { heads = append(heads, x.SrcStart) })
+	var out []string
+	switch op.Move.Delta {
+	case 1:
+		siblings := f.Headlines
+		if h.Parent != nil {
+			siblings = h.Parent.Children
+		}
+		i := org.Siblings{File: f, Parent: h.Parent}.IndexOf(h)
+		to := op.Move.To
+		if i <= 0 || len(to) < 2 || siblings[i-1].Title != to[len(to)-2] {
+			return ErrEntryChanged
+		}
+		out = append([]string{}, lines...)
+		for _, n := range heads {
+			out[n] = "*" + out[n]
+		}
+	case -1:
+		if h.Parent == nil {
+			return ErrEntryChanged
+		}
+		block := append([]string{}, lines[start:end]...)
+		for _, n := range heads {
+			block[n-start] = strings.TrimPrefix(block[n-start], "*")
+		}
+		after := subtreeEnd(h.Parent)
+		out = append(append([]string{}, lines[:start]...), lines[end:after]...)
+		out = append(append(out, block...), lines[after:]...)
+	default:
+		return fmt.Errorf("gitsync: bad move %d", op.Move.Delta)
+	}
+	text := strings.Join(out, "\n")
+	if len(data) > 0 && data[len(data)-1] == '\n' {
+		text += "\n"
+	}
+	return writeFileAtomic(p, []byte(text))
 }
 
 // patchEntry returns h's own lines (as in the file) with op applied,

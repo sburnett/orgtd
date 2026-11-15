@@ -243,6 +243,24 @@ final class AppModel {
         return ok
     }
 
+    /// Moves `entry`, with its subtree, one level deeper (delta 1: under
+    /// the entry above it) or shallower (-1: after its parent), as
+    /// desktop ">>"/"<<" do, committed locally at once. Like `addEntry`,
+    /// `placed` gets the entry's new ID in the turn that publishes the
+    /// reloaded outline. A failure is shown as an alert.
+    func shiftEntry(_ entry: Entry, by delta: Int, placed: (String) -> Void) async {
+        var newID = ""
+        let ok = await run("Saving…") {
+            newID = try await self.core.shiftEntry(entryID: entry.id, delta: delta, author: self.author)
+        }
+        if ok, let o = try? await core.outline(showClosed: showClosed) {
+            outline = o
+            placed(newID)
+        }
+        if !ok { actionError = lastError }
+        await reloadAll()
+    }
+
     /// Every configured keyword, done ones included (editing can set any).
     var allKeywords: [KeywordOption] {
         status.keywords.map { KeywordOption(name: $0.name, color: $0.color) }

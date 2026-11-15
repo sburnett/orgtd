@@ -107,6 +107,8 @@ struct DroppedChange: Codable, Hashable {
     var reason: String
     /// A new entry, dropped because the entry it went under changed.
     var added: Bool?
+    /// A demote (1) or promote (-1), rather than a keyword change.
+    var move: Int?
 }
 
 /// A server's SSH host key (mobilecore's hostKeyJSON).

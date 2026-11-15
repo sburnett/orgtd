@@ -435,6 +435,10 @@ func load(groupDir string) (*loaded, error) {
 			l.added[changedKey(o.File, append(append([]string{}, o.Path...), o.NewTitle()))] = true
 			continue
 		}
+		if o.Move != nil {
+			l.changed[changedKey(o.File, o.Move.To)] = true
+			continue
+		}
 		if len(o.Path) == 0 {
 			continue
 		}
@@ -792,6 +796,69 @@ func AddEntry(groupDir, file, parentID string, last bool, captureJSON string, no
 	return prefix + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
 }
 
+// ShiftEntry moves the entry entryID (an entry DTO's ID), with its
+// subtree, one level deeper (delta 1: the last child of its previous
+// sibling) or shallower (delta -1: the next sibling of its parent), as
+// desktop ">>"/"<<" do. Like SetState, the move is queued, committed
+// locally at once, replayed on every rebuild, and dropped if the entry
+// (or, for a demote, its previous sibling) changes on the desktop first.
+// Returns the entry's new ID.
+func ShiftEntry(groupDir, entryID string, delta int, nowUnix int64, authorName, authorEmail string) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	if delta != 1 && delta != -1 {
+		return "", fmt.Errorf("mobilecore: can only move one level at a time, not %d", delta)
+	}
+	l, err := load(groupDir)
+	if err != nil {
+		return "", err
+	}
+	f, h, err := l.lookup(entryID)
+	if err != nil {
+		return "", err
+	}
+	rel := l.rel(f)
+	if !l.ws.IsReference(f) && !l.isOutlineFile(f) {
+		return "", fmt.Errorf("mobilecore: %s isn't part of the outline", rel)
+	}
+	if gitsync.UnionMerged(repoDir(groupDir), rel) {
+		return "", fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate moved entries; remove that line (on your computer) to move entries there from the phone", rel)
+	}
+	// The ID is "<file>:<i>.<j>...": its parent's ID, and its index.
+	dot := strings.LastIndexAny(entryID, ":.")
+	parentPrefix := entryID[:dot+1]
+	index, _ := strconv.Atoi(entryID[dot+1:])
+	path := gitsync.TitlePath(h)
+	var to []string
+	var newID string
+	if delta > 0 {
+		if index == 0 {
+			return "", errors.New("mobilecore: there's no entry above this one to move it under")
+		}
+		prev := f.Headlines[index-1]
+		if h.Parent != nil {
+			prev = h.Parent.Children[index-1]
+		}
+		to = append(append(append([]string{}, path[:len(path)-1]...), prev.Title), h.Title)
+		newID = parentPrefix + strconv.Itoa(index-1) + "." + strconv.Itoa(len(prev.Children))
+	} else {
+		if h.Parent == nil {
+			return "", errors.New("mobilecore: this entry is already at the top level")
+		}
+		to = append(append([]string{}, path[:len(path)-2]...), h.Title)
+		parentID := entryID[:dot]
+		pdot := strings.LastIndexAny(parentID, ":.")
+		parentIndex, _ := strconv.Atoi(parentID[pdot+1:])
+		newID = parentID[:pdot+1] + strconv.Itoa(parentIndex+1)
+	}
+	op := gitsync.NewStateOp(rel, h, h.Keyword, now(nowUnix))
+	op.Move = &capturequeue.EntryMove{Delta: delta, To: to}
+	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
+		return "", err
+	}
+	return newID, rebuild(groupDir, authorName, authorEmail)
+}
+
 // dateInputRe picks the date and optional time out of a timestamp's
 // text, skipping the weekday and any repeater or warning cookie:
 // "2026-10-20 Tue 14:00 +1m" → "2026-10-20", "14:00".
@@ -1040,7 +1107,7 @@ func Status(groupDir string) (string, error) {
 	res.PendingStates = len(ops)
 	res.Dropped = []droppedJSON{}
 	for _, d := range s.Dropped {
-		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Added: d.Added, Reason: d.Reason})
+		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Added: d.Added, Move: d.Move, Reason: d.Reason})
 	}
 	pushed := map[string]bool{}
 	for _, t := range s.PushedTips {

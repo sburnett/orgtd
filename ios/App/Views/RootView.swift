@@ -53,9 +53,9 @@ struct MainTabs: View {
 
     private var droppedMessage: String {
         let lines = model.status.dropped.map { d in
-            d.added == true
-                ? "“\(d.title)”: new entry"
-                : "“\(d.title)”: \(d.from.isEmpty ? "none" : d.from) → \(d.to.isEmpty ? "none" : d.to)"
+            if d.added == true { return "“\(d.title)”: new entry" }
+            if let move = d.move, move != 0 { return "“\(d.title)”: \(move > 0 ? "indent" : "outdent")" }
+            return "“\(d.title)”: \(d.from.isEmpty ? "none" : d.from) → \(d.to.isEmpty ? "none" : d.to)"
         }
         return "These entries changed on your computer before the phone's changes to them were merged, so the phone's changes were dropped:\n\n" + lines.joined(separator: "\n")
     }

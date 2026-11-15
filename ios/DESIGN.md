@@ -549,6 +549,29 @@ README/DESIGN.md current (per repo convention).
     after it's replayed. There's no way to delete one yet.
   - The merge=union guard doesn't apply: an addition only adds lines.
     Reference files take additions, without a keyword.
+- **Indenting and outdenting.** Swiping an Outline row right or left
+  moves the entry one level, as desktop `>>`/`<<` do
+  (`mobilecore.ShiftEntry`): a demote makes it the last child of its
+  previous sibling, a promote the next sibling of its parent.
+  - **Queue.** Another queued change: a `StateOp` with `Move` set
+    (`capturequeue.EntryMove`: the delta, and the entry's title path
+    once moved, which marks it pending).
+  - **Minimal diff.** `applyMove` changes only the stars of the
+    subtree's headline lines. A demoted entry already follows its new
+    parent in the file, so nothing moves. A promoted entry's subtree is
+    cut and put back after its parent's subtree, past any later
+    siblings, which stay children of the parent. Planning, drawer and
+    body indentation is left as written: org reads it either way, and
+    rewriting it would touch every line of the subtree.
+  - **Stale moves.** A move is dropped like other changes if the entry
+    changed, and a demote also if the previous sibling isn't the one it
+    was made against, so it never lands under a different entry.
+  - **IDs.** `ShiftEntry` returns the entry's new ID, and the Outline
+    carries its expanded and open rows over to their new IDs
+    (`Renumbering`, which also handles additions), expanding the new
+    parent so the entry stays in sight.
+  - Indenting under a closed entry the Outline is hiding makes the
+    entry disappear with it until closed entries are shown.
 - **No Inbox tab.** Once the Outline could add entries, its last
   "New entry" row in the inbox file did everything the Inbox tab's
   Capture button did, so the tab, the capture sheet and

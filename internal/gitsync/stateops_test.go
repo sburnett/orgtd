@@ -394,3 +394,109 @@ func TestInsertLeavesQueueWhenMerged(t *testing.T) {
 		t.Errorf("new entry appears %d times after merge:\n%s", n, data)
 	}
 }
+
+// queueMove queues demoting (1) or promoting (-1) the entry titled title,
+// as mobilecore.ShiftEntry does, and rebuilds.
+func (f *fixture) queueMove(file, title string, delta int) {
+	f.t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.phone.Dir, file))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	var h *org.Headline
+	org.Walk(of.Headlines, func(x *org.Headline) {
+		if x.Title == title {
+			h = x
+		}
+	})
+	if h == nil {
+		f.t.Fatalf("no entry %q in %s", title, file)
+	}
+	path := TitlePath(h)
+	to := path // a move that can't apply; replay drops it
+	siblings := of.Headlines
+	if h.Parent != nil {
+		siblings = h.Parent.Children
+	}
+	i := org.Siblings{File: of, Parent: h.Parent}.IndexOf(h)
+	switch {
+	case delta > 0 && i > 0:
+		to = append(append(append([]string{}, path[:len(path)-1]...), siblings[i-1].Title), title)
+	case delta < 0 && len(path) > 1:
+		to = append(append([]string{}, path[:len(path)-2]...), title)
+	}
+	op := NewStateOp(file, h, h.Keyword, opTime)
+	op.Move = &capturequeue.EntryMove{Delta: delta, To: to}
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, op); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func TestMoveChangesOnlyStarsOrMovesTheSubtree(t *testing.T) {
+	for _, tc := range []struct {
+		name, title string
+		delta       int
+		want        string
+	}{
+		{"demote", "Water plants", 1, strings.Replace(workOrg, "** TODO Water plants", "*** TODO Water plants", 1)},
+		{"demote a top-level entry", "Other   heading", 1, strings.Replace(workOrg, "*   Other", "**   Other", 1)},
+		{"promote the last child", "Water plants", -1, strings.Replace(workOrg, "** TODO Water plants", "* TODO Water plants", 1)},
+		{"promote past later siblings", "Write report", -1, `#+TITLE:   Work   notes
+* Project      :proj:
+  Some   body   text, spaced oddly.
+** TODO Water plants
+   SCHEDULED: <2026-11-10 Tue +1w>
+* TODO Write report
+   :PROPERTIES:
+   :CREATED:  [2026-11-01 Sun 10:00]
+   :END:
+*   Other   heading
+`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOpsFixture(t)
+			f.queueMove("work.org", tc.title, tc.delta)
+			data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+			if string(data) != tc.want {
+				t.Errorf("work.org =\n%s\nwant\n%s", data, tc.want)
+			}
+		})
+	}
+}
+
+func TestMovingAParentMovesItsSubtree(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueMove("work.org", "Other   heading", 1)
+	f.queueMove("work.org", "Project", 1) // under nothing: there's no previous sibling
+	if err := f.phone.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := f.phone.LoadState()
+	if len(s.Dropped) != 1 || s.Dropped[0].Title != "Project" || s.Dropped[0].Move != 1 {
+		t.Errorf("dropped = %+v", s.Dropped)
+	}
+	f.queueMove("work.org", "Other   heading", -1) // back out, after Project's subtree
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	if string(data) != workOrg {
+		t.Errorf("work.org after demote and promote =\n%s\nwant\n%s", data, workOrg)
+	}
+}
+
+func TestDemoteUnderAChangedSiblingIsDropped(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueMove("work.org", "Water plants", 1)
+	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1), "renamed")
+	f.macPush()
+	f.sync()
+	if ops := f.ops(); len(ops) != 0 {
+		t.Errorf("ops = %+v, want the move dropped", ops)
+	}
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	if !strings.Contains(string(data), "\n** TODO Water plants\n") {
+		t.Errorf("work.org =\n%s", data)
+	}
+}

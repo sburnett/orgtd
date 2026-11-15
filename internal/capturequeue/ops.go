@@ -39,6 +39,20 @@ type StateOp struct {
 	// entry goes first or last among the parent's children — or among
 	// the file's top-level entries.
 	Insert *EntryInsert `json:"insert,omitempty"`
+	// Move, when set, moves the entry, with its subtree, one level
+	// deeper or shallower, as desktop ">>"/"<<" do.
+	Move *EntryMove `json:"move,omitempty"`
+}
+
+// EntryMove is a demote (Delta 1: the entry becomes the last child of
+// its previous sibling) or a promote (Delta -1: it becomes the next
+// sibling of its parent).
+type EntryMove struct {
+	Delta int `json:"delta"`
+	// To is the entry's title path once moved: for marking it pending,
+	// and so a demote lands under the same previous sibling it was made
+	// against, or not at all.
+	To []string `json:"to"`
 }
 
 // EntryInsert is a new entry an op adds.

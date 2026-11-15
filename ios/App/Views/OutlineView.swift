@@ -3,7 +3,8 @@ import SwiftUI
 /// The outline: each file's headlines as an expandable tree, a separate
 /// Reference section, and search. A row's chevron expands or collapses
 /// its children; tapping the row opens its details (and edit form) in
-/// place. Every visible list — a file's top level, or an expanded
+/// place, and swiping it right or left moves it one level deeper or
+/// shallower, as desktop ">>" and "<<" do. Every visible list — a file's top level, or an expanded
 /// entry's children — starts and ends with a "New entry" row, which
 /// opens a form for adding an entry right there. Picking a search result
 /// opens the outline at that entry.
@@ -119,20 +120,53 @@ struct OutlineView: View {
                         if expanded.contains(entry.id) { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
                     }
                 }
+                // Swipe right: deeper (">>"); swipe left: shallower ("<<").
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    if entry.indexPath.last != 0 {
+                        Button { shift(entry, by: 1) } label: {
+                            Label("Indent", systemImage: "arrow.right.to.line")
+                        }
+                        .tint(.indigo)
+                    }
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    if entry.indexPath.count > 1 {
+                        Button { shift(entry, by: -1) } label: {
+                            Label("Outdent", systemImage: "arrow.left.to.line")
+                        }
+                        .tint(.indigo)
+                    }
+                }
             case .add(let slot):
-                AddEntryRow(slot: slot, depth: row.depth, open: $open) { newID in placed(newID, at: slot) }
+                AddEntryRow(slot: slot, depth: row.depth, open: $open) { newID in
+                    renumber(Renumbering(file: slot.file, removed: nil, inserted: newID))
+                    open = newID
+                }
             }
         }
     }
 
-    /// After an entry is added at `slot`: entry IDs are index paths, so
-    /// one added first renumbers the siblings after it, and every
-    /// expanded ID under them; then its details open.
-    private func placed(_ newID: String, at slot: AddSlot) {
-        if !slot.last {
-            expanded = Set(expanded.map { slot.shiftedForInsert($0) })
+    /// Moves `entry` one level, keeping the same rows expanded (and its
+    /// details open, if they were) under their new IDs, and its new
+    /// parent expanded so it stays in sight.
+    private func shift(_ entry: Entry, by delta: Int) {
+        Task {
+            await model.shiftEntry(entry, by: delta) { newID in
+                withAnimation(.snappy(duration: 0.2)) {
+                    let wasOpen = open == entry.id
+                    renumber(Renumbering(file: entry.file, removed: entry.id, inserted: newID))
+                    expanded.formUnion(Entry.ancestorIDs(of: newID))
+                    if wasOpen { open = newID }
+                }
+            }
         }
-        open = newID
+    }
+
+    /// Entry IDs are index paths, so adding or moving an entry renumbers
+    /// others: this carries the expanded rows, and the open one, over.
+    private func renumber(_ r: Renumbering) {
+        expanded = Set(expanded.map(r.apply))
+        if let o = open { open = r.apply(o) }
     }
 
     /// Leaves search, expands the entry's ancestors, and scrolls to it.
@@ -157,19 +191,61 @@ struct AddSlot: Hashable {
 
     /// Distinct from every entry ID (those never start with "+").
     var key: String { "+\(last ? "last" : "first"):" + (parentID ?? file + ":") }
+}
 
-    /// The prefix of the IDs of the slot's list: "work.org:0.2." for
-    /// children of "work.org:0.2", "work.org:" for the top level.
-    private var prefix: String { parentID.map { $0 + "." } ?? file + ":" }
+/// How one change to a file's tree renumbers its entry IDs ("work.org:0.2"
+/// is index path [0, 2]): an entry (with its subtree) taken out at
+/// `removed`, if any, and an entry — the same one, or a new one — put in
+/// at `inserted`, its ID once the change is made.
+struct Renumbering {
+    let file: String
+    let removed: String?
+    let inserted: String
 
-    /// `id` as it is once an entry is added first in this slot's list:
-    /// an entry in that list, or under one, moves one place down.
-    func shiftedForInsert(_ id: String) -> String {
-        guard id.hasPrefix(prefix) else { return id }
-        let rest = id.dropFirst(prefix.count)
-        let index = rest.prefix { $0 != "." }
-        guard let n = Int(index) else { return id }
-        return prefix + String(n + 1) + rest.dropFirst(index.count)
+    /// `id` as it is after the change. Other files' IDs, and keys that
+    /// aren't entry IDs, come back as they were.
+    func apply(_ id: String) -> String {
+        guard let (f, path) = Entry.parse(id), f == file, let (_, at) = Entry.parse(inserted) else { return id }
+        var p = path
+        if let removed, let (_, r) = Entry.parse(removed) {
+            if p.starts(with: r) {
+                return Entry.id(file, at + p.dropFirst(r.count)) // in the moved subtree
+            }
+            // Later siblings of the removed entry, and their subtrees, move up.
+            if p.count >= r.count, p.prefix(r.count - 1).elementsEqual(r.dropLast()), p[r.count - 1] > r[r.count - 1] {
+                p[r.count - 1] -= 1
+            }
+        }
+        // The inserted entry's later siblings, and their subtrees, move down.
+        let parent = at.dropLast()
+        if p.count >= at.count, p.prefix(parent.count).elementsEqual(parent), p[parent.count] >= at[parent.count] {
+            p[parent.count] += 1
+        }
+        return Entry.id(file, p)
+    }
+}
+
+extension Entry {
+    /// The entry's index path: "work.org:0.2" → [0, 2].
+    var indexPath: [Int] { Entry.parse(id)?.path ?? [] }
+
+    /// An entry ID's file and index path, or nil if it isn't one.
+    static func parse(_ id: String) -> (file: String, path: [Int])? {
+        guard let colon = id.lastIndex(of: ":") else { return nil }
+        let parts = id[id.index(after: colon)...].split(separator: ".", omittingEmptySubsequences: false)
+        let path = parts.compactMap { Int($0) }
+        guard !path.isEmpty, path.count == parts.count else { return nil }
+        return (String(id[..<colon]), path)
+    }
+
+    static func id<S: Sequence>(_ file: String, _ path: S) -> String where S.Element == Int {
+        file + ":" + path.map(String.init).joined(separator: ".")
+    }
+
+    /// The IDs of `id`'s ancestors, outermost first.
+    static func ancestorIDs(of id: String) -> [String] {
+        guard let (file, path) = parse(id) else { return [] }
+        return (1..<max(path.count, 1)).map { Entry.id(file, path.prefix($0)) }
     }
 }
 

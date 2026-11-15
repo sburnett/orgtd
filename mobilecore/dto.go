@@ -134,6 +134,7 @@ type droppedJSON struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
 	Added  bool   `json:"added,omitempty"` // a new entry (To its keyword) whose parent changed
+	Move   int    `json:"move,omitempty"`  // a demote (1) or promote (-1) of an entry that changed
 	Reason string `json:"reason"`
 }
 

@@ -143,6 +143,16 @@ either.
   - Like an edit, an addition is dropped (and you're told) if the entry
     it goes under changed on your computer before you merged.
   - Reference files take new entries too, without a keyword.
+- **Indenting and outdenting:** in Outline, swipe an entry right to
+  move it one level deeper, as desktop `>>` does: it becomes the last
+  child of the entry above it. Swipe left to move it one level
+  shallower, as `<<` does: it becomes the next sibling of its parent,
+  after the parent's other children. Its subtree moves with it.
+  - Only the stars of the moved headlines change (and, for an outdent,
+    where the subtree sits); other lines keep their indentation.
+  - The entry shows a clock until it's merged, and the move is dropped
+    (and you're told) if the entry, or for an indent the entry above
+    it, changed on your computer before you merged.
 - **Share sheet:** share a link or text to orgtd to capture it into the
   inbox with the same fields. Until it's merged it shows a clock;
   editing it edits the capture, and long-press → **Delete capture**
