@@ -500,3 +500,225 @@ func TestDemoteUnderAChangedSiblingIsDropped(t *testing.T) {
 		t.Errorf("work.org =\n%s", data)
 	}
 }
+
+func TestInsertBesideASibling(t *testing.T) {
+	entry := func(stars string) string {
+		indent := strings.Repeat(" ", len(stars)+1)
+		return stars + " TODO New thing\n" + indent + ":PROPERTIES:\n" + indent + ":CREATED: [2026-11-14 Sat 09:30]\n" + indent + ":END:\n" + indent + "a note\n"
+	}
+	for _, tc := range []struct {
+		name, sibling string
+		after         bool
+		before, stars string // the line the new entry goes before ("" for the end)
+	}{
+		{"above a child", "Water plants", false, "** TODO Water plants\n", "**"},
+		{"below a child", "Write report", true, "** TODO Water plants\n", "**"},
+		{"above a top-level entry", "Project", false, "* Project      :proj:\n", "*"},
+		{"below a parent's subtree", "Project", true, "*   Other   heading\n", "*"},
+		{"below the last entry", "Other   heading", true, "", "*"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOpsFixture(t)
+			data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+			of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+			var s *org.Headline
+			org.Walk(of.Headlines, func(x *org.Headline) {
+				if x.Title == tc.sibling {
+					s = x
+				}
+			})
+			c := capture.Capture{CreatedAt: opTime, Keyword: "TODO", Title: "New thing", Body: "a note"}
+			if _, err := capturequeue.AddOp(f.phone.OpsPath, NewInsertBesideOp("work.org", s, tc.after, c)); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.phone.Rebuild(); err != nil {
+				t.Fatal(err)
+			}
+			data, _ = os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+			want := workOrg + entry(tc.stars)
+			if tc.before != "" {
+				want = strings.Replace(workOrg, tc.before, entry(tc.stars)+tc.before, 1)
+			}
+			if string(data) != want {
+				t.Errorf("work.org =\n%s\nwant\n%s", data, want)
+			}
+		})
+	}
+}
+
+// queueDelete queues deleting the entry titled title, and rebuilds.
+func (f *fixture) queueDelete(file, title string) {
+	f.t.Helper()
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, file))
+	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	var h *org.Headline
+	org.Walk(of.Headlines, func(x *org.Headline) {
+		if x.Title == title {
+			h = x
+		}
+	})
+	if h == nil {
+		f.t.Fatalf("no entry %q in %s", title, file)
+	}
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, NewDeleteOp(file, h, opTime)); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func TestDeleteRemovesOnlyTheSubtree(t *testing.T) {
+	for _, tc := range []struct{ title, want string }{
+		{"Write report", strings.Replace(workOrg, "** TODO Write report\n   :PROPERTIES:\n   :CREATED:  [2026-11-01 Sun 10:00]\n   :END:\n", "", 1)},
+		{"Project", "#+TITLE:   Work   notes\n*   Other   heading\n"},
+		{"Other   heading", strings.Replace(workOrg, "*   Other   heading\n", "", 1)},
+	} {
+		t.Run(tc.title, func(t *testing.T) {
+			f := newOpsFixture(t)
+			f.queueDelete("work.org", tc.title)
+			data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+			if string(data) != tc.want {
+				t.Errorf("work.org =\n%s\nwant\n%s", data, tc.want)
+			}
+		})
+	}
+}
+
+func TestDeleteOfAParentWhoseChildChangedIsDropped(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueDelete("work.org", "Project")
+	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Water plants", "** NEXT Water plants", 1), "child changed")
+	f.macPush()
+	f.sync()
+	if ops := f.ops(); len(ops) != 0 {
+		t.Errorf("ops = %+v, want the delete dropped", ops)
+	}
+	s, _ := f.phone.LoadState()
+	if len(s.Dropped) != 1 || s.Dropped[0].Title != "Project" || !s.Dropped[0].Deleted {
+		t.Errorf("dropped = %+v", s.Dropped)
+	}
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	if !strings.Contains(string(data), "* Project") {
+		t.Errorf("work.org =\n%s", data)
+	}
+}
+
+// queueReorder queues and replays moving title (in file) right before
+// the sibling anchor or, with after, right after it.
+func (f *fixture) queueReorder(file, title, anchor string, after bool) {
+	f.t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.phone.Dir, file))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	var h, a *org.Headline
+	org.Walk(of.Headlines, func(x *org.Headline) {
+		switch x.Title {
+		case title:
+			h = x
+		case anchor:
+			a = x
+		}
+	})
+	if h == nil || a == nil {
+		f.t.Fatalf("no entry %q or %q in %s", title, anchor, file)
+	}
+	op := NewStateOp(file, h, h.Keyword, opTime)
+	op.Move = &capturequeue.EntryMove{To: TitlePath(h), Anchor: a.Title, AnchorFingerprint: Fingerprint(a), After: after}
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, op); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func TestReorderMovesTheSubtreeAmongItsSiblings(t *testing.T) {
+	for _, tc := range []struct {
+		name, title, anchor string
+		after               bool
+		want                string
+	}{
+		{"a child up", "Water plants", "Write report", false, `#+TITLE:   Work   notes
+* Project      :proj:
+  Some   body   text, spaced oddly.
+** TODO Water plants
+   SCHEDULED: <2026-11-10 Tue +1w>
+** TODO Write report
+   :PROPERTIES:
+   :CREATED:  [2026-11-01 Sun 10:00]
+   :END:
+*   Other   heading
+`},
+		{"a child down", "Write report", "Water plants", true, `#+TITLE:   Work   notes
+* Project      :proj:
+  Some   body   text, spaced oddly.
+** TODO Water plants
+   SCHEDULED: <2026-11-10 Tue +1w>
+** TODO Write report
+   :PROPERTIES:
+   :CREATED:  [2026-11-01 Sun 10:00]
+   :END:
+*   Other   heading
+`},
+		{"a parent below the last entry", "Project", "Other   heading", true, `#+TITLE:   Work   notes
+*   Other   heading
+* Project      :proj:
+  Some   body   text, spaced oddly.
+** TODO Write report
+   :PROPERTIES:
+   :CREATED:  [2026-11-01 Sun 10:00]
+   :END:
+** TODO Water plants
+   SCHEDULED: <2026-11-10 Tue +1w>
+`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOpsFixture(t)
+			f.queueReorder("work.org", tc.title, tc.anchor, tc.after)
+			data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+			if string(data) != tc.want {
+				t.Errorf("work.org =\n%s\nwant\n%s", data, tc.want)
+			}
+		})
+	}
+}
+
+func TestReorderNextToAChangedSiblingIsDropped(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueReorder("work.org", "Water plants", "Write report", false)
+	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1), "renamed")
+	f.macPush()
+	f.sync()
+	if ops := f.ops(); len(ops) != 0 {
+		t.Errorf("ops = %+v, want the move dropped", ops)
+	}
+	s, _ := f.phone.LoadState()
+	if len(s.Dropped) != 1 || !s.Dropped[0].Reordered {
+		t.Errorf("dropped = %+v", s.Dropped)
+	}
+}
+
+func TestReorderKeepsBlankLineSpacingEven(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		in             []string
+		start, end, at int
+		want           []string
+	}{
+		{"last entry to the top", []string{"* A", "", "* B", "", "* C"}, 4, 5, 0, []string{"* C", "", "* A", "", "* B"}},
+		{"first entry to the end", []string{"* A", "", "* B", "", "* C"}, 0, 2, 5, []string{"* B", "", "* C", "", "* A"}},
+		{"middle entry up", []string{"* A", "", "* B", "", "* C"}, 2, 4, 0, []string{"* B", "", "* A", "", "* C"}},
+		{"no blank lines", []string{"* A", "* B", "* C"}, 2, 3, 0, []string{"* C", "* A", "* B"}},
+		{"after a preamble", []string{"#+TITLE: x", "* A", "", "* B"}, 3, 4, 1, []string{"#+TITLE: x", "* B", "", "* A"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reorder(tc.in, tc.start, tc.end, tc.at)
+			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+				t.Errorf("reorder = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

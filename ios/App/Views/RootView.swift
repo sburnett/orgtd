@@ -12,23 +12,33 @@ struct RootView: View {
     }
 }
 
-/// The two read views, each with the shared settings / sync toolbar and
-/// the tab bar floating over the content. (New entries, the inbox's
-/// included, are added from the Outline.)
+/// The two read views, each with the shared settings / sync toolbar,
+/// the floating capture button in the lower right, and the tab bar floating over the content. (New entries elsewhere are added from the
+/// Outline.)
 struct MainTabs: View {
     @Environment(AppModel.self) private var model
     @State private var showSettings = false
+    @State private var showCapture = false
+    @State private var keyboardShown = false
 
     var body: some View {
-        TabView {
+        @Bindable var model = model
+        TabView(selection: $model.tab) {
             tab(sync: false) { OutlineView() } // draws Sync itself, after its own buttons
                 .tabItem { Label("Outline", systemImage: "list.bullet.indent") }
+                .tag(AppTab.outline)
             tab { AgendaView() }
                 .tabItem { Label("Agenda", systemImage: "calendar") }
+                .tag(AppTab.agenda)
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsView() }
         }
+        .sheet(isPresented: $showCapture) { CaptureSheet() }
+        // The capture button would ride up on the keyboard over the
+        // form being typed into, so it steps aside while one is up.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardShown = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardShown = false }
         .alert("That didn't work", isPresented: actionErrorAlert) {
             Button("OK") { model.actionError = nil }
         } message: {
@@ -54,6 +64,8 @@ struct MainTabs: View {
     private var droppedMessage: String {
         let lines = model.status.dropped.map { d in
             if d.added == true { return "“\(d.title)”: new entry" }
+            if d.deleted == true { return "“\(d.title)”: delete" }
+            if d.reordered == true { return "“\(d.title)”: move" }
             if let move = d.move, move != 0 { return "“\(d.title)”: \(move > 0 ? "indent" : "outdent")" }
             return "“\(d.title)”: \(d.from.isEmpty ? "none" : d.from) → \(d.to.isEmpty ? "none" : d.to)"
         }
@@ -63,10 +75,17 @@ struct MainTabs: View {
     /// A tab's navigation stack with the shared toolbar: Settings on the
     /// left and, unless `sync` is false, Sync on the right. A view with
     /// toolbar buttons of its own passes false and puts a `SyncButton`
-    /// last in its group, so Sync is always the rightmost button.
+    /// last in its group, so Sync is always the rightmost button. The
+    /// capture button sits in a bottom safe-area inset, so lists scroll
+    /// their last rows clear of it.
     private func tab<Content: View>(sync: Bool = true, @ViewBuilder _ content: () -> Content) -> some View {
         NavigationStack {
             content()
+                .safeAreaInset(edge: .bottom, alignment: .trailing) {
+                    if !keyboardShown {
+                        CaptureButton { showCapture = true }
+                    }
+                }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button { showSettings = true } label: { Image(systemName: "gearshape") }

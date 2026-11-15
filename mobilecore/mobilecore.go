@@ -427,16 +427,23 @@ func load(groupDir string) (*loaded, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := l.markCaptures(groupDir, ops); err != nil {
+	if err := l.markCaptures(groupDir); err != nil {
 		return nil, err
 	}
 	for _, o := range ops {
 		if o.Insert != nil {
-			l.added[changedKey(o.File, append(append([]string{}, o.Path...), o.NewTitle()))] = true
+			parent := o.Path
+			if o.Insert.Beside && len(parent) > 0 {
+				parent = parent[:len(parent)-1]
+			}
+			l.added[changedKey(o.File, append(append([]string{}, parent...), o.NewTitle()))] = true
 			continue
 		}
 		if o.Move != nil {
 			l.changed[changedKey(o.File, o.Move.To)] = true
+			continue
+		}
+		if o.Delete != nil {
 			continue
 		}
 		if len(o.Path) == 0 {
@@ -449,13 +456,14 @@ func load(groupDir string) (*loaded, error) {
 }
 
 // markCaptures finds the still-pending captures among the inbox's
-// headlines, for toEntry to mark. A rebuild appends one headline per
-// queued capture, in queue order, then replays the ops, and the only ops
-// that move top-level inbox headlines are additions there: one added
-// first goes before everything, one added last after the captures. So
-// the captures are the len(queue) headlines just before the ones added
-// last.
-func (l *loaded) markCaptures(groupDir string, ops []capturequeue.StateOp) error {
+// top-level headlines, for toEntry to mark. A rebuild appends one
+// headline per queued capture, but later changes can add entries among
+// them, so they're matched by content, not position: the CREATED stamp
+// and title the capture was rendered with (a pending capture is edited
+// in the queue, so these stay its own). Matching runs from the end of
+// the file, newest capture first, so an older entry that happens to
+// share both isn't taken for one.
+func (l *loaded) markCaptures(groupDir string) error {
 	queue, err := capturequeue.Load(queuePath(groupDir))
 	if err != nil || len(queue) == 0 {
 		return err
@@ -465,18 +473,19 @@ func (l *loaded) markCaptures(groupDir string, ops []capturequeue.StateOp) error
 			continue
 		}
 		rel := l.rel(f)
-		addedLast := 0
-		for _, o := range ops {
-			if o.Insert != nil && o.Insert.Last && o.File == rel && len(o.Path) == 0 {
-				addedLast++
+		claimed := map[int]bool{}
+		for q := len(queue) - 1; q >= 0; q-- {
+			c := queue[q]
+			stamp := capture.CreatedStamp(c.CreatedAt)
+			title := strings.Join(strings.Fields(c.Title), " ")
+			for i := len(f.Headlines) - 1; i >= 0; i-- {
+				h := f.Headlines[i]
+				if !claimed[i] && h.Title == title && h.Properties["CREATED"] == stamp {
+					claimed[i] = true
+					l.captures[rel+":"+strconv.Itoa(i)] = c.ID
+					break
+				}
 			}
-		}
-		first := len(f.Headlines) - addedLast - len(queue)
-		if first < 0 {
-			return nil
-		}
-		for i, c := range queue {
-			l.captures[rel+":"+strconv.Itoa(first+i)] = c.ID
 		}
 	}
 	return nil
@@ -526,6 +535,7 @@ func (l *loaded) toEntry(f *org.File, h *org.Headline, idx []int, withChildren b
 	key := changedKey(e.File, gitsync.TitlePath(h))
 	e.PendingNew = l.added[key]
 	e.PendingState = l.changed[key] || e.PendingNew
+	org.Walk(h.Children, func(*org.Headline) { e.Descendants++ })
 	e.Properties = []property{}
 	for _, k := range h.PropertyOrder {
 		e.Properties = append(e.Properties, property{Key: k, Value: h.Properties[k]})
@@ -796,6 +806,36 @@ func AddEntry(groupDir, file, parentID string, last bool, captureJSON string, no
 	return prefix + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
 }
 
+// DeleteEntry deletes the entry entryID (an entry DTO's ID) with
+// everything under it, as desktop "dd" does. Like SetState, the delete
+// is queued, committed locally at once, replayed on every rebuild, and
+// dropped if the entry or anything under it changes on the desktop
+// first. A still-pending capture is deleted with DeletePendingCapture
+// instead.
+func DeleteEntry(groupDir, entryID string, nowUnix int64, authorName, authorEmail string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	l, err := load(groupDir)
+	if err != nil {
+		return err
+	}
+	f, h, err := l.lookup(entryID)
+	if err != nil {
+		return err
+	}
+	rel := l.rel(f)
+	if !l.ws.IsReference(f) && !l.isOutlineFile(f) {
+		return fmt.Errorf("mobilecore: %s isn't part of the outline", rel)
+	}
+	if gitsync.UnionMerged(repoDir(groupDir), rel) {
+		return fmt.Errorf("%s has merge=union in .gitattributes, which would bring deleted entries back; remove that line (on your computer) to delete entries there from the phone", rel)
+	}
+	if _, err := capturequeue.AddOp(opsPath(groupDir), gitsync.NewDeleteOp(rel, h, now(nowUnix))); err != nil {
+		return err
+	}
+	return rebuild(groupDir, authorName, authorEmail)
+}
+
 // ShiftEntry moves the entry entryID (an entry DTO's ID), with its
 // subtree, one level deeper (delta 1: the last child of its previous
 // sibling) or shallower (delta -1: the next sibling of its parent), as
@@ -857,6 +897,103 @@ func ShiftEntry(groupDir, entryID string, delta int, nowUnix int64, authorName, 
 		return "", err
 	}
 	return newID, rebuild(groupDir, authorName, authorEmail)
+}
+
+// MoveEntry moves the entry entryID (an entry DTO's ID), with its
+// subtree, among its siblings: right before the sibling anchorID or,
+// with after, right after that sibling's subtree. It's named by ID, not
+// position, because the outline may be hiding closed siblings. Like
+// ShiftEntry, the move is queued, committed locally at once, replayed on
+// every rebuild, and dropped if the entry or the sibling changes on the
+// desktop first. Returns the entry's new ID.
+func MoveEntry(groupDir, entryID, anchorID string, after bool, nowUnix int64, authorName, authorEmail string) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	l, err := load(groupDir)
+	if err != nil {
+		return "", err
+	}
+	f, h, err := l.lookup(entryID)
+	if err != nil {
+		return "", err
+	}
+	_, anchor, err := l.lookup(anchorID)
+	if err != nil {
+		return "", err
+	}
+	dot := strings.LastIndexAny(entryID, ":.")
+	adot := strings.LastIndexAny(anchorID, ":.")
+	if entryID[:dot+1] != anchorID[:adot+1] || anchor == h {
+		return "", errors.New("mobilecore: entries can only move among their siblings")
+	}
+	rel := l.rel(f)
+	if !l.ws.IsReference(f) && !l.isOutlineFile(f) {
+		return "", fmt.Errorf("mobilecore: %s isn't part of the outline", rel)
+	}
+	if gitsync.UnionMerged(repoDir(groupDir), rel) {
+		return "", fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate moved entries; remove that line (on your computer) to move entries there from the phone", rel)
+	}
+	index, _ := strconv.Atoi(entryID[dot+1:])
+	newIndex, _ := strconv.Atoi(anchorID[adot+1:])
+	if after {
+		newIndex++
+	}
+	if index < newIndex {
+		newIndex--
+	}
+	if newIndex == index {
+		return entryID, nil
+	}
+	op := gitsync.NewStateOp(rel, h, h.Keyword, now(nowUnix))
+	op.Move = &capturequeue.EntryMove{Delta: 0, To: gitsync.TitlePath(h), Anchor: anchor.Title, AnchorFingerprint: gitsync.Fingerprint(anchor), After: after}
+	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
+		return "", err
+	}
+	return entryID[:dot+1] + strconv.Itoa(newIndex), rebuild(groupDir, authorName, authorEmail)
+}
+
+// AddEntryBeside adds a new entry, from the capture form in captureJSON
+// (as AddEntry takes it), right before the entry entryID or, with after,
+// right after its subtree, at its level — as desktop "O"/"o" place one.
+// Like AddEntry, it's queued and dropped if that entry changes on the
+// desktop first. Returns the new entry's ID.
+func AddEntryBeside(groupDir, entryID string, after bool, captureJSON string, nowUnix int64, authorName, authorEmail string) (string, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	c, err := decodeCapture(groupDir, captureJSON)
+	if err != nil {
+		return "", err
+	}
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = now(nowUnix)
+	}
+	c.ID = ""
+	l, err := load(groupDir)
+	if err != nil {
+		return "", err
+	}
+	f, h, err := l.lookup(entryID)
+	if err != nil {
+		return "", err
+	}
+	rel := l.rel(f)
+	ref := l.ws.IsReference(f)
+	if !ref && !l.isOutlineFile(f) {
+		return "", fmt.Errorf("mobilecore: %s isn't part of the outline", rel)
+	}
+	if ref && c.Keyword != "" {
+		return "", errors.New("mobilecore: reference material has no TODO state")
+	}
+	dot := strings.LastIndexAny(entryID, ":.")
+	index, _ := strconv.Atoi(entryID[dot+1:])
+	if after {
+		index++
+	}
+	op := gitsync.NewInsertBesideOp(rel, h, after, c)
+	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
+		return "", err
+	}
+	return entryID[:dot+1] + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
 }
 
 // dateInputRe picks the date and optional time out of a timestamp's
@@ -1107,7 +1244,7 @@ func Status(groupDir string) (string, error) {
 	res.PendingStates = len(ops)
 	res.Dropped = []droppedJSON{}
 	for _, d := range s.Dropped {
-		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Added: d.Added, Move: d.Move, Reason: d.Reason})
+		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Added: d.Added, Move: d.Move, Reordered: d.Reordered, Deleted: d.Deleted, Reason: d.Reason})
 	}
 	pushed := map[string]bool{}
 	for _, t := range s.PushedTips {

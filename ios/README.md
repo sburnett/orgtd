@@ -126,24 +126,42 @@ either.
 
 ## Day to day
 
-- **Adding entries:** every list in Outline (a file's top level, and
-  the children of each expanded entry) starts and ends with a
-  **New entry** row. To capture into the inbox, use the one at the end
-  of the inbox file. Tap one to fill in, right there: an optional
+- **Capturing:** the round **+** button in the lower right corner of
+  every tab opens a capture form (the fields below) from wherever you
+  are. Saving adds the entry at the end of `inbox_file`, exactly as
+  inserting it there from the Outline would.
+- **Arranging:** in Outline, long-press any entry to start arranging,
+  and tap **Done** when you're finished. While arranging, a tap on an
+  entry doesn't open it, and:
+  - **Drag** an entry up or down to move it, with everything under it,
+    among its siblings. A drop outside its parent's list puts it back.
+    To move it under another parent, drag it next to that parent, then
+    indent it.
+  - **Swipe** an entry right or left to indent or outdent it (below).
+  - Every list showing, top level and expanded children alike, starts
+    and ends with a **New entry** row, for adding an entry there
+    (below). To add an entry's first child, add a sibling below it and
+    indent that.
+  - The entry shows a clock until it's merged, and a move is dropped
+    (and you're told) if the entry, or the sibling you dropped it next
+    to, changed on your computer before you merged.
+- **Adding entries:** while arranging (above), tap a **New entry** row
+  at the start or end of a list. A file with no entries showing always
+  has one. A form opens right where the entry will
+  go, to fill in: an optional
   keyword (your configured, not-done keywords; it starts with the one
   you used last), title, notes, tags (autocompleted from your files),
   and SCHEDULED/DEADLINE dates. You can pick a date, or type one the
   way desktop `gd` accepts (`3d`, `2w`, `next tue`).
-  - Saving adds the entry first or last in that list, one level below
-    its parent, with a CREATED stamp as desktop `o`/`O` gives it. It
-    commits locally and needs no network.
-  - The new entry shows a clock until it's merged, and you can edit it
-    or change its state meanwhile. It can't be deleted from the phone
-    yet.
+  - Saving adds the entry there, with a CREATED stamp as desktop
+    `o`/`O` gives it. It commits locally and needs no network.
+  - The new entry shows a clock until it's merged, and you can edit,
+    move or delete it meanwhile.
   - Like an edit, an addition is dropped (and you're told) if the entry
-    it goes under changed on your computer before you merged.
+    you inserted it next to or under changed on your computer before
+    you merged.
   - Reference files take new entries too, without a keyword.
-- **Indenting and outdenting:** in Outline, swipe an entry right to
+- **Indenting and outdenting:** while arranging, swipe an entry right to
   move it one level deeper, as desktop `>>` does: it becomes the last
   child of the entry above it. Swipe left to move it one level
   shallower, as `<<` does: it becomes the next sibling of its parent,
@@ -153,10 +171,18 @@ either.
   - The entry shows a clock until it's merged, and the move is dropped
     (and you're told) if the entry, or for an indent the entry above
     it, changed on your computer before you merged.
+- **Deleting an entry:** tap the trash can in its open details, then
+  confirm. Like desktop `dd`, this deletes everything under it too; the
+  confirmation says how many entries that is.
+  - The entry disappears at once, and is removed from the file when you
+    merge.
+  - The delete is dropped (and you're told) if the entry, or anything
+    under it, changed on your computer before you merged, so the phone
+    never deletes something you edited there and haven't seen.
 - **Share sheet:** share a link or text to orgtd to capture it into the
   inbox with the same fields. Until it's merged it shows a clock;
-  editing it edits the capture, and long-press → **Delete capture**
-  takes it back.
+  editing it edits the capture, and deleting it takes it out of the
+  phone's queue for good.
 - The app fetches on launch, when it returns to the foreground, and on
   pull-to-refresh. Fetching never pushes.
 - **Away from the server** (no network, or out of range of a server on
@@ -179,15 +205,19 @@ either.
   refused. The Sync button shows a spinner while it works, and an
   exclamation mark if it fails; Settings (the gear) has the details,
   including when the app last fetched and pushed.
-- **Details in place:** tap any entry in Outline or Agenda to
+- **Details in place:** tap any entry in Outline to
   open its details right there in the list, under its parent and above
   its children: full title, dates, notes (links tappable), tags and
   properties. Tap it again, or open another, to close it. An open
   entry's row is tinted, which sets its details apart from its children
   below. In Outline, a thin line runs down from each expanded entry's
   chevron past its last child.
-- **Changing an entry's state:** long-press any entry and pick a
-  keyword, or use the state menu in its open details. This works as desktop `r` does: a done state stamps
+- **From the Agenda:** tap an entry to jump to it in Outline, expanded
+  to and scrolled into view, with its details open. An entry Outline
+  doesn't show (closed and hidden, or in a file it leaves out) opens
+  its details in the Agenda instead.
+- **Changing an entry's state:** use the state menu in its open
+  details. This works as desktop `r` does: a done state stamps
   `CLOSED`, leaving one clears it, and completing a repeating item
   advances its dates and sets `LAST_REPEAT` instead. Changed entries
   show a clock until they're merged.
@@ -198,8 +228,7 @@ either.
   - The phone won't change states in a file whose `.gitattributes`
     entry sets `merge=union`, since a union merge would duplicate the
     edited line.
-- **Editing an entry:** tap the pencil in its open details, or pick
-  **Edit** from its long-press menu. The edit form opens in place, with
+- **Editing an entry:** tap the pencil in its open details. The edit form opens in place, with
   the capture form's fields: keyword, title, notes, tags and dates.
   - Only the fields you change are written back, rewriting just those
     lines.

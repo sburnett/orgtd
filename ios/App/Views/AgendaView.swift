@@ -15,7 +15,11 @@ struct AgendaView: View {
                 ForEach(agenda.sections) { section in
                     Section(section.name) {
                         ForEach(section.items ?? []) { item in
-                            EntryListRow(entry: item.entry, key: item.id, open: $open, subtitle: subtitle(item))
+                            // A tap shows the entry in the Outline, in context;
+                            // one the Outline leaves out opens here instead.
+                            // A delete renumbers entry IDs, which item keys contain.
+                            EntryListRow(entry: item.entry, key: item.id, open: $open, subtitle: subtitle(item), deleted: { open = nil },
+                                         tapped: model.outlineShows(item.entry.id) ? { model.showInOutline(item.entry) } : nil)
                                 .compactEntryRowInsets()
                                 .entryRowBackground(isOpen: open == item.id)
                         }

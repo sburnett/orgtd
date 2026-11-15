@@ -105,11 +105,24 @@ actor CoreClient {
         return try CoreClient.check { MobilecoreAddEntry(groupDir, file, parentID ?? "", last, json, now, author.name, author.email, $0) }
     }
 
+    /// Deletes an entry with everything under it.
+    func deleteEntry(entryID: String, author: Author) throws {
+        let now = self.now
+        _ = try CoreClient.check { MobilecoreDeleteEntry(groupDir, entryID, now, author.name, author.email, $0) }
+    }
+
     /// Moves an entry one level deeper (delta 1) or shallower (-1), as
     /// desktop ">>"/"<<" do; returns its new entry ID.
     func shiftEntry(entryID: String, delta: Int, author: Author) throws -> String {
         let now = self.now
         return try CoreClient.check { MobilecoreShiftEntry(groupDir, entryID, delta, now, author.name, author.email, $0) }
+    }
+
+    /// Moves an entry among its siblings: right before `anchorID` or,
+    /// with `after`, right after its subtree; returns its new entry ID.
+    func moveEntry(entryID: String, anchorID: String, after: Bool, author: Author) throws -> String {
+        let now = self.now
+        return try CoreClient.check { MobilecoreMoveEntry(groupDir, entryID, anchorID, after, now, author.name, author.email, $0) }
     }
 
     func dismissDropped() throws {

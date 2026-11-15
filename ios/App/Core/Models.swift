@@ -19,6 +19,8 @@ struct Entry: Codable, Identifiable, Hashable {
     var properties: [Property]
     var body: String
     var children: [Entry]?
+    /// Everything under the entry, hidden closed entries included.
+    var descendants: Int?
     var pending: Bool?
     var captureId: String?
     var pendingState: Bool?
@@ -47,6 +49,22 @@ struct Entry: Codable, Identifiable, Hashable {
     /// "work.org › Project › Parent", for showing where an entry lives.
     var place: String {
         ([file] + ancestors).joined(separator: " › ")
+    }
+}
+
+/// Where a new entry goes in a file's tree.
+enum EntryPlace: Hashable {
+    /// First among the children of the entry with ID `parent`, or among
+    /// the file's top-level entries when it's nil.
+    case first(parent: String?)
+    /// Last among them.
+    case last(parent: String?)
+
+    /// The parent's ID, nil for the file's top level.
+    var parent: String? {
+        switch self {
+        case .first(let p), .last(let p): p
+        }
     }
 }
 
@@ -109,6 +127,10 @@ struct DroppedChange: Codable, Hashable {
     var added: Bool?
     /// A demote (1) or promote (-1), rather than a keyword change.
     var move: Int?
+    /// A move up or down among its siblings.
+    var reordered: Bool?
+    /// A delete.
+    var deleted: Bool?
 }
 
 /// A server's SSH host key (mobilecore's hostKeyJSON).

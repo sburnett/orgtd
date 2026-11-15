@@ -29,6 +29,9 @@ type entry struct {
 	Properties     []property `json:"properties"`
 	Body           string     `json:"body"`               // body text, dedented
 	Children       []entry    `json:"children,omitempty"` // outline only
+	// Descendants counts everything under the entry, hidden closed
+	// entries included (Children may leave those out).
+	Descendants int `json:"descendants,omitempty"`
 	// Pending is set on an entry that is a capture still in
 	// the queue — not yet merged into the base branch — with CaptureID
 	// naming it, so it can be edited or deleted.
@@ -130,12 +133,14 @@ type hostKeyJSON struct {
 
 // droppedJSON is a state change that couldn't be applied.
 type droppedJSON struct {
-	Title  string `json:"title"`
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Added  bool   `json:"added,omitempty"` // a new entry (To its keyword) whose parent changed
-	Move   int    `json:"move,omitempty"`  // a demote (1) or promote (-1) of an entry that changed
-	Reason string `json:"reason"`
+	Title     string `json:"title"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Added     bool   `json:"added,omitempty"`     // a new entry (To its keyword) whose parent changed
+	Move      int    `json:"move,omitempty"`      // a demote (1) or promote (-1) of an entry that changed
+	Reordered bool   `json:"reordered,omitempty"` // a move up or down among siblings, whose entry or neighbour changed
+	Deleted   bool   `json:"deleted,omitempty"`   // a delete of an entry that changed
+	Reason    string `json:"reason"`
 }
 
 // KeyPair is a freshly generated SSH key.

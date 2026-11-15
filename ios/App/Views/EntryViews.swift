@@ -179,6 +179,16 @@ struct HeadlineLayout: Layout {
 /// in when the row is open (see EntryListRow).
 let entryLineHeight: CGFloat = 32
 
+/// The height of an EntryListRow's headline — taller than one line when
+/// an open row's title wraps — so the outline can size the chevron
+/// beside it to match.
+struct HeadlineHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 extension View {
     /// The shared spacing of every entry list: compact rows and sections.
     func compactEntryList() -> some View {
@@ -244,7 +254,8 @@ struct KeywordBadge: View {
 /// and above its children — and which the pencil there turns into its
 /// edit form. `open` is the list's one open row (opening another closes
 /// it); `key` tells this row apart (the agenda can show an entry twice).
-/// Long-press for the same actions.
+/// The details also delete the entry (after a confirmation; `deleted`
+/// runs once it's gone). A long press runs `longPress`, if given.
 struct EntryListRow: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
@@ -252,6 +263,14 @@ struct EntryListRow: View {
     @Binding var open: String?
     var hiddenCount: Int? = nil
     var subtitle: Text? = nil
+    var deleted: () -> Void = {}
+    /// Runs on a long press of the line (the Outline's way into
+    /// rearranging); nil for none.
+    var longPress: (() -> Void)? = nil
+    /// Whether a tap on the line opens and closes the details.
+    var tappable = true
+    /// Runs on a tap of the line instead of opening the details, if given.
+    var tapped: (() -> Void)? = nil
     @State private var editing = false
 
     private var isOpen: Bool { open == key }
@@ -267,46 +286,28 @@ struct EntryListRow: View {
             // animation, so only the details below appear.
             CompactEntryRow(entry: entry, hiddenCount: hiddenCount, subtitle: subtitle, expanded: isOpen)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                .background { GeometryReader { Color.clear.preference(key: HeadlineHeightKey.self, value: $0.size.height) } }
                 .transaction { $0.animation = nil }
                 .contentShape(Rectangle())
-                .onTapGesture { toggle() }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityHint(isOpen ? "Hides details" : "Shows details")
+                .onTapGesture {
+                    if let tapped { tapped() } else if tappable { toggle() }
+                }
+                .gesture(LongPressGesture().onEnded { _ in longPress?() }, including: longPress == nil ? .subviews : .all)
+                .accessibilityAddTraits(tappable ? .isButton : [])
+                .accessibilityHint(tapped != nil ? "Shows it in the outline" : tappable ? (isOpen ? "Hides details" : "Shows details") : "")
             if isOpen {
                 Spacer().frame(height: 4)
                 Group {
                     if editing {
                         InlineEntryEditor(entry: entry) { withAnimation(.snappy(duration: 0.2)) { editing = false } }
                     } else {
-                        InlineEntryDetails(entry: entry) { withAnimation(.snappy(duration: 0.2)) { editing = true } }
+                        InlineEntryDetails(entry: entry, deleted: deleted) { withAnimation(.snappy(duration: 0.2)) { editing = true } }
                     }
                 }
                 .transition(.opacity)
             }
         }
         .padding(.bottom, isOpen ? 8 : 0)
-        .contextMenu {
-            Button {
-                withAnimation(.snappy(duration: 0.2)) {
-                    open = key
-                    editing = true
-                }
-            } label: {
-                SwiftUI.Label("Edit", systemImage: "pencil")
-            }
-            if !entry.isReference {
-                Section("Set state") { StateMenuItems(entry: entry) }
-            }
-            // A capture not merged yet lives only in the queue, so it
-            // can still be taken back.
-            if let id = entry.captureId {
-                Button(role: .destructive) {
-                    Task { await model.deleteCapture(id: id) }
-                } label: {
-                    SwiftUI.Label("Delete capture", systemImage: "trash")
-                }
-            }
-        }
         .onChange(of: isOpen) { _, nowOpen in
             if !nowOpen { editing = false }
         }
@@ -320,12 +321,15 @@ struct EntryListRow: View {
 }
 
 /// An open row's details: dates, notes (links tappable), tags,
-/// properties (always shown), pending status, and the state menu and
-/// pencil.
+/// properties (always shown), pending status, and the state menu,
+/// delete button and pencil. `deleted` runs once a delete is made, for
+/// the list to renumber the IDs it holds.
 struct InlineEntryDetails: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
+    var deleted: () -> Void = {}
     let edit: () -> Void
+    @State private var confirmingDelete = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -386,6 +390,16 @@ struct InlineEntryDetails: View {
                     .accessibilityLabel("State")
                 }
                 Spacer()
+                Button(role: .destructive) {
+                    confirmingDelete = true
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 36, height: 30)
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.busy != nil)
+                .accessibilityLabel("Delete")
                 Button(action: edit) {
                     Image(systemName: "pencil")
                         .font(.body.weight(.semibold))
@@ -397,6 +411,22 @@ struct InlineEntryDetails: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        .confirmationDialog("Delete “\(entry.title)”?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task { await model.deleteEntry(entry) { withAnimation(.snappy(duration: 0.2)) { deleted() } } }
+            }
+        } message: {
+            Text(deleteMessage)
+        }
+    }
+
+    private var deleteMessage: String {
+        let n = entry.descendants ?? 0
+        let under = n == 0 ? "" : " This also deletes the \(n == 1 ? "entry" : "\(n) entries") under it."
+        if entry.captureId != nil {
+            return "It was captured on this phone and isn't merged yet, so it's gone for good." + under
+        }
+        return "It's removed from \(entry.file) when you merge." + under
     }
 }
 
@@ -532,7 +562,7 @@ struct StateMenu<Label: View>: View {
     }
 }
 
-/// The items of a state menu, for a Menu or a row's context menu.
+/// The items of a state menu.
 struct StateMenuItems: View {
     @Environment(AppModel.self) private var model
     let entry: Entry

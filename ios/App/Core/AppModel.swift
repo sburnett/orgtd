@@ -28,6 +28,12 @@ final class AppModel {
     /// Sync button's icon.
     var actionError: String?
 
+    /// The tab showing.
+    var tab: AppTab = .outline
+    /// An entry ID for the Outline to reveal (expand to, open and scroll
+    /// to); it clears it once done.
+    var focus: String?
+
     private let defaults = UserDefaults.standard
 
     init() {
@@ -43,6 +49,22 @@ final class AppModel {
     var author: Author {
         Author(name: authorName.isEmpty ? "orgtd iOS" : authorName,
                email: authorEmail.isEmpty ? "orgtd-ios@localhost" : authorEmail)
+    }
+
+    /// Whether the Outline shows the entry `id` (not one in a file it
+    /// leaves out, or closed and hidden).
+    func outlineShows(_ id: String) -> Bool {
+        guard let outline else { return false }
+        func find(_ entries: [Entry]) -> Bool {
+            entries.contains { $0.id == id || find($0.children ?? []) }
+        }
+        return (outline.files + outline.reference).contains { find($0.entries) }
+    }
+
+    /// Switches to the Outline with `entry` revealed and its details open.
+    func showInOutline(_ entry: Entry) {
+        focus = entry.id
+        tab = .outline
     }
 
     var hasKey: Bool { publicKey != nil }
@@ -195,8 +217,23 @@ final class AppModel {
         return ok
     }
 
-    func deleteCapture(id: String) async {
-        let ok = await run("Deleting…") { try await self.core.delete(captureID: id, author: self.author) }
+    /// Deletes `entry` with everything under it, committed locally at
+    /// once — or, for a capture not merged yet, takes it out of the
+    /// queue. Like `addEntry`, `deleted` runs in the turn that publishes
+    /// the reloaded outline, for a view to renumber the IDs it holds. A
+    /// failure is shown as an alert.
+    func deleteEntry(_ entry: Entry, deleted: () -> Void) async {
+        let ok = await run("Deleting…") {
+            if let id = entry.captureId {
+                try await self.core.delete(captureID: id, author: self.author)
+            } else {
+                try await self.core.deleteEntry(entryID: entry.id, author: self.author)
+            }
+        }
+        if ok, let o = try? await core.outline(showClosed: showClosed) {
+            outline = o
+            deleted()
+        }
         if !ok { actionError = lastError }
         await reloadAll()
     }
@@ -222,18 +259,23 @@ final class AppModel {
         return ok
     }
 
-    /// Adds a new entry first or last among `parentID`'s children (or
-    /// `file`'s top-level entries when nil), committed locally at once.
-    /// Entry IDs are index paths, so adding one first renumbers its
-    /// siblings: `placed` gets the new entry's ID in the same main-actor
+    /// Adds a new entry to `file` at `place`, committed locally at once.
+    /// Entry IDs are index paths, so adding one renumbers the siblings
+    /// after it: `placed` gets the new entry's ID in the same main-actor
     /// turn that publishes the reloaded outline, so a view can renumber
     /// the IDs it holds without a frame showing the wrong ones. Returns
     /// whether it worked (the form shows lastError otherwise).
-    func addEntry(_ draft: CaptureDraft, file: String, parentID: String?, last: Bool, placed: (String) -> Void) async -> Bool {
+    func addEntry(_ draft: CaptureDraft, file: String, at place: EntryPlace, placed: (String) -> Void) async -> Bool {
         KeywordsCache.remember(draft.keyword)
         var newID = ""
         let ok = await run("Saving…") {
-            newID = try await self.core.addEntry(draft, file: file, parentID: parentID, last: last, author: self.author)
+            let core = self.core, author = self.author
+            switch place {
+            case .first(let parent):
+                newID = try await core.addEntry(draft, file: file, parentID: parent, last: false, author: author)
+            case .last(let parent):
+                newID = try await core.addEntry(draft, file: file, parentID: parent, last: true, author: author)
+            }
         }
         if ok, let o = try? await core.outline(showClosed: showClosed) {
             outline = o
@@ -252,6 +294,24 @@ final class AppModel {
         var newID = ""
         let ok = await run("Saving…") {
             newID = try await self.core.shiftEntry(entryID: entry.id, delta: delta, author: self.author)
+        }
+        if ok, let o = try? await core.outline(showClosed: showClosed) {
+            outline = o
+            placed(newID)
+        }
+        if !ok { actionError = lastError }
+        await reloadAll()
+    }
+
+    /// Moves `entry`, with its subtree, among its siblings: right before
+    /// the sibling `anchor` or, with `after`, right after its subtree.
+    /// Like `shiftEntry`, `placed` gets the entry's new ID in the turn
+    /// that publishes the reloaded outline. A failure is shown as an
+    /// alert.
+    func moveEntry(_ entry: Entry, beside anchor: Entry, after: Bool, placed: (String) -> Void) async {
+        var newID = ""
+        let ok = await run("Saving…") {
+            newID = try await self.core.moveEntry(entryID: entry.id, anchorID: anchor.id, after: after, author: self.author)
         }
         if ok, let o = try? await core.outline(showClosed: showClosed) {
             outline = o
@@ -327,4 +387,9 @@ final class AppModel {
             return false
         }
     }
+}
+
+/// MainTabs' tabs.
+enum AppTab: Hashable {
+    case outline, agenda
 }

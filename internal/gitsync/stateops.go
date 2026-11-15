@@ -23,13 +23,15 @@ import (
 // branch was rebuilt — its entry was changed, moved or removed on the
 // desktop — kept so the app can say so.
 type DroppedOp struct {
-	Title  string    `json:"title"`
-	From   string    `json:"from"`
-	To     string    `json:"to"`
-	Added  bool      `json:"added,omitempty"` // a new entry, whose parent changed, rather than a change to one
-	Move   int       `json:"move,omitempty"`  // a demote (1) or promote (-1), rather than a keyword change
-	Reason string    `json:"reason"`
-	At     time.Time `json:"at"`
+	Title     string    `json:"title"`
+	From      string    `json:"from"`
+	To        string    `json:"to"`
+	Added     bool      `json:"added,omitempty"`     // a new entry, whose parent changed, rather than a change to one
+	Move      int       `json:"move,omitempty"`      // a demote (1) or promote (-1), rather than a keyword change
+	Reordered bool      `json:"reordered,omitempty"` // a move up or down among siblings
+	Deleted   bool      `json:"deleted,omitempty"`   // a delete
+	Reason    string    `json:"reason"`
+	At        time.Time `json:"at"`
 }
 
 // ErrEntryChanged means a state change's entry isn't there any more as
@@ -40,6 +42,13 @@ var ErrEntryChanged = errors.New("the entry was changed, moved or removed since"
 // telling whether it has changed since a state change was queued.
 func Fingerprint(h *org.Headline) string {
 	sum := sha256.Sum256([]byte(org.RenderEntry(h)))
+	return hex.EncodeToString(sum[:8])
+}
+
+// SubtreeFingerprint identifies h's text with all its descendants', for
+// telling whether any of it has changed since a delete was queued.
+func SubtreeFingerprint(h *org.Headline) string {
+	sum := sha256.Sum256([]byte(org.RenderHeadline(h)))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -101,6 +110,22 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if op.Move != nil {
 		return applyMove(p, data, f, h, op)
 	}
+	if op.Delete != nil {
+		if SubtreeFingerprint(h) != op.Delete.Subtree {
+			return ErrEntryChanged
+		}
+		lines := splitLines(data)
+		end := subtreeEnd(h)
+		if end > len(lines) || h.SrcStart >= end {
+			return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.Title())
+		}
+		out := append(append([]string{}, lines[:h.SrcStart]...), lines[end:]...)
+		text := strings.Join(out, "\n")
+		if len(out) > 0 && len(data) > 0 && data[len(data)-1] == '\n' {
+			text += "\n"
+		}
+		return writeFileAtomic(p, []byte(text))
+	}
 	lines := splitLines(data)
 	if h.SrcEnd > len(lines) || h.SrcStart >= h.SrcEnd {
 		return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.Title())
@@ -117,9 +142,9 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	return writeFileAtomic(p, []byte(text))
 }
 
-// findParent finds an insert op's parent: the first entry with the op's
-// title path whose fingerprint still matches. A top-level insert has no
-// parent (nil).
+// findParent finds an insert op's parent (or, for Beside, its sibling):
+// the first entry with the op's title path whose fingerprint still
+// matches. A top-level insert has no parent (nil).
 func findParent(f *org.File, op capturequeue.StateOp) (*org.Headline, error) {
 	if len(op.Path) == 0 {
 		return nil, nil
@@ -139,22 +164,31 @@ func findParent(f *org.File, op capturequeue.StateOp) (*org.Headline, error) {
 
 // applyInsert adds an insert op's new entry to the raw file data (parsed
 // as f, at path p): first or last among its parent's children, or among
-// the file's top-level entries, without touching any other line. If the
+// the file's top-level entries, or right before or after (the subtree
+// of) a sibling, without touching any other line. If the
 // line just before the new entry is blank, as between entries spaced
 // out with blank lines, the entry gets a blank line after it too, so the
 // spacing stays even.
 func applyInsert(p string, data []byte, f *org.File, op capturequeue.StateOp) error {
-	parent, err := findParent(f, op)
+	anchor, err := findParent(f, op)
 	if err != nil {
 		return err
 	}
 	lines := splitLines(data)
-	level, siblings := 1, f.Headlines
-	if parent != nil {
-		level, siblings = parent.Level+1, parent.Children
+	if op.Insert.Beside && anchor == nil {
+		return ErrEntryChanged
 	}
+	level, siblings := 1, f.Headlines
+	if anchor != nil {
+		level, siblings = anchor.Level+1, anchor.Children
+	}
+	parent := anchor
 	var at int
 	switch {
+	case op.Insert.Beside && op.Insert.Last:
+		level, at = anchor.Level, subtreeEnd(anchor)
+	case op.Insert.Beside:
+		level, at = anchor.Level, anchor.SrcStart
 	case op.Insert.Last && len(siblings) > 0:
 		at = subtreeEnd(siblings[len(siblings)-1])
 	case op.Insert.Last || len(siblings) == 0:
@@ -231,6 +265,26 @@ func applyMove(p string, data []byte, f *org.File, h *org.Headline, op capturequ
 		after := subtreeEnd(h.Parent)
 		out = append(append([]string{}, lines[:start]...), lines[end:after]...)
 		out = append(append(out, block...), lines[after:]...)
+	case 0:
+		siblings := f.Headlines
+		if h.Parent != nil {
+			siblings = h.Parent.Children
+		}
+		var anchor *org.Headline
+		for _, s := range siblings {
+			if s != h && s.Title == op.Move.Anchor && Fingerprint(s) == op.Move.AnchorFingerprint {
+				anchor = s
+				break
+			}
+		}
+		if anchor == nil {
+			return ErrEntryChanged
+		}
+		at := anchor.SrcStart
+		if op.Move.After {
+			at = subtreeEnd(anchor)
+		}
+		out = reorder(lines, start, end, at)
 	default:
 		return fmt.Errorf("gitsync: bad move %d", op.Move.Delta)
 	}
@@ -239,6 +293,42 @@ func applyMove(p string, data []byte, f *org.File, h *org.Headline, op capturequ
 		text += "\n"
 	}
 	return writeFileAtomic(p, []byte(text))
+}
+
+// reorder moves lines[start:end] (a subtree) to before line at (outside
+// it), keeping blank-line spacing even: the blank lines that separate
+// the subtree from its neighbours — after it, or, for one with none
+// after it (the file's last), before it — go with it, and go before it
+// again if it lands at the very end.
+func reorder(lines []string, start, end, at int) []string {
+	blank := func(s string) bool { return strings.TrimSpace(s) == "" }
+	body := lines[start:end]
+	gap := 0
+	for gap < len(body) && blank(body[len(body)-1-gap]) {
+		gap++
+	}
+	body = body[:len(body)-gap]
+	cut := start
+	if gap == 0 {
+		for cut > 0 && blank(lines[cut-1]) {
+			cut--
+		}
+		gap = start - cut
+	}
+	rest := append(append([]string{}, lines[:cut]...), lines[end:]...)
+	if at >= end {
+		at -= end - cut
+	} else if at > cut {
+		at = cut
+	}
+	sep := make([]string, gap)
+	var moved []string
+	if at == len(rest) {
+		moved = append(sep, body...)
+	} else {
+		moved = append(append([]string{}, body...), sep...)
+	}
+	return append(append(append([]string{}, rest[:at]...), moved...), rest[at:]...)
 }
 
 // patchEntry returns h's own lines (as in the file) with op applied,
@@ -535,6 +625,22 @@ func NewStateOp(file string, h *org.Headline, keyword string, at time.Time) capt
 		From:        h.Keyword,
 		To:          keyword,
 	}
+}
+
+// NewDeleteOp describes deleting h, with its subtree, from file at the
+// time at.
+func NewDeleteOp(file string, h *org.Headline, at time.Time) capturequeue.StateOp {
+	op := NewStateOp(file, h, h.Keyword, at)
+	op.Delete = &capturequeue.EntryDelete{Subtree: SubtreeFingerprint(h)}
+	return op
+}
+
+// NewInsertBesideOp describes adding c to file right before sibling or,
+// with after, right after sibling's subtree, at sibling's level.
+func NewInsertBesideOp(file string, sibling *org.Headline, after bool, c capture.Capture) capturequeue.StateOp {
+	op := NewInsertOp(file, sibling, after, c)
+	op.Insert.Beside = true
+	return op
 }
 
 // NewInsertOp describes adding c to file (relative to the repository

@@ -373,7 +373,7 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 			if !errors.Is(err, ErrEntryChanged) {
 				return fmt.Errorf("gitsync: setting %q to %s: %w", op.Title(), op.To, err)
 			}
-			dropped = append(dropped, DroppedOp{Title: op.Title(), From: op.From, To: op.To, Added: op.Insert != nil, Move: moveDelta(op), Reason: err.Error(), At: r.now()})
+			dropped = append(dropped, DroppedOp{Title: op.Title(), From: op.From, To: op.To, Added: op.Insert != nil, Move: moveDelta(op), Reordered: op.Move != nil && op.Move.Delta == 0, Deleted: op.Delete != nil, Reason: err.Error(), At: r.now()})
 			droppedIDs = append(droppedIDs, op.ID)
 			continue
 		}
@@ -388,10 +388,17 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 		if op.Insert != nil {
 			msg = "Add: " + op.NewTitle()
 		}
+		if op.Delete != nil {
+			msg = "Delete: " + op.Title()
+		}
 		if op.Move != nil {
-			msg = "Promote: " + op.Title()
-			if op.Move.Delta > 0 {
+			switch {
+			case op.Move.Delta > 0:
 				msg = "Demote: " + op.Title()
+			case op.Move.Delta < 0:
+				msg = "Promote: " + op.Title()
+			default:
+				msg = "Move: " + op.Title()
 			}
 		}
 		if _, err := wt.Commit(msg, &git.CommitOptions{Author: sig, Committer: sig}); err != nil {

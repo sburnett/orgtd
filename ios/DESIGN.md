@@ -193,7 +193,7 @@ captures), returned as JSON.
 
 | View | Content | Interaction |
 |---|---|---|
-| **Agenda** | Overdue, Due Today, Upcoming (`agenda_window_days`), Next Actions, the same rules as desktop `:agenda` minus Meetings | Tap → details in place; pull-to-refresh = fetch |
+| **Agenda** | Overdue, Due Today, Upcoming (`agenda_window_days`), Next Actions, the same rules as desktop `:agenda` minus Meetings | Tap → the entry in the Outline, details open (in place for one the Outline leaves out); pull-to-refresh = fetch |
 | **Inbox** | Top-level non-done headlines of `inbox_file`, in file order; pending (unpushed or unmerged) captures badged | Tap → details in place. A pending capture can be **deleted or edited before it's merged**, since it's still only in the queue |
 | **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after_hours` (with a toggle), plus a separate read-only Reference section for `reference/` | Chevrons expand/collapse children; tap → details in place |
 | **Search** | Case-insensitive substring over title, tags, body, as desktop `/` | Results list → opens the outline at that entry, details open |
@@ -428,10 +428,10 @@ README/DESIGN.md current (per repo convention).
   can't lease against a ref that doesn't exist, so the very first push
   relies on the pre-check alone.
 - **Pending captures.** The working-tree inbox is the base branch's
-  inbox plus one appended headline per queued capture, in order, so the
-  last `len(queue)` headlines are the pending ones (less any added last
-  at the inbox's top level afterwards; see "Adding entries" below). No
-  marker is written to the file. Every view marks them (`entry.Pending`,
+  inbox plus one appended headline per queued capture, in order, but
+  later additions can land among them, so they're found by content: the
+  top-level headline with the capture's CREATED stamp and title,
+  matched from the end of the file. No marker is written to the file. Every view marks them (`entry.Pending`,
   `CaptureID`), so they can be edited as captures or deleted anywhere.
 - **Base branch.** It's the remote's default branch at clone time
   (recorded in `sync-state.json`), not a hard-coded `main`. The org
@@ -518,15 +518,19 @@ README/DESIGN.md current (per repo convention).
     cookies (`reschedule`).
   - Commit message: "Edit: <new title>". The pending marker follows a
     renamed entry.
-- **Adding entries in the outline.** Every list in the Outline (a
-  file's top level, or an expanded entry's children) starts and ends
-  with a "New entry" row. Tapping one opens the capture fields in place,
-  and saving adds the entry first or last in that list
-  (`mobilecore.AddEntry`).
+- **Adding entries in the outline.** At first every list started and
+  ended with a "New entry" row, which took too much room; then an
+  entry's long-press menu had Insert above / below / child
+  (`mobilecore.AddEntryBeside`, still in the core but unused). Now the
+  start and end rows are back, but only while arranging (below), and
+  each opens the capture fields in place where the entry will go
+  (`AddEntry`, first or last under a parent or at the top level). A
+  file with no entries showing always has a "New entry" row.
   - **Queue.** An addition is another queued change: a `StateOp` with
     `Insert` set (`capturequeue.EntryInsert`: first or last, and the
     entry as a `capture.Capture`). Its title path and fingerprint are
-    the parent's, empty for a top-level entry. It shares the replay,
+    the parent's, empty for a top-level entry, or with `Beside` the
+    sibling's it goes right before or after. It shares the replay,
     pushed-tip bookkeeping and dropping of the other changes.
   - **Rendering.** The entry is rendered as a capture is, with CREATED
     (as desktop `o`/`O` stamp it), at the parent's level plus one
@@ -534,23 +538,25 @@ README/DESIGN.md current (per repo convention).
   - **Minimal diff.** On replay, `applyInsert` splices the entry's lines
     in and touches nothing else. First goes right after the parent's own
     lines, or before the file's first headline. Last goes after the
-    parent's last descendant, or at the end of the file. When the line
+    parent's last descendant, or at the end of the file. Beside a
+    sibling, it goes right before the sibling's headline, or right
+    after its last descendant. When the line
     before the new entry is blank, the entry gets a trailing blank line
     too, so blank-line spacing stays even.
-  - **Stale parents.** If the parent no longer matches (renamed, edited
-    or removed on the desktop), the addition is dropped and reported
+  - **Stale parents.** If the parent (or sibling) no longer matches
+    (renamed, edited or removed on the desktop), the addition is dropped and reported
     like any other change (`DroppedOp.Added`).
-  - **IDs.** Entry IDs are index paths, so an entry added first
-    renumbers its later siblings. `AddEntry` returns the new entry's ID,
-    and the Outline renumbers the expanded rows it holds in the same
-    update that shows the new outline (`AddSlot.shiftedForInsert`).
+  - **IDs.** Entry IDs are index paths, so an added entry renumbers
+    its later siblings. `AddEntry` and `AddEntryBeside` return the new
+    entry's ID, and the Outline renumbers the expanded rows it holds in
+    the same update that shows the new outline (`Renumbering`).
   - **After adding.** A pending added entry can be edited or have its
     state changed like any other entry: those are later ops that find it
-    after it's replayed. There's no way to delete one yet.
+    after it's replayed, and deleted the same way.
   - The merge=union guard doesn't apply: an addition only adds lines.
     Reference files take additions, without a keyword.
-- **Indenting and outdenting.** Swiping an Outline row right or left
-  moves the entry one level, as desktop `>>`/`<<` do
+- **Indenting and outdenting.** While arranging, swiping an Outline row
+  right or left moves the entry one level, as desktop `>>`/`<<` do
   (`mobilecore.ShiftEntry`): a demote makes it the last child of its
   previous sibling, a promote the next sibling of its parent.
   - **Queue.** Another queued change: a `StateOp` with `Move` set
@@ -573,9 +579,70 @@ README/DESIGN.md current (per repo convention).
   - Indenting under a closed entry the Outline is hiding makes the
     entry disappear with it until closed entries are shown.
 - **No Inbox tab.** Once the Outline could add entries, its last
-  "New entry" row in the inbox file did everything the Inbox tab's
+  inserts into the inbox file did everything the Inbox tab's
   Capture button did, so the tab, the capture sheet and
   `mobilecore.Inbox` were removed. The tabs are Outline and Agenda. A
   pending capture's Delete moved from the Inbox's swipe action to the
-  long-press menu of any of its rows. The share extension still
-  captures as before.
+  long-press menu of any of its rows (now the general Delete, below).
+  The share extension still captures as before.
+- **Capture button.** A round **+** in the lower right of both tabs
+  (`CaptureButton`) brings a capture sheet back, so capturing doesn't
+  mean scrolling the Outline to the inbox file's end. The sheet is the
+  share extension's `CaptureForm`, and saving is an Outline insert at
+  `.end` of `inbox_file` (`addEntry`), not a share-sheet capture:
+  appending at the end renumbers nothing, so no view has IDs to carry
+  over. The button sits above the tab bar in a bottom safe-area inset
+  of each tab's root, so lists scroll their last rows past it, and it
+  hides while the keyboard is up so it never covers a form. (Beside
+  the iOS 26 floating tab bar was tried and looked out of place.)
+- **Deleting entries.** An entry's open details have a trash button
+  (it was in the long-press menu until that became arranging), after a
+  confirmation that counts what's under it (`entry.Descendants`, which
+  includes hidden closed entries). It deletes the entry with its
+  subtree, as desktop `dd` does (`mobilecore.DeleteEntry`). A pending
+  capture is taken out of the queue instead (`DeletePendingCapture`).
+  - **Queue.** Another queued change: a `StateOp` with `Delete` set.
+    Besides the entry's own fingerprint, it records one of the whole
+    subtree (`gitsync.SubtreeFingerprint`). A child changed on the
+    desktop since then drops the delete, so the phone never deletes an
+    edit it hasn't seen.
+  - **Minimal diff.** The replay removes exactly the subtree's lines.
+  - The merge=union guard applies: a union merge would bring the deleted
+    lines back.
+  - The Outline drops the deleted subtree's rows from its expanded set
+    and renumbers the rest (`Renumbering` with no insert). The Agenda
+    just closes its open row.
+- **Arranging.** Long-pressing an Outline entry enters an arranging
+  mode, until Done in the toolbar (which replaces the other buttons).
+  Arranging, taps don't open details; rows drag up and down (the
+  List's own `onMove`, enabled only then, so its long-press-to-drag
+  never competes with the long press that enters the mode); swipes
+  indent and outdent; and every visible list starts and ends with a
+  "New entry" row. The long-press menu is gone, from the Agenda too:
+  Edit, state and Delete are all in an entry's open details.
+  - **Reordering only among siblings.** A drag moves an entry before
+    the first sibling at or after the drop, or after the last one; a
+    drop outside its parent's list snaps back. Moving between parents
+    is an indent or outdent, so a drop is never ambiguous about depth,
+    and one op never touches two places in the tree.
+  - **Queue.** Another `EntryMove`, with Delta 0 and an `Anchor`: the
+    sibling's title and fingerprint, and whether the entry goes before
+    it or after its subtree (`mobilecore.MoveEntry`). It's named by ID,
+    not index, since the Outline may hide closed siblings. A reorder
+    whose anchor changed on the desktop is dropped
+    (`DroppedOp.Reordered`).
+  - **Minimal diff.** The subtree's lines are cut and put back
+    (`reorder`). Blank lines separating it from its neighbours go with
+    it — the ones after it, or, for a file's last entry, which has none
+    after it, the ones before — so blank-line spacing stays even.
+  - **IDs.** `MoveEntry` returns the entry's new index path, and the
+    Outline carries its expanded rows over (`Renumbering`, a removal
+    and an insertion in the same list).
+- **Agenda opens the Outline.** Tapping an Agenda entry switches to the
+  Outline with the entry revealed (ancestors expanded, details open,
+  scrolled to), leaving search and arranging: the agenda says what's
+  due, and the outline shows it in context, among its siblings and
+  under its project. `AppModel.focus` carries the entry ID across tabs,
+  and the Outline clears it once revealed. Entries the Outline doesn't
+  show (closed and hidden, or outside the outline files) keep opening
+  in place.

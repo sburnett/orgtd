@@ -717,3 +717,116 @@ func TestShiftEntryRefusals(t *testing.T) {
 		t.Errorf("refusals queued %d changes", st.PendingStates)
 	}
 }
+
+func TestAddEntryBesideReturnsTheNewID(t *testing.T) {
+	g, _ := setup(t)
+	furnace := findEntry(t, g, "Schedule furnace maintenance before it gets cold") // personal.org:0.1
+	for _, tc := range []struct {
+		after         bool
+		title, wantID string
+	}{
+		{false, "Above the furnace", "personal.org:0.1"},
+		{true, "Below the furnace", "personal.org:0.3"}, // the furnace is now 0.2
+	} {
+		anchor := findEntry(t, g, furnace.Title)
+		id, err := AddEntryBeside(g, anchor.ID, tc.after, captureJSON(t, "TODO", tc.title), fixtureNow, "P", "p@x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := findEntry(t, g, tc.title)
+		if id != tc.wantID || e.ID != id || e.Level != 2 || !e.PendingNew {
+			t.Errorf("%s: returned %q, entry %+v", tc.title, id, e)
+		}
+	}
+}
+
+func TestPendingCaptureStaysMarkedWithAnEntryAddedBelowIt(t *testing.T) {
+	g, _ := setup(t)
+	id, err := Capture(g, `{"title":"Captured","createdAt":"2026-10-07T09:00:00-07:00"}`, "P", "p@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := findEntry(t, g, "Captured")
+	if _, err := AddEntryBeside(g, c.ID, true, captureJSON(t, "", "Below it"), fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddEntryBeside(g, c.ID, false, captureJSON(t, "", "Above it"), fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range inboxEntries(t, g) {
+		if (e.Title == "Captured") != (e.CaptureID == id) {
+			t.Errorf("%q: captureId %q", e.Title, e.CaptureID)
+		}
+	}
+}
+
+func TestDeleteEntryRemovesItsSubtree(t *testing.T) {
+	g, _ := setup(t)
+	fan := findEntry(t, g, "Replace the bathroom fan")
+	if fan.Descendants != 3 {
+		t.Errorf("descendants = %d, want 3", fan.Descendants)
+	}
+	if err := DeleteEntry(g, fan.ID, fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	for _, title := range []string{"Replace the bathroom fan", "Order a 110 CFM fan"} {
+		if res := decode[searchResult](t)(Search(g, title)); len(res.Entries) != 0 {
+			t.Errorf("%q still there: %+v", title, res.Entries)
+		}
+	}
+	if after := findEntry(t, g, "Schedule furnace maintenance before it gets cold"); after.ID != fan.ID {
+		t.Errorf("next sibling's id = %q, want %q", after.ID, fan.ID)
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 1 {
+		t.Errorf("pendingStates = %d", st.PendingStates)
+	}
+	if err := DeleteEntry(g, "personal.org:99", fixtureNow, "P", "p@x"); err == nil {
+		t.Error("bad id accepted")
+	}
+}
+
+func TestMoveEntryReturnsTheNewIDAndMarksItPending(t *testing.T) {
+	g, _ := setup(t)
+	// personal.org:0 is "Home": 0.0 the bathroom fan (with children),
+	// 0.1 furnace, 0.2 gutters, 0.3 fence quote, 0.4 standing desk.
+	for _, tc := range []struct {
+		title, anchor string
+		after         bool
+		wantID        string
+	}{
+		{"Build a standing desk for the office", "Replace the bathroom fan", false, "personal.org:0.0"},
+		{"Replace the bathroom fan", "Clean the gutters", true, "personal.org:0.3"},
+	} {
+		e, a := findEntry(t, g, tc.title), findEntry(t, g, tc.anchor)
+		id, err := MoveEntry(g, e.ID, a.ID, tc.after, fixtureNow, "P", "p@x")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.title, err)
+		}
+		moved := findEntry(t, g, tc.title)
+		if id != tc.wantID || moved.ID != id || moved.Level != e.Level || !moved.PendingState {
+			t.Errorf("%s: returned %q, entry %+v", tc.title, id, moved)
+		}
+	}
+	if fan := findEntry(t, g, "Order a 110 CFM fan"); fan.ID != "personal.org:0.3.1" {
+		t.Errorf("the fan's child is %q, want it moved with its parent", fan.ID)
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 2 {
+		t.Errorf("pendingStates = %d", st.PendingStates)
+	}
+}
+
+func TestMoveEntryRefusals(t *testing.T) {
+	g, _ := setup(t)
+	if _, err := MoveEntry(g, "personal.org:0.1", "personal.org:1", false, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("moving next to a non-sibling accepted")
+	}
+	if _, err := MoveEntry(g, "personal.org:0.1", "personal.org:0.1", false, fixtureNow, "P", "p@x"); err == nil {
+		t.Error("moving next to itself accepted")
+	}
+	if id, err := MoveEntry(g, "personal.org:0.1", "personal.org:0.2", false, fixtureNow, "P", "p@x"); err != nil || id != "personal.org:0.1" {
+		t.Errorf("a move to where it already is: %q, %v", id, err)
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 0 {
+		t.Errorf("refusals queued %d changes", st.PendingStates)
+	}
+}

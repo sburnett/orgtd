@@ -35,30 +35,56 @@ type StateOp struct {
 	Edit *EntryEdit `json:"edit,omitempty"`
 	// Insert, when set, makes the op add a new entry rather than change
 	// one. Path and Fingerprint are then the new entry's parent's (both
-	// empty for a top-level entry), From and To are unused, and the
-	// entry goes first or last among the parent's children — or among
-	// the file's top-level entries.
+	// empty for a top-level entry), and the entry goes first or last
+	// among the parent's children — or among the file's top-level
+	// entries. With Insert.Beside, they're a sibling's instead (see
+	// EntryInsert). From is unused.
 	Insert *EntryInsert `json:"insert,omitempty"`
 	// Move, when set, moves the entry, with its subtree, one level
-	// deeper or shallower, as desktop ">>"/"<<" do.
+	// deeper or shallower, as desktop ">>"/"<<" do, or up or down among
+	// its siblings.
 	Move *EntryMove `json:"move,omitempty"`
+	// Delete, when set, deletes the entry with its subtree, as desktop
+	// "dd" does.
+	Delete *EntryDelete `json:"delete,omitempty"`
+}
+
+// EntryDelete is deleting an entry and everything under it.
+type EntryDelete struct {
+	// Subtree identifies the whole subtree's text when the delete was
+	// made (the op's Fingerprint covers only the entry's own), so a
+	// child changed since on the desktop isn't deleted unseen.
+	Subtree string `json:"subtree"`
 }
 
 // EntryMove is a demote (Delta 1: the entry becomes the last child of
-// its previous sibling) or a promote (Delta -1: it becomes the next
-// sibling of its parent).
+// its previous sibling), a promote (Delta -1: it becomes the next
+// sibling of its parent), or a reorder (Delta 0: it moves, at the same
+// level, right before or after Anchor, one of its siblings).
 type EntryMove struct {
 	Delta int `json:"delta"`
 	// To is the entry's title path once moved: for marking it pending,
 	// and so a demote lands under the same previous sibling it was made
 	// against, or not at all.
 	To []string `json:"to"`
+	// Anchor, for a reorder, is the sibling the entry goes next to: its
+	// title and fingerprint, so a reorder whose sibling has changed since
+	// is dropped rather than landing somewhere else. The entry goes right
+	// before it or, with After, right after its subtree.
+	Anchor            string `json:"anchor,omitempty"`
+	AnchorFingerprint string `json:"anchorFingerprint,omitempty"`
+	After             bool   `json:"after,omitempty"`
 }
 
 // EntryInsert is a new entry an op adds.
 type EntryInsert struct {
-	Last  bool            `json:"last"`  // after the existing entries, rather than before them
-	Entry capture.Capture `json:"entry"` // rendered as a capture is, at the parent's level + 1
+	Last bool `json:"last"` // after the existing entries (or Beside's sibling), rather than before
+	// Beside places the entry next to the op's entry, at its level:
+	// right before it or, with Last, right after its subtree.
+	Beside bool `json:"beside,omitempty"`
+	// Entry is rendered as a capture is, at the parent's level + 1 (or
+	// the sibling's level).
+	Entry capture.Capture `json:"entry"`
 }
 
 // EntryEdit is the fields an edit changes; nil means unchanged.
