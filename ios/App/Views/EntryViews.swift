@@ -192,6 +192,41 @@ extension View {
     }
 }
 
+/// A list row's background: the list's own, tinted while the row's entry
+/// is open, so the entry and its details read as one block, unlike the
+/// rows (its children) below it. In the outline it also draws `guides`:
+/// a thin vertical line at each x (from the row's leading edge), one per
+/// level of nesting, which join up across rows into the tree's branches.
+struct EntryRowBackground: View {
+    var isOpen: Bool
+    var guides: [CGFloat] = []
+
+    var body: some View {
+        ZStack {
+            Color(.secondarySystemGroupedBackground)
+            if isOpen {
+                Color.accentColor.opacity(0.1)
+            }
+            if !guides.isEmpty {
+                Canvas { ctx, size in
+                    for x in guides {
+                        ctx.fill(Path(CGRect(x: x - 0.5, y: 0, width: 1, height: size.height)),
+                                 with: .color(Color(.tertiaryLabel)))
+                    }
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    /// The row background of an entry row (see EntryRowBackground). It
+    /// must be on the row itself, not nested inside it, to take effect.
+    func entryRowBackground(isOpen: Bool, guides: [CGFloat] = []) -> some View {
+        listRowBackground(EntryRowBackground(isOpen: isOpen, guides: guides))
+    }
+}
+
 struct KeywordBadge: View {
     @Environment(AppModel.self) private var model
     let name: String

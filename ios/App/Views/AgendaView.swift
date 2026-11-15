@@ -17,6 +17,7 @@ struct AgendaView: View {
                         ForEach(section.items ?? []) { item in
                             EntryListRow(entry: item.entry, key: item.id, open: $open, subtitle: subtitle(item))
                                 .compactEntryRowInsets()
+                                .entryRowBackground(isOpen: open == item.id)
                         }
                     }
                 }

@@ -285,10 +285,18 @@ struct TreeRow: Identifiable {
     }
 }
 
-/// The leading part every tree line shares: its depth's indentation and
-/// the column where a chevron goes.
+/// The leading part every tree line shares: the row's inset, its depth's
+/// indentation, and the column where a chevron goes.
+private let treeRowInset: CGFloat = 6
 private let treeIndent: CGFloat = 14
 private let chevronWidth: CGFloat = 28
+
+/// A row at `depth`'s guide lines: one under each ancestor's chevron, so
+/// every expanded entry's subtree hangs from a line that runs down past
+/// its last row (the "New entry" row ending its children included).
+private func treeGuides(depth: Int) -> [CGFloat] {
+    (0..<depth).map { d in treeRowInset + CGFloat(d) * treeIndent + chevronWidth / 2 }
+}
 
 /// One line of the tree: indentation, a chevron for an entry with
 /// children, then the shared EntryListRow (whose details open in place).
@@ -323,7 +331,8 @@ private struct TreeRowView: View {
             EntryListRow(entry: entry, key: entry.id, open: $open, hiddenCount: children.isEmpty || isExpanded ? nil : Self.descendants(children))
         }
         .padding(.leading, CGFloat(depth) * treeIndent)
-        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 12))
+        .listRowInsets(EdgeInsets(top: 0, leading: treeRowInset, bottom: 0, trailing: 12))
+        .entryRowBackground(isOpen: open == entry.id, guides: treeGuides(depth: depth))
     }
 
     /// How many entries a collapsed row hides, like the desktop's "(N)".
@@ -373,7 +382,8 @@ private struct AddEntryRow: View {
         }
         .padding(.leading, CGFloat(depth) * treeIndent + chevronWidth + 2)
         .padding(.bottom, isOpen ? 8 : 0)
-        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 12))
+        .listRowInsets(EdgeInsets(top: 0, leading: treeRowInset, bottom: 0, trailing: 12))
+        .entryRowBackground(isOpen: isOpen, guides: treeGuides(depth: depth))
         .onChange(of: isOpen) { _, nowOpen in
             if nowOpen { reset() }
         }

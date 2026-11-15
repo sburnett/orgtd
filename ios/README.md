@@ -182,7 +182,10 @@ either.
 - **Details in place:** tap any entry in Outline or Agenda to
   open its details right there in the list, under its parent and above
   its children: full title, dates, notes (links tappable), tags and
-  properties. Tap it again, or open another, to close it.
+  properties. Tap it again, or open another, to close it. An open
+  entry's row is tinted, which sets its details apart from its children
+  below. In Outline, a thin line runs down from each expanded entry's
+  chevron past its last child.
 - **Changing an entry's state:** long-press any entry and pick a
   keyword, or use the state menu in its open details. This works as desktop `r` does: a done state stamps
   `CLOSED`, leaving one clears it, and completing a repeating item
