@@ -24,6 +24,10 @@ final class AppModel {
     private(set) var tags: [String] = []
     private(set) var busy: String?        // what's running, for the Sync button
     var lastError: String?                // the latest failure, shown until dismissed or replaced
+    /// A failure of something the user just did (a state change, a
+    /// delete), shown as an alert right away rather than only on the
+    /// Sync button's icon.
+    var actionError: String?
 
     private let defaults = UserDefaults.standard
 
@@ -196,17 +200,38 @@ final class AppModel {
     }
 
     func deleteCapture(id: String) async {
-        await run("Deleting…") { try await self.core.delete(captureID: id, author: self.author) }
+        let ok = await run("Deleting…") { try await self.core.delete(captureID: id, author: self.author) }
+        if !ok { actionError = lastError }
         await reloadAll()
     }
 
     /// Changes an entry's TODO keyword ("" for none), committed locally
     /// at once and pushed on the next Sync.
     func setState(of entry: Entry, to keyword: String) async {
-        await run("Saving…") {
+        let ok = await run("Saving…") {
             try await self.core.setState(entryID: entry.id, keyword: keyword, author: self.author)
         }
+        if !ok { actionError = lastError }
         await reloadAll()
+    }
+
+    /// The entry being edited, for the Edit sheet.
+    var editingEntry: Entry?
+
+    /// Saves the Edit sheet's form for `entry`; only fields that changed
+    /// are written. Returns whether it worked (the sheet shows lastError
+    /// otherwise).
+    func edit(_ entry: Entry, to form: CaptureDraft) async -> Bool {
+        let ok = await run("Saving…") {
+            try await self.core.editEntry(entryID: entry.id, form: form, author: self.author)
+        }
+        await reloadAll()
+        return ok
+    }
+
+    /// Every configured keyword, done ones included (editing can set any).
+    var allKeywords: [KeywordOption] {
+        status.keywords.map { KeywordOption(name: $0.name, color: $0.color) }
     }
 
     /// Forgets the dropped state changes once they've been shown.

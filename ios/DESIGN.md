@@ -502,3 +502,17 @@ README/DESIGN.md current (per repo convention).
     might already set it: changes are refused in any file
     `.gitattributes` gives `merge=union`, which would duplicate the
     edited line (`gitsync.UnionMerged`).
+- **Editing entries.** The same queued change can also carry an
+  `EntryEdit`: title, tags, body, SCHEDULED and DEADLINE, each set only
+  if the user changed it.
+  - `mobilecore.EditEntry` compares the form against the values it was
+    filled with (`entry.ScheduledInput`/`DeadlineInput`, dates without
+    cookies; the dedented body), so untouched fields aren't rewritten.
+  - On replay, `patchEntry` rewrites only what changed: the headline
+    line, the planning line, and the body. The body is re-indented to
+    its old common indentation, and the property drawer and the entry's
+    trailing blank lines are kept.
+  - A changed date keeps the old timestamp's repeater and warning
+    cookies (`reschedule`).
+  - Commit message: "Edit: <new title>". The pending marker follows a
+    renamed entry.

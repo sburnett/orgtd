@@ -1020,15 +1020,17 @@ runs interactively from inside orgtd, so they're config-file only.
 ## iOS companion
 
 `ios/` holds an iPhone app for the same org directory. It captures into
-the inbox (in the app, or from the share sheet), changes entries' TODO
-states, and shows an agenda, inbox and outline.
+the inbox (in the app, or from the share sheet), edits entries (TODO
+state, title, notes, tags, dates), and shows an agenda, inbox and
+outline.
 
 - **Hosting:** the org directory must be a git repository on a server
   the phone can reach over SSH. Your own machine is fine; nothing needs
   to be hosted by a third party.
 - **What the phone writes:** new entries appended to `inbox_file`, and
-  keyword changes to existing entries (with `CLOSED` and repeaters
-  handled as `r` does), touching only that entry's lines. Everything is
+  edits to existing entries (keyword changes with `CLOSED` and repeaters
+  handled as `r` does; title, notes, tags and dates), touching only the
+  changed lines of that entry. Everything is
   committed to a `mobile` branch you merge into your main branch
   yourself (a normal merge or fast-forward).
 - **Settings:** it reads the keywords, inbox name, agenda window and

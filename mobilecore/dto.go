@@ -9,21 +9,26 @@ type entry struct {
 	// ID locates the entry: "<file path relative to the org dir>:<index
 	// path>", e.g. "work.org:0.2" is the third child of the file's first
 	// top-level headline. Stable until the file changes.
-	ID         string     `json:"id"`
-	File       string     `json:"file"`      // path relative to the org dir, e.g. "work.org" or "reference/wifi.org"
-	Ancestors  []string   `json:"ancestors"` // titles from the top-level headline down to the parent
-	Level      int        `json:"level"`     // 1 for top-level
-	Keyword    string     `json:"keyword"`   // "" if none
-	Done       bool       `json:"done"`      // Keyword is a done state
-	Priority   string     `json:"priority"`  // "" if none
-	Title      string     `json:"title"`
-	Tags       []string   `json:"tags"`
-	Scheduled  string     `json:"scheduled"` // raw timestamp text, e.g. "2026-11-18 Wed +1w"; "" if none
-	Deadline   string     `json:"deadline"`
-	Closed     string     `json:"closed"`
-	Properties []property `json:"properties"`
-	Body       string     `json:"body"`               // body text, dedented
-	Children   []entry    `json:"children,omitempty"` // outline only
+	ID        string   `json:"id"`
+	File      string   `json:"file"`      // path relative to the org dir, e.g. "work.org" or "reference/wifi.org"
+	Ancestors []string `json:"ancestors"` // titles from the top-level headline down to the parent
+	Level     int      `json:"level"`     // 1 for top-level
+	Keyword   string   `json:"keyword"`   // "" if none
+	Done      bool     `json:"done"`      // Keyword is a done state
+	Priority  string   `json:"priority"`  // "" if none
+	Title     string   `json:"title"`
+	Tags      []string `json:"tags"`
+	Scheduled string   `json:"scheduled"` // raw timestamp text, e.g. "2026-11-18 Wed +1w"; "" if none
+	// ScheduledInput and DeadlineInput are the dates as the edit form
+	// shows them ("2026-11-18", or "2026-11-18 14:00"); EditEntry
+	// compares against these to tell what changed.
+	ScheduledInput string     `json:"scheduledInput"`
+	DeadlineInput  string     `json:"deadlineInput"`
+	Deadline       string     `json:"deadline"`
+	Closed         string     `json:"closed"`
+	Properties     []property `json:"properties"`
+	Body           string     `json:"body"`               // body text, dedented
+	Children       []entry    `json:"children,omitempty"` // outline only
 	// Pending is set (in Inbox) on an entry that is a capture still in
 	// the queue — not yet merged into the base branch — with CaptureID
 	// naming it, so it can be edited or deleted.

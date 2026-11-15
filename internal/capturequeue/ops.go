@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// StateOp is a TODO-keyword change made on the phone to an existing
-// entry, waiting to be merged. Like a capture, it lives in a queue and is
+// StateOp is a change made on the phone to an existing entry — its TODO
+// keyword, and with Edit its other fields too — waiting to be merged. Like a capture, it lives in a queue and is
 // replayed onto the base branch on every rebuild; unlike a capture, it
 // has to find its entry again, by file, title path and fingerprint (see
 // internal/gitsync), and is dropped if the entry has changed since.
@@ -27,9 +27,35 @@ type StateOp struct {
 	Fingerprint string `json:"fingerprint"`
 	From        string `json:"from"` // keyword before ("" for none)
 	To          string `json:"to"`   // keyword after
+	// Edit, when set, also changes the entry's other fields — only
+	// those the user actually changed, so untouched ones (a date's
+	// repeater, say) are left exactly as written.
+	Edit *EntryEdit `json:"edit,omitempty"`
 }
 
-// Title is the entry's own title.
+// EntryEdit is the fields an edit changes; nil means unchanged.
+type EntryEdit struct {
+	Title *string   `json:"title,omitempty"`
+	Tags  *[]string `json:"tags,omitempty"`
+	// Body is the entry's notes, dedented (indentation is restored on
+	// writing).
+	Body *string `json:"body,omitempty"`
+	// Scheduled and Deadline are "YYYY-MM-DD" or "YYYY-MM-DD HH:MM", or
+	// "" to remove. A changed date keeps the old timestamp's repeater
+	// and warning cookies, as org-mode's rescheduling does.
+	Scheduled *string `json:"scheduled,omitempty"`
+	Deadline  *string `json:"deadline,omitempty"`
+}
+
+// NewTitle is the entry's title once the op is applied.
+func (o StateOp) NewTitle() string {
+	if o.Edit != nil && o.Edit.Title != nil {
+		return *o.Edit.Title
+	}
+	return o.Title()
+}
+
+// Title is the entry's own title (before the op).
 func (o StateOp) Title() string {
 	if len(o.Path) == 0 {
 		return ""

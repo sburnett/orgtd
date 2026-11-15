@@ -20,6 +20,7 @@ struct MainTabs: View {
     @State private var showSettings = false
 
     var body: some View {
+        @Bindable var model = model
         TabView {
             tab { InboxView(capture: { capture = model.newCapture() }, edit: { capture = $0 }) }
                 .tabItem { Label("Inbox", systemImage: "tray") }
@@ -32,14 +33,26 @@ struct MainTabs: View {
         .sheet(item: $capture) { draft in
             CaptureSheet(draft: draft)
         }
+        .sheet(item: $model.editingEntry) { entry in
+            EditEntrySheet(entry: entry)
+        }
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsView() }
+        }
+        .alert("That didn't work", isPresented: actionErrorAlert) {
+            Button("OK") { model.actionError = nil }
+        } message: {
+            Text(model.actionError ?? "")
         }
         .alert("Some changes couldn't be applied", isPresented: droppedAlert) {
             Button("OK") { Task { await model.dismissDropped() } }
         } message: {
             Text(droppedMessage)
         }
+    }
+
+    private var actionErrorAlert: Binding<Bool> {
+        Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } })
     }
 
     /// State changes dropped because their entry changed on the desktop

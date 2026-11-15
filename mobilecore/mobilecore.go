@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -421,7 +422,8 @@ func load(groupDir string) (*loaded, error) {
 		return nil, err
 	}
 	for _, o := range ops {
-		l.changed[changedKey(o.File, o.Path)] = true
+		path := append(append([]string{}, o.Path[:len(o.Path)-1]...), o.NewTitle())
+		l.changed[changedKey(o.File, path)] = true
 	}
 	return l, nil
 }
@@ -460,6 +462,9 @@ func (l *loaded) toEntry(f *org.File, h *org.Headline, idx []int, withChildren b
 		Deadline:  rawOrEmpty(h.Deadline),
 		Closed:    rawOrEmpty(h.Closed),
 		Body:      dedentBody(h),
+
+		ScheduledInput: dateInput(h.Scheduled),
+		DeadlineInput:  dateInput(h.Deadline),
 	}
 	e.PendingState = l.changed[changedKey(e.File, gitsync.TitlePath(h))]
 	e.Properties = []property{}
@@ -576,6 +581,136 @@ func SetState(groupDir, entryID, keyword string, nowUnix int64, authorName, auth
 		return err
 	}
 	return rebuild(groupDir, authorName, authorEmail)
+}
+
+// entryForm is EditEntry's input: the edit form's fields, the same shape
+// as a capture's (capture.Capture).
+type entryForm struct {
+	Keyword   string   `json:"keyword"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Tags      []string `json:"tags"`
+	Scheduled string   `json:"scheduled"`
+	Deadline  string   `json:"deadline"`
+}
+
+// EditEntry edits the entry entryID (an entry DTO's ID) to the form in
+// editJSON: keyword, title, body (dedented, as entry.Body), tags,
+// scheduled and deadline (as entry.ScheduledInput/DeadlineInput). Only
+// the fields that differ from the entry are changed, so an untouched
+// date keeps its repeater and time as written; a changed one keeps its
+// repeater. Like SetState, the edit is queued, committed locally at once,
+// replayed on every rebuild, and dropped if the entry changes on the
+// desktop first. A still-pending capture is edited with
+// UpdatePendingCapture instead.
+func EditEntry(groupDir, entryID, editJSON string, nowUnix int64, authorName, authorEmail string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	var form entryForm
+	if err := json.Unmarshal([]byte(editJSON), &form); err != nil {
+		return fmt.Errorf("mobilecore: bad edit JSON: %w", err)
+	}
+	if strings.TrimSpace(form.Title) == "" {
+		return errors.New("mobilecore: title is required")
+	}
+	l, err := load(groupDir)
+	if err != nil {
+		return err
+	}
+	f, h, err := l.lookup(entryID)
+	if err != nil {
+		return err
+	}
+	rel := l.rel(f)
+	keyword := form.Keyword
+	if keyword != h.Keyword {
+		if l.ws.IsReference(f) {
+			return errors.New("mobilecore: reference material has no TODO state")
+		}
+		if keyword != "" && !l.knownKeyword(keyword) {
+			return fmt.Errorf("mobilecore: %q isn't a configured keyword", keyword)
+		}
+	}
+	for _, d := range []string{form.Scheduled, form.Deadline} {
+		if strings.TrimSpace(d) == "" {
+			continue
+		}
+		if _, _, err := orgdate.ParseFlexible(strings.TrimSpace(d)); err != nil {
+			return err
+		}
+	}
+
+	var e capturequeue.EntryEdit
+	changed := keyword != h.Keyword
+	if title := strings.Join(strings.Fields(form.Title), " "); title != h.Title {
+		e.Title, changed = &title, true
+	}
+	if !sameTags(form.Tags, h.Tags) {
+		tags := form.Tags
+		e.Tags, changed = &tags, true
+	}
+	if body := strings.TrimRight(form.Body, " \t\n"); body != strings.TrimRight(dedentBody(h), " \t\n") {
+		e.Body, changed = &body, true
+	}
+	if s := strings.TrimSpace(form.Scheduled); s != dateInput(h.Scheduled) {
+		e.Scheduled, changed = &s, true
+	}
+	if d := strings.TrimSpace(form.Deadline); d != dateInput(h.Deadline) {
+		e.Deadline, changed = &d, true
+	}
+	if !changed {
+		return nil
+	}
+	if gitsync.UnionMerged(repoDir(groupDir), rel) {
+		return fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate edited entries; remove that line (on your computer) to edit entries there from the phone", rel)
+	}
+	op := gitsync.NewStateOp(rel, h, keyword, now(nowUnix))
+	op.Edit = &e
+	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
+		return err
+	}
+	return rebuild(groupDir, authorName, authorEmail)
+}
+
+// dateInputRe picks the date and optional time out of a timestamp's
+// text, skipping the weekday and any repeater or warning cookie:
+// "2026-10-20 Tue 14:00 +1m" → "2026-10-20", "14:00".
+var dateInputRe = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})(?:\s+[^\s\d+.-]+)?(?:\s+(\d{1,2}:\d{2}))?`)
+
+// dateInput is a SCHEDULED/DEADLINE as the edit form shows it:
+// "2026-10-20" or "2026-10-20 14:00" ("" for none). Cookies aren't shown;
+// an edit that changes the date keeps them (see gitsync's reschedule).
+func dateInput(ts *org.Timestamp) string {
+	if ts == nil {
+		return ""
+	}
+	m := dateInputRe.FindStringSubmatch(ts.Raw)
+	if m == nil {
+		return ts.Raw
+	}
+	if m[2] != "" {
+		return m[1] + " " + m[2]
+	}
+	return m[1]
+}
+
+func (l *loaded) knownKeyword(name string) bool {
+	for _, k := range l.cfg.Keywords {
+		if k.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func sameTags(a, b []string) bool {
+	var clean []string
+	for _, t := range a {
+		if t = org.SanitizeTag(strings.Trim(strings.TrimSpace(t), ":")); t != "" {
+			clean = append(clean, t)
+		}
+	}
+	return strings.Join(clean, ":") == strings.Join(b, ":")
 }
 
 // lookup resolves an entry ID ("<file>:<i>.<j>...", see entry.ID).

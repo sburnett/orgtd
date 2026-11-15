@@ -180,6 +180,14 @@ struct EntryDetailView: View {
         }
         .navigationTitle(entry.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { model.editingEntry = entry } label: {
+                    Image(systemName: "pencil")
+                }
+                .accessibilityLabel("Edit")
+            }
+        }
     }
 }
 
@@ -237,11 +245,25 @@ extension View {
     @ViewBuilder
     func stateContextMenu(_ entry: Entry) -> some View {
         if entry.isReference {
-            self
+            contextMenu { EditMenuItem(entry: entry) }
         } else {
             contextMenu {
+                EditMenuItem(entry: entry)
                 Section("Set state") { StateMenuItems(entry: entry) }
             }
+        }
+    }
+}
+
+struct EditMenuItem: View {
+    @Environment(AppModel.self) private var model
+    let entry: Entry
+
+    var body: some View {
+        Button {
+            model.editingEntry = entry
+        } label: {
+            SwiftUI.Label("Edit…", systemImage: "pencil")
         }
     }
 }

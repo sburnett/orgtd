@@ -12,6 +12,8 @@ import (
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // fixtureNow is a moment the testdata/orgdir dates are written around.
@@ -446,5 +448,92 @@ func TestSetStateRefusals(t *testing.T) {
 	err := SetState(g, e.ID, "DONE", fixtureNow, "P", "p@x")
 	if err == nil || !strings.Contains(err.Error(), "merge=union") {
 		t.Errorf("SetState in a union-merged file = %v", err)
+	}
+}
+
+func formFor(e entry) map[string]any {
+	return map[string]any{
+		"keyword": e.Keyword, "title": e.Title, "body": e.Body, "tags": e.Tags,
+		"scheduled": e.ScheduledInput, "deadline": e.DeadlineInput,
+	}
+}
+
+func editJSON(t *testing.T, form map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestEditEntryUnchangedFormIsANoOp(t *testing.T) {
+	g, _ := setup(t)
+	e := findEntry(t, g, "Pay credit card")
+	if err := EditEntry(g, e.ID, editJSON(t, formFor(e)), fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 0 {
+		t.Errorf("an unchanged form queued %d changes", st.PendingStates)
+	}
+}
+
+func TestEditEntryChangesOnlyWhatChanged(t *testing.T) {
+	g, _ := setup(t)
+	e := findEntry(t, g, "Pay credit card")
+	form := formFor(e)
+	form["title"] = "Pay the credit card bill"
+	form["tags"] = []string{"money"}
+	form["body"] = "Autopay is off this month"
+	if err := EditEntry(g, e.ID, editJSON(t, form), fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	after := findEntry(t, g, "Pay the credit card bill")
+	if after.Scheduled != e.Scheduled || !strings.Contains(after.Scheduled, "+1m") {
+		t.Errorf("scheduled = %q, want it untouched (%q)", after.Scheduled, e.Scheduled)
+	}
+	if strings.Join(after.Tags, ",") != "money" || after.Body != "Autopay is off this month" || !after.PendingState {
+		t.Errorf("after edit: %+v", after)
+	}
+	data, _ := os.ReadFile(filepath.Join(repoDir(g), "personal.org"))
+	if !strings.Contains(string(data), "** TODO Pay the credit card bill   :money:\n   SCHEDULED: <2026-10-20 Tue +1m>\n   Autopay is off this month\n") {
+		t.Errorf("personal.org = %s", data)
+	}
+}
+
+func TestEditEntryRefusals(t *testing.T) {
+	g, _ := setup(t)
+	e := findEntry(t, g, "Pay credit card")
+	for name, change := range map[string]map[string]any{
+		"blank title":     {"title": "  "},
+		"unknown keyword": {"keyword": "SHIPPED"},
+		"bad date":        {"deadline": "someday"},
+	} {
+		form := formFor(e)
+		for k, v := range change {
+			form[k] = v
+		}
+		if err := EditEntry(g, e.ID, editJSON(t, form), fixtureNow, "P", "p@x"); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	form := formFor(e)
+	form["keyword"] = "DONE" // done keywords are fine when editing (not when capturing)
+	if err := EditEntry(g, e.ID, editJSON(t, form), fixtureNow, "P", "p@x"); err != nil {
+		t.Errorf("DONE via edit: %v", err)
+	}
+}
+
+func TestDateInputSkipsWeekdayAndCookies(t *testing.T) {
+	for raw, want := range map[string]string{
+		"2026-10-20 Tue":            "2026-10-20",
+		"2026-10-20 Tue +1m":        "2026-10-20",
+		"2026-10-20 Tue 14:00 .+1w": "2026-10-20 14:00",
+		"2026-10-20 14:00 -3d":      "2026-10-20 14:00",
+		"2026-10-20":                "2026-10-20",
+	} {
+		if got := dateInput(&org.Timestamp{Raw: raw}); got != want {
+			t.Errorf("dateInput(%q) = %q, want %q", raw, got, want)
+		}
 	}
 }

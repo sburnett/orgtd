@@ -22,6 +22,8 @@ struct Entry: Codable, Identifiable, Hashable {
     var pending: Bool?
     var captureId: String?
     var pendingState: Bool?
+    var scheduledInput: String?
+    var deadlineInput: String?
 
     var isPending: Bool { pending ?? false }
     /// Its state was changed on this phone and isn't merged yet.

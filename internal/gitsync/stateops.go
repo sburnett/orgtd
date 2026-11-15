@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ func TitlePath(h *org.Headline) []string {
 func findEntry(f *org.File, op capturequeue.StateOp) (*org.Headline, error) {
 	var found *org.Headline
 	org.Walk(f.Headlines, func(h *org.Headline) {
-		if found != nil || h.Title != op.Title() || h.Level != len(op.Path) {
+		if found != nil || h.Title != op.Title() {
 			return
 		}
 		if strings.Join(TitlePath(h), "\x00") == strings.Join(op.Path, "\x00") && Fingerprint(h) == op.Fingerprint {
@@ -95,7 +96,10 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if h.SrcEnd > len(lines) || h.SrcStart >= h.SrcEnd {
 		return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.Title())
 	}
-	own := patchEntry(lines[h.SrcStart:h.SrcEnd], h, op.To, op.CreatedAt)
+	own, err := patchEntry(lines[h.SrcStart:h.SrcEnd], h, op)
+	if err != nil {
+		return err
+	}
 	out := append(append(append([]string{}, lines[:h.SrcStart]...), own...), lines[h.SrcEnd:]...)
 	text := strings.Join(out, "\n")
 	if len(data) > 0 && data[len(data)-1] == '\n' {
@@ -104,20 +108,52 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	return writeFileAtomic(p, []byte(text))
 }
 
-// patchEntry returns h's own lines (as in the file) with h changed to
-// keyword at the time at, rewriting only the lines that change: the
-// headline line, the planning line if it changes (added or removed as
-// needed), and, for a repeating item, the LAST_REPEAT property (in the
-// existing drawer, or a new one). Every other line is kept byte for byte.
-func patchEntry(own []string, h *org.Headline, keyword string, at time.Time) []string {
+// patchEntry returns h's own lines (as in the file) with op applied,
+// rewriting only the lines that change: the headline line (keyword,
+// title, tags), the planning line (added or removed as needed), the
+// LAST_REPEAT property when completing a repeating item, and the body
+// when an edit changes it. Every other line — the property drawer above
+// all — is kept byte for byte.
+func patchEntry(own []string, h *org.Headline, op capturequeue.StateOp) ([]string, error) {
 	hadPlanning := h.Scheduled != nil || h.Deadline != nil || h.Closed != nil
 	oldPlanning := org.PlanningLine(h)
-	sc := orgdate.ChangeState(h, keyword, at)
-	sc.Apply(h)
+	oldHead, _, _ := strings.Cut(org.RenderEntry(h), "\n")
 	indent := strings.Repeat(" ", h.Level+1)
+	bodyIndent := commonIndent(h.TrimmedBody(), indent)
 
-	headline, _, _ := strings.Cut(org.RenderEntry(h), "\n")
-	out := []string{headline}
+	sc := orgdate.ChangeState(h, op.To, op.CreatedAt)
+	sc.Apply(h)
+
+	var newBody []string
+	bodyChanged := false
+	if e := op.Edit; e != nil {
+		if e.Title != nil {
+			h.Title = strings.Join(strings.Fields(*e.Title), " ")
+		}
+		if e.Tags != nil {
+			h.Tags = cleanTags(*e.Tags)
+		}
+		var err error
+		if e.Scheduled != nil {
+			if h.Scheduled, err = reschedule(h.Scheduled, *e.Scheduled); err != nil {
+				return nil, err
+			}
+		}
+		if e.Deadline != nil {
+			if h.Deadline, err = reschedule(h.Deadline, *e.Deadline); err != nil {
+				return nil, err
+			}
+		}
+		if e.Body != nil {
+			bodyChanged = true
+			newBody = indentBody(*e.Body, bodyIndent)
+		}
+	}
+
+	out := []string{own[0]}
+	if head, _, _ := strings.Cut(org.RenderEntry(h), "\n"); head != oldHead {
+		out[0] = head
+	}
 	rest := own[1:]
 	newPlanning := org.PlanningLine(h)
 	switch {
@@ -135,7 +171,127 @@ func patchEntry(own []string, h *org.Headline, keyword string, at time.Time) []s
 	if sc.Repeat {
 		rest = setProperty(rest, indent, "LAST_REPEAT", sc.LastRepeat)
 	}
-	return append(out, rest...)
+	if bodyChanged {
+		rest = replaceBody(rest, newBody)
+	}
+	return append(out, rest...), nil
+}
+
+// cookieRe matches a timestamp's repeater ("+1w", "++1w", ".+1w") or
+// warning ("-3d", "--3d") cookie.
+var cookieRe = regexp.MustCompile(`(?:\.\+|\+\+|\+|--|-)\d+[hdwmy]`)
+
+// reschedule is a SCHEDULED/DEADLINE set to value ("YYYY-MM-DD",
+// optionally " HH:MM"; "" removes it), keeping old's repeater and warning
+// cookies, as org-mode's rescheduling does.
+func reschedule(old *org.Timestamp, value string) (*org.Timestamp, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	t, hasTime, err := orgdate.ParseFlexible(value)
+	if err != nil {
+		return nil, fmt.Errorf("gitsync: %w", err)
+	}
+	layout := "2006-01-02 Mon"
+	if hasTime {
+		layout = "2006-01-02 Mon 15:04"
+	}
+	raw := t.Format(layout)
+	if old != nil {
+		for _, c := range cookieRe.FindAllString(old.Raw, -1) {
+			raw += " " + c
+		}
+	}
+	return &org.Timestamp{Active: true, Raw: raw}, nil
+}
+
+// cleanTags makes tags valid org tags, dropping blanks and duplicates.
+func cleanTags(tags []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = org.SanitizeTag(strings.Trim(strings.TrimSpace(t), ":"))
+		if t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// commonIndent is the leading whitespace every non-blank line of lines
+// shares, or fallback if there are none.
+func commonIndent(lines []string, fallback string) string {
+	common := ""
+	first := true
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		lead := l[:len(l)-len(strings.TrimLeft(l, " \t"))]
+		if first {
+			common, first = lead, false
+			continue
+		}
+		for !strings.HasPrefix(lead, common) {
+			common = common[:len(common)-1]
+		}
+	}
+	if first {
+		return fallback
+	}
+	return common
+}
+
+// indentBody turns edited notes (dedented text) back into body lines.
+func indentBody(text, indent string) []string {
+	text = strings.TrimRight(strings.ReplaceAll(text, "\r\n", "\n"), " \t\n")
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimRight(l, " \t")
+		if l == "" {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, indent+l)
+	}
+	return out
+}
+
+// replaceBody swaps the body lines among rest (an entry's own lines after
+// its planning) for body: the property drawer, if any, is kept as is,
+// followed by the new body, then the blank lines the entry ended with.
+func replaceBody(rest, body []string) []string {
+	var drawer, other []string
+	in := false
+	for _, l := range rest {
+		t := strings.TrimSpace(l)
+		switch {
+		case !in && t == ":PROPERTIES:" && drawer == nil:
+			in = true
+			drawer = append(drawer, l)
+		case in:
+			drawer = append(drawer, l)
+			if t == ":END:" {
+				in = false
+			}
+		default:
+			other = append(other, l)
+		}
+	}
+	trailing := 0
+	for i := len(other) - 1; i >= 0 && strings.TrimSpace(other[i]) == ""; i-- {
+		trailing++
+	}
+	out := append(append([]string{}, drawer...), body...)
+	for range trailing {
+		out = append(out, "")
+	}
+	return out
 }
 
 // setProperty sets key in the property drawer among lines (an entry's

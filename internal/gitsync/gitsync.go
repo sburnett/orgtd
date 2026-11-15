@@ -382,6 +382,9 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 		}
 		sig := &object.Signature{Name: r.Author.Name, Email: r.Author.Email, When: op.CreatedAt}
 		msg := fmt.Sprintf("Set %s: %s → %s", op.Title(), orNone(op.From), orNone(op.To))
+		if op.Edit != nil {
+			msg = "Edit: " + op.NewTitle()
+		}
 		if _, err := wt.Commit(msg, &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
 			return fmt.Errorf("gitsync: committing state change %q: %w", op.Title(), err)
 		}

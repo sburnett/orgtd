@@ -1,8 +1,8 @@
 # orgtd for iOS
 
 An iPhone companion to orgtd: capture into the inbox (in the app or from
-the share sheet), read the agenda, inbox and outline, and change entries'
-TODO states. New captures are appended to `inbox_file`, and state
+the share sheet), read the agenda, inbox and outline, and edit entries
+(their TODO state, title, notes, tags and dates). New captures are appended to `inbox_file`, and state
 changes rewrite just the changed entry's own lines; both are committed
 to a `mobile` branch, which you merge on your computer.
 The design is in [DESIGN.md](DESIGN.md).
@@ -167,6 +167,17 @@ either.
   - The phone won't change states in a file whose `.gitattributes`
     entry sets `merge=union`, since a union merge would duplicate the
     edited line.
+- **Editing an entry:** tap the pencil on its details, or pick **Edit…**
+  from its long-press menu. The form is the capture form: keyword,
+  title, notes, tags and dates.
+  - Only the fields you change are written back, rewriting just those
+    lines.
+  - A date you don't touch stays exactly as written, repeater and time
+    included. A date you change keeps its repeater, as rescheduling in
+    org-mode does.
+  - Like state changes, an edit is dropped (and you're told) if the
+    entry changed on your computer before you merged.
+  - A capture that isn't merged yet is edited as a capture.
 
 ## On your computer
 

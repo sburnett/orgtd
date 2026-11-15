@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
+
 	"github.com/sburnett/orgtd/internal/capturequeue"
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -163,9 +166,118 @@ func TestUnionMerged(t *testing.T) {
 func TestKeywordOnlyChangeKeepsThePlanningLineAsWritten(t *testing.T) {
 	own := []string{"** TODO Odd", "   DEADLINE:    <2026-11-20 Fri>", "   body"}
 	f, _ := org.Parse(strings.NewReader(strings.Join(own, "\n")+"\n"), "x.org")
-	got := patchEntry(own, f.Headlines[0], "NEXT", opTime)
+	got, _ := patchEntry(own, f.Headlines[0], capturequeue.StateOp{From: "TODO", To: "NEXT", CreatedAt: opTime})
 	want := []string{"** NEXT Odd", "   DEADLINE:    <2026-11-20 Fri>", "   body"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("patched = %q", got)
 	}
+}
+
+// TestStateChangeUnderASkippedLevel: an entry's level needn't equal its
+// depth ("*" then "***" is valid org), so matching is by title path.
+func TestStateChangeUnderASkippedLevel(t *testing.T) {
+	f := newOpsFixture(t)
+	f.macCommit("deep.org", "* Parent\n*** TODO Skipped level\n", "deep")
+	f.macPush()
+	if err := f.phone.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	f.queueOp("deep.org", "Skipped level", "DONE")
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "deep.org"))
+	if !strings.Contains(string(data), "*** DONE Skipped level\n") {
+		t.Errorf("deep.org = %q", data)
+	}
+	if s, _ := f.phone.LoadState(); len(s.Dropped) != 0 {
+		t.Errorf("dropped = %+v", s.Dropped)
+	}
+}
+
+func (f *fixture) queueEdit(file, title string, edit capturequeue.EntryEdit, keyword string) {
+	f.t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.phone.Dir, file))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	var h *org.Headline
+	org.Walk(of.Headlines, func(x *org.Headline) {
+		if x.Title == title {
+			h = x
+		}
+	})
+	if h == nil {
+		f.t.Fatalf("no entry %q", title)
+	}
+	if keyword == "" {
+		keyword = h.Keyword
+	}
+	op := NewStateOp(file, h, keyword, opTime)
+	op.Edit = &edit
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, op); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func TestEditRewritesOnlyWhatChanged(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueEdit("work.org", "Write report", capturequeue.EntryEdit{
+		Title: ptr("Write the quarterly report"),
+		Tags:  ptr([]string{"q4", "writing"}),
+		Body:  ptr("First draft by Friday\n  - outline\n  - numbers"),
+	}, "")
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	want := strings.Replace(workOrg, `** TODO Write report
+   :PROPERTIES:
+   :CREATED:  [2026-11-01 Sun 10:00]
+   :END:
+`, `** TODO Write the quarterly report   :q4:writing:
+   :PROPERTIES:
+   :CREATED:  [2026-11-01 Sun 10:00]
+   :END:
+   First draft by Friday
+     - outline
+     - numbers
+`, 1)
+	if string(data) != want {
+		t.Errorf("work.org =\n%s\nwant\n%s", data, want)
+	}
+	repo := gitLog(t, f.phone.Dir)
+	if !strings.Contains(repo, "Edit: Write the quarterly report") {
+		t.Errorf("commits: %s", repo)
+	}
+}
+
+func TestEditingADateKeepsItsRepeater(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueEdit("work.org", "Water plants", capturequeue.EntryEdit{Scheduled: ptr("2026-11-21")}, "")
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	if !strings.Contains(string(data), "** TODO Water plants\n   SCHEDULED: <2026-11-21 Sat +1w>\n") {
+		t.Errorf("work.org = %s", data)
+	}
+}
+
+func TestEditRemovingADateAndChangingKeyword(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueEdit("work.org", "Water plants", capturequeue.EntryEdit{Scheduled: ptr("")}, "NEXT")
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	if !strings.Contains(string(data), "** NEXT Water plants\n*   Other   heading\n") {
+		t.Errorf("work.org = %s", data)
+	}
+}
+
+func gitLog(t *testing.T, dir string) string {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iter, _ := repo.Log(&git.LogOptions{})
+	var msgs []string
+	iter.ForEach(func(c *object.Commit) error { msgs = append(msgs, c.Message); return nil })
+	return strings.Join(msgs, "\n")
 }

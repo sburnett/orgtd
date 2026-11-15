@@ -97,6 +97,12 @@ actor CoreClient {
         _ = try CoreClient.check { MobilecoreSetState(groupDir, entryID, keyword, now, author.name, author.email, $0) }
     }
 
+    func editEntry(entryID: String, form: CaptureDraft, author: Author) throws {
+        let json = try form.json()
+        let now = self.now
+        _ = try CoreClient.check { MobilecoreEditEntry(groupDir, entryID, json, now, author.name, author.email, $0) }
+    }
+
     func dismissDropped() throws {
         _ = try CoreClient.check { MobilecoreDismissDropped(groupDir, $0) }
     }
