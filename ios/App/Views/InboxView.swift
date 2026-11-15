@@ -17,16 +17,9 @@ struct InboxView: View {
                 }
                 ForEach(inbox.entries) { entry in
                     NavigationLink(value: entry) {
-                        HStack {
-                            EntryRow(entry: entry)
-                            if entry.isPending {
-                                Spacer()
-                                Image(systemName: "clock.badge")
-                                    .foregroundStyle(.orange)
-                                    .accessibilityLabel("Pending")
-                            }
-                        }
+                        CompactEntryRow(entry: entry)
                     }
+                    .compactEntryRowInsets()
                     .swipeActions(edge: .trailing) {
                         if let id = entry.captureId {
                             Button(role: .destructive) {
@@ -43,6 +36,7 @@ struct InboxView: View {
                 }
             }
         }
+        .compactEntryList()
         .navigationTitle("Inbox")
         .safeAreaInset(edge: .bottom) {
             Button(action: capture) {

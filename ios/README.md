@@ -142,13 +142,15 @@ either.
     right away.
   - There are no retries, timers or background activity. The app only
     touches the network while it's open.
-  - The status line shows "Can't reach server" with when it last
-    fetched. Captures, including ones from the share sheet, still show
-    up and wait for the next sync that gets through.
+  - The Sync button shows a crossed-out Wi-Fi symbol. Captures,
+    including ones from the share sheet, still show up and wait for the
+    next sync that gets through.
 - **Sync** (↻) pushes. `mobile` is rebuilt as your main branch plus
   every capture that isn't merged yet, then force-pushed with a lease.
   If something other than this phone moved `origin/mobile`, the push is
-  refused and the status line says so.
+  refused. The Sync button shows a spinner while it works, and an
+  exclamation mark if it fails; Settings (the gear) has the details,
+  including when the app last fetched and pushed.
 - In Inbox, captures that aren't merged yet show a clock. Swipe one to
   edit or delete it.
 

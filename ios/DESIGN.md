@@ -359,7 +359,9 @@ README/DESIGN.md current (per repo convention).
   server (shows its host key fingerprint to verify) → trust and clone.
 - `CoreClient` actor wrapping `Mobilecore` calls off the main thread.
 - Tab bar: **Inbox** (with a large **Capture** button), **Outline**
-  (with search), **Agenda**; a toolbar **Sync** button and status line.
+  (with search), **Agenda**; a toolbar **Sync** button, whose icon
+  shows sync status (running, unreachable, failed). There is no status
+  line; Settings has the details.
 - Refresh on launch / `scenePhase == .active`; pull-to-refresh on each
   list.
 - Keyword colors from config (hex values map directly; ANSI codes
@@ -373,8 +375,8 @@ README/DESIGN.md current (per repo convention).
   autocomplete from `Tags()`, SCHEDULED/DEADLINE each with a date picker
   and a free-text field run through `ParseDate`.
 - Pending captures badged in Inbox; swipe to edit/delete while pending.
-- Sync button → `Sync`; errors shown in the status line with detail
-  sheet (lease failure, auth failure, network).
+- Sync button → `Sync`; failures shown on the Sync button's icon, with
+  details in Settings (lease failure, auth failure, network).
 - Exit: capture on phone → Sync → merge `mobile` on Mac → desktop orgtd
   shows it in the inbox → phone's next Sync clears its pending badge.
 

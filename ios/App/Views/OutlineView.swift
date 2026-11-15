@@ -23,9 +23,10 @@ struct OutlineView: View {
                         Button {
                             reveal(entry)
                         } label: {
-                            EntryRow(entry: entry, showPlace: true)
+                            CompactEntryRow(entry: entry, subtitle: Text(entry.place))
                         }
                         .buttonStyle(.plain)
+                        .compactEntryRowInsets()
                     }
                 } else if let outline = model.outline {
                     ForEach(outline.files) { file in
@@ -46,20 +47,55 @@ struct OutlineView: View {
                 target = nil
             }
         }
+        .compactEntryList()
         .navigationTitle("Outline")
         .searchable(text: $query, prompt: "Search titles, tags, notes")
         .task(id: query) {
             results = query.isEmpty ? [] : await model.search(query)
         }
         .toolbar {
-            ToolbarItem(placement: .secondaryAction) {
-                Toggle("Show closed items", isOn: $model.showClosed)
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Button("Collapse all") { expanded = [] }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    model.showClosed.toggle()
+                } label: {
+                    Image(systemName: model.showClosed ? "eye" : "eye.slash")
+                }
+                .accessibilityLabel(model.showClosed ? "Hide closed items" : "Show closed items")
+
+                // Collapses everything if anything is open; otherwise
+                // opens everything. The icon shows what a tap will do.
+                let expandable = allExpandable
+                let anyOpen = !expanded.isDisjoint(with: expandable)
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        expanded = anyOpen ? [] : expandable
+                    }
+                } label: {
+                    Image(systemName: anyOpen ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
+                }
+                .accessibilityLabel(anyOpen ? "Collapse all" : "Expand all")
+                .disabled(!query.isEmpty || expandable.isEmpty)
+
+                SyncButton()
             }
         }
         .refreshable { await model.refresh() }
+    }
+
+    /// Every entry in the outline that has children, i.e. everything
+    /// "expand all" opens.
+    private var allExpandable: Set<String> {
+        guard let outline = model.outline else { return [] }
+        var ids = Set<String>()
+        func walk(_ entries: [Entry]) {
+            for e in entries {
+                guard let children = e.children, !children.isEmpty else { continue }
+                ids.insert(e.id)
+                walk(children)
+            }
+        }
+        for file in outline.files + outline.reference { walk(file.entries) }
+        return ids
     }
 
     /// The rows currently visible under `entries`: every entry whose
@@ -104,15 +140,19 @@ struct TreeRow: Identifiable {
     }
 }
 
+/// One line of the tree: indentation, a chevron for an entry with
+/// children, then the shared CompactEntryRow.
 private struct TreeRowView: View {
+    @Environment(AppModel.self) private var model
     let row: TreeRow
     let isExpanded: Bool
     let toggle: () -> Void
 
-    private var children: [Entry] { row.entry.children ?? [] }
+    private var entry: Entry { row.entry }
+    private var children: [Entry] { entry.children ?? [] }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 2) {
+        HStack(alignment: .center, spacing: 2) {
             if children.isEmpty {
                 Color.clear.frame(width: 28, height: 1)
             } else {
@@ -127,19 +167,12 @@ private struct TreeRowView: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(isExpanded ? "Collapse" : "Expand")
             }
-            NavigationLink(value: row.entry) {
-                HStack(alignment: .firstTextBaseline) {
-                    EntryRow(entry: row.entry)
-                    if !children.isEmpty && !isExpanded {
-                        Text("(\(Self.descendants(children)))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            NavigationLink(value: entry) {
+                CompactEntryRow(entry: entry, hiddenCount: children.isEmpty || isExpanded ? nil : Self.descendants(children))
             }
         }
-        .padding(.leading, CGFloat(row.depth) * 16)
-        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 16))
+        .padding(.leading, CGFloat(row.depth) * 14)
+        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 12))
     }
 
     /// How many entries a collapsed row hides, like the desktop's "(N)".

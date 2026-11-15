@@ -15,15 +15,23 @@ struct AgendaView: View {
                     Section(section.name) {
                         ForEach(section.items ?? []) { item in
                             NavigationLink(value: item.entry) {
-                                EntryRow(entry: item.entry, detail: detail(item), showPlace: true)
+                                CompactEntryRow(entry: item.entry, subtitle: subtitle(item))
                             }
+                            .compactEntryRowInsets()
                         }
                     }
                 }
             }
         }
+        .compactEntryList()
         .navigationTitle("Agenda")
         .refreshable { await model.refresh() }
+    }
+
+    /// The date (in the timestamp color), then where the entry lives.
+    private func subtitle(_ item: AgendaItem) -> Text {
+        guard let date = detail(item) else { return Text(item.entry.place) }
+        return Text(date).foregroundColor(model.dateColor) + Text(" · " + item.entry.place)
     }
 
     private func detail(_ item: AgendaItem) -> String? {

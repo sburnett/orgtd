@@ -22,7 +22,7 @@ final class AppModel {
     private(set) var inbox: InboxResult?
     private(set) var outline: OutlineResult?
     private(set) var tags: [String] = []
-    private(set) var busy: String?        // what's running, for the status line
+    private(set) var busy: String?        // what's running, for the Sync button
     var lastError: String?                // the latest failure, shown until dismissed or replaced
 
     private let defaults = UserDefaults.standard

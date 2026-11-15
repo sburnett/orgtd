@@ -1,39 +1,81 @@
 import SwiftUI
 
-/// One entry as a list row: keyword, title, tags, and optional detail
-/// (an agenda date, where it lives).
-struct EntryRow: View {
+/// One entry as a compact list row, the same in every list (inbox,
+/// outline, agenda, search): keyword, title on one line (truncated — the
+/// detail has it whole), an optional "(N)" hidden-count, tags on the
+/// right when the whole line fits (otherwise the title gets the room),
+/// and a clock for a capture that's still pending. `subtitle` adds a
+/// small second line (an agenda date, where a search result lives).
+struct CompactEntryRow: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
-    var detail: String? = nil
-    var showPlace = false
+    var hiddenCount: Int? = nil
+    var subtitle: Text? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if !entry.keyword.isEmpty {
-                    KeywordBadge(name: entry.keyword)
-                }
-                Text(entry.title)
-                    .strikethrough(entry.done)
-                    .foregroundStyle(entry.done ? .secondary : .primary)
+        VStack(alignment: .leading, spacing: 1) {
+            ViewThatFits(in: .horizontal) {
+                line(withTags: true)
+                line(withTags: false)
             }
-            if !entry.tags.isEmpty || detail != nil {
-                HStack(spacing: 8) {
-                    if let detail {
-                        Text(detail).foregroundStyle(model.dateColor)
-                    }
-                    if !entry.tags.isEmpty {
-                        Text(entry.tags.map { ":" + $0 }.joined() + ":")
-                            .foregroundStyle(model.tagColor)
-                    }
-                }
-                .font(.caption)
-            }
-            if showPlace {
-                Text(entry.place).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            if let subtitle {
+                subtitle
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
+        .padding(.vertical, subtitle == nil ? 0 : 3)
+    }
+
+    private func line(withTags: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if !entry.keyword.isEmpty {
+                Text(entry.keyword)
+                    .font(.caption.monospaced())
+                    .fontWeight(model.keyword(entry.keyword)?.bold == true ? .bold : .regular)
+                    .foregroundStyle(model.keywordColor(entry.keyword))
+                    .fixedSize()
+            }
+            Text(entry.title)
+                .font(.body)
+                .strikethrough(entry.done)
+                .foregroundStyle(entry.done ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let hiddenCount {
+                Text("(\(hiddenCount))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+            Spacer(minLength: 4)
+            if withTags && !entry.tags.isEmpty {
+                Text(entry.tags.map { ":" + $0 }.joined() + ":")
+                    .font(.caption)
+                    .foregroundStyle(model.tagColor)
+                    .fixedSize()
+            }
+            if entry.isPending {
+                Image(systemName: "clock.badge")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Pending")
+            }
+        }
+    }
+}
+
+extension View {
+    /// The shared spacing of every entry list: compact rows and sections.
+    func compactEntryList() -> some View {
+        environment(\.defaultMinListRowHeight, 32)
+            .listSectionSpacing(.compact)
+    }
+
+    /// The shared insets of a (non-tree) entry row.
+    func compactEntryRowInsets() -> some View {
+        listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
     }
 }
 
