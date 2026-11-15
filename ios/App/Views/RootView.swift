@@ -67,41 +67,51 @@ struct MainTabs: View {
 extension CaptureDraft: Identifiable {}
 
 /// One line: what's running, or the last error, or sync freshness and
-/// how many captures are waiting.
+/// how many captures are waiting. Every tab has its own copy, so the
+/// relative times are computed from a shared periodic clock (not from
+/// whenever that tab last happened to redraw): all copies agree, and
+/// they stay current while the app sits open.
 struct StatusLine: View {
     @Environment(AppModel.self) private var model
     var openSettings: () -> Void
 
+    /// How often the relative times are recomputed. They're shown to the
+    /// minute ("just now" under one), so this only bounds how late a
+    /// change of minute shows up.
+    private static let tick: TimeInterval = 10
+
     var body: some View {
-        Button(action: openSettings) {
-            HStack(spacing: 6) {
-                if let busy = model.busy {
-                    ProgressView().controlSize(.small)
-                    Text(busy)
-                } else if model.isOffline {
-                    Image(systemName: "wifi.slash")
-                    Text("Can't reach server · " + summary).lineLimit(1)
-                } else if let error = model.lastError ?? nonEmpty(model.status.lastError) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text(error).lineLimit(1)
-                } else {
-                    Text(summary)
+        TimelineView(.periodic(from: .now, by: Self.tick)) { context in
+            Button(action: openSettings) {
+                HStack(spacing: 6) {
+                    if let busy = model.busy {
+                        ProgressView().controlSize(.small)
+                        Text(busy)
+                    } else if model.isOffline {
+                        Image(systemName: "wifi.slash")
+                        Text("Can't reach server · " + summary(now: context.date)).lineLimit(1)
+                    } else if let error = model.lastError ?? nonEmpty(model.status.lastError) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(error).lineLimit(1)
+                    } else {
+                        Text(summary(now: context.date))
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+                .background(.bar)
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal)
-            .padding(.vertical, 6)
-            .background(.bar)
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
-    private var summary: String {
+    private func summary(now: Date) -> String {
         var parts: [String] = []
-        if let fetched = relative(model.status.lastFetch) { parts.append("Fetched \(fetched)") }
-        if let pushed = relative(model.status.lastPush) { parts.append("pushed \(pushed)") }
+        if let fetched = Self.relative(model.status.lastFetch, now: now) { parts.append("Fetched \(fetched)") }
+        if let pushed = Self.relative(model.status.lastPush, now: now) { parts.append("pushed \(pushed)") }
         let s = model.status
         if s.pending > 0 {
             parts.append(s.unpushed > 0 ? "\(s.pending) pending (\(s.unpushed) not pushed)" : "\(s.pending) pending merge")
@@ -111,8 +121,12 @@ struct StatusLine: View {
 
     private func nonEmpty(_ s: String) -> String? { s.isEmpty ? nil : s }
 
-    private func relative(_ iso: String) -> String? {
+    /// "just now" under a minute, then "5 min. ago", "2 hr. ago", ...
+    static func relative(_ iso: String, now: Date) -> String? {
         guard let d = ISO8601DateFormatter().date(from: iso) else { return nil }
-        return RelativeDateTimeFormatter().localizedString(for: d, relativeTo: Date())
+        if now.timeIntervalSince(d) < 60 { return "just now" }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f.localizedString(for: d, relativeTo: now)
     }
 }
