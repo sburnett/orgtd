@@ -137,14 +137,16 @@ final class AppModel {
     /// captures and rebuild (no network); fetch too if the back-off allows.
     func onForeground() async {
         guard isSetUp else { await reloadStatus(); return }
-        if Date() >= nextAutoFetch {
-            await refresh()
-            return
-        }
+        // Local first, so the views show what's on the phone right away
+        // instead of waiting out a fetch (up to the connect timeout when
+        // the server can't be reached).
         await run("Updating…") {
             try await self.core.refreshLocal(author: self.author)
         }
         await reloadAll()
+        if Date() >= nextAutoFetch {
+            await refresh()
+        }
     }
 
     /// Fetch, fold in share-extension captures, and rebuild — never pushes.

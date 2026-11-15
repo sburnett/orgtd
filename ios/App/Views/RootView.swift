@@ -21,13 +21,13 @@ struct MainTabs: View {
 
     var body: some View {
         TabView {
-            tab { AgendaView() }
-                .tabItem { Label("Agenda", systemImage: "calendar") }
-            tab { InboxView(edit: { capture = $0 }) }
+            tab { InboxView(capture: { capture = model.newCapture() }, edit: { capture = $0 }) }
                 .tabItem { Label("Inbox", systemImage: "tray") }
                 .badge(model.status.pending)
             tab { OutlineView() }
                 .tabItem { Label("Outline", systemImage: "list.bullet.indent") }
+            tab { AgendaView() }
+                .tabItem { Label("Agenda", systemImage: "calendar") }
         }
         .sheet(item: $capture) { draft in
             CaptureSheet(draft: draft)
@@ -45,14 +45,12 @@ struct MainTabs: View {
                         Button { showSettings = true } label: { Image(systemName: "gearshape") }
                             .accessibilityLabel("Settings")
                     }
-                    ToolbarItemGroup(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button { Task { await model.sync() } } label: {
                             Image(systemName: "arrow.triangle.2.circlepath")
                         }
                         .disabled(model.busy != nil)
                         .accessibilityLabel("Sync")
-                        Button { capture = model.newCapture() } label: { Image(systemName: "plus") }
-                            .accessibilityLabel("Capture")
                     }
                 }
                 .navigationDestination(for: Entry.self) { EntryDetailView(entry: $0) }

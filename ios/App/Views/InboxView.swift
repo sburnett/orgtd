@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// The inbox file's open top-level items in file order. Captures that
-/// haven't been merged yet are badged, and — since they still live only
-/// in the queue — can be edited or deleted by swiping.
+/// The inbox file's open top-level items in file order, with a large
+/// Capture button at the bottom. Captures that haven't been merged yet
+/// are badged, and — since they still live only in the queue — can be
+/// edited or deleted by swiping.
 struct InboxView: View {
     @Environment(AppModel.self) private var model
+    var capture: () -> Void
     var edit: (CaptureDraft) -> Void
 
     var body: some View {
@@ -41,7 +43,18 @@ struct InboxView: View {
                 }
             }
         }
-        .navigationTitle(model.inbox?.file ?? "Inbox")
+        .navigationTitle("Inbox")
+        .safeAreaInset(edge: .bottom) {
+            Button(action: capture) {
+                Label("Capture", systemImage: "plus")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
         .refreshable { await model.refresh() }
     }
 }

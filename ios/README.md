@@ -123,7 +123,7 @@ either.
 
 ## Day to day
 
-- **+** captures: an optional keyword (your configured, not-done
+- **Capture**, the large button at the bottom of the Inbox, captures: an optional keyword (your configured, not-done
   keywords; new captures start with the one you used last), title,
   notes, tags (autocompleted from your files), and
   SCHEDULED/DEADLINE dates. You can pick a date, or type one the way

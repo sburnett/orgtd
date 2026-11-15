@@ -358,8 +358,8 @@ README/DESIGN.md current (per repo convention).
   with a copy button → enter repo SSH URL and author name/email → check
   server (shows its host key fingerprint to verify) → trust and clone.
 - `CoreClient` actor wrapping `Mobilecore` calls off the main thread.
-- Tab bar: **Agenda**, **Inbox**, **Outline** (with search), and a
-  toolbar **+** (capture) and **Sync** button plus status line.
+- Tab bar: **Inbox** (with a large **Capture** button), **Outline**
+  (with search), **Agenda**; a toolbar **Sync** button and status line.
 - Refresh on launch / `scenePhase == .active`; pull-to-refresh on each
   list.
 - Keyword colors from config (hex values map directly; ANSI codes
