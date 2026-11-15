@@ -1,7 +1,11 @@
 # orgtd for iOS — Design & Implementation Plan
 
-Status: **proposed**, not yet built. This document records the decisions
-made while designing the iOS app and the order in which to build it. The
+Status: **built** (phases 1–9). Phase 0's on-device checks, R1 (App
+Groups under free signing) and a real clone and push from a phone, are
+still unverified: everything was tested in Go and in the simulator only.
+This document records the design decisions and the order the work was
+built in. §10 lists where the build departs from the plan. Build and
+setup instructions are in [README.md](README.md). The
 desktop app's own design is in [../DESIGN.md](../DESIGN.md); its
 behavior is specified by [../README.md](../README.md).
 
@@ -25,7 +29,7 @@ on the Mac. The phone never merges and never resolves a conflict.
 |---|---|
 | Devices / UX | iPhone only, touch-native (lists, sheets, swipe). No hardware-keyboard/vim mode |
 | File access | The org directory is a git repo; the app keeps its own clone |
-| Git host / auth | GitHub over SSH, with an ed25519 key generated on the device and stored in the Keychain; the user adds it as a **write-enabled deploy key** |
+| Git host / auth | Any git server reachable over SSH (originally GitHub; changed so the org files needn't be hosted by a third party — a self-hosted server, typically reached over Tailscale). An ed25519 key generated on the device and stored in the Keychain; the user adds it to the server account's `authorized_keys`, restricted to `git-shell`. The server's host key is shown at setup for the user to verify by fingerprint, then pinned |
 | Phone writes | Append-only to `inbox_file` (default `inbox.org`). No edits, state changes, deletes, or IDs added to existing entries |
 | Branch | All phone changes live on `mobile`. The user merges `mobile` → `main` on the Mac with a normal merge or fast-forward (never squash/cherry-pick) |
 | Commit / push | Each capture is committed automatically; pushing only happens on an explicit **Sync** |
@@ -325,7 +329,7 @@ README/DESIGN.md current (per repo convention).
 - go-git wrapper: `Clone`, `Fetch`, `RebuildMobile(queue)`, `Push` with
   `ForceWithLease`, ancestor check, pushed-tip history in
   `sync-state.json`. SSH auth from an in-memory key (`ssh.NewPublicKeys`),
-  `known_hosts` pinned to GitHub's published host keys.
+  the server's host key pinned (confirmed by fingerprint at setup; see §10).
 - Tests against a local bare repo (file:// remote) in a temp dir:
   - capture → sync → `origin/mobile` = main + appended lines only
   - main advances → sync rebuilds on new main, still append-only
@@ -349,9 +353,9 @@ README/DESIGN.md current (per repo convention).
 
 ### Phase 6 — iOS app: setup & read views
 
-- Onboarding: generate key → show public key with copy button and
-  instructions (GitHub → repo → Settings → Deploy keys → allow write) →
-  enter repo SSH URL and author name/email → clone.
+- Onboarding: generate key → show the restricted `authorized_keys` line
+  with a copy button → enter repo SSH URL and author name/email → check
+  server (shows its host key fingerprint to verify) → trust and clone.
 - `CoreClient` actor wrapping `Mobilecore` calls off the main thread.
 - Tab bar: **Agenda**, **Inbox**, **Outline** (with search), and a
   toolbar **+** (capture) and **Sync** button plus status line.
@@ -384,7 +388,7 @@ README/DESIGN.md current (per repo convention).
 ### Phase 9 — Docs
 
 - `ios/README.md`: build prerequisites (Xcode, gomobile), phase-0 signing
-  notes, weekly re-sign, deploy-key setup, recommended `.gitattributes`.
+  notes, weekly re-sign, server and key setup, recommended `.gitattributes`.
 - Root README: mention the iOS companion, `.orgtd.toml`, and the
   `mobile` branch workflow.
 - Root DESIGN.md: link here; add `mobilecore`, `internal/agenda`,
@@ -398,3 +402,57 @@ README/DESIGN.md current (per repo convention).
 - Widgets, Control Center / Action button, Siri / Shortcuts capture.
 - iPad layout and hardware-keyboard (vim-style) navigation.
 - Desktop orgtd auto-merging `mobile` during `:vcs`.
+
+## 10. As built: departures from the plan
+
+- **Share extension → app handoff.** The extension doesn't append to
+  `captures.json`. It writes one file per capture to
+  `<group>/incoming/<id>.json`, and `Refresh`/`Sync` fold those into
+  the queue (`capturequeue.Import`). The app's Go code can't take part
+  in `NSFileCoordinator`, so this way the two processes never write the
+  same file.
+- **Keychain.** Only the app reads the SSH key, so the Keychain item is
+  app-private, with no shared access group.
+- **API (§6).** gomobile can't return three values, so
+  `GenerateSSHKey` returns a `KeyPair` object. `Refresh`, `Capture`,
+  `UpdatePendingCapture` and `DeletePendingCapture` also take the author:
+  each one rebuilds `mobile`, which commits. `Capture` returns the new
+  ID. The plan's list gained a few calls: `SetTimeZone` (Go can't find
+  the device's zone on iOS; `time/tzdata` is embedded), `PublicKeyFor`,
+  `PendingCapture` (for the edit sheet) and `RemoveClone`.
+- **Deterministic rebuilds.** Each capture commit uses the capture's
+  `createdAt` as its author and committer time. Rebuilding the same
+  queue on the same base therefore gives the same hashes, so a refresh
+  followed by a sync pushes nothing new.
+- **Lease.** Before pushing, the phone requires `origin/mobile` to be
+  absent or equal to what it last pushed (`lastPushed` in
+  `sync-state.json`). The push itself also carries go-git's
+  `ForceWithLease`, which catches a move between fetch and push. go-git
+  can't lease against a ref that doesn't exist, so the very first push
+  relies on the pre-check alone.
+- **Pending entries in Inbox.** The working-tree inbox is the base
+  branch's inbox plus one appended headline per queued capture, in
+  order. The last `len(queue)` headlines are therefore the pending ones,
+  and no marker is written to the file.
+- **Base branch.** It's the remote's default branch at clone time
+  (recorded in `sync-state.json`), not a hard-coded `main`. The org
+  directory must be the repository root.
+- **Shallow clones (R3).** Not implemented. Clones are full.
+- **Colors.** The built-in keyword, tag and timestamp colors moved into
+  `internal/config` (`Config.KeywordColor`), so both front ends resolve
+  them the same way.
+- **Any SSH server, not just GitHub.** The URL may be scp-like
+  (`user@host:path`) or `ssh://user@host:port/path`, and its user is the
+  SSH login (default `git`). There are no built-in host keys: at setup,
+  `ScanHostKey` connects without authenticating, preferring an ed25519
+  host key, and shows its SHA-256 fingerprint. Once the user confirms it,
+  `Clone` records it in `sync-state.json` (`hostKey`). Every later
+  connection asks for that key type only and refuses any other key
+  (`gitsync.ErrHostKeyMismatch`). A changed server key means removing
+  the clone and setting up again.
+- **Phone storage.** Everything lives under `<group>/data/`, which is
+  excluded from backups and has `NSFileProtectionComplete`. The flags are
+  set on the directory, not on individual files: files there are replaced
+  by temp-file-and-rename, which would drop a per-file backup exclusion,
+  and new files inherit the directory's protection class. The trade-off
+  is that captures not yet synced aren't in any backup.

@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/capture"
 	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
@@ -220,7 +221,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 // insertContext.attachMeeting.
 func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level int, origin *org.Headline, originFile *org.File, thenPickMeeting, switchToOutline bool, attachMeeting *meetings.Meeting) tea.Cmd {
 	tentative := &org.Headline{Level: level, Parent: parent}
-	tentative.SetProperty("CREATED", "["+m.now().Format("2006-01-02 Mon 15:04")+"]")
+	tentative.SetProperty("CREATED", capture.CreatedStamp(m.now()))
 	org.Siblings{File: f, Parent: parent}.Splice(idx, 0, []*org.Headline{tentative})
 	m.rebuildRows()
 	m.focusHeadline(tentative)

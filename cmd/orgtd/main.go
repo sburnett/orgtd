@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -34,7 +35,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)
 	}
-	cfg := resolveConfig(*flags, os.Getenv("ORGTD_DIR"), fileCfg)
+	orgDir, _ := resolveOrgDir(*flags, os.Getenv("ORGTD_DIR"), fileCfg)
+	repoCfg, warnings, err := config.LoadRepo(orgDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
+		os.Exit(1)
+	}
+	cfg, sources := resolveLayers(*flags, os.Getenv("ORGTD_DIR"), fileCfg, repoCfg)
 
 	// The TUI owns the terminal once it starts, so plain log output
 	// can't share it — redirect to a file instead of leaving it on
@@ -92,7 +99,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(ui.New(ws, ui.WithConfig(cfg), ui.WithReadme(orgtd.Readme)), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(ws, ui.WithConfig(cfg), ui.WithConfigSources(sources), ui.WithStartupMessage(strings.Join(warnings, "; ")), ui.WithReadme(orgtd.Readme)), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)

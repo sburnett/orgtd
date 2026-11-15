@@ -1,0 +1,121 @@
+import Foundation
+
+// Codable mirrors of mobilecore/dto.go. Field names are a contract with
+// the Go side — change both together.
+
+struct Entry: Codable, Identifiable, Hashable {
+    var id: String
+    var file: String
+    var ancestors: [String]
+    var level: Int
+    var keyword: String
+    var done: Bool
+    var priority: String
+    var title: String
+    var tags: [String]
+    var scheduled: String
+    var deadline: String
+    var closed: String
+    var properties: [Property]
+    var body: String
+    var children: [Entry]?
+    var pending: Bool?
+    var captureId: String?
+
+    var isPending: Bool { pending ?? false }
+
+    /// The IDs of this entry's ancestors, outermost first: "work.org:0.2.1"
+    /// has ancestors "work.org:0" and "work.org:0.2".
+    var ancestorIDs: [String] {
+        guard let colon = id.lastIndex(of: ":") else { return [] }
+        let file = id[..<colon]
+        let parts = id[id.index(after: colon)...].split(separator: ".")
+        guard parts.count > 1 else { return [] }
+        return (1..<parts.count).map { n in file + ":" + parts.prefix(n).joined(separator: ".") }
+    }
+
+    /// "work.org › Project › Parent", for showing where an entry lives.
+    var place: String {
+        ([file] + ancestors).joined(separator: " › ")
+    }
+}
+
+struct Property: Codable, Hashable {
+    var key: String
+    var value: String
+}
+
+struct AgendaItem: Codable, Hashable, Identifiable {
+    var entry: Entry
+    var label: String
+    var date: String
+    var repeater: String
+    var missed: Int
+    var id: String { entry.id + "|" + label }
+}
+
+struct AgendaSection: Codable, Hashable, Identifiable {
+    var name: String
+    var items: [AgendaItem]?
+    var id: String { name }
+}
+
+struct AgendaResult: Codable {
+    var today: String
+    var sections: [AgendaSection]
+}
+
+struct InboxResult: Codable {
+    var file: String
+    var entries: [Entry]
+}
+
+struct OutlineFile: Codable, Hashable, Identifiable {
+    var file: String
+    var entries: [Entry]
+    var id: String { file }
+}
+
+struct OutlineResult: Codable {
+    var files: [OutlineFile]
+    var reference: [OutlineFile]
+}
+
+struct SearchResult: Codable {
+    var query: String
+    var entries: [Entry]
+}
+
+struct Keyword: Codable, Hashable {
+    var name: String
+    var color: String
+    var bold: Bool
+    var done: Bool
+}
+
+/// A server's SSH host key (mobilecore's hostKeyJSON).
+struct HostKeyInfo: Codable, Equatable {
+    var host: String
+    var key: String
+    var fingerprint: String
+}
+
+struct StatusResult: Codable {
+    var cloned: Bool
+    var repoURL: String
+    var baseBranch: String
+    var hostKey: HostKeyInfo
+    var inboxFile: String
+    var lastFetch: String
+    var lastPush: String
+    var lastError: String
+    var lastErrorAt: String
+    var pending: Int
+    var unpushed: Int
+    var keywords: [Keyword]
+    var tagColor: String
+    var dateColor: String
+    var configErrors: [String]
+
+    static let empty = StatusResult(cloned: false, repoURL: "", baseBranch: "", hostKey: HostKeyInfo(host: "", key: "", fingerprint: ""), inboxFile: "inbox.org", lastFetch: "", lastPush: "", lastError: "", lastErrorAt: "", pending: 0, unpushed: 0, keywords: [], tagColor: "", dateColor: "", configErrors: [])
+}

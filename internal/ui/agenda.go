@@ -4,111 +4,26 @@ import (
 	"sort"
 	"time"
 
-	"github.com/sburnett/orgtd/internal/config"
+	"github.com/sburnett/orgtd/internal/agenda"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
 
 // agendaSections lists the agenda's sections, in display order.
-var agendaSections = []string{"Overdue", "Due Today", "Upcoming", "Next Actions", "Meetings"}
-
-// agendaEntry is one (headline, relevant date) pair destined for the
-// agenda — a headline with both SCHEDULED and DEADLINE produces two.
-type agendaEntry struct {
-	h        *org.Headline
-	label    string // "Scheduled" or "Deadline"
-	date     time.Time
-	repeater string // e.g. "+1w", if date came from a recurring timestamp; empty otherwise
-	missed   int    // occurrences elapsed since date without completion; only meaningful (and only shown) when date is Overdue
-}
-
-// agendaEntries collects one entry per (headline, relevant date) pair
-// across every file in the workspace, for every headline that's active
-// (not DONE/CANCELLED) and not SOMEDAY — SOMEDAY is excluded from the
-// agenda entirely, even for a date within the window, since it's
-// explicitly the "not committed to a date" state. Only dates on or
-// before today+windowDays are collected; anything further out (or a
-// SCHEDULED/DEADLINE whose Raw text can't be parsed) is dropped.
-func (m *Model) agendaEntries(today time.Time, windowDays int) []agendaEntry {
-	var entries []agendaEntry
-	horizon := today.AddDate(0, 0, windowDays)
-	consider := func(ts *org.Timestamp, label string, h *org.Headline) {
-		date, missed, ok := orgdate.ParseTimestampDate(ts, today)
-		if !ok || date.After(horizon) {
-			return
-		}
-		entries = append(entries, agendaEntry{h: h, label: label, date: date, repeater: orgdate.RepeaterCookie(ts), missed: missed})
-	}
-	for _, f := range m.ws.Files {
-		if m.ws.IsReference(f) {
-			continue
-		}
-		org.Walk(f.Headlines, func(h *org.Headline) {
-			if org.IsDoneKeyword(h.Keyword) || m.keywordAgenda(h.Keyword) == config.AgendaSkip {
-				return
-			}
-			consider(h.Deadline, "Deadline", h)
-			consider(h.Scheduled, "Scheduled", h)
-		})
-	}
-	return entries
-}
-
-// agendaSection buckets date relative to today: "Overdue" (before
-// today), "Due Today", or "Upcoming" (after today — callers are
-// expected to have already excluded anything beyond the window).
-func agendaSection(date, today time.Time) string {
-	switch {
-	case date.Before(today):
-		return "Overdue"
-	case date.Equal(today):
-		return "Due Today"
-	default:
-		return "Upcoming"
-	}
-}
-
-// nextActionHeadlines returns every headline whose keyword has agenda = "next" (NEXT by default) across the workspace,
-// in file/tree order — regardless of whether it has a SCHEDULED or
-// DEADLINE date, since NEXT is GTD's "immediately actionable" state on
-// its own merits, independent of timing. A NEXT item that also has a
-// near-term date still additionally appears in its date-based section
-// too — the two sections answer different questions ("what's next to
-// work on" vs. "what's due when").
-func (m *Model) nextActionHeadlines() []*org.Headline {
-	var next []*org.Headline
-	for _, f := range m.ws.Files {
-		if m.ws.IsReference(f) {
-			continue
-		}
-		org.Walk(f.Headlines, func(h *org.Headline) {
-			if m.keywordAgenda(h.Keyword) == config.AgendaNext {
-				next = append(next, h)
-			}
-		})
-	}
-	return next
-}
+var agendaSections = []string{agenda.Overdue, agenda.DueToday, agenda.Upcoming, agenda.NextActions, "Meetings"}
 
 // appendAgendaRows appends the rows for agenda view: one section-header
 // row per non-empty section (Overdue, Due Today, Upcoming, Next
-// Actions, in that order). The three date-based sections' item rows are
-// sorted by date, ties broken by original file/tree order; Next
-// Actions' are left in plain file/tree order, since most NEXT items
-// have no date to sort by.
+// Actions, Meetings, in that order). The date-based sections and Next
+// Actions come from internal/agenda (see agenda.BySection); Meetings is
+// built here, from the meetings index.
 func (m *Model) appendAgendaRows(dst *[]row) {
 	today := orgdate.TruncateToDate(m.now())
-	entries := m.agendaEntries(today, m.cfg.AgendaWindowDays)
-
-	bySection := make(map[string][]agendaEntry, len(agendaSections))
-	for _, e := range entries {
-		s := agendaSection(e.date, today)
-		bySection[s] = append(bySection[s], e)
-	}
+	bySection := agenda.BySection(m.ws, m.cfg, today)
 
 	for _, section := range agendaSections {
 		switch section {
-		case "Next Actions":
+		case agenda.NextActions:
 			m.appendNextActionsSection(dst)
 			continue
 		case "Meetings":
@@ -119,20 +34,15 @@ func (m *Model) appendAgendaRows(dst *[]row) {
 		if len(es) == 0 {
 			continue
 		}
-		sort.SliceStable(es, func(i, j int) bool { return es[i].date.Before(es[j].date) })
 		*dst = append(*dst, row{kind: rowSection, text: section})
 		for _, e := range es {
-			missed := 0
-			if section == "Overdue" {
-				missed = e.missed
-			}
-			*dst = append(*dst, row{headline: e.h, level: 1, kind: rowAgendaItem, agendaLabel: e.label, agendaDate: e.date, agendaRepeater: e.repeater, agendaMissed: missed})
+			*dst = append(*dst, row{headline: e.Headline, level: 1, kind: rowAgendaItem, agendaLabel: e.Label, agendaDate: e.Date, agendaRepeater: e.Repeater, agendaMissed: e.Missed})
 		}
 	}
 }
 
 func (m *Model) appendNextActionsSection(dst *[]row) {
-	next := m.nextActionHeadlines()
+	next := agenda.NextActionHeadlines(m.ws, m.cfg)
 	if len(next) == 0 {
 		return
 	}
@@ -207,11 +117,4 @@ func (m *Model) appendMeetingsSection(dst *[]row) {
 			*dst = append(*dst, row{headline: h, level: 2, kind: rowAgendaItem, meetingItemTitle: mt.title, meetingItemStart: mt.start})
 		}
 	}
-}
-
-// keywordAgenda returns the configured agenda role of keyword ("" if
-// none, or if it isn't a configured keyword).
-func (m Model) keywordAgenda(keyword string) string {
-	k, _ := m.keywordConfig(keyword)
-	return k.Agenda
 }

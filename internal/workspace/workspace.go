@@ -99,6 +99,14 @@ func (w *Workspace) IsReference(f *org.File) bool {
 	return filepath.Clean(filepath.Dir(f.Path)) == filepath.Join(filepath.Clean(w.Dir), ReferenceDir)
 }
 
+// IsNamed reports whether f is the file directly in the workspace
+// directory whose base name is name — how a configured special file
+// (inbox, calendar, meeting-tags) is found. A file of the same name in
+// reference/ is just reference material, not that file.
+func (w *Workspace) IsNamed(f *org.File, name string) bool {
+	return filepath.Base(f.Path) == name && !w.IsReference(f)
+}
+
 // FileOf returns the loaded file that h's tree belongs to — found by
 // walking up to h's root headline and looking for it among each file's
 // top-level headlines — or nil if it isn't in any loaded file (e.g. an

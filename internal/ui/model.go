@@ -7,7 +7,6 @@
 package ui
 
 import (
-	"path/filepath"
 	"regexp"
 	"time"
 
@@ -197,6 +196,9 @@ type Model struct {
 	// Config, i.e. nothing set. Not modified after construction; runtime
 	// state that starts from a setting (hideClosedEnabled) is kept apart.
 	cfg config.Config
+	// cfgSources says which config layer each setting came from (see
+	// WithConfigSources), for :config; nil when unknown (tests).
+	cfgSources config.Sources
 
 	// bareURLRe is the regexp formatURLs uses to find bare URLs, compiled
 	// from cfg.URLFormatterPrefixes at construction time (see
@@ -292,7 +294,7 @@ func (m Model) Init() tea.Cmd {
 // meeting-tags), which live directly in the org directory: a file of the
 // same name in reference/ is just reference material, not that file.
 func (m *Model) isNamedFile(f *org.File, name string) bool {
-	return filepath.Base(f.Path) == name && !m.ws.IsReference(f)
+	return m.ws.IsNamed(f, name)
 }
 
 // findCalendarFile returns the workspace file calendarView shows (see

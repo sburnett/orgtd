@@ -31,118 +31,6 @@ func agendaFixture(t *testing.T, orgText string) *workspace.Workspace {
 	return &workspace.Workspace{Dir: "agenda-fixture", Files: []*org.File{f}}
 }
 
-func TestAgendaSectionBucketing(t *testing.T) {
-	today := orgdate.TruncateToDate(time.Now())
-	cases := []struct {
-		date time.Time
-		want string
-	}{
-		{today.AddDate(0, 0, -1), "Overdue"},
-		{today, "Due Today"},
-		{today.AddDate(0, 0, 1), "Upcoming"},
-	}
-	for _, c := range cases {
-		if got := agendaSection(c.date, today); got != c.want {
-			t.Errorf("agendaSection(%v) = %q, want %q", c.date, got, c.want)
-		}
-	}
-}
-
-func TestAgendaEntriesExcludesDoneCancelledAndSomeday(t *testing.T) {
-	now := orgdate.TruncateToDate(time.Now())
-	org := fmt.Sprintf(`* DONE Finished task
-  DEADLINE: <%[1]s>
-* CANCELLED Abandoned task
-  DEADLINE: <%[1]s>
-* SOMEDAY Someday task
-  DEADLINE: <%[1]s>
-* TODO Still relevant
-  DEADLINE: <%[1]s>
-`, ts(now))
-	ws := agendaFixture(t, org)
-	m := New(ws)
-
-	entries := m.agendaEntries(now, 14)
-	if len(entries) != 1 {
-		t.Fatalf("agendaEntries = %d entries, want 1 (only the TODO): %+v", len(entries), entries)
-	}
-	if entries[0].h.Title != "Still relevant" {
-		t.Errorf("entries[0].h.Title = %q, want %q", entries[0].h.Title, "Still relevant")
-	}
-}
-
-func TestAgendaEntriesSomedayExcludedEvenWithinWindow(t *testing.T) {
-	now := orgdate.TruncateToDate(time.Now())
-	orgText := fmt.Sprintf("* SOMEDAY Not committed\n  SCHEDULED: <%s>\n", ts(now.AddDate(0, 0, 2)))
-	ws := agendaFixture(t, orgText)
-	m := New(ws)
-
-	if entries := m.agendaEntries(now, 14); len(entries) != 0 {
-		t.Errorf("agendaEntries = %+v, want none (SOMEDAY always excluded)", entries)
-	}
-}
-
-func TestAgendaEntriesDualDateProducesTwoEntries(t *testing.T) {
-	now := orgdate.TruncateToDate(time.Now())
-	scheduled := now.AddDate(0, 0, 3)
-	deadline := now.AddDate(0, 0, 5)
-	orgText := fmt.Sprintf("* NEXT Both dates\n  SCHEDULED: <%s> DEADLINE: <%s>\n", ts(scheduled), ts(deadline))
-	ws := agendaFixture(t, orgText)
-	m := New(ws)
-
-	entries := m.agendaEntries(now, 14)
-	if len(entries) != 2 {
-		t.Fatalf("agendaEntries = %d entries, want 2 (one per date): %+v", len(entries), entries)
-	}
-	labels := map[string]time.Time{entries[0].label: entries[0].date, entries[1].label: entries[1].date}
-	if !labels["Scheduled"].Equal(scheduled) {
-		t.Errorf("Scheduled entry date = %v, want %v", labels["Scheduled"], scheduled)
-	}
-	if !labels["Deadline"].Equal(deadline) {
-		t.Errorf("Deadline entry date = %v, want %v", labels["Deadline"], deadline)
-	}
-}
-
-func TestAgendaEntriesExcludesBeyondWindow(t *testing.T) {
-	now := orgdate.TruncateToDate(time.Now())
-	orgText := fmt.Sprintf("* TODO Just inside\n  DEADLINE: <%s>\n* TODO Just outside\n  DEADLINE: <%s>\n",
-		ts(now.AddDate(0, 0, 14)), ts(now.AddDate(0, 0, 15)))
-	ws := agendaFixture(t, orgText)
-	m := New(ws)
-
-	entries := m.agendaEntries(now, 14)
-	if len(entries) != 1 || entries[0].h.Title != "Just inside" {
-		t.Fatalf("agendaEntries = %+v, want just 'Just inside'", entries)
-	}
-}
-
-func TestAgendaEntriesRecurringPastDueShowsAsOverdueWithMissedCount(t *testing.T) {
-	now := orgdate.TruncateToDate(time.Now())
-	// Scheduled 17 days ago, weekly: current occurrence is 3 days ago
-	// (occurrences at -17, -10, -3; +4 hasn't arrived), 2 missed on top.
-	orgText := fmt.Sprintf("* TODO Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now.AddDate(0, 0, -17)))
-	ws := agendaFixture(t, orgText)
-	m := New(ws)
-
-	entries := m.agendaEntries(now, 14)
-	if len(entries) != 1 {
-		t.Fatalf("agendaEntries = %d entries, want 1: %+v", len(entries), entries)
-	}
-	want := now.AddDate(0, 0, -3)
-	if !entries[0].date.Equal(want) {
-		t.Errorf("entries[0].date = %v, want current occurrence %v", entries[0].date, want)
-	}
-	if entries[0].repeater != "+1w" {
-		t.Errorf("entries[0].repeater = %q, want %q", entries[0].repeater, "+1w")
-	}
-	if entries[0].missed != 2 {
-		t.Errorf("entries[0].missed = %d, want 2", entries[0].missed)
-	}
-	if got := agendaSection(entries[0].date, now); got != "Overdue" {
-		t.Errorf("agendaSection(current occurrence) = %q, want %q (a skipped recurring item stays visible)", got, "Overdue")
-	}
-}
-
 func TestAgendaItemRowShowsRepeaterCookie(t *testing.T) {
 	now := orgdate.TruncateToDate(time.Now())
 	orgText := fmt.Sprintf("* NEXT Weekly standup\n  SCHEDULED: <%s +1w>\n", ts(now))
@@ -187,15 +75,6 @@ func TestAgendaItemRowOmitsMissedCountWhenNotOverdue(t *testing.T) {
 		if strings.Contains(line, "x)") {
 			t.Errorf("row = %q, should have no missed-count marker (not overdue)", line)
 		}
-	}
-}
-
-func TestAgendaEntriesExcludesUnparseableDate(t *testing.T) {
-	ws := agendaFixture(t, "* TODO Weird date\n  DEADLINE: <not-a-real-date>\n")
-	m := New(ws)
-
-	if entries := m.agendaEntries(orgdate.TruncateToDate(time.Now()), 14); len(entries) != 0 {
-		t.Errorf("agendaEntries = %+v, want none (unparseable date)", entries)
 	}
 }
 
@@ -1131,12 +1010,6 @@ func TestCustomKeywordsDriveParsingPickerAndAgenda(t *testing.T) {
 	}
 	m := New(ws, WithConfig(cfg))
 
-	if entries := m.agendaEntries(now, 14); len(entries) != 1 || entries[0].h.Title != "Sort it" {
-		t.Errorf("agendaEntries = %+v, want only TRIAGE", entries)
-	}
-	if next := m.nextActionHeadlines(); len(next) != 1 || next[0].Title != "Do it" {
-		t.Errorf("nextActionHeadlines = %+v, want only GO", next)
-	}
 	if got := m.filteredStatusCandidates("x"); len(got) != 1 || got[0].keyword != "SHIPPED" {
 		t.Errorf("shortcut x -> %+v, want SHIPPED", got)
 	}

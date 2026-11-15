@@ -140,14 +140,10 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 	if m.view == referenceView {
 		return false // reference material has no task state to age out
 	}
-	if !m.hideClosedEnabled || h.Closed == nil {
+	if !m.hideClosedEnabled {
 		return false
 	}
-	closed, _, err := orgdate.ParseFlexible(h.Closed.Raw)
-	if err != nil {
-		return false
-	}
-	return m.now().Sub(closed) > time.Duration(m.cfg.HideClosedAfterHours)*time.Hour
+	return orgdate.StaleClosed(h, m.now(), time.Duration(m.cfg.HideClosedAfterHours)*time.Hour)
 }
 
 // appendBodyLines appends one row per line of h's free-text body,

@@ -282,3 +282,46 @@ func TestSplitPrefixes(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveLayersPrecedenceFlagUserRepoDefault(t *testing.T) {
+	repo := &config.Config{InboxFile: "repo-inbox.org", AgendaWindowDays: 3, SnippetsWindowDays: 4, Colors: config.ColorsConfig{TODO: "#aa0000", Done: "#00aa00"}}
+	user := &config.Config{OrgDir: "/org", AgendaWindowDays: 5, Colors: config.ColorsConfig{Done: "#0000aa"}}
+	f := flags()
+	f.snippetsDays = 6
+	f = withExplicit(f, "snippets-days")
+
+	got, src := resolveLayers(f, "", user, repo)
+	if got.InboxFile != "repo-inbox.org" || src.Of("inbox_file") != config.LayerRepo {
+		t.Errorf("inbox_file = %q from %q, want the repo's", got.InboxFile, src.Of("inbox_file"))
+	}
+	if got.AgendaWindowDays != 5 || src.Of("agenda_window_days") != config.LayerUser {
+		t.Errorf("agenda_window_days = %d from %q, want the user config's 5", got.AgendaWindowDays, src.Of("agenda_window_days"))
+	}
+	if got.SnippetsWindowDays != 6 || src.Of("snippets_window_days") != config.LayerFlag {
+		t.Errorf("snippets_window_days = %d from %q, want the flag's 6", got.SnippetsWindowDays, src.Of("snippets_window_days"))
+	}
+	if got.Colors.TODO != "#aa0000" || got.Colors.Done != "#0000aa" {
+		t.Errorf("colors = %+v, want todo from repo, done from user", got.Colors)
+	}
+	if got.CalendarFile != "calendar.org" || src.Of("calendar_file") != config.LayerDefault {
+		t.Errorf("calendar_file = %q from %q, want the default", got.CalendarFile, src.Of("calendar_file"))
+	}
+	if src.Of("org_dir") != config.LayerUser {
+		t.Errorf("org_dir from %q, want config", src.Of("org_dir"))
+	}
+}
+
+func TestResolveLayersExplicitZeroFlagReportsDefault(t *testing.T) {
+	f := withExplicit(flags(), "agenda-days")
+	got, src := resolveLayers(f, "", &config.Config{}, &config.Config{AgendaWindowDays: 3})
+	if got.AgendaWindowDays != 14 || src.Of("agenda_window_days") != config.LayerDefault {
+		t.Errorf("agenda_window_days = %d from %q, want 14 from default", got.AgendaWindowDays, src.Of("agenda_window_days"))
+	}
+}
+
+func TestResolveOrgDirEnvBeatsUserConfig(t *testing.T) {
+	dir, layer := resolveOrgDir(flags(), "/env", &config.Config{OrgDir: "/cfg"})
+	if dir != "/env" || layer != config.LayerEnv {
+		t.Errorf("resolveOrgDir = %q, %q; want /env from env", dir, layer)
+	}
+}

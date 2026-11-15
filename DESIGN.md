@@ -46,7 +46,13 @@ internal/extprog/      editor command building and URL formatter running (user-c
 internal/execlog/      logged subprocess runner + the timeline :log shows
 internal/orgdate/     pure date logic: typed-date parsing, timestamp/repeater parsing and math
 internal/workspace/   loads a directory of .org files; advisory directory lock
+internal/agenda/      pure agenda computation: date sections and Next Actions (shared with mobilecore)
+internal/capture/     renders a captured item as org text; raw-byte append (shared by gC and the phone)
+internal/capturequeue/ the phone's pending-capture queue (captures.json) and share-extension import
+internal/gitsync/     the phone's go-git layer: clone, fetch, rebuild "mobile", push with lease
 internal/ui/          the Bubble Tea application (nearly all behavior; see §5)
+mobilecore/           gomobile facade for the iOS app (see ios/DESIGN.md)
+ios/                  the SwiftUI app and share extension (Xcode project)
 internal/calendarsync/ turns Google Calendar events into an *org.File
 internal/gcal/        thin Google Calendar API client + OAuth installed-app flow
 scripts/              example URL-formatter script
@@ -64,7 +70,14 @@ cmd/orgtd → ui → calendarsync → gcal
               ↘ execlog
               ↘ org
 cmd/orgtd → config, workspace
+ui → agenda → config, orgdate, workspace
+ui → capture → orgdate, org
+mobilecore → gitsync → capturequeue → capture
+           ↘ agenda, config, workspace, org, orgdate
 ```
+
+The desktop never imports `gitsync`, `capturequeue` or `mobilecore`
+(and so never links go-git).
 
 `org` and `gcal` know nothing about the UI. `calendarsync` knows org and
 gcal but not the UI. Only `ui` knows about everything.
@@ -88,7 +101,7 @@ gcal but not the UI. Only `ui` knows about everything.
   `SetOrDeleteProperty`/`RestoreProperty`, `TrimmedBody`, `ParseLinks`,
   and `DedentEntry`/`IndentEntry` (the editor buffer's bullet-free form)
   live here too. Nothing in `org` knows about the UI, undo, or a workspace.
-- TODO keywords are fixed (`ActiveKeywords`, `DoneKeywords`).
+- TODO keywords default to `ActiveKeywords`/`DoneKeywords`; `SetKeywords` (process-global, called once at startup from the resolved config) replaces them.
 
 **Round-tripping is format-*preserving*, not byte-exact.** Body text and
 preamble are stored as raw lines and survive untouched. Headline lines,
@@ -124,11 +137,19 @@ workspace. Each event becomes a headline carrying `GCAL_*` properties
 **There is one settings value: `config.Config`.** `config` declares the
 schema (it's also the TOML file's shape), loads it (`config.Load`), and
 owns the built-in defaults (`config.Default`, `Config.ApplyDefaults`).
-`main.go` registers the flags (`defineFlags`), loads the file, and
-`resolveConfig` (settings.go) overlays — flag > `$ORGTD_DIR` (for `dir`
-only) > config file > default — into one fully resolved `Config`, which
-goes to `ui.New` as `ui.WithConfig(cfg)` and lives on the model as
-`m.cfg`. Precedence rules are documented in README ("Config file").
+`main.go` registers the flags (`defineFlags`), loads the user's file,
+resolves the org directory first (`resolveOrgDir`: flag > `$ORGTD_DIR` >
+config file > default), then loads the org directory's committed
+`.orgtd.toml` (`config.LoadRepo`, which drops machine-local keys with
+warnings), and `resolveLayers` (settings.go) overlays — flag >
+`$ORGTD_DIR` (for `dir` only) > user config file > repo file > default —
+into one fully resolved `Config`, which goes to `ui.New` as
+`ui.WithConfig(cfg)` and lives on the model as `m.cfg`. Layering is
+generic (`config.Overlay`, reflection over the toml tags: a non-zero
+value overrides, sections merge key by key), and records a
+`config.Sources` map that `:config` shows (`ui.WithConfigSources`).
+Precedence rules are documented in README ("Config file"). The iOS core
+reads only the repo layer plus defaults.
 
 ## 4. Runtime model
 
@@ -219,7 +240,7 @@ including its known weak points, so changes can be made deliberately.
 | `meeting_index.go` | The cached `meetings.Index` (`m.meetingIndex()`) and its invalidation |
 | `meeting_links.go` | Resolving an entry's calendar-meeting links for display |
 | `undo.go` | `undoAction` types, undo/redo, dirty derivation, structural-edit helpers (`insertContext`, splice/reparent actions) |
-| `agenda.go` | Agenda computation and rows, including the Meetings section (items grouped under upcoming meetings, via the meetings index) |
+| `agenda.go` | Agenda rows: the date sections and Next Actions come from `internal/agenda`; the Meetings section (items grouped under upcoming meetings, via the meetings index) is built here |
 | `calendar.go`, `meeting_tags.go`, `tags.go`, `snippets.go` | The `:calendar`, `:meeting-tags`, `:tags` and `:snippets` views |
 | `repeat.go` | Completing a repeating item (`+1w`, `++1w`, `.+1w`) |
 | `sync_calendar.go` | `:sync-calendar` command and result application |
@@ -390,8 +411,14 @@ as `gM`.
 ## 8. Testing
 
 - `internal/org`, `internal/config`, `internal/calendarsync`,
-  `internal/gcal`, `internal/workspace`, `cmd/orgtd` have conventional
-  unit tests.
+  `internal/gcal`, `internal/workspace`, `internal/agenda`,
+  `internal/capture`, `internal/capturequeue`, `cmd/orgtd` have
+  conventional unit tests. `internal/ui`'s
+  `TestDesktopCaptureMatchesPhoneRendering` pins `gC`'s output to
+  `internal/capture`'s.
+- `internal/gitsync` and `mobilecore` tests run real git scenarios
+  against a bare repository in a temp dir (`file://`, which go-git serves
+  by running the `git` binary, so those tests need git installed).
 - `internal/ui` tests construct a real `Model` over a workspace loaded
   from `testdata/orgdir` and drive it with simulated key presses
   (`sendKey`, `typeKeys`, helpers in `model_test.go`), asserting on
@@ -469,8 +496,6 @@ not exist, so don't look for them in the code:
 
 ## 11. Open questions
 
-- Whether TODO keywords should become configurable (everything from the
-  state picker to the agenda hardcodes the current six).
 - Archiving finished items; `DONE` entries currently just hide.
 - External edits to a file while orgtd holds unsaved changes to it: the
   directory lock only prevents a second orgtd, not Emacs. `:w` is

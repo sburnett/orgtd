@@ -33,17 +33,18 @@ const (
 	// TODO/Next/Waiting: wildcharm's most alarming/attention colors.
 	// Someday/Done/Cancelled are deliberately unbold — wildcharm reserves
 	// bold for things that need attention.
-	defaultTODOColor      = "#d7005f" // Error/Removed red
-	defaultNextColor      = "#ffaf00" // Type/WarningMsg/WildMenu orange
-	defaultWaitingColor   = "#875fff" // Special purple
-	defaultSomedayColor   = "#767676" // Comment grey
-	defaultDoneColor      = "#00d75f" // Constant/Added green
-	defaultCancelledColor = "#585858" // LineNr/Conceal dark grey
+	// The values live in config, which the iOS core shares.
+	defaultTODOColor      = config.DefaultTODOColor
+	defaultNextColor      = config.DefaultNextColor
+	defaultWaitingColor   = config.DefaultWaitingColor
+	defaultSomedayColor   = config.DefaultSomedayColor
+	defaultDoneColor      = config.DefaultDoneColor
+	defaultCancelledColor = config.DefaultCancelledColor
 
-	defaultTagColor       = "#00d7d7" // PreProc cyan
+	defaultTagColor       = config.DefaultTagColor
 	defaultDoneTitleColor = "#767676" // Comment grey
 	defaultStatusColor    = "#767676" // Comment grey, for muted status/info text
-	defaultTimestampColor = "#ff87ff" // Identifier/Question magenta
+	defaultTimestampColor = config.DefaultTimestampColor
 	defaultErrorColor     = "#d7005f" // Error/Removed red
 	defaultBodyColor      = "#a8a8a8" // Lighter grey, for easier reading than Comment grey
 
@@ -162,25 +163,7 @@ func (m Model) keywordStyle(keyword string) (lipgloss.Style, bool) {
 // keywordColor resolves k's color: its own, then the legacy [colors] key
 // for a built-in keyword name, then the built-in default for it.
 func (m Model) keywordColor(k config.KeywordConfig) string {
-	if k.Color != "" {
-		return k.Color
-	}
-	c := m.cfg.Colors
-	switch k.Name {
-	case "TODO":
-		return orDefault(c.TODO, defaultTODOColor)
-	case "NEXT":
-		return orDefault(c.Next, defaultNextColor)
-	case "WAITING":
-		return orDefault(c.Waiting, defaultWaitingColor)
-	case "SOMEDAY":
-		return orDefault(c.Someday, defaultSomedayColor)
-	case "DONE":
-		return orDefault(c.Done, defaultDoneColor)
-	case "CANCELLED":
-		return orDefault(c.Cancelled, defaultCancelledColor)
-	}
-	return ""
+	return m.cfg.KeywordColor(k)
 }
 
 // keywords returns the configured TODO keywords, or the built-in set if

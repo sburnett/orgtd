@@ -239,6 +239,49 @@ func (c *Config) Normalize() error {
 	return nil
 }
 
+// Built-in keyword colors (wildcharm dark; see README's "Config file").
+const (
+	DefaultTODOColor      = "#d7005f" // Error/Removed red
+	DefaultNextColor      = "#ffaf00" // Type/WarningMsg/WildMenu orange
+	DefaultWaitingColor   = "#875fff" // Special purple
+	DefaultSomedayColor   = "#767676" // Comment grey
+	DefaultDoneColor      = "#00d75f" // Constant/Added green
+	DefaultCancelledColor = "#585858" // LineNr/Conceal dark grey
+
+	DefaultTagColor       = "#00d7d7" // PreProc cyan
+	DefaultTimestampColor = "#ff87ff" // Identifier/Question magenta
+)
+
+// KeywordColor resolves k's color: its own color, else (for a built-in
+// keyword name) the matching [colors] key, else that keyword's built-in
+// color; "" (uncolored) for any other keyword.
+func (c Config) KeywordColor(k KeywordConfig) string {
+	if k.Color != "" {
+		return k.Color
+	}
+	pick := func(set, def string) string {
+		if set != "" {
+			return set
+		}
+		return def
+	}
+	switch k.Name {
+	case "TODO":
+		return pick(c.Colors.TODO, DefaultTODOColor)
+	case "NEXT":
+		return pick(c.Colors.Next, DefaultNextColor)
+	case "WAITING":
+		return pick(c.Colors.Waiting, DefaultWaitingColor)
+	case "SOMEDAY":
+		return pick(c.Colors.Someday, DefaultSomedayColor)
+	case "DONE":
+		return pick(c.Colors.Done, DefaultDoneColor)
+	case "CANCELLED":
+		return pick(c.Colors.Cancelled, DefaultCancelledColor)
+	}
+	return ""
+}
+
 // IconsConfig is the "[icons]" section of the config file: the
 // character and color of each marker the outline draws in its gutter
 // column, to the left of every entry. Every field is optional and falls

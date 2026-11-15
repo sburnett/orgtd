@@ -58,79 +58,112 @@ func (f *flagValues) recordExplicit(fs *flag.FlagSet) {
 	fs.Visit(func(fl *flag.Flag) { f.explicit[fl.Name] = true })
 }
 
-// resolveConfig merges the command line (f), $ORGTD_DIR (orgtdDirEnv),
-// the config file (cfg) and the built-in defaults into the one fully
-// resolved Config the rest of the program uses, in precedence order:
+// resolveConfig is resolveLayers with no repo-level config file, for
+// callers that only care about the result.
+func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.Config {
+	out, _ := resolveLayers(f, orgtdDirEnv, cfg, nil)
+	return out
+}
+
+// resolveOrgDir picks the org directory, which has to be known before
+// the rest of the settings can be resolved, since the repo-level config
+// file (config.LoadRepo) lives inside it: an explicit -dir, then
+// $ORGTD_DIR (it predates the config file as this tool's override
+// mechanism, and is meant for ad hoc, per-shell-session overrides, which
+// should beat a persistent config file), then the user config file's
+// org_dir, then defaultOrgDir().
+func resolveOrgDir(f flagValues, orgtdDirEnv string, user *config.Config) (dir, layer string) {
+	switch {
+	case f.explicit["dir"]:
+		return f.dir, config.LayerFlag
+	case orgtdDirEnv != "":
+		return orgtdDirEnv, config.LayerEnv
+	case user.OrgDir != "":
+		return user.OrgDir, config.LayerUser
+	default:
+		return defaultOrgDir(), config.LayerDefault
+	}
+}
+
+// resolveLayers merges the command line (f), $ORGTD_DIR (orgtdDirEnv),
+// the user's config file (user), the org directory's own committed
+// .orgtd.toml (repo, may be nil) and the built-in defaults into the one
+// fully resolved Config the rest of the program uses, in precedence
+// order:
 //
 //  1. An explicitly-passed flag always wins.
-//  2. For -dir specifically, $ORGTD_DIR comes next (it predates the
-//     config file as this tool's override mechanism, and is meant for
-//     ad hoc, per-shell-session overrides, which should beat a
-//     persistent config file).
-//  3. The config file's value, if set.
-//  4. The built-in default (config.ApplyDefaults); defaultOrgDir() for
+//  2. For -dir specifically, $ORGTD_DIR comes next (see resolveOrgDir).
+//  3. The user config file's value, if set.
+//  4. The repo file's value, if set (config.LoadRepo has already dropped
+//     the machine-local keys it may not set).
+//  5. The built-in default (config.ApplyDefaults); defaultOrgDir() for
 //     the org directory.
 //
 // The settings that have no flag (the gcalsync, icons and colors
-// sections) are simply the config file's, plus defaults. cfg itself is
-// not modified.
-func resolveConfig(f flagValues, orgtdDirEnv string, cfg *config.Config) config.Config {
-	out := *cfg
+// sections) are simply the config files', plus defaults. Neither input
+// is modified. The returned Sources says which of those layers each
+// setting came from, for :config.
+func resolveLayers(f flagValues, orgtdDirEnv string, user, repo *config.Config) (config.Config, config.Sources) {
+	var out config.Config
+	src := config.Sources{}
+	config.Overlay(&out, repo, config.LayerRepo, src)
+	config.Overlay(&out, user, config.LayerUser, src)
+	out.OrgDir, src["org_dir"] = resolveOrgDir(f, orgtdDirEnv, user)
 
-	switch {
-	case f.explicit["dir"]:
-		out.OrgDir = f.dir
-	case orgtdDirEnv != "":
-		out.OrgDir = orgtdDirEnv
-	case out.OrgDir == "":
-		out.OrgDir = defaultOrgDir()
+	set := func(name, key string, apply func()) {
+		if f.explicit[name] {
+			apply()
+			src[key] = config.LayerFlag
+		}
 	}
+	set("url-formatter", "url_formatter", func() { out.URLFormatter = f.urlFormatter })
+	set("url-formatter-prefixes", "url_formatter_prefixes", func() { out.URLFormatterPrefixes = splitList(f.urlFormatterPrefixes) })
+	set("format-links-url-formatter", "format_links_url_formatter", func() { out.FormatLinksURLFormatter = f.formatLinksURLFormatter })
+	set("agenda-days", "agenda_window_days", func() { out.AgendaWindowDays = f.agendaDays })
+	set("snippets-days", "snippets_window_days", func() { out.SnippetsWindowDays = f.snippetsDays })
+	set("inbox-file", "inbox_file", func() { out.InboxFile = f.inboxFile })
+	set("calendar-file", "calendar_file", func() { out.CalendarFile = f.calendarFile })
+	set("meeting-tags-file", "meeting_tags_file", func() { out.MeetingTagsFile = f.meetingTagsFile })
+	set("outline-ignore-files", "outline_ignore_files", func() { out.OutlineIgnoreFiles = splitList(f.outlineIgnoreFiles) })
+	set("scratch-dir", "scratch_dir", func() { out.ScratchDir = f.scratchDir })
+	set("hide-closed-after-hours", "hide_closed_after_hours", func() { out.HideClosedAfterHours = f.hideClosedAfterHours })
+	set("editor", "editor", func() { out.Editor = f.editor })
+	set("vcs-editor", "vcs_editor", func() { out.VCSEditor = f.vcsEditor })
+	set("debug", "debug", func() { out.Debug = f.debug })
 
-	if f.explicit["url-formatter"] {
-		out.URLFormatter = f.urlFormatter
-	}
-	if f.explicit["url-formatter-prefixes"] {
-		out.URLFormatterPrefixes = splitList(f.urlFormatterPrefixes)
-	}
-	if f.explicit["format-links-url-formatter"] {
-		out.FormatLinksURLFormatter = f.formatLinksURLFormatter
-	}
-	if f.explicit["agenda-days"] {
-		out.AgendaWindowDays = f.agendaDays
-	}
-	if f.explicit["snippets-days"] {
-		out.SnippetsWindowDays = f.snippetsDays
-	}
-	if f.explicit["inbox-file"] {
-		out.InboxFile = f.inboxFile
-	}
-	if f.explicit["calendar-file"] {
-		out.CalendarFile = f.calendarFile
-	}
-	if f.explicit["meeting-tags-file"] {
-		out.MeetingTagsFile = f.meetingTagsFile
-	}
-	if f.explicit["outline-ignore-files"] {
-		out.OutlineIgnoreFiles = splitList(f.outlineIgnoreFiles)
-	}
-	if f.explicit["scratch-dir"] {
-		out.ScratchDir = f.scratchDir
-	}
-	if f.explicit["hide-closed-after-hours"] {
-		out.HideClosedAfterHours = f.hideClosedAfterHours
-	}
-	if f.explicit["editor"] {
-		out.Editor = f.editor
-	}
-	if f.explicit["vcs-editor"] {
-		out.VCSEditor = f.vcsEditor
-	}
-	if f.explicit["debug"] {
-		out.Debug = f.debug
-	}
-
+	// An explicit zero flag (e.g. -agenda-days 0) means "use the
+	// default", so a flag-set key that ApplyDefaults then changes is
+	// reported as the default's.
+	before := out
 	out.ApplyDefaults()
-	return out
+	for key, layer := range src {
+		if layer == config.LayerFlag && !sameKey(before, out, key) {
+			delete(src, key)
+		}
+	}
+	config.MarkDefaults(&out, src)
+	return out, src
+}
+
+// sameKey reports whether a and b agree on the top-level setting key.
+func sameKey(a, b config.Config, key string) bool {
+	switch key {
+	case "agenda_window_days":
+		return a.AgendaWindowDays == b.AgendaWindowDays
+	case "snippets_window_days":
+		return a.SnippetsWindowDays == b.SnippetsWindowDays
+	case "inbox_file":
+		return a.InboxFile == b.InboxFile
+	case "calendar_file":
+		return a.CalendarFile == b.CalendarFile
+	case "meeting_tags_file":
+		return a.MeetingTagsFile == b.MeetingTagsFile
+	case "scratch_dir":
+		return a.ScratchDir == b.ScratchDir
+	case "hide_closed_after_hours":
+		return a.HideClosedAfterHours == b.HideClosedAfterHours
+	}
+	return true
 }
 
 // defaultOrgDir is the last-resort fallback used when nothing more

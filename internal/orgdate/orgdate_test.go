@@ -442,3 +442,27 @@ func TestCreatedTimeIsNotOKWhenMissingOrUnreadable(t *testing.T) {
 		t.Error("CreatedTime ok = true for an unparseable CREATED")
 	}
 }
+
+func TestStaleClosed(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.Local)
+	h := func(closed string) *org.Headline {
+		if closed == "" {
+			return &org.Headline{}
+		}
+		return &org.Headline{Closed: &org.Timestamp{Raw: closed}}
+	}
+	cases := []struct {
+		closed string
+		want   bool
+	}{
+		{"", false},
+		{"garbage", false},
+		{"2026-11-14 Sat 11:00", false},
+		{"2026-11-13 Fri 11:59", true},
+	}
+	for _, c := range cases {
+		if got := StaleClosed(h(c.closed), now, 24*time.Hour); got != c.want {
+			t.Errorf("StaleClosed(%q) = %v, want %v", c.closed, got, c.want)
+		}
+	}
+}

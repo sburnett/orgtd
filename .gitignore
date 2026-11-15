@@ -34,3 +34,10 @@ go.work.sum
 # binary (anchored to the repo root — unanchored "orgtd" also matches the
 # cmd/orgtd/ source directory and silently ignores everything under it)
 /orgtd
+
+# iOS: gomobile build output (scripts/build-mobilecore.sh), Xcode user
+# state, and per-developer signing settings
+/ios/Frameworks/
+/ios/build/
+xcuserdata/
+/ios/Config/Signing.local.xcconfig

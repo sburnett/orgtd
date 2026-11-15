@@ -377,6 +377,22 @@ func parseTimestamp(bracketed string) *Timestamp {
 	return &Timestamp{Active: m[1] == "<", Raw: m[2]}
 }
 
+// SanitizeTag replaces any character of s that org's own tag syntax
+// doesn't allow (see tagsRe — letters, digits, and "_@%#+" only) with
+// "_", so the result still parses back out as a real tag, e.g. an email's
+// local part with its "."s and "-"s.
+func SanitizeTag(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '_' || r == '@' || r == '%' || r == '#' || r == '+':
+			return r
+		}
+		return '_'
+	}, s)
+}
+
 // Walk calls fn for h and every descendant, depth-first, pre-order.
 func Walk(headlines []*Headline, fn func(*Headline)) {
 	for _, h := range headlines {

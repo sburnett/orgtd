@@ -1,0 +1,9 @@
+// Shared build settings. Per-developer signing goes in
+// Signing.local.xcconfig (gitignored; copy Signing.local.xcconfig.example).
+
+// Must be globally unique under free personal-team provisioning:
+// override it in Signing.local.xcconfig, e.g. com.yourname
+BUNDLE_ID_PREFIX = org.example
+DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"

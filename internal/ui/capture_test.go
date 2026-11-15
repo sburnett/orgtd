@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/capture"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -349,5 +350,29 @@ func TestCaptureRollbackReturnsToOriginFileRowNotInbox(t *testing.T) {
 
 	if m.cursor != fileIdx {
 		t.Errorf("cursor after rollback = %d, want %d (back on projects.org's file row, not the inbox)", m.cursor, fileIdx)
+	}
+}
+
+// TestDesktopCaptureMatchesPhoneRendering is the golden test for
+// ios/DESIGN.md §4.4: an entry captured with gC and filled in by hand is
+// byte-identical to what internal/capture renders for the same fields on
+// the phone.
+func TestDesktopCaptureMatchesPhoneRendering(t *testing.T) {
+	at := time.Date(2026, 11, 14, 9, 12, 0, 0, time.Local)
+	m := New(loadFixture(t), WithClock(func() time.Time { return at }))
+	m = sendKey(m, "g")
+	m = sendKey(m, "C")
+	// What the user types into the gC buffer (bullet-free, dedented).
+	buffer := "Call the plumber   :home:\nDEADLINE: <2026-11-18 Wed>\n:PROPERTIES:\n:CREATED: " + capture.CreatedStamp(at) + "\n:END:\nre: kitchen sink\n"
+	m = commitTentative(t, m, nil, buffer)
+	f := m.ws.FileOf(m.currentHeadline())
+	desktop := org.RenderHeadline(f.Headlines[len(f.Headlines)-1])
+
+	phone, err := capture.Render(capture.Capture{CreatedAt: at, Title: "Call the plumber", Body: "re: kitchen sink", Tags: []string{"home"}, Deadline: "2026-11-18"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if desktop != phone {
+		t.Errorf("desktop gC rendered\n%q\nphone rendered\n%q", desktop, phone)
 	}
 }

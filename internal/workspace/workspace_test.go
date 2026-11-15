@@ -139,3 +139,15 @@ func TestLoadRejectsMalformedIgnorePattern(t *testing.T) {
 		t.Error("Load with a malformed pattern = nil error, want one")
 	}
 }
+
+func TestIsNamedExcludesReferenceFiles(t *testing.T) {
+	ws := &Workspace{Dir: "/org"}
+	top := &org.File{Path: "/org/inbox.org"}
+	ref := &org.File{Path: "/org/reference/inbox.org"}
+	if !ws.IsNamed(top, "inbox.org") {
+		t.Error("IsNamed(/org/inbox.org) = false, want true")
+	}
+	if ws.IsNamed(ref, "inbox.org") {
+		t.Error("IsNamed(/org/reference/inbox.org) = true, want false")
+	}
+}

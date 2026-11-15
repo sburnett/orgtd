@@ -180,3 +180,35 @@ func TestConfigViewReportsCustomColors(t *testing.T) {
 		t.Errorf("config view lines = %#v, want it to reflect the custom panel color", configLines(m))
 	}
 }
+
+func TestConfigViewShowsWhichLayerEachSettingCameFrom(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Something\n")
+	m := New(ws, WithConfigSources(config.Sources{
+		"inbox_file":         config.LayerRepo,
+		"agenda_window_days": config.LayerFlag,
+		"colors.todo_color":  config.LayerRepo,
+		"colors.done_color":  config.LayerUser,
+	}))
+	m.switchToView(configView)
+	lines := configLines(m)
+	for _, want := range []string{
+		"Inbox file: inbox.org  [repo]",
+		"Agenda window: 14 days  [flag]",
+	} {
+		if !containsSubstring(lines, want) {
+			t.Errorf("config view lines = %#v, want a line containing %q", lines, want)
+		}
+	}
+	for _, l := range lines {
+		if strings.HasPrefix(l, "Colors:") && !(strings.HasSuffix(l, "  [config, repo]")) {
+			t.Errorf("colors line %q should list both repo and config layers", l)
+		}
+	}
+}
+
+func TestStartupMessageShowsOnCommandLine(t *testing.T) {
+	m := New(agendaFixture(t, "* TODO x\n"), WithStartupMessage("ignoring editor"))
+	if m.message != "ignoring editor" {
+		t.Errorf("message = %q", m.message)
+	}
+}

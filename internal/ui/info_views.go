@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/execlog"
 )
 
@@ -78,25 +79,56 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	line := func(format string, args ...any) {
 		*dst = append(*dst, row{kind: rowText, text: fmt.Sprintf(format, args...)})
 	}
+	// from appends which config layer key came from (see
+	// WithConfigSources) to the line just added; several keys are
+	// listed when one line shows several settings.
+	from := func(keys ...string) {
+		if m.cfgSources == nil {
+			return
+		}
+		seen := map[string]bool{}
+		for _, k := range keys {
+			for key, layer := range m.cfgSources {
+				if key == k || strings.HasPrefix(key, k+".") {
+					seen[layer] = true
+				}
+			}
+		}
+		var layers []string
+		for _, l := range []string{config.LayerFlag, config.LayerEnv, config.LayerUser, config.LayerRepo, config.LayerDefault} {
+			if seen[l] {
+				layers = append(layers, l)
+			}
+		}
+		if len(layers) == 0 {
+			return
+		}
+		r := &(*dst)[len(*dst)-1]
+		r.text += "  [" + strings.Join(layers, ", ") + "]"
+	}
 
 	line("Org directory: %s", m.ws.Dir)
+	from("org_dir")
 
 	editor := m.editorCommand()
 	if editor == "" {
 		editor = "vim (default)"
 	}
 	line("Editor: %s", editor)
+	from("editor")
 
 	if m.cfg.URLFormatter == "" {
 		line("URL formatter: (disabled)")
 	} else {
 		line("URL formatter: %s", m.cfg.URLFormatter)
 	}
+	from("url_formatter")
 	prefixes := "(none)"
 	if len(m.cfg.URLFormatterPrefixes) > 0 {
 		prefixes = strings.Join(m.cfg.URLFormatterPrefixes, ", ")
 	}
 	line("URL formatter prefixes: %s", prefixes)
+	from("url_formatter_prefixes")
 
 	if formatLinksCmd := m.formatLinksFormatterCmd(); formatLinksCmd == "" {
 		line("Format-links URL formatter: (disabled)")
@@ -105,21 +137,32 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	} else {
 		line("Format-links URL formatter: %s (same as URL formatter)", formatLinksCmd)
 	}
+	from("format_links_url_formatter")
 
 	line("Agenda window: %d days", m.cfg.AgendaWindowDays)
+	from("agenda_window_days")
 	line("Snippets window: %d days", m.cfg.SnippetsWindowDays)
+	from("snippets_window_days")
 	line("Inbox file: %s", m.cfg.InboxFile)
+	from("inbox_file")
 	line("Calendar file: %s", m.cfg.CalendarFile)
+	from("calendar_file")
 	line("Meeting tags file: %s", m.cfg.MeetingTagsFile)
+	from("meeting_tags_file")
 	ignored := "(none)"
 	if len(m.cfg.OutlineIgnoreFiles) > 0 {
 		ignored = strings.Join(m.cfg.OutlineIgnoreFiles, ", ")
 	}
 	line("Ignored files: %s", ignored)
+	from("outline_ignore_files")
 	line("Scratch directory: %s", m.scratchDir())
+	from("scratch_dir")
 	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
+	from("hide_closed_after_hours")
 	line("VCS editor: %s", orDefault(m.cfg.VCSEditor, "(not configured)"))
+	from("vcs_editor")
 	line("Debug logging: %s", onOff(m.cfg.Debug))
+	from("debug")
 
 	if m.cfg.Gcalsync.OAuthClientID == "" || m.cfg.Gcalsync.OAuthClientSecret == "" {
 		line("Calendar sync: (not configured — see README's Calendar sync section)")
@@ -146,6 +189,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		orDefault(m.cfg.Icons.ReviewIcon, defaultReviewIcon), orDefault(m.cfg.Icons.ReviewColor, defaultReviewColor),
 		orDefault(m.cfg.Icons.LockIcon, defaultLockIcon), orDefault(m.cfg.Icons.LockColor, defaultLockColor),
 		orDefault(m.cfg.Icons.MeetingIcon, defaultMeetingIcon), orDefault(m.cfg.Icons.MeetingColor, defaultMeetingColor))
+	from("icons")
 
 	var kws []string
 	for _, k := range m.keywords() {
@@ -165,6 +209,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		kws = append(kws, desc)
 	}
 	line("Keywords: %s", strings.Join(kws, ", "))
+	from("keywords")
 
 	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), panel-fg (%s), status-bar (%s on %s), inactive status-bar (%s on %s), cursor-row (%s), inactive cursor-row (%s), visual-selection (%s), search-highlight (%s)",
 		orDefault(m.cfg.Colors.File, defaultFileColor),
@@ -190,6 +235,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		orDefault(m.cfg.Colors.InactiveCursorRowBg, defaultInactiveCursorRowBg),
 		orDefault(m.cfg.Colors.VisualSelectionBg, defaultVisualSelectionBg),
 		orDefault(m.cfg.Colors.SearchHighlightBg, defaultSearchHighlightBg))
+	from("colors")
 }
 
 // appendLogRows appends the rows for :log — every external command

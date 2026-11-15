@@ -100,6 +100,19 @@ which takes precedence over the config file but not over an explicit
 flag. The config file itself, and every key in it, is optional — orgtd
 works fine with none of it present.
 
+Settings you want on every machine checked out from the same org
+directory — and on the iOS companion app (see below) — can instead go
+in a `.orgtd.toml` committed to the org directory itself. It takes the
+same keys, and sits below your own config file: an explicit flag wins,
+then (for the directory only) `$ORGTD_DIR`, then your config file, then
+`<org_dir>/.orgtd.toml`, then the built-in default. It can't set
+`org_dir` (it's found through it) or anything machine-local — `editor`,
+`vcs_editor`, `scratch_dir`, `debug`, or the `[gcalsync]` section —
+those are ignored with a warning on the command line at startup. A
+malformed `.orgtd.toml` stops orgtd at startup, like a malformed config
+file. `:config` shows, after each setting, which of these layers its
+value came from (`[flag]`, `[env]`, `[config]`, `[repo]`, `[default]`).
+
 ```toml
 org_dir = "~/org"          # "~" is expanded
 vcs_editor = ""            # e.g. "gitui" or "jjui"; what :vcs launches
@@ -1003,6 +1016,22 @@ automatically linked to every meeting she's tagged as an attendee of.
 
 There are no command-line flags for these — `:sync-calendar` only ever
 runs interactively from inside orgtd, so they're config-file only.
+
+## iOS companion
+
+`ios/` holds an iPhone app that captures into the inbox (in the app, or
+from the share sheet) and shows a read-only agenda, inbox and outline of
+the same org directory, which must be a git repository on a server the
+phone can reach over SSH (your own machine is fine; nothing needs to be
+hosted by a third party). The
+phone never edits an existing entry: it only appends new entries to
+`inbox_file`, committed to a `mobile` branch you merge into your main
+branch yourself (a normal merge or fast-forward). Adding
+`inbox.org merge=union` (use your `inbox_file`) to the org repository's
+`.gitattributes` lets git merge concurrent desktop and phone captures
+without a conflict. It reads the keywords, inbox name, agenda window and
+colors from `.orgtd.toml` (above). See [ios/README.md](ios/README.md)
+for building and setup.
 
 ## Development
 

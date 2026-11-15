@@ -23,6 +23,19 @@ func WithConfig(cfg config.Config) Option {
 	}
 }
 
+// WithConfigSources records which layer (flag, env, the user's config
+// file, the org directory's .orgtd.toml, or the built-in default) each
+// setting came from, so :config can say so. See config.Sources.
+func WithConfigSources(src config.Sources) Option {
+	return func(m *Model) { m.cfgSources = src }
+}
+
+// WithStartupMessage shows msg on the command line when orgtd opens
+// (e.g. warnings from loading the config files). Empty shows nothing.
+func WithStartupMessage(msg string) Option {
+	return func(m *Model) { m.message = msg }
+}
+
 // WithURLFormatter enables passing bare URLs, found in text edited via the
 // external editor, through cmd — an external program invoked as
 // `cmd <url>`, expected to print an org-mode link (e.g.

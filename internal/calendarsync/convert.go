@@ -197,7 +197,7 @@ func attendeeTags(ev gcal.Event, domains, ignorePatterns []string) []string {
 		if !ok || !domainAllowed(domain, domains) {
 			continue
 		}
-		tags = append(tags, "@"+sanitizeTag(username))
+		tags = append(tags, "@"+org.SanitizeTag(username))
 	}
 	sort.Strings(tags)
 	return tags
@@ -247,24 +247,6 @@ func domainAllowed(domain string, domains []string) bool {
 		}
 	}
 	return false
-}
-
-// sanitizeTag replaces any character s that org's own tag syntax
-// doesn't allow (see tagsRe in internal/org — letters, digits, and
-// "_@%#+" only) with "_", so an email's local part — which routinely
-// has "."s, and sometimes "-"s, neither valid in an org tag — still
-// round-trips through calendar.org as a real tag rather than silently
-// failing to parse back out as one on the next load.
-func sanitizeTag(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			return r
-		case r == '_' || r == '@' || r == '%' || r == '#' || r == '+':
-			return r
-		}
-		return '_'
-	}, s)
 }
 
 // orgTimestamp formats ev's start/end as a single org timestamp (a plain
