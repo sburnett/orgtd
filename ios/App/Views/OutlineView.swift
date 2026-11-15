@@ -76,9 +76,14 @@ struct OutlineView: View {
                 }
                 .accessibilityLabel(anyOpen ? "Collapse all" : "Expand all")
                 .disabled(!query.isEmpty || expandable.isEmpty)
-
-                SyncButton()
             }
+            // Sync in a capsule of its own, as on every other tab, so it
+            // sits in exactly the same spot: grouped with the buttons above
+            // it would share their capsule and be inset differently.
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            }
+            ToolbarItem(placement: .topBarTrailing) { SyncButton() }
         }
         .refreshable { await model.refresh() }
     }
