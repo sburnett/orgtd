@@ -20,7 +20,6 @@ struct MainTabs: View {
     @State private var showSettings = false
 
     var body: some View {
-        @Bindable var model = model
         TabView {
             tab { InboxView(capture: { capture = model.newCapture() }, edit: { capture = $0 }) }
                 .tabItem { Label("Inbox", systemImage: "tray") }
@@ -32,9 +31,6 @@ struct MainTabs: View {
         }
         .sheet(item: $capture) { draft in
             CaptureSheet(draft: draft)
-        }
-        .sheet(item: $model.editingEntry) { entry in
-            EditEntrySheet(entry: entry)
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsView() }
@@ -84,7 +80,6 @@ struct MainTabs: View {
                         ToolbarItem(placement: .topBarTrailing) { SyncButton() }
                     }
                 }
-                .navigationDestination(for: Entry.self) { EntryDetailView(entry: $0) }
         }
     }
 }

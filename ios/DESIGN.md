@@ -193,11 +193,11 @@ captures), returned as JSON.
 
 | View | Content | Interaction |
 |---|---|---|
-| **Agenda** | Overdue, Due Today, Upcoming (`agenda_window_days`), Next Actions, the same rules as desktop `:agenda` minus Meetings | Tap → read-only entry detail; pull-to-refresh = fetch |
-| **Inbox** | Top-level non-done headlines of `inbox_file`, in file order; pending (unpushed or unmerged) captures badged | Tap → detail. A pending capture can be **deleted or edited before it's merged**, since it's still only in the queue |
-| **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after_hours` (with a toggle), plus a separate read-only Reference section for `reference/` | Expand/collapse disclosure groups; tap → detail |
-| **Search** | Case-insensitive substring over title, tags, body, as desktop `/` | Results list → detail (opens outline at that entry) |
-| **Entry detail** | Keyword (colored per config), title, tags, dates, properties, body; org links tappable | Read-only |
+| **Agenda** | Overdue, Due Today, Upcoming (`agenda_window_days`), Next Actions, the same rules as desktop `:agenda` minus Meetings | Tap → details in place; pull-to-refresh = fetch |
+| **Inbox** | Top-level non-done headlines of `inbox_file`, in file order; pending (unpushed or unmerged) captures badged | Tap → details in place. A pending capture can be **deleted or edited before it's merged**, since it's still only in the queue |
+| **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after_hours` (with a toggle), plus a separate read-only Reference section for `reference/` | Chevrons expand/collapse children; tap → details in place |
+| **Search** | Case-insensitive substring over title, tags, body, as desktop `/` | Results list → opens the outline at that entry, details open |
+| **Entry details** | Opened in place within the list (one at a time), so the entry is seen in context: full title, dates, body with tappable org links, tags, properties, state menu and pencil | The pencil swaps the details for the edit form, also in place (see §10) |
 | **Status bar / Settings** | Last fetch, last successful push, number of pending captures, last error; SSH public key (copy button), repo URL, author name/email | |
 
 Editing or deleting a capture that is still pending is allowed (it isn't

@@ -1,15 +1,16 @@
 import SwiftUI
 
-/// The read-only outline: each file's headlines as an expandable tree, a
-/// separate Reference section, and search. A row's chevron expands or
-/// collapses it in place; tapping the row itself opens its detail.
-/// Picking a search result opens the outline at that entry.
+/// The outline: each file's headlines as an expandable tree, a separate
+/// Reference section, and search. A row's chevron expands or collapses
+/// its children; tapping the row opens its details (and edit form) in
+/// place. Picking a search result opens the outline at that entry.
 struct OutlineView: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
     @State private var results: [Entry] = []
     @State private var expanded: Set<String> = []
     @State private var target: String?
+    @State private var open: String?
 
     var body: some View {
         @Bindable var model = model
@@ -102,7 +103,7 @@ struct OutlineView: View {
     /// ancestors are all expanded, in outline order.
     private func nodes(_ entries: [Entry]) -> some View {
         ForEach(TreeRow.visible(entries, expanded: expanded)) { row in
-            TreeRowView(row: row, isExpanded: expanded.contains(row.id)) {
+            TreeRowView(row: row, isExpanded: expanded.contains(row.id), open: $open) {
                 withAnimation(.snappy(duration: 0.2)) {
                     if expanded.contains(row.id) { expanded.remove(row.id) } else { expanded.insert(row.id) }
                 }
@@ -113,6 +114,7 @@ struct OutlineView: View {
     /// Leaves search, expands the entry's ancestors, and scrolls to it.
     private func reveal(_ entry: Entry) {
         expanded.formUnion(entry.ancestorIDs)
+        open = entry.id
         query = ""
         Task { @MainActor in
             // Let the outline rows exist before scrolling to one.
@@ -141,18 +143,19 @@ struct TreeRow: Identifiable {
 }
 
 /// One line of the tree: indentation, a chevron for an entry with
-/// children, then the shared CompactEntryRow.
+/// children, then the shared EntryListRow (whose details open in place).
 private struct TreeRowView: View {
     @Environment(AppModel.self) private var model
     let row: TreeRow
     let isExpanded: Bool
+    @Binding var open: String?
     let toggle: () -> Void
 
     private var entry: Entry { row.entry }
     private var children: [Entry] { entry.children ?? [] }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2) {
+        HStack(alignment: .top, spacing: 2) {
             if children.isEmpty {
                 Color.clear.frame(width: 28, height: 1)
             } else {
@@ -161,16 +164,15 @@ private struct TreeRowView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .frame(width: 28, height: 28)
+                        .animation(.snappy(duration: 0.2), value: isExpanded) // rotates for children, not for details
+                        .frame(width: 28, height: entryLineHeight)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel(isExpanded ? "Collapse" : "Expand")
+                .transaction { $0.animation = nil } // still while the row's details open
             }
-            NavigationLink(value: entry) {
-                CompactEntryRow(entry: entry, hiddenCount: children.isEmpty || isExpanded ? nil : Self.descendants(children))
-            }
-            .stateContextMenu(entry)
+            EntryListRow(entry: entry, key: entry.id, open: $open, hiddenCount: children.isEmpty || isExpanded ? nil : Self.descendants(children))
         }
         .padding(.leading, CGFloat(row.depth) * 14)
         .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 12))

@@ -4,6 +4,7 @@ import SwiftUI
 /// (minus Meetings).
 struct AgendaView: View {
     @Environment(AppModel.self) private var model
+    @State private var open: String?
 
     var body: some View {
         List {
@@ -14,11 +15,8 @@ struct AgendaView: View {
                 ForEach(agenda.sections) { section in
                     Section(section.name) {
                         ForEach(section.items ?? []) { item in
-                            NavigationLink(value: item.entry) {
-                                CompactEntryRow(entry: item.entry, subtitle: subtitle(item))
-                            }
-                            .compactEntryRowInsets()
-                            .stateContextMenu(item.entry)
+                            EntryListRow(entry: item.entry, key: item.id, open: $open, subtitle: subtitle(item))
+                                .compactEntryRowInsets()
                         }
                     }
                 }

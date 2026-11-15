@@ -215,11 +215,8 @@ final class AppModel {
         await reloadAll()
     }
 
-    /// The entry being edited, for the Edit sheet.
-    var editingEntry: Entry?
-
-    /// Saves the Edit sheet's form for `entry`; only fields that changed
-    /// are written. Returns whether it worked (the sheet shows lastError
+    /// Saves an edit form for `entry`; only fields that changed are
+    /// written. Returns whether it worked (the form shows lastError
     /// otherwise).
     func edit(_ entry: Entry, to form: CaptureDraft) async -> Bool {
         let ok = await run("Saving…") {
@@ -238,24 +235,6 @@ final class AppModel {
     func dismissDropped() async {
         try? await core.dismissDropped()
         await reloadStatus()
-    }
-
-    /// The freshest copy of an entry from the loaded views, so a detail
-    /// screen reflects a state change made while it's open.
-    func entry(id: String) -> Entry? {
-        func find(_ entries: [Entry]) -> Entry? {
-            for e in entries {
-                if e.id == id { return e }
-                if let hit = find(e.children ?? []) { return hit }
-            }
-            return nil
-        }
-        if let outline, let hit = find((outline.files + outline.reference).flatMap(\.entries)) { return hit }
-        if let hit = inbox?.entries.first(where: { $0.id == id }) { return hit }
-        for section in agenda?.sections ?? [] {
-            if let hit = section.items?.first(where: { $0.entry.id == id }) { return hit.entry }
-        }
-        return nil
     }
 
     func pendingCapture(id: String) async -> CaptureDraft? {

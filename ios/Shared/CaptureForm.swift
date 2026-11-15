@@ -114,6 +114,7 @@ struct TagField: View {
             } label: {
                 Label(s, systemImage: "tag")
             }
+            .buttonStyle(.borderless) // in a list row, a plain button would take over the row
         }
     }
 

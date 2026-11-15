@@ -1,23 +1,65 @@
 import SwiftUI
 
 /// One entry as a compact list row, the same in every list (inbox,
-/// outline, agenda, search): keyword, title on one line (truncated — the
-/// detail has it whole), an optional "(N)" hidden-count, tags on the
-/// right when the whole line fits (otherwise the title gets the room),
-/// and a clock for a capture that's still pending. `subtitle` adds a
-/// small second line (an agenda date, where a search result lives).
+/// outline, agenda, search): keyword, title, an optional "(N)"
+/// hidden-count, tags on the right when they fit beside the whole title
+/// (otherwise the title gets the room), and a clock for anything still
+/// pending. The title is cut to one line, or — `expanded`, for an open
+/// row — wraps onto as many as it needs. `subtitle` adds a small second
+/// line (an agenda date, where a search result lives).
+///
+/// Opening a row only changes how many lines the same title view may
+/// use: the line's views and the tags-fit decision stay the same (see
+/// HeadlineLayout), so nothing cross-fades, and the first line doesn't
+/// move — it has fixed padding rather than being centred.
 struct CompactEntryRow: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
     var hiddenCount: Int? = nil
     var subtitle: Text? = nil
+    var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            ViewThatFits(in: .horizontal) {
-                line(withTags: true)
-                line(withTags: false)
+            HeadlineLayout {
+                if !entry.keyword.isEmpty {
+                    Text(entry.keyword)
+                        .font(.caption.monospaced())
+                        .fontWeight(model.keyword(entry.keyword)?.bold == true ? .bold : .regular)
+                        .foregroundStyle(model.keywordColor(entry.keyword))
+                        .fixedSize()
+                        .layoutValue(key: HeadlineRole.self, value: .lead)
+                }
+                Text(entry.title)
+                    .font(.body)
+                    .strikethrough(entry.done)
+                    .foregroundStyle(entry.done ? .secondary : .primary)
+                    .lineLimit(expanded ? nil : 1)
+                    .truncationMode(.tail)
+                    .layoutValue(key: HeadlineRole.self, value: .title)
+                if let hiddenCount {
+                    Text("(\(hiddenCount))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                        .layoutValue(key: HeadlineRole.self, value: .afterTitle)
+                }
+                if !entry.tags.isEmpty {
+                    Text(entry.tags.map { ":" + $0 }.joined() + ":")
+                        .font(.caption)
+                        .foregroundStyle(model.tagColor)
+                        .fixedSize()
+                        .layoutValue(key: HeadlineRole.self, value: .tags)
+                }
+                if entry.isPending || entry.hasPendingState {
+                    Image(systemName: "clock.badge")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("Pending")
+                        .layoutValue(key: HeadlineRole.self, value: .trail)
+                }
             }
+            .clipped() // tags that don't fit are parked outside the line
             if let subtitle {
                 subtitle
                     .font(.caption)
@@ -25,51 +67,122 @@ struct CompactEntryRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, subtitle == nil ? 0 : 3)
+        .padding(.vertical, subtitle == nil ? 5 : 4)
+    }
+}
+
+/// What each piece of a headline line is, for HeadlineLayout.
+enum HeadlineRole: LayoutValueKey {
+    static let defaultValue = Part.title
+    enum Part { case lead, title, afterTitle, tags, trail }
+}
+
+/// Lays out a headline line: lead (keyword) and title from the left, the
+/// after-title pieces right after the title, tags and trail at the right
+/// edge, all on the title's first baseline. The tags are shown only if
+/// they fit beside the title's whole single-line width — decided the same
+/// way however many lines the title may use, so opening a row never
+/// changes which pieces show. The title gets the rest of the width,
+/// truncating or wrapping within it.
+struct HeadlineLayout: Layout {
+    var spacing: CGFloat = 5
+    var gap: CGFloat = 8 // between the title block and the tags
+
+    private struct Plan {
+        var titleWidth: CGFloat
+        var showTags: Bool
+        var height: CGFloat
+        var baseline: CGFloat
     }
 
-    private func line(withTags: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            if !entry.keyword.isEmpty {
-                Text(entry.keyword)
-                    .font(.caption.monospaced())
-                    .fontWeight(model.keyword(entry.keyword)?.bold == true ? .bold : .regular)
-                    .foregroundStyle(model.keywordColor(entry.keyword))
-                    .fixedSize()
-            }
-            Text(entry.title)
-                .font(.body)
-                .strikethrough(entry.done)
-                .foregroundStyle(entry.done ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if let hiddenCount {
-                Text("(\(hiddenCount))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            }
-            Spacer(minLength: 4)
-            if withTags && !entry.tags.isEmpty {
-                Text(entry.tags.map { ":" + $0 }.joined() + ":")
-                    .font(.caption)
-                    .foregroundStyle(model.tagColor)
-                    .fixedSize()
-            }
-            if entry.isPending || entry.hasPendingState {
-                Image(systemName: "clock.badge")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("Pending")
+    private func plan(_ width: CGFloat, _ subviews: Subviews) -> Plan {
+        func ideal(_ part: HeadlineRole.Part) -> CGFloat {
+            subviews.filter { $0[HeadlineRole.self] == part }
+                .reduce(0) { $0 + $1.sizeThatFits(.unspecified).width + spacing }
+        }
+        let fixed = ideal(.lead) + ideal(.afterTitle) + ideal(.trail)
+        let tags = ideal(.tags)
+        let title = subviews.first { $0[HeadlineRole.self] == .title }
+        let titleIdeal = title?.sizeThatFits(.unspecified).width ?? 0
+        let showTags = tags > 0 && titleIdeal + fixed + gap + tags <= width
+        let titleWidth = max(0, width - fixed - (showTags ? gap + tags : 0))
+        var height: CGFloat = 0
+        var baseline: CGFloat = 0
+        if let title {
+            let d = title.dimensions(in: ProposedViewSize(width: titleWidth, height: nil))
+            height = d.height
+            baseline = d[.firstTextBaseline]
+        }
+        // Lift the line if a smaller piece's baseline sits lower than the
+        // title's would allow (never in practice; keeps it safe).
+        for v in subviews where v[HeadlineRole.self] != .title {
+            let d = v.dimensions(in: .unspecified)
+            baseline = max(baseline, d[.firstTextBaseline])
+        }
+        for v in subviews {
+            let d = v[HeadlineRole.self] == .title
+                ? v.dimensions(in: ProposedViewSize(width: titleWidth, height: nil))
+                : v.dimensions(in: .unspecified)
+            height = max(height, baseline - d[.firstTextBaseline] + d.height)
+        }
+        return Plan(titleWidth: titleWidth, showTags: showTags, height: height, baseline: baseline)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 10_000
+        return CGSize(width: width, height: plan(width, subviews).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let p = plan(bounds.width, subviews)
+        func put(_ v: LayoutSubview, x: CGFloat, size: ProposedViewSize) {
+            let d = v.dimensions(in: size)
+            v.place(at: CGPoint(x: x, y: bounds.minY + p.baseline - d[.firstTextBaseline]), proposal: size)
+        }
+        var x = bounds.minX
+        for v in subviews where v[HeadlineRole.self] == .lead {
+            put(v, x: x, size: .unspecified)
+            x += v.sizeThatFits(.unspecified).width + spacing
+        }
+        for v in subviews where v[HeadlineRole.self] == .title {
+            let size = ProposedViewSize(width: p.titleWidth, height: nil)
+            put(v, x: x, size: size)
+            // Pieces that follow the title start after its last line's
+            // text when it's one line, or after its block when it wraps.
+            x += min(v.sizeThatFits(size).width, p.titleWidth) + spacing
+        }
+        for v in subviews where v[HeadlineRole.self] == .afterTitle {
+            put(v, x: x, size: .unspecified)
+            x += v.sizeThatFits(.unspecified).width + spacing
+        }
+        var right = bounds.maxX
+        for v in subviews.reversed() where v[HeadlineRole.self] == .trail {
+            let w = v.sizeThatFits(.unspecified).width
+            right -= w
+            put(v, x: right, size: .unspecified)
+            right -= spacing
+        }
+        for v in subviews.reversed() where v[HeadlineRole.self] == .tags {
+            let w = v.sizeThatFits(.unspecified).width
+            if p.showTags {
+                right -= w
+                put(v, x: right, size: .unspecified)
+                right -= spacing
+            } else {
+                put(v, x: bounds.maxX + 1_000, size: .unspecified) // parked out of sight
             }
         }
     }
 }
 
+/// The height of an entry's one-line row, and of the box its line sits
+/// in when the row is open (see EntryListRow).
+let entryLineHeight: CGFloat = 32
+
 extension View {
     /// The shared spacing of every entry list: compact rows and sections.
     func compactEntryList() -> some View {
-        environment(\.defaultMinListRowHeight, 32)
+        environment(\.defaultMinListRowHeight, entryLineHeight)
             .listSectionSpacing(.compact)
     }
 
@@ -91,103 +204,243 @@ struct KeywordBadge: View {
     }
 }
 
-/// Detail: keyword (changeable), title, tags, dates, properties, body
-/// with tappable links.
-struct EntryDetailView: View {
+/// An entry's row in any list: the compact line, which a tap opens into
+/// the entry's details right where it is — in context, under its parent
+/// and above its children — and which the pencil there turns into its
+/// edit form. `open` is the list's one open row (opening another closes
+/// it); `key` tells this row apart (the agenda can show an entry twice).
+/// Long-press for the same actions.
+struct EntryListRow: View {
     @Environment(AppModel.self) private var model
-    let initial: Entry
+    let entry: Entry
+    let key: String
+    @Binding var open: String?
+    var hiddenCount: Int? = nil
+    var subtitle: Text? = nil
+    @State private var editing = false
 
-    init(entry: Entry) { initial = entry }
-
-    /// The latest version, so a state change shows while this is open.
-    private var entry: Entry { model.entry(id: initial.id) ?? initial }
+    private var isOpen: Bool { open == key }
 
     var body: some View {
-        List {
+        VStack(alignment: .leading, spacing: 0) {
+            // The line's first line keeps its place when the details open
+            // below it (and the title wraps): it has fixed padding, never
+            // centring — the list centres a row shorter than its minimum
+            // height, but not a taller one.
+            // Identical open or closed — nothing about it may change, or
+            // SwiftUI cross-fades it — and kept out of the open/close
+            // animation, so only the details below appear.
+            CompactEntryRow(entry: entry, hiddenCount: hiddenCount, subtitle: subtitle, expanded: isOpen)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .transaction { $0.animation = nil }
+                .contentShape(Rectangle())
+                .onTapGesture { toggle() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityHint(isOpen ? "Hides details" : "Shows details")
+            if isOpen {
+                Spacer().frame(height: 4)
+                Group {
+                    if editing {
+                        InlineEntryEditor(entry: entry) { withAnimation(.snappy(duration: 0.2)) { editing = false } }
+                    } else {
+                        InlineEntryDetails(entry: entry) { withAnimation(.snappy(duration: 0.2)) { editing = true } }
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .padding(.bottom, isOpen ? 8 : 0)
+        .contextMenu {
+            Button {
+                withAnimation(.snappy(duration: 0.2)) {
+                    open = key
+                    editing = true
+                }
+            } label: {
+                SwiftUI.Label("Edit", systemImage: "pencil")
+            }
             if !entry.isReference {
-                Section {
-                    LabeledContent("State") {
-                        StateMenu(entry: entry) {
-                            HStack(spacing: 4) {
-                                if entry.keyword.isEmpty {
-                                    Text("None").foregroundStyle(.secondary)
-                                } else {
-                                    KeywordBadge(name: entry.keyword).font(.body)
-                                }
-                                Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    if entry.hasPendingState {
-                        Label("Changed on this phone; not merged yet", systemImage: "clock")
-                            .font(.callout)
-                    }
-                }
+                Section("Set state") { StateMenuItems(entry: entry) }
             }
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    if !entry.keyword.isEmpty || !entry.priority.isEmpty {
-                        HStack {
-                            if !entry.keyword.isEmpty { KeywordBadge(name: entry.keyword) }
-                            if !entry.priority.isEmpty { Text("[#\(entry.priority)]").font(.caption.monospaced()) }
-                        }
-                    }
-                    Text(OrgText.attributed(entry.title))
-                        .font(.title3.weight(.semibold))
-                        .strikethrough(entry.done)
-                    if !entry.tags.isEmpty {
-                        Text(entry.tags.map { ":" + $0 }.joined() + ":")
-                            .font(.callout)
-                            .foregroundStyle(model.tagColor)
-                    }
-                    Text(entry.place).font(.caption).foregroundStyle(.secondary)
-                }
-                .textSelection(.enabled)
-            }
-            if entry.isPending {
-                Section {
-                    Label("Captured on this phone; not merged into \(model.status.baseBranch.isEmpty ? "main" : model.status.baseBranch) yet", systemImage: "clock")
-                        .font(.callout)
-                }
-            }
+        }
+        .onChange(of: isOpen) { _, nowOpen in
+            if !nowOpen { editing = false }
+        }
+    }
+
+    private func toggle() {
+        // A tap on the line doesn't throw away an edit in progress.
+        guard !editing else { return }
+        withAnimation(.snappy(duration: 0.2)) { open = isOpen ? nil : key }
+    }
+}
+
+/// An open row's details: dates, notes (links tappable), tags,
+/// properties (always shown), pending status, and the state menu and
+/// pencil.
+struct InlineEntryDetails: View {
+    @Environment(AppModel.self) private var model
+    let entry: Entry
+    let edit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
             let dates = [("Scheduled", entry.scheduled), ("Deadline", entry.deadline), ("Closed", entry.closed)].filter { !$0.1.isEmpty }
             if !dates.isEmpty {
-                Section("Dates") {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(dates, id: \.0) { label, value in
-                        LabeledContent(label) {
-                            Text(value).foregroundStyle(model.dateColor)
-                        }
+                        (Text(label + " ").foregroundColor(.secondary) + Text(value).foregroundColor(model.dateColor))
+                            .font(.footnote)
                     }
                 }
             }
             if !entry.body.isEmpty {
-                Section("Notes") {
-                    Text(OrgText.attributed(entry.body))
-                        .font(.body)
-                        .textSelection(.enabled)
-                }
+                Text(OrgText.attributed(entry.body))
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !entry.tags.isEmpty {
+                Text(entry.tags.map { ":" + $0 }.joined() + ":")
+                    .font(.footnote)
+                    .foregroundStyle(model.tagColor)
+            }
+            if entry.isPending {
+                SwiftUI.Label("Captured on this phone; not merged yet", systemImage: "clock")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else if entry.hasPendingState {
+                SwiftUI.Label("Changed on this phone; not merged yet", systemImage: "clock")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             if !entry.properties.isEmpty {
-                Section("Properties") {
+                VStack(alignment: .leading, spacing: 4) {
                     ForEach(entry.properties, id: \.key) { p in
-                        VStack(alignment: .leading) {
-                            Text(p.key).font(.caption.monospaced()).foregroundStyle(.secondary)
-                            Text(OrgText.attributed(p.value)).font(.callout).textSelection(.enabled)
-                        }
+                        (Text(p.key + "  ").font(.caption.monospaced()).foregroundColor(.secondary)
+                            + Text(OrgText.attributed(p.value)).font(.caption))
+                            .textSelection(.enabled)
                     }
                 }
             }
-        }
-        .navigationTitle(entry.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { model.editingEntry = entry } label: {
-                    Image(systemName: "pencil")
+            HStack(spacing: 12) {
+                if !entry.isReference {
+                    StateMenu(entry: entry) {
+                        HStack(spacing: 4) {
+                            if entry.keyword.isEmpty {
+                                Text("No state").font(.footnote).foregroundStyle(.secondary)
+                            } else {
+                                KeywordBadge(name: entry.keyword)
+                            }
+                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    }
+                    .accessibilityLabel("State")
                 }
+                Spacer()
+                Button(action: edit) {
+                    Image(systemName: "pencil")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 36, height: 30)
+                }
+                .buttonStyle(.bordered)
                 .accessibilityLabel("Edit")
             }
         }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+    }
+}
+
+/// An open row's edit form — the capture form's fields, in place.
+/// Only fields that change are written back (mobilecore.EditEntry); a
+/// still-pending capture is edited as a capture.
+struct InlineEntryEditor: View {
+    @Environment(AppModel.self) private var model
+    let entry: Entry
+    let done: () -> Void
+    @State private var draft: CaptureDraft
+    @State private var loading: Bool
+    @State private var saving = false
+    @State private var error: String?
+    @FocusState private var titleFocused: Bool
+
+    init(entry: Entry, done: @escaping () -> Void) {
+        self.entry = entry
+        self.done = done
+        _loading = State(initialValue: entry.captureId != nil)
+        _draft = State(initialValue: CaptureDraft(
+            keyword: entry.keyword,
+            title: entry.title,
+            body: entry.body,
+            tags: entry.tags,
+            scheduled: entry.scheduledInput ?? "",
+            deadline: entry.deadlineInput ?? ""
+        ))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if loading {
+                ProgressView().frame(maxWidth: .infinity)
+            } else {
+                if !entry.isReference {
+                    KeywordPicker(keyword: $draft.keyword, options: entry.captureId != nil ? model.captureKeywords : model.allKeywords)
+                }
+                TextField("Title", text: $draft.title, axis: .vertical)
+                    .focused($titleFocused)
+                    .inlineField()
+                TextField("Notes", text: $draft.body, axis: .vertical)
+                    .lineLimit(2...10)
+                    .inlineField()
+                VStack(alignment: .leading, spacing: 6) {
+                    TagField(tags: $draft.tags, knownTags: model.tags)
+                }
+                .inlineField()
+                DateField(label: "Scheduled", value: $draft.scheduled, parseDate: { try await model.parseDate($0) })
+                DateField(label: "Deadline", value: $draft.deadline, parseDate: { try await model.parseDate($0) })
+            }
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(.red)
+            }
+            HStack {
+                Button("Cancel", action: done)
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button("Save") { Task { await save() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(draft.trimmedTitle.isEmpty || saving || loading)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        .task {
+            // A pending capture is still only in the queue: edit it there.
+            guard let id = entry.captureId else { return }
+            if let capture = await model.pendingCapture(id: id) { draft = capture }
+            loading = false
+        }
+    }
+
+    private func save() async {
+        saving = true
+        defer { saving = false }
+        let ok = entry.captureId != nil ? await model.save(draft) : await model.edit(entry, to: draft)
+        if ok {
+            done()
+        } else {
+            error = model.lastError
+        }
+    }
+}
+
+extension View {
+    /// A text field's look inside an inline editor.
+    func inlineField() -> some View {
+        padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemBackground)))
     }
 }
 
@@ -236,35 +489,6 @@ struct StateMenuItems: View {
             }
         }
         .disabled(entry.keyword.isEmpty)
-    }
-}
-
-extension View {
-    /// Long-press a row to set its entry's state (not for reference
-    /// material, which has none).
-    @ViewBuilder
-    func stateContextMenu(_ entry: Entry) -> some View {
-        if entry.isReference {
-            contextMenu { EditMenuItem(entry: entry) }
-        } else {
-            contextMenu {
-                EditMenuItem(entry: entry)
-                Section("Set state") { StateMenuItems(entry: entry) }
-            }
-        }
-    }
-}
-
-struct EditMenuItem: View {
-    @Environment(AppModel.self) private var model
-    let entry: Entry
-
-    var body: some View {
-        Button {
-            model.editingEntry = entry
-        } label: {
-            SwiftUI.Label("Edit…", systemImage: "pencil")
-        }
     }
 }
 

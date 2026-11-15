@@ -8,6 +8,7 @@ struct InboxView: View {
     @Environment(AppModel.self) private var model
     var capture: () -> Void
     var edit: (CaptureDraft) -> Void
+    @State private var open: String?
 
     var body: some View {
         List {
@@ -16,11 +17,8 @@ struct InboxView: View {
                     ContentUnavailableView("Inbox zero", systemImage: "tray")
                 }
                 ForEach(inbox.entries) { entry in
-                    NavigationLink(value: entry) {
-                        CompactEntryRow(entry: entry)
-                    }
-                    .compactEntryRowInsets()
-                    .stateContextMenu(entry)
+                    EntryListRow(entry: entry, key: entry.id, open: $open)
+                        .compactEntryRowInsets()
                     .swipeActions(edge: .trailing) {
                         if let id = entry.captureId {
                             Button(role: .destructive) {

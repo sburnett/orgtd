@@ -154,9 +154,12 @@ either.
   including when the app last fetched and pushed.
 - In Inbox, captures that aren't merged yet show a clock. Swipe one to
   edit or delete it.
-- **Changing an entry's state:** long-press any entry in Inbox, Outline
-  or Agenda and pick a keyword, or use the State menu at the top of its
-  details. This works as desktop `r` does: a done state stamps
+- **Details in place:** tap any entry in Inbox, Outline or Agenda to
+  open its details right there in the list, under its parent and above
+  its children: full title, dates, notes (links tappable), tags and
+  properties. Tap it again, or open another, to close it.
+- **Changing an entry's state:** long-press any entry and pick a
+  keyword, or use the state menu in its open details. This works as desktop `r` does: a done state stamps
   `CLOSED`, leaving one clears it, and completing a repeating item
   advances its dates and sets `LAST_REPEAT` instead. Changed entries
   show a clock until they're merged.
@@ -167,9 +170,9 @@ either.
   - The phone won't change states in a file whose `.gitattributes`
     entry sets `merge=union`, since a union merge would duplicate the
     edited line.
-- **Editing an entry:** tap the pencil on its details, or pick **Edit…**
-  from its long-press menu. The form is the capture form: keyword,
-  title, notes, tags and dates.
+- **Editing an entry:** tap the pencil in its open details, or pick
+  **Edit** from its long-press menu. The edit form opens in place, with
+  the capture form's fields: keyword, title, notes, tags and dates.
   - Only the fields you change are written back, rewriting just those
     lines.
   - A date you don't touch stays exactly as written, repeater and time
