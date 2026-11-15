@@ -358,17 +358,27 @@ func TestCaptureRollbackReturnsToOriginFileRowNotInbox(t *testing.T) {
 // byte-identical to what internal/capture renders for the same fields on
 // the phone.
 func TestDesktopCaptureMatchesPhoneRendering(t *testing.T) {
+	for _, keyword := range []string{"", "NEXT"} {
+		t.Run("keyword="+keyword, func(t *testing.T) { testDesktopCaptureMatchesPhone(t, keyword) })
+	}
+}
+
+func testDesktopCaptureMatchesPhone(t *testing.T, keyword string) {
 	at := time.Date(2026, 11, 14, 9, 12, 0, 0, time.Local)
 	m := New(loadFixture(t), WithClock(func() time.Time { return at }))
 	m = sendKey(m, "g")
 	m = sendKey(m, "C")
 	// What the user types into the gC buffer (bullet-free, dedented).
-	buffer := "Call the plumber   :home:\nDEADLINE: <2026-11-18 Wed>\n:PROPERTIES:\n:CREATED: " + capture.CreatedStamp(at) + "\n:END:\nre: kitchen sink\n"
+	prefix := ""
+	if keyword != "" {
+		prefix = keyword + " "
+	}
+	buffer := prefix + "Call the plumber   :home:\nDEADLINE: <2026-11-18 Wed>\n:PROPERTIES:\n:CREATED: " + capture.CreatedStamp(at) + "\n:END:\nre: kitchen sink\n"
 	m = commitTentative(t, m, nil, buffer)
 	f := m.ws.FileOf(m.currentHeadline())
 	desktop := org.RenderHeadline(f.Headlines[len(f.Headlines)-1])
 
-	phone, err := capture.Render(capture.Capture{CreatedAt: at, Title: "Call the plumber", Body: "re: kitchen sink", Tags: []string{"home"}, Deadline: "2026-11-18"})
+	phone, err := capture.Render(capture.Capture{CreatedAt: at, Keyword: keyword, Title: "Call the plumber", Body: "re: kitchen sink", Tags: []string{"home"}, Deadline: "2026-11-18"})
 	if err != nil {
 		t.Fatal(err)
 	}

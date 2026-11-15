@@ -364,3 +364,25 @@ func TestCloneOverSSHNeedsAConfirmedHostKey(t *testing.T) {
 		t.Errorf("Clone without a host key = %v", err)
 	}
 }
+
+func TestCaptureKeywordMustBeAConfiguredActiveKeyword(t *testing.T) {
+	g, _ := setup(t)
+	if _, err := Capture(g, `{"title":"Done already","keyword":"DONE"}`, "P", "p@x"); err == nil {
+		t.Error("capturing with a done keyword succeeded")
+	}
+	if _, err := Capture(g, `{"title":"Typo","keyword":"TOOD"}`, "P", "p@x"); err == nil {
+		t.Error("capturing with an unknown keyword succeeded")
+	}
+	id, err := Capture(g, `{"title":"Next thing","keyword":"NEXT"}`, "P", "p@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := decode[inboxResult](t)(Inbox(g))
+	last := in.Entries[len(in.Entries)-1]
+	if last.Keyword != "NEXT" || last.Title != "Next thing" || last.CaptureID != id {
+		t.Errorf("captured entry = %+v", last)
+	}
+	if err := UpdatePendingCapture(g, `{"id":"`+id+`","title":"Next thing","keyword":"SHIPPED"}`, "P", "p@x"); err == nil {
+		t.Error("updating to an unknown keyword succeeded")
+	}
+}

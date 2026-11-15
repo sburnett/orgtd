@@ -35,7 +35,7 @@ on the Mac. The phone never merges and never resolves a conflict.
 | Commit / push | Each capture is committed automatically; pushing only happens on an explicit **Sync** |
 | Branch upkeep | On Sync, `mobile` is rebuilt as `origin/main` + the still-unmerged captures and force-pushed (with lease) |
 | Fetch | On launch, on returning to foreground, and on Sync. Fetch is read-only and can't conflict |
-| Capture fields | Title, body, tags (autocompleted), SCHEDULED / DEADLINE. `CREATED` is stamped automatically |
+| Capture fields | Keyword (optional; one of the configured not-done keywords), title, body, tags (autocompleted), SCHEDULED / DEADLINE. `CREATED` is stamped automatically |
 | Capture entry points | In-app and share-sheet extension. No widget, Siri, or Shortcuts for now |
 | Read views | Agenda (Overdue / Due Today / Upcoming / Next Actions), Inbox, read-only Outline browser with search |
 | Not in scope (yet) | Any mutation of existing entries, meetings/calendar, `:review`, Google integration, iPad |
@@ -106,6 +106,7 @@ disk. Swift reads it and passes it to `mobilecore.Sync` per call.
 {
   "id": "6F1C…",               // UUID; queue-internal, never written to org files
   "createdAt": "2026-11-14T09:12:00-08:00",
+  "keyword": "TODO",             // optional
   "title": "Call the plumber",
   "body": "re: kitchen sink",
   "tags": ["home"],
@@ -456,3 +457,10 @@ README/DESIGN.md current (per repo convention).
   by temp-file-and-rename, which would drop a per-file backup exclusion,
   and new files inherit the directory's protection class. The trade-off
   is that captures not yet synced aren't in any backup.
+- **Keyword at capture.** A capture may carry a keyword. `mobilecore`
+  rejects any keyword that isn't one of the repo config's not-done
+  keywords. The share extension can't read the config, so the app
+  writes the list to `keywords-cache.json` for it after each refresh.
+  A keyword the extension sends from a stale cache isn't re-checked on
+  import; if it's no longer configured, the desktop reads it as part of
+  the title.

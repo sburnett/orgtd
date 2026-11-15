@@ -234,12 +234,41 @@ func rebuild(groupDir, authorName, authorEmail string) error {
 	return r.Rebuild()
 }
 
-func decodeCapture(captureJSON string) (capture.Capture, error) {
+// decodeCapture parses and validates a capture from Swift, including that
+// its keyword (if any) is one of the repo's configured, not-done keywords.
+func decodeCapture(groupDir, captureJSON string) (capture.Capture, error) {
 	var c capture.Capture
 	if err := json.Unmarshal([]byte(captureJSON), &c); err != nil {
 		return c, fmt.Errorf("mobilecore: bad capture JSON: %w", err)
 	}
-	return c, c.Validate()
+	if err := c.Validate(); err != nil {
+		return c, err
+	}
+	if c.Keyword == "" {
+		return c, nil
+	}
+	cfg, err := repoConfig(groupDir)
+	if err != nil {
+		return c, err
+	}
+	for _, k := range cfg.Keywords {
+		if k.Name == c.Keyword && !k.Done {
+			return c, nil
+		}
+	}
+	return c, fmt.Errorf("mobilecore: %q isn't one of the configured (not done) keywords", c.Keyword)
+}
+
+// repoConfig is the clone's .orgtd.toml over the built-in defaults.
+func repoConfig(groupDir string) (config.Config, error) {
+	cfg := config.Default()
+	repoCfg, _, err := config.LoadRepo(repoDir(groupDir))
+	if err != nil {
+		return cfg, err
+	}
+	config.Overlay(&cfg, repoCfg, config.LayerRepo, nil)
+	cfg.ApplyDefaults()
+	return cfg, nil
 }
 
 // Capture queues a new capture (JSON, see capture.Capture; ID and
@@ -249,7 +278,7 @@ func decodeCapture(captureJSON string) (capture.Capture, error) {
 func Capture(groupDir, captureJSON, authorName, authorEmail string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
-	c, err := decodeCapture(captureJSON)
+	c, err := decodeCapture(groupDir, captureJSON)
 	if err != nil {
 		return "", err
 	}
@@ -268,7 +297,7 @@ func Capture(groupDir, captureJSON, authorName, authorEmail string) (string, err
 func UpdatePendingCapture(groupDir, captureJSON, authorName, authorEmail string) error {
 	mu.Lock()
 	defer mu.Unlock()
-	c, err := decodeCapture(captureJSON)
+	c, err := decodeCapture(groupDir, captureJSON)
 	if err != nil {
 		return err
 	}

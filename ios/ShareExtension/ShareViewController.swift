@@ -19,6 +19,7 @@ final class ShareViewController: UIViewController {
     private func show(_ draft: CaptureDraft) {
         let root = ShareCaptureView(
             draft: draft,
+            keywords: KeywordsCache.load(),
             knownTags: TagsCache.load(),
             done: { [weak self] in self?.extensionContext?.completeRequest(returningItems: nil) },
             cancel: { [weak self] in
@@ -34,7 +35,7 @@ final class ShareViewController: UIViewController {
     }
 
     private static func draft(from items: [NSExtensionItem]) async -> CaptureDraft {
-        var draft = CaptureDraft()
+        var draft = CaptureDraft(keyword: KeywordsCache.last(in: KeywordsCache.load()))
         var url: URL?
         var text: String?
         for item in items {
@@ -68,6 +69,7 @@ final class ShareViewController: UIViewController {
 
 struct ShareCaptureView: View {
     @State var draft: CaptureDraft
+    var keywords: [KeywordOption]
     var knownTags: [String]
     var done: () -> Void
     var cancel: () -> Void
@@ -75,7 +77,7 @@ struct ShareCaptureView: View {
 
     var body: some View {
         NavigationStack {
-            CaptureForm(draft: $draft, knownTags: knownTags, parseDate: nil)
+            CaptureForm(draft: $draft, keywords: keywords, knownTags: knownTags, parseDate: nil)
                 .safeAreaInset(edge: .bottom) {
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(.red).padding()
@@ -99,6 +101,7 @@ struct ShareCaptureView: View {
         do {
             draft.createdAt = Date()
             try draft.writeIncoming()
+            KeywordsCache.remember(draft.keyword)
             done()
         } catch {
             self.error = error.localizedDescription

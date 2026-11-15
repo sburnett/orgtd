@@ -11,7 +11,7 @@ struct CaptureSheet: View {
 
     var body: some View {
         NavigationStack {
-            CaptureForm(draft: $draft, knownTags: model.tags, parseDate: { try await model.parseDate($0) })
+            CaptureForm(draft: $draft, keywords: model.captureKeywords, knownTags: model.tags, parseDate: { try await model.parseDate($0) })
                 .safeAreaInset(edge: .bottom) {
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(.red).padding()

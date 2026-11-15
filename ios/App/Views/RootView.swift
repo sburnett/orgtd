@@ -51,7 +51,7 @@ struct MainTabs: View {
                         }
                         .disabled(model.busy != nil)
                         .accessibilityLabel("Sync")
-                        Button { capture = CaptureDraft() } label: { Image(systemName: "plus") }
+                        Button { capture = model.newCapture() } label: { Image(systemName: "plus") }
                             .accessibilityLabel("Capture")
                     }
                 }

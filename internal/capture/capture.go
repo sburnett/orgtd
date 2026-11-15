@@ -26,9 +26,13 @@ type Capture struct {
 	// CreatedAt is when the item was captured; it becomes the CREATED
 	// property, in CreatedAt's own time zone.
 	CreatedAt time.Time `json:"createdAt"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body,omitempty"`
-	Tags      []string  `json:"tags,omitempty"`
+	// Keyword is the TODO keyword to start the headline with ("" for
+	// none). Whether it's a configured keyword is the caller's to check
+	// (see mobilecore); here it only has to be a single word.
+	Keyword string   `json:"keyword,omitempty"`
+	Title   string   `json:"title"`
+	Body    string   `json:"body,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
 	// Scheduled and Deadline are "YYYY-MM-DD" or "YYYY-MM-DD HH:MM"
 	// (see ParseDate), or empty for none.
 	Scheduled string `json:"scheduled,omitempty"`
@@ -74,6 +78,9 @@ func (c Capture) Validate() error {
 	if strings.TrimSpace(c.Title) == "" {
 		return fmt.Errorf("capture: title is required")
 	}
+	if k := strings.TrimSpace(c.Keyword); k != "" && strings.ContainsAny(k, " \t:") {
+		return fmt.Errorf("capture: keyword %q must be a single word", c.Keyword)
+	}
 	if _, err := timestamp("scheduled", c.Scheduled); err != nil {
 		return err
 	}
@@ -83,14 +90,15 @@ func (c Capture) Validate() error {
 	return nil
 }
 
-// Headline builds c as a top-level org headline: the title (on one line),
+// Headline builds c as a top-level org headline: the keyword, if any, the
+// title (on one line),
 // tags (sanitized to org's tag syntax, duplicates and blanks dropped), a
 // planning line, a CREATED property, and the body.
 func (c Capture) Headline() (*org.Headline, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	h := &org.Headline{Level: 1, Title: strings.Join(strings.Fields(c.Title), " ")}
+	h := &org.Headline{Level: 1, Keyword: strings.TrimSpace(c.Keyword), Title: strings.Join(strings.Fields(c.Title), " ")}
 	seen := map[string]bool{}
 	for _, tag := range c.Tags {
 		tag = org.SanitizeTag(strings.TrimSpace(tag))

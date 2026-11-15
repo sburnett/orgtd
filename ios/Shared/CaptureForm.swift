@@ -7,6 +7,7 @@ import SwiftUI
 /// exactly what the desktop's "gd" does ("3d", "2w", "next tue").
 struct CaptureForm: View {
     @Binding var draft: CaptureDraft
+    var keywords: [KeywordOption]
     var knownTags: [String]
     var parseDate: ((String) async throws -> String)?
     @FocusState private var titleFocused: Bool
@@ -14,6 +15,9 @@ struct CaptureForm: View {
     var body: some View {
         Form {
             Section {
+                if !keywords.isEmpty {
+                    KeywordPicker(keyword: $draft.keyword, options: keywords)
+                }
                 TextField("Title", text: $draft.title, axis: .vertical)
                     .focused($titleFocused)
                     .submitLabel(.next)
@@ -29,6 +33,44 @@ struct CaptureForm: View {
             }
         }
         .onAppear { if draft.trimmedTitle.isEmpty { titleFocused = true } }
+    }
+}
+
+/// The keyword as a row of chips: None, then each configured keyword in
+/// its config color.
+struct KeywordPicker: View {
+    @Binding var keyword: String
+    var options: [KeywordOption]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                chip("None", value: "", color: .secondary)
+                ForEach(options) { k in
+                    chip(k.name, value: k.name, color: Color(orgColor: k.color) ?? .accentColor)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Keyword")
+    }
+
+    private func chip(_ label: String, value: String, color: Color) -> some View {
+        let selected = keyword == value
+        return Button {
+            keyword = value
+        } label: {
+            Text(label)
+                .font(.caption.monospaced().weight(selected ? .bold : .regular))
+                .foregroundStyle(selected ? color : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(selected ? color.opacity(0.18) : Color.secondary.opacity(0.08)))
+                .overlay(Capsule().strokeBorder(selected ? color : .clear, lineWidth: 1))
+        }
+        .buttonStyle(.borderless)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

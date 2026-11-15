@@ -5,6 +5,7 @@ import Foundation
 struct CaptureDraft: Codable, Equatable {
     var id: String?
     var createdAt: Date = Date()
+    var keyword: String = ""
     var title: String = ""
     var body: String = ""
     var tags: [String] = []
@@ -12,12 +13,13 @@ struct CaptureDraft: Codable, Equatable {
     var deadline: String = ""
 
     enum CodingKeys: String, CodingKey {
-        case id, createdAt, title, body, tags, scheduled, deadline
+        case id, createdAt, keyword, title, body, tags, scheduled, deadline
     }
 
-    init(id: String? = nil, createdAt: Date = Date(), title: String = "", body: String = "", tags: [String] = [], scheduled: String = "", deadline: String = "") {
+    init(id: String? = nil, createdAt: Date = Date(), keyword: String = "", title: String = "", body: String = "", tags: [String] = [], scheduled: String = "", deadline: String = "") {
         self.id = id
         self.createdAt = createdAt
+        self.keyword = keyword
         self.title = title
         self.body = body
         self.tags = tags
@@ -31,6 +33,7 @@ struct CaptureDraft: Codable, Equatable {
         if let s = try c.decodeIfPresent(String.self, forKey: .createdAt), let d = CaptureDraft.parseDate(s) {
             createdAt = d
         }
+        keyword = try c.decodeIfPresent(String.self, forKey: .keyword) ?? ""
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
@@ -43,6 +46,7 @@ struct CaptureDraft: Codable, Equatable {
         try c.encodeIfPresent(id, forKey: .id)
         // With the device's UTC offset, so CREATED shows local wall time.
         try c.encode(CaptureDraft.formatter.string(from: createdAt), forKey: .createdAt)
+        try c.encode(keyword, forKey: .keyword)
         try c.encode(title, forKey: .title)
         try c.encode(body, forKey: .body)
         try c.encode(tags, forKey: .tags)
@@ -121,5 +125,42 @@ enum TagsCache {
     static func save(_ tags: [String]) {
         guard let data = try? JSONEncoder().encode(tags) else { return }
         try? data.write(to: AppGroup.tagsCacheURL, options: .atomic)
+    }
+}
+
+/// A keyword the capture form offers: a configured, not-done keyword and
+/// its config color.
+struct KeywordOption: Codable, Hashable, Identifiable {
+    var name: String
+    var color: String
+    var id: String { name }
+}
+
+/// The keyword list the app writes for the share extension (which can't
+/// read the config itself), and the keyword last captured with, which
+/// new captures start with.
+enum KeywordsCache {
+    private static var url: URL { AppGroup.containerURL.appendingPathComponent("keywords-cache.json") }
+
+    static func load() -> [KeywordOption] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONDecoder().decode([KeywordOption].self, from: data)) ?? []
+    }
+
+    static func save(_ keywords: [KeywordOption]) {
+        guard let data = try? JSONEncoder().encode(keywords) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private static var lastURL: URL { AppGroup.containerURL.appendingPathComponent("last-keyword") }
+
+    /// The last keyword used, if it's still one of `options`; "" otherwise.
+    static func last(in options: [KeywordOption]) -> String {
+        let name = (try? String(contentsOf: lastURL, encoding: .utf8)) ?? ""
+        return options.contains { $0.name == name } ? name : ""
+    }
+
+    static func remember(_ keyword: String) {
+        try? keyword.write(to: lastURL, atomically: true, encoding: .utf8)
     }
 }

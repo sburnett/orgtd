@@ -128,3 +128,23 @@ func TestAppendEntryIsAPureAppend(t *testing.T) {
 		t.Errorf("new file = %q", got)
 	}
 }
+
+func TestRenderWithKeyword(t *testing.T) {
+	c := sample()
+	c.Keyword = "TODO"
+	got, err := Render(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "* TODO Call the plumber   :home:\n") {
+		t.Errorf("Render = %q", got)
+	}
+	f, _ := org.Parse(strings.NewReader(got), "inbox.org")
+	if h := f.Headlines[0]; h.Keyword != "TODO" || h.Title != "Call the plumber" {
+		t.Errorf("parsed keyword/title = %q/%q", h.Keyword, h.Title)
+	}
+	c.Keyword = "TWO WORDS"
+	if err := c.Validate(); err == nil {
+		t.Error("a multi-word keyword validated")
+	}
+}

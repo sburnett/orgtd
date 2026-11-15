@@ -53,6 +53,16 @@ final class AppModel {
         Color(orgColor: keyword(name)?.color ?? "") ?? .secondary
     }
 
+    /// The keywords a capture can start with: the configured, not-done ones.
+    var captureKeywords: [KeywordOption] {
+        status.keywords.filter { !$0.done }.map { KeywordOption(name: $0.name, color: $0.color) }
+    }
+
+    /// A blank capture, starting with the keyword last captured with.
+    func newCapture() -> CaptureDraft {
+        CaptureDraft(keyword: KeywordsCache.last(in: captureKeywords))
+    }
+
     var tagColor: Color { Color(orgColor: status.tagColor) ?? .teal }
     var dateColor: Color { Color(orgColor: status.dateColor) ?? .pink }
 
@@ -128,6 +138,7 @@ final class AppModel {
     // MARK: Captures
 
     func save(_ draft: CaptureDraft) async -> Bool {
+        if draft.id == nil { KeywordsCache.remember(draft.keyword) }
         let ok = await run("Saving…") {
             if draft.id == nil {
                 try await self.core.capture(draft, author: self.author)
@@ -179,6 +190,7 @@ final class AppModel {
             outline = try await core.outline(showClosed: showClosed)
             tags = try await core.tags()
             TagsCache.save(tags)
+            KeywordsCache.save(captureKeywords)
         } catch {
             lastError = error.localizedDescription
         }
