@@ -444,7 +444,11 @@ private struct TreeRowView: View {
     var body: some View {
         HStack(alignment: .top, spacing: chevronGap) {
             if children.isEmpty {
-                Color.clear.frame(width: chevronWidth, height: 1)
+                // A full line tall, like the chevron: a row shorter than
+                // the list's minimum height is centred, and stops being
+                // centred when its details open, which would nudge the
+                // title up.
+                Color.clear.frame(width: chevronWidth, height: entryLineHeight)
             } else {
                 Button(action: toggle) {
                     Image(systemName: "chevron.right")
