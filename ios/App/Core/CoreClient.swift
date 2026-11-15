@@ -92,6 +92,15 @@ actor CoreClient {
         _ = try CoreClient.check { MobilecoreDeletePendingCapture(groupDir, captureID, author.name, author.email, $0) }
     }
 
+    func setState(entryID: String, keyword: String, author: Author) throws {
+        let now = self.now
+        _ = try CoreClient.check { MobilecoreSetState(groupDir, entryID, keyword, now, author.name, author.email, $0) }
+    }
+
+    func dismissDropped() throws {
+        _ = try CoreClient.check { MobilecoreDismissDropped(groupDir, $0) }
+    }
+
     func pendingCapture(id: String) throws -> CaptureDraft {
         try decode(CaptureDraft.self) { MobilecorePendingCapture(groupDir, id, $0) }
     }

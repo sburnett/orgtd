@@ -29,6 +29,9 @@ type entry struct {
 	// naming it, so it can be edited or deleted.
 	Pending   bool   `json:"pending,omitempty"`
 	CaptureID string `json:"captureId,omitempty"`
+	// PendingState is set on an entry whose state was changed on the
+	// phone and isn't merged yet.
+	PendingState bool `json:"pendingState,omitempty"`
 }
 
 // property is one property drawer line.
@@ -107,6 +110,12 @@ type statusResult struct {
 	TagColor     string      `json:"tagColor"`
 	DateColor    string      `json:"dateColor"`
 	ConfigErrors []string    `json:"configErrors"` // warnings from .orgtd.toml
+	// PendingStates counts state changes not yet merged (Pending counts
+	// captures); Unpushed counts both.
+	PendingStates int `json:"pendingStates"`
+	// Dropped are state changes that could no longer be applied (their
+	// entry changed on the desktop first); show them, then DismissDropped.
+	Dropped []droppedJSON `json:"dropped"`
 }
 
 // hostKeyJSON is a server's SSH host key: ScanHostKey's result, Clone's
@@ -115,6 +124,14 @@ type hostKeyJSON struct {
 	Host        string `json:"host"`        // host:port
 	Key         string `json:"key"`         // authorized_keys form
 	Fingerprint string `json:"fingerprint"` // "SHA256:..."
+}
+
+// droppedJSON is a state change that couldn't be applied.
+type droppedJSON struct {
+	Title  string `json:"title"`
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Reason string `json:"reason"`
 }
 
 // KeyPair is a freshly generated SSH key.

@@ -98,34 +98,25 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 
 // buildStatusChangeAction returns the undoAction that setting h's
 // keyword to keyword would produce — a repeatAdvanceAction if h is
-// completing a repeating item (see repeatAdvanceForCompletion), or a
+// completing a repeating item (see orgdate.ChangeState), or a
 // plain statusChangeAction otherwise — without applying or pushing it,
 // so bulk operations (visual-mode R) can batch several of these into one
 // undo step the same way applyStatus handles a single one. A non-blank
 // note is logged if h is completing, and ignored otherwise.
 func (m *Model) buildStatusChangeAction(h *org.Headline, keyword, note string) undoAction {
 	closing := org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword)
-	if closing {
-		if a := m.repeatAdvanceForCompletion(h); a != nil {
-			return m.withClosingNote(a, h, orgdate.StateNoteHeading(keyword, h.Keyword), note)
-		}
-	}
-
-	newClosed := h.Closed
-	switch {
-	case org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword):
-		newClosed = &org.Timestamp{Raw: m.now().Format("2006-01-02 Mon 15:04")}
-	case !org.IsDoneKeyword(keyword) && org.IsDoneKeyword(h.Keyword):
-		newClosed = nil
+	sc := orgdate.ChangeState(h, keyword, m.now()) // shared with the phone (mobilecore)
+	if sc.Repeat {
+		return m.withClosingNote(m.repeatAdvanceAction(h, sc), h, orgdate.StateNoteHeading(keyword, h.Keyword), note)
 	}
 
 	var a undoAction = &statusChangeAction{
 		h:          h,
 		f:          m.ws.FileOf(h),
 		oldKeyword: h.Keyword,
-		newKeyword: keyword,
+		newKeyword: sc.Keyword,
 		oldClosed:  h.Closed,
-		newClosed:  newClosed,
+		newClosed:  sc.Closed,
 	}
 	if closing {
 		a = m.withClosingNote(a, h, orgdate.ClosingNoteHeading, note)

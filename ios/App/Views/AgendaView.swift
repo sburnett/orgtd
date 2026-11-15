@@ -18,6 +18,7 @@ struct AgendaView: View {
                                 CompactEntryRow(entry: item.entry, subtitle: subtitle(item))
                             }
                             .compactEntryRowInsets()
+                            .stateContextMenu(item.entry)
                         }
                     }
                 }

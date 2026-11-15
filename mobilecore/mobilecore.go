@@ -49,6 +49,7 @@ var mu sync.Mutex
 func repoDir(groupDir string) string     { return filepath.Join(groupDir, "repo") }
 func queuePath(groupDir string) string   { return filepath.Join(groupDir, "captures.json") }
 func statePath(groupDir string) string   { return filepath.Join(groupDir, "sync-state.json") }
+func opsPath(groupDir string) string     { return filepath.Join(groupDir, "state-ops.json") }
 func incomingDir(groupDir string) string { return filepath.Join(groupDir, "incoming") }
 
 // SetTimeZone makes name (an IANA zone such as "America/Los_Angeles",
@@ -88,6 +89,7 @@ func newRepo(groupDir, url string, privKey []byte, authorName, authorEmail strin
 	r := &gitsync.Repo{
 		Dir:       repoDir(groupDir),
 		QueuePath: queuePath(groupDir),
+		OpsPath:   opsPath(groupDir),
 		StatePath: statePath(groupDir),
 		Author:    gitsync.Author{Name: authorName, Email: authorEmail},
 	}
@@ -162,7 +164,7 @@ func Clone(groupDir, repoURL string, privKey []byte, hostKey string) error {
 			return errors.New("mobilecore: confirm the server's host key first")
 		}
 	}
-	r := &gitsync.Repo{Dir: repoDir(groupDir), QueuePath: queuePath(groupDir), StatePath: statePath(groupDir)}
+	r := &gitsync.Repo{Dir: repoDir(groupDir), QueuePath: queuePath(groupDir), OpsPath: opsPath(groupDir), StatePath: statePath(groupDir)}
 	if err := setAuth(r, repoURL, privKey, hk.Key); err != nil {
 		return err
 	}
@@ -377,6 +379,13 @@ type loaded struct {
 	cfg      config.Config
 	warnings []string
 	ws       *workspace.Workspace
+	// changed holds file + "\x00" + title path of every entry with a
+	// queued state change, to mark it pending.
+	changed map[string]bool
+}
+
+func changedKey(file string, path []string) string {
+	return file + "\x00" + strings.Join(path, "\x00")
 }
 
 // load reads the repo-level config, applies its keywords, and loads the
@@ -406,7 +415,15 @@ func load(groupDir string) (*loaded, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &loaded{cfg: cfg, warnings: warnings, ws: ws}, nil
+	l := &loaded{cfg: cfg, warnings: warnings, ws: ws, changed: map[string]bool{}}
+	ops, err := capturequeue.LoadOps(opsPath(groupDir))
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range ops {
+		l.changed[changedKey(o.File, o.Path)] = true
+	}
+	return l, nil
 }
 
 func (l *loaded) rel(f *org.File) string {
@@ -444,6 +461,7 @@ func (l *loaded) toEntry(f *org.File, h *org.Headline, idx []int, withChildren b
 		Closed:    rawOrEmpty(h.Closed),
 		Body:      dedentBody(h),
 	}
+	e.PendingState = l.changed[changedKey(e.File, gitsync.TitlePath(h))]
 	e.Properties = []property{}
 	for _, k := range h.PropertyOrder {
 		e.Properties = append(e.Properties, property{Key: k, Value: h.Properties[k]})
@@ -511,6 +529,87 @@ func (l *loaded) flatEntry(h *org.Headline) entry {
 // not the calendar or meeting-tags file.
 func (l *loaded) isOutlineFile(f *org.File) bool {
 	return !l.ws.IsReference(f) && !l.ws.IsNamed(f, l.cfg.CalendarFile) && !l.ws.IsNamed(f, l.cfg.MeetingTagsFile)
+}
+
+// SetState changes the TODO keyword of the entry entryID (an entry DTO's
+// ID, from the current views) to keyword ("" for none), as desktop "r"
+// does: a done state stamps CLOSED, and completing a repeating item
+// advances its dates instead. The change is queued and committed on
+// local "mobile" at once (no network), and replayed on every rebuild
+// until it's merged — or dropped, if the entry changes on the desktop
+// first (see Status's dropped list). Refused for reference material,
+// for a keyword that isn't configured, and for a file .gitattributes
+// gives merge=union (a union merge would keep both versions of the
+// edited line).
+func SetState(groupDir, entryID, keyword string, nowUnix int64, authorName, authorEmail string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	l, err := load(groupDir)
+	if err != nil {
+		return err
+	}
+	f, h, err := l.lookup(entryID)
+	if err != nil {
+		return err
+	}
+	rel := l.rel(f)
+	if l.ws.IsReference(f) {
+		return errors.New("mobilecore: reference material has no TODO state")
+	}
+	if keyword != "" {
+		known := false
+		for _, k := range l.cfg.Keywords {
+			known = known || k.Name == keyword
+		}
+		if !known {
+			return fmt.Errorf("mobilecore: %q isn't a configured keyword", keyword)
+		}
+	}
+	if keyword == h.Keyword {
+		return nil
+	}
+	if gitsync.UnionMerged(repoDir(groupDir), rel) {
+		return fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate entries whose state changes; remove that line (on your computer) to change states there from the phone", rel)
+	}
+	op := gitsync.NewStateOp(rel, h, keyword, now(nowUnix))
+	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
+		return err
+	}
+	return rebuild(groupDir, authorName, authorEmail)
+}
+
+// lookup resolves an entry ID ("<file>:<i>.<j>...", see entry.ID).
+func (l *loaded) lookup(id string) (*org.File, *org.Headline, error) {
+	file, idx, ok := strings.Cut(id, ":")
+	if !ok {
+		return nil, nil, fmt.Errorf("mobilecore: bad entry id %q", id)
+	}
+	for _, f := range l.ws.Files {
+		if l.rel(f) != file {
+			continue
+		}
+		list := f.Headlines
+		var h *org.Headline
+		for _, part := range strings.Split(idx, ".") {
+			i, err := strconv.Atoi(part)
+			if err != nil || i < 0 || i >= len(list) {
+				return nil, nil, fmt.Errorf("mobilecore: no entry %q (the outline changed; refresh)", id)
+			}
+			h = list[i]
+			list = h.Children
+		}
+		return f, h, nil
+	}
+	return nil, nil, fmt.Errorf("mobilecore: no file %q", file)
+}
+
+// DismissDropped forgets the state changes Status reported as dropped,
+// once the app has shown them.
+func DismissDropped(groupDir string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	r := &gitsync.Repo{Dir: repoDir(groupDir), QueuePath: queuePath(groupDir), OpsPath: opsPath(groupDir), StatePath: statePath(groupDir)}
+	return r.DismissDropped()
 }
 
 // Agenda returns the agenda as JSON (agendaResult): Overdue, Due Today,
@@ -698,7 +797,7 @@ func rfc3339(t time.Time) string {
 func Status(groupDir string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
-	r := &gitsync.Repo{Dir: repoDir(groupDir), QueuePath: queuePath(groupDir), StatePath: statePath(groupDir)}
+	r := &gitsync.Repo{Dir: repoDir(groupDir), QueuePath: queuePath(groupDir), OpsPath: opsPath(groupDir), StatePath: statePath(groupDir)}
 	s, err := r.LoadState()
 	if err != nil {
 		return "", err
@@ -720,6 +819,15 @@ func Status(groupDir string) (string, error) {
 		ConfigErrors: []string{},
 	}
 	res.Cloned = res.RepoURL != ""
+	ops, err := capturequeue.LoadOps(opsPath(groupDir))
+	if err != nil {
+		return "", err
+	}
+	res.PendingStates = len(ops)
+	res.Dropped = []droppedJSON{}
+	for _, d := range s.Dropped {
+		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Reason: d.Reason})
+	}
 	pushed := map[string]bool{}
 	for _, t := range s.PushedTips {
 		if t.Tip == s.LastPushed {
@@ -730,6 +838,11 @@ func Status(groupDir string) (string, error) {
 	}
 	for _, c := range queue {
 		if !pushed[c.ID] {
+			res.Unpushed++
+		}
+	}
+	for _, o := range ops {
+		if !pushed[o.ID] {
 			res.Unpushed++
 		}
 	}

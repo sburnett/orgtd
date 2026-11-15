@@ -20,6 +20,7 @@ struct InboxView: View {
                         CompactEntryRow(entry: entry)
                     }
                     .compactEntryRowInsets()
+                    .stateContextMenu(entry)
                     .swipeActions(edge: .trailing) {
                         if let id = entry.captureId {
                             Button(role: .destructive) {

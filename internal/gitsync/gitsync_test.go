@@ -3,7 +3,6 @@ package gitsync
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -402,47 +401,6 @@ func TestInboxFileComesFromRepoConfig(t *testing.T) {
 	}
 }
 
-// TestUnionMergeKeepsConcurrentAppends documents ios/DESIGN.md §4.5: with
-// "inbox.org merge=union", a desktop append and a phone append to the
-// inbox merge without a conflict and keep both. Needs the git binary.
-func TestUnionMergeKeepsConcurrentAppends(t *testing.T) {
-	gitBin, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git not installed")
-	}
-	f := newFixture(t)
-	f.macCommit(".gitattributes", "inbox.org merge=union\n", "union")
-	f.macPush()
-	f.capture("From phone", 1)
-	f.sync()
-	f.macCommit("inbox.org", initialInbox+"* From desktop\n", "desktop")
-	f.macPush()
-
-	run := func(args ...string) string {
-		cmd := exec.Command(gitBin, args...)
-		cmd.Dir = f.macDir
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=x", "GIT_AUTHOR_EMAIL=x@x", "GIT_COMMITTER_NAME=x", "GIT_COMMITTER_EMAIL=x@x")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-		return string(out)
-	}
-	run("fetch", "origin")
-	run("merge", "--no-edit", "origin/mobile")
-	data, _ := os.ReadFile(filepath.Join(f.macDir, "inbox.org"))
-	for _, want := range []string{"* Existing item\n", "* From desktop\n", "* From phone\n"} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("merged inbox %q is missing %q", data, want)
-		}
-	}
-	run("push", "origin", "main")
-	f.sync()
-	if got := f.queueTitles(); len(got) != 0 {
-		t.Errorf("queue after union merge = %v, want empty", got)
-	}
-}
-
 func TestGenerateKeyRoundTrips(t *testing.T) {
 	pub, priv, err := GenerateKey("orgtd-iphone")
 	if err != nil {
@@ -496,4 +454,8 @@ func setRemoteURL(t *testing.T, f *fixture, url string) {
 
 func capturequeueAdd(f *fixture, title string) (string, error) {
 	return capturequeue.Add(f.phone.QueuePath, capture.Capture{Title: title, CreatedAt: time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)})
+}
+
+func plumbingRef(branch string, h plumbing.Hash) *plumbing.Reference {
+	return plumbing.NewHashReference(plumbing.NewBranchReferenceName(branch), h)
 }

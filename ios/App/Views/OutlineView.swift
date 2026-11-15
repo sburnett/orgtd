@@ -170,6 +170,7 @@ private struct TreeRowView: View {
             NavigationLink(value: entry) {
                 CompactEntryRow(entry: entry, hiddenCount: children.isEmpty || isExpanded ? nil : Self.descendants(children))
             }
+            .stateContextMenu(entry)
         }
         .padding(.leading, CGFloat(row.depth) * 14)
         .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 12))

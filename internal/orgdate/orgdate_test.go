@@ -466,3 +466,43 @@ func TestStaleClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestChangeState(t *testing.T) {
+	now := time.Date(2026, 11, 14, 9, 30, 0, 0, time.Local)
+	parse := func(text string) *org.Headline {
+		f, err := org.Parse(strings.NewReader(text), "x.org")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f.Headlines[0]
+	}
+
+	h := parse("* TODO Plain\n")
+	sc := ChangeState(h, "DONE", now)
+	if sc.Repeat || sc.Keyword != "DONE" || sc.Closed == nil || sc.Closed.Raw != "2026-11-14 Sat 09:30" {
+		t.Errorf("TODO->DONE = %+v", sc)
+	}
+	sc.Apply(h)
+	if h.Keyword != "DONE" || h.Closed == nil {
+		t.Errorf("applied: %+v", h)
+	}
+	if sc := ChangeState(h, "TODO", now); sc.Closed != nil || sc.Keyword != "TODO" {
+		t.Errorf("DONE->TODO = %+v, want CLOSED cleared", sc)
+	}
+	if sc := ChangeState(h, "CANCELLED", now); sc.Closed != h.Closed {
+		t.Errorf("DONE->CANCELLED restamped CLOSED: %+v", sc)
+	}
+
+	r := parse("* TODO Water plants\n  SCHEDULED: <2026-11-10 Tue +1w>\n")
+	sc = ChangeState(r, "DONE", now)
+	if !sc.Repeat || sc.Keyword != "TODO" || sc.Closed != nil || sc.Scheduled.Raw != "2026-11-17 Tue +1w" || sc.LastRepeat != "[2026-11-14 Sat 09:30]" {
+		t.Errorf("repeating TODO->DONE = %+v (scheduled %v)", sc, sc.Scheduled)
+	}
+	sc.Apply(r)
+	if r.Keyword != "TODO" || r.Properties["LAST_REPEAT"] != "[2026-11-14 Sat 09:30]" {
+		t.Errorf("applied repeat: %+v", r)
+	}
+	if sc := ChangeState(r, "NEXT", now); sc.Repeat || sc.Keyword != "NEXT" {
+		t.Errorf("repeating TODO->NEXT = %+v, want a plain keyword change", sc)
+	}
+}

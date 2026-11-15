@@ -18,10 +18,11 @@ An iPhone app, touch-native (no vim keys), that does two things:
 2. **Reads** the org directory — an agenda, the inbox, and a read-only
    outline browser.
 
-The phone never modifies an existing entry. Its only write is
-**appending new top-level entries to `inbox.org`**, committed to a
-dedicated `mobile` git branch that the user merges into `main` by hand
-on the Mac. The phone never merges and never resolves a conflict.
+The phone's writes are **appending new top-level entries to
+`inbox.org`** and **changing an entry's TODO keyword** (added later; see
+§10), committed to a dedicated `mobile` git branch that the user merges
+into `main` by hand on the Mac. The phone never merges and never
+resolves a conflict.
 
 ## 2. Decisions
 
@@ -30,7 +31,7 @@ on the Mac. The phone never merges and never resolves a conflict.
 | Devices / UX | iPhone only, touch-native (lists, sheets, swipe). No hardware-keyboard/vim mode |
 | File access | The org directory is a git repo; the app keeps its own clone |
 | Git host / auth | Any git server reachable over SSH (originally GitHub; changed so the org files needn't be hosted by a third party — a self-hosted server, typically reached over Tailscale). An ed25519 key generated on the device and stored in the Keychain; the user adds it to the server account's `authorized_keys`, restricted to `git-shell`. The server's host key is shown at setup for the user to verify by fingerprint, then pinned |
-| Phone writes | Append-only to `inbox_file` (default `inbox.org`). No edits, state changes, deletes, or IDs added to existing entries |
+| Phone writes | Appends to `inbox_file` (default `inbox.org`), and TODO-keyword changes to existing entries (§10). No other edits, deletes, or IDs added to existing entries |
 | Branch | All phone changes live on `mobile`. The user merges `mobile` → `main` on the Mac with a normal merge or fast-forward (never squash/cherry-pick) |
 | Commit / push | Each capture is committed automatically; pushing only happens on an explicit **Sync** |
 | Branch upkeep | On Sync, `mobile` is rebuilt as `origin/main` + the still-unmerged captures and force-pushed (with lease) |
@@ -38,7 +39,7 @@ on the Mac. The phone never merges and never resolves a conflict.
 | Capture fields | Keyword (optional; one of the configured not-done keywords), title, body, tags (autocompleted), SCHEDULED / DEADLINE. `CREATED` is stamped automatically |
 | Capture entry points | In-app and share-sheet extension. No widget, Siri, or Shortcuts for now |
 | Read views | Agenda (Overdue / Due Today / Upcoming / Next Actions), Inbox, read-only Outline browser with search |
-| Not in scope (yet) | Any mutation of existing entries, meetings/calendar, `:review`, Google integration, iPad |
+| Not in scope (yet) | Editing existing entries beyond their keyword, meetings/calendar, `:review`, Google integration, iPad |
 | Config | A `.orgtd.toml` committed to the org repo, read by both desktop and phone |
 | Stack | SwiftUI app + share extension; Go core compiled with `gomobile bind` |
 | Code location | This repo, under `ios/` (Xcode project) plus a Go package `mobilecore/` |
@@ -179,16 +180,11 @@ The rendering must match what desktop `gC` produces (see
 
 ### 4.5 On the Mac
 
-- Merge `mobile` into `main` normally (gitui / jjui / git).
-- **Recommended:** add to the org repo's `.gitattributes`:
-
-  ```
-  inbox.org merge=union
-  ```
-
-  When both sides appended to the end of the inbox, git keeps both sides'
-  lines automatically instead of conflicting. This is safe only because
-  the phone never edits existing lines. Use whatever `inbox_file` is set to.
+- Merge `mobile` into `main` normally (gitui / jjui / git). Concurrent
+  appends to the inbox on both sides are an ordinary merge conflict,
+  resolved by keeping both. (The original plan recommended
+  `merge=union` for the inbox; that was dropped once the phone could
+  edit existing lines, which a union merge would duplicate.)
 
 ## 5. Read views
 
@@ -337,8 +333,6 @@ README/DESIGN.md current (per repo convention).
   - user merges older tip → only that tip's captures leave the queue
   - user merges latest tip → queue empty, remote `mobile` deleted
   - someone else moves `origin/mobile` → lease failure, nothing pushed
-  - merge with `merge=union` of concurrent desktop+phone inbox appends
-    produces both (documents §4.5)
 - Exit: all scenarios green with `go test`.
 
 ### Phase 5 — `mobilecore` package + xcframework
@@ -483,3 +477,28 @@ README/DESIGN.md current (per repo convention).
     after an unreachable server 1, 5, 15, then 30 minutes.
     Pull-to-refresh and Sync always try.
   - Nothing retries on its own or runs in the background.
+- **State changes** (added after the original design, which deferred
+  them). The phone can set an entry's TODO keyword, with the same
+  effects as desktop `r`: CLOSED, or a repeater's advance and
+  LAST_REPEAT. Both front ends now compute this with
+  `orgdate.ChangeState`.
+  - **Queue.** A change is queued in `state-ops.json`
+    (`capturequeue.StateOp`): file, title path, a fingerprint of the
+    entry's own text, from/to keyword, and the time, which is also its
+    CLOSED stamp, so replays are identical. Captures and changes share
+    the pushed-tip bookkeeping and leave their queues the same way.
+  - **Replay.** On every rebuild, captures are committed first, so a
+    change to a still-pending capture finds it. Then each change is
+    replayed as its own commit.
+  - **Minimal diff.** `org.Parse` now records each entry's own line
+    range (`SrcStart`/`SrcEnd`), and only the lines that change are
+    rewritten: the headline line, the planning line if it changed, and
+    LAST_REPEAT. The diff is one or two lines, and the rest of the file
+    is untouched byte for byte.
+  - **Stale changes.** A change whose entry no longer matches (renamed,
+    moved, edited or already changed on the desktop) is dropped, not
+    guessed at, and reported once (`State.Dropped`, `DismissDropped`).
+  - **merge=union guard.** Not recommended anywhere, but a repository
+    might already set it: changes are refused in any file
+    `.gitattributes` gives `merge=union`, which would duplicate the
+    edited line (`gitsync.UnionMerged`).

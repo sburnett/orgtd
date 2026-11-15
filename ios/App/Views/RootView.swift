@@ -35,6 +35,24 @@ struct MainTabs: View {
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsView() }
         }
+        .alert("Some changes couldn't be applied", isPresented: droppedAlert) {
+            Button("OK") { Task { await model.dismissDropped() } }
+        } message: {
+            Text(droppedMessage)
+        }
+    }
+
+    /// State changes dropped because their entry changed on the desktop
+    /// before they were merged.
+    private var droppedAlert: Binding<Bool> {
+        Binding(get: { !model.status.dropped.isEmpty }, set: { _ in })
+    }
+
+    private var droppedMessage: String {
+        let lines = model.status.dropped.map { d in
+            "“\(d.title)”: \(d.from.isEmpty ? "none" : d.from) → \(d.to.isEmpty ? "none" : d.to)"
+        }
+        return "These entries changed on your computer before the phone's changes to them were merged, so the phone's changes were dropped:\n\n" + lines.joined(separator: "\n")
     }
 
     /// A tab's navigation stack with the shared toolbar: Settings on the

@@ -89,7 +89,7 @@ func (a *batchAction) affected() []*org.Headline {
 }
 
 // repeatAdvanceAction records completing a repeating item (see
-// repeatAdvanceForCompletion): unlike statusChangeAction, the keyword
+// orgdate.ChangeState): unlike statusChangeAction, the keyword
 // itself never changes — instead SCHEDULED and/or DEADLINE advance to
 // their next occurrence, and the completion is recorded via the
 // :LAST_REPEAT: property rather than CLOSED, matching org-mode.

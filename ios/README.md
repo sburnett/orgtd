@@ -1,9 +1,10 @@
 # orgtd for iOS
 
 An iPhone companion to orgtd: capture into the inbox (in the app or from
-the share sheet) and read the agenda, inbox and outline. It never
-changes an existing entry. New captures are appended to `inbox_file`
-and committed to a `mobile` branch, which you merge on your computer.
+the share sheet), read the agenda, inbox and outline, and change entries'
+TODO states. New captures are appended to `inbox_file`, and state
+changes rewrite just the changed entry's own lines; both are committed
+to a `mobile` branch, which you merge on your computer.
 The design is in [DESIGN.md](DESIGN.md).
 
 ## Requirements
@@ -153,22 +154,31 @@ either.
   including when the app last fetched and pushed.
 - In Inbox, captures that aren't merged yet show a clock. Swipe one to
   edit or delete it.
+- **Changing an entry's state:** long-press any entry in Inbox, Outline
+  or Agenda and pick a keyword, or use the State menu at the top of its
+  details. This works as desktop `r` does: a done state stamps
+  `CLOSED`, leaving one clears it, and completing a repeating item
+  advances its dates and sets `LAST_REPEAT` instead. Changed entries
+  show a clock until they're merged.
+  - If you change the same entry on your computer before merging, the
+    phone's change is dropped rather than guessed at, and the app tells
+    you so.
+  - Reference material has no state.
+  - The phone won't change states in a file whose `.gitattributes`
+    entry sets `merge=union`, since a union merge would duplicate the
+    edited line.
 
 ## On your computer
 
 Fetch from the server and merge `origin/mobile` into your main branch
 with a normal merge or a fast-forward, then push. Don't squash or cherry-pick it: the phone recognizes
-merged captures by commit ancestry. Add this to the org repository's
-`.gitattributes` (use your `inbox_file`):
+merged captures by commit ancestry. After you merge, the phone's next
+Sync drops those captures and state changes from its queues. Once
+nothing is pending, it deletes the `mobile` branch.
 
-```
-inbox.org merge=union
-```
-
-Then, when both sides added inbox items, git keeps both instead of
-reporting a conflict. After you merge, the phone's next Sync drops those
-captures from its queue. Once nothing is pending, it deletes the
-`mobile` branch.
+Captures added on both sides at once, or a state change made on both
+sides to the same entry, are ordinary git conflicts, for you to resolve
+when merging.
 
 Settings that should apply to the phone too (keywords and their colors,
 `inbox_file`, `agenda_window_days`, `hide_closed_after_hours`,

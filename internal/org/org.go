@@ -92,6 +92,14 @@ type Headline struct {
 
 	Parent   *Headline
 	Children []*Headline
+
+	// SrcStart and SrcEnd are the 0-based line range [SrcStart, SrcEnd)
+	// of h's own text (its headline line, planning, drawer and body —
+	// not its children) in the file it was parsed from, so a caller can
+	// rewrite just that entry in the raw file (see the iOS core's state
+	// changes). They describe the text as parsed and are not maintained
+	// by later edits.
+	SrcStart, SrcEnd int
 }
 
 // SetProperty sets key to value in h's property drawer, appending key to
@@ -222,15 +230,23 @@ func Parse(r io.Reader, path string) (*File, error) {
 	var (
 		awaitingPlanning bool
 		inDrawer         bool
+		lineNo           = -1
+		last             *Headline // the most recent headline, whose own text runs until the next one
 	)
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineNo++
 
 		if m := headlineRe.FindStringSubmatch(line); m != nil {
 			level := len(m[1])
 			h := parseHeadlineLine(m[2])
 			h.Level = level
+			h.SrcStart = lineNo
+			if last != nil {
+				last.SrcEnd = lineNo
+			}
+			last = h
 
 			// Pop the stack back to the parent of this new headline.
 			for len(stack) >= level {
@@ -299,6 +315,9 @@ func Parse(r io.Reader, path string) (*File, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("org: reading %s: %w", path, err)
+	}
+	if last != nil {
+		last.SrcEnd = lineNo + 1
 	}
 
 	return file, nil

@@ -56,7 +56,7 @@ struct CompactEntryRow: View {
                     .foregroundStyle(model.tagColor)
                     .fixedSize()
             }
-            if entry.isPending {
+            if entry.isPending || entry.hasPendingState {
                 Image(systemName: "clock.badge")
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -91,14 +91,39 @@ struct KeywordBadge: View {
     }
 }
 
-/// Read-only detail: keyword, title, tags, dates, properties, body with
-/// tappable links.
+/// Detail: keyword (changeable), title, tags, dates, properties, body
+/// with tappable links.
 struct EntryDetailView: View {
     @Environment(AppModel.self) private var model
-    let entry: Entry
+    let initial: Entry
+
+    init(entry: Entry) { initial = entry }
+
+    /// The latest version, so a state change shows while this is open.
+    private var entry: Entry { model.entry(id: initial.id) ?? initial }
 
     var body: some View {
         List {
+            if !entry.isReference {
+                Section {
+                    LabeledContent("State") {
+                        StateMenu(entry: entry) {
+                            HStack(spacing: 4) {
+                                if entry.keyword.isEmpty {
+                                    Text("None").foregroundStyle(.secondary)
+                                } else {
+                                    KeywordBadge(name: entry.keyword).font(.body)
+                                }
+                                Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if entry.hasPendingState {
+                        Label("Changed on this phone; not merged yet", systemImage: "clock")
+                            .font(.callout)
+                    }
+                }
+            }
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     if !entry.keyword.isEmpty || !entry.priority.isEmpty {
@@ -155,6 +180,69 @@ struct EntryDetailView: View {
         }
         .navigationTitle(entry.title)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// A menu of every configured keyword (and None) that sets `entry`'s
+/// state, labelled by `label`.
+struct StateMenu<Label: View>: View {
+    @Environment(AppModel.self) private var model
+    let entry: Entry
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        Menu {
+            StateMenuItems(entry: entry)
+        } label: {
+            label()
+        }
+        .disabled(entry.isReference || model.busy != nil)
+    }
+}
+
+/// The items of a state menu, for a Menu or a row's context menu.
+struct StateMenuItems: View {
+    @Environment(AppModel.self) private var model
+    let entry: Entry
+
+    var body: some View {
+        ForEach(model.status.keywords, id: \.name) { k in
+            Button {
+                Task { await model.setState(of: entry, to: k.name) }
+            } label: {
+                if k.name == entry.keyword {
+                    SwiftUI.Label(k.name, systemImage: "checkmark")
+                } else {
+                    Text(k.name)
+                }
+            }
+            .disabled(k.name == entry.keyword)
+        }
+        Button {
+            Task { await model.setState(of: entry, to: "") }
+        } label: {
+            if entry.keyword.isEmpty {
+                SwiftUI.Label("None", systemImage: "checkmark")
+            } else {
+                Text("None")
+            }
+        }
+        .disabled(entry.keyword.isEmpty)
+    }
+}
+
+extension View {
+    /// Long-press a row to set its entry's state (not for reference
+    /// material, which has none).
+    @ViewBuilder
+    func stateContextMenu(_ entry: Entry) -> some View {
+        if entry.isReference {
+            self
+        } else {
+            contextMenu {
+                Section("Set state") { StateMenuItems(entry: entry) }
+            }
+        }
     }
 }
 

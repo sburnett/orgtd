@@ -219,7 +219,7 @@ func (m *Model) currentStatusIndex() int {
 // CLOSED to match org-mode's convention of recording when an item
 // entered (or left) a DONE-class state — unless h is completing
 // (transitioning from a non-done to a done-class keyword) and has a
-// repeating SCHEDULED/DEADLINE, in which case repeatAdvanceForCompletion
+// repeating SCHEDULED/DEADLINE, in which case orgdate.ChangeState
 // takes over instead: per org-mode, the keyword never actually changes
 // and the repeating timestamp(s) advance rather than the item closing.
 // See buildStatusChangeAction, which does the actual work (shared with

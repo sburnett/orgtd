@@ -70,7 +70,7 @@ func writeHeadlineFields(b *strings.Builder, h *Headline) {
 
 	indent := strings.Repeat(" ", h.Level+1)
 
-	if planning := planningLine(h); planning != "" {
+	if planning := PlanningLine(h); planning != "" {
 		b.WriteString(indent + planning + "\n")
 	}
 
@@ -87,7 +87,10 @@ func writeHeadlineFields(b *strings.Builder, h *Headline) {
 	}
 }
 
-func planningLine(h *Headline) string {
+// PlanningLine is h's planning line without its indentation, e.g.
+// "SCHEDULED: <2026-11-14 Sat> CLOSED: [2026-11-14 Sat 09:30]", or "" if
+// h has no planning.
+func PlanningLine(h *Headline) string {
 	var parts []string
 	if h.Scheduled != nil {
 		parts = append(parts, "SCHEDULED: "+h.Scheduled.String())

@@ -253,3 +253,20 @@ func TestWalk(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRecordsEachEntrysOwnLines(t *testing.T) {
+	text := "#+TITLE: x\n* A\n  body a\n** B\n   SCHEDULED: <2026-11-14 Sat>\n\n* C\n"
+	f, err := Parse(strings.NewReader(text), "x.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b, c := f.Headlines[0], f.Headlines[0].Children[0], f.Headlines[1]
+	for _, tc := range []struct {
+		h          *Headline
+		start, end int
+	}{{a, 1, 3}, {b, 3, 6}, {c, 6, 7}} {
+		if tc.h.SrcStart != tc.start || tc.h.SrcEnd != tc.end {
+			t.Errorf("%s: lines [%d,%d), want [%d,%d)", tc.h.Title, tc.h.SrcStart, tc.h.SrcEnd, tc.start, tc.end)
+		}
+	}
+}

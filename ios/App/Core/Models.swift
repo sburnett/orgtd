@@ -21,8 +21,13 @@ struct Entry: Codable, Identifiable, Hashable {
     var children: [Entry]?
     var pending: Bool?
     var captureId: String?
+    var pendingState: Bool?
 
     var isPending: Bool { pending ?? false }
+    /// Its state was changed on this phone and isn't merged yet.
+    var hasPendingState: Bool { pendingState ?? false }
+    /// Reference material has no TODO state.
+    var isReference: Bool { file.hasPrefix("reference/") }
 
     /// The IDs of this entry's ancestors, outermost first: "work.org:0.2.1"
     /// has ancestors "work.org:0" and "work.org:0.2".
@@ -93,6 +98,15 @@ struct Keyword: Codable, Hashable {
     var done: Bool
 }
 
+/// A state change made on the phone that couldn't be applied because its
+/// entry changed on the desktop first.
+struct DroppedChange: Codable, Hashable {
+    var title: String
+    var from: String
+    var to: String
+    var reason: String
+}
+
 /// A server's SSH host key (mobilecore's hostKeyJSON).
 struct HostKeyInfo: Codable, Equatable {
     var host: String
@@ -116,6 +130,8 @@ struct StatusResult: Codable {
     var tagColor: String
     var dateColor: String
     var configErrors: [String]
+    var pendingStates: Int
+    var dropped: [DroppedChange]
 
-    static let empty = StatusResult(cloned: false, repoURL: "", baseBranch: "", hostKey: HostKeyInfo(host: "", key: "", fingerprint: ""), inboxFile: "inbox.org", lastFetch: "", lastPush: "", lastError: "", lastErrorAt: "", pending: 0, unpushed: 0, keywords: [], tagColor: "", dateColor: "", configErrors: [])
+    static let empty = StatusResult(cloned: false, repoURL: "", baseBranch: "", hostKey: HostKeyInfo(host: "", key: "", fingerprint: ""), inboxFile: "inbox.org", lastFetch: "", lastPush: "", lastError: "", lastErrorAt: "", pending: 0, unpushed: 0, keywords: [], tagColor: "", dateColor: "", configErrors: [], pendingStates: 0, dropped: [])
 }

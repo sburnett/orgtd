@@ -132,7 +132,7 @@ func repeaterStep(t time.Time, n int, unit byte) time.Time {
 }
 
 // AdvanceRepeating computes ts's next occurrence for the
-// "complete a repeating item" flow (see the ui package's repeatAdvanceForCompletion),
+// "complete a repeating item" flow (see ChangeState),
 // replicating org-mode's own three repeater marks:
 //
 //   - "+"  (simple): exactly one interval past the old date, however

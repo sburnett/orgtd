@@ -38,7 +38,7 @@ struct SettingsView: View {
                 }
                 LabeledContent("Merges into", value: model.status.baseBranch)
                 LabeledContent("Inbox file", value: model.status.inboxFile)
-                Text("Captures are pushed to the **mobile** branch. Merge it into \(model.status.baseBranch) on your computer (a normal merge or fast-forward; not squash). Adding `\(model.status.inboxFile) merge=union` to .gitattributes avoids conflicts when both sides added to the inbox.")
+                Text("Captures are pushed to the **mobile** branch. Merge it into \(model.status.baseBranch) on your computer (a normal merge or fast-forward; not squash).")
                     .font(.footnote)
                 Button("Remove clone…", role: .destructive) { confirmRemove = true }
             }

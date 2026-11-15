@@ -43,6 +43,7 @@ var ErrLease = errors.New("origin/mobile was changed by someone else; merge or d
 type Repo struct {
 	Dir       string               // the working clone (checked out at local "mobile")
 	QueuePath string               // captures.json (see internal/capturequeue)
+	OpsPath   string               // state-ops.json: queued state changes ("" for none)
 	StatePath string               // sync-state.json (see State)
 	Auth      transport.AuthMethod // nil for local (file://) remotes
 	Author    Author               // who capture commits are by
@@ -52,12 +53,13 @@ type Repo struct {
 // Author names who capture commits are by.
 type Author struct{ Name, Email string }
 
-// PushedTip is one commit pushed as origin/mobile, and the captures it
-// contained. Once Tip is an ancestor of the base branch, the user has
-// merged it, and exactly those captures leave the queue.
+// PushedTip is one commit pushed as origin/mobile, and the queued items
+// it contained: captures and state changes. Once Tip is an ancestor of
+// the base branch, the user has merged it, and exactly those items leave
+// their queues.
 type PushedTip struct {
 	Tip        string   `json:"tip"`
-	CaptureIDs []string `json:"captureIds"`
+	CaptureIDs []string `json:"captureIds"` // capture and state-change IDs (one namespace)
 }
 
 // State is sync-state.json.
@@ -70,6 +72,47 @@ type State struct {
 	LastPush    time.Time   `json:"lastPush,omitzero"`
 	LastError   string      `json:"lastError,omitempty"`
 	LastErrorAt time.Time   `json:"lastErrorAt,omitzero"`
+	// Dropped are state changes a rebuild could no longer apply, until
+	// the app has shown them (DismissDropped).
+	Dropped []DroppedOp `json:"dropped,omitempty"`
+}
+
+func (r *Repo) loadOps() ([]capturequeue.StateOp, error) {
+	if r.OpsPath == "" {
+		return nil, nil
+	}
+	return capturequeue.LoadOps(r.OpsPath)
+}
+
+// queuedIDs is every queued capture and state change, oldest first
+// (captures, then state changes).
+func (r *Repo) queuedIDs() ([]string, error) {
+	queue, err := capturequeue.Load(r.QueuePath)
+	if err != nil {
+		return nil, err
+	}
+	ops, err := r.loadOps()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, c := range queue {
+		ids = append(ids, c.ID)
+	}
+	for _, o := range ops {
+		ids = append(ids, o.ID)
+	}
+	return ids, nil
+}
+
+// DismissDropped forgets the dropped state changes once they've been shown.
+func (r *Repo) DismissDropped() error {
+	s, err := r.LoadState()
+	if err != nil {
+		return err
+	}
+	s.Dropped = nil
+	return r.saveState(s)
 }
 
 func (r *Repo) now() time.Time {
@@ -216,13 +259,13 @@ func (r *Repo) DropMerged() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	queue, err := capturequeue.Load(r.QueuePath)
+	ids, err := r.queuedIDs()
 	if err != nil {
 		return nil, err
 	}
 	queued := map[string]bool{}
-	for _, c := range queue {
-		queued[c.ID] = true
+	for _, id := range ids {
+		queued[id] = true
 	}
 
 	var removed []string
@@ -250,13 +293,22 @@ func (r *Repo) DropMerged() ([]string, error) {
 	if _, err := capturequeue.Remove(r.QueuePath, removed); err != nil {
 		return nil, err
 	}
+	if r.OpsPath != "" {
+		if _, err := capturequeue.RemoveOps(r.OpsPath, removed); err != nil {
+			return nil, err
+		}
+	}
 	s.PushedTips = kept
 	return removed, r.saveState(s)
 }
 
 // Rebuild resets local "mobile" (and the working tree) to origin's base
 // branch and commits each pending capture on top of it, oldest first, by
-// appending it to the inbox file (§4.3 steps 3–4). It needs no network.
+// appending it to the inbox file (§4.3 steps 3–4), then each queued
+// state change, oldest first. Captures go first so a state change made
+// to a still-pending capture finds it. A state change whose entry has
+// changed since is dropped from its queue and recorded in State.Dropped.
+// It needs no network.
 func (r *Repo) Rebuild() error {
 	repo, s, err := r.open()
 	if err != nil {
@@ -305,7 +357,54 @@ func (r *Repo) Rebuild() error {
 			return fmt.Errorf("gitsync: committing capture %q: %w", c.Title, err)
 		}
 	}
-	return nil
+	return r.replayOps(wt)
+}
+
+// replayOps applies and commits each queued state change (see Rebuild).
+func (r *Repo) replayOps(wt *git.Worktree) error {
+	ops, err := r.loadOps()
+	if err != nil || len(ops) == 0 {
+		return err
+	}
+	var dropped []DroppedOp
+	var droppedIDs []string
+	for _, op := range ops {
+		if err := applyOp(r.Dir, op); err != nil {
+			if !errors.Is(err, ErrEntryChanged) {
+				return fmt.Errorf("gitsync: setting %q to %s: %w", op.Title(), op.To, err)
+			}
+			dropped = append(dropped, DroppedOp{Title: op.Title(), From: op.From, To: op.To, Reason: err.Error(), At: r.now()})
+			droppedIDs = append(droppedIDs, op.ID)
+			continue
+		}
+		if _, err := wt.Add(op.File); err != nil {
+			return fmt.Errorf("gitsync: staging %s: %w", op.File, err)
+		}
+		sig := &object.Signature{Name: r.Author.Name, Email: r.Author.Email, When: op.CreatedAt}
+		msg := fmt.Sprintf("Set %s: %s → %s", op.Title(), orNone(op.From), orNone(op.To))
+		if _, err := wt.Commit(msg, &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
+			return fmt.Errorf("gitsync: committing state change %q: %w", op.Title(), err)
+		}
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	if _, err := capturequeue.RemoveOps(r.OpsPath, droppedIDs); err != nil {
+		return err
+	}
+	s, err := r.LoadState()
+	if err != nil {
+		return err
+	}
+	s.Dropped = append(s.Dropped, dropped...)
+	return r.saveState(s)
+}
+
+func orNone(keyword string) string {
+	if keyword == "" {
+		return "(none)"
+	}
+	return keyword
 }
 
 // InboxFile is the inbox's base name for the checkout in dir: the
@@ -393,14 +492,11 @@ func (r *Repo) Publish() error {
 			return err
 		}
 	}
-	queue, err := capturequeue.Load(r.QueuePath)
+	ids, err := r.queuedIDs()
 	if err != nil {
 		return err
 	}
-	tip := PushedTip{Tip: local.Hash().String()}
-	for _, c := range queue {
-		tip.CaptureIDs = append(tip.CaptureIDs, c.ID)
-	}
+	tip := PushedTip{Tip: local.Hash().String(), CaptureIDs: ids}
 	if n := len(s.PushedTips); n == 0 || s.PushedTips[n-1].Tip != tip.Tip {
 		s.PushedTips = append(s.PushedTips, tip)
 	}

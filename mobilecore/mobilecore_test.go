@@ -386,3 +386,65 @@ func TestCaptureKeywordMustBeAConfiguredActiveKeyword(t *testing.T) {
 		t.Error("updating to an unknown keyword succeeded")
 	}
 }
+
+func findEntry(t *testing.T, g, title string) entry {
+	t.Helper()
+	res := decode[searchResult](t)(Search(g, title))
+	for _, e := range res.Entries {
+		if e.Title == title {
+			return e
+		}
+	}
+	t.Fatalf("no entry %q", title)
+	return entry{}
+}
+
+func TestSetStateMarksDoneAndPending(t *testing.T) {
+	g, _ := setup(t)
+	e := findEntry(t, g, "Call the vet about Fido's checkup")
+	if err := SetState(g, e.ID, "DONE", fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	after := findEntry(t, g, "Call the vet about Fido's checkup")
+	if after.Keyword != "DONE" || after.Closed == "" || !after.PendingState || after.ID != e.ID {
+		t.Errorf("after SetState: %+v", after)
+	}
+	a := decode[agendaResult](t)(Agenda(g, fixtureNow))
+	for _, s := range a.Sections {
+		for _, it := range s.Items {
+			if it.Entry.Title == e.Title {
+				t.Errorf("done entry still in %s", s.Name)
+			}
+		}
+	}
+	st := decode[statusResult](t)(Status(g))
+	if st.PendingStates != 1 || st.Unpushed != 1 || len(st.Dropped) != 0 {
+		t.Errorf("status = %+v", st)
+	}
+	if err := Sync(g, nil, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	if st := decode[statusResult](t)(Status(g)); st.Unpushed != 0 || st.PendingStates != 1 {
+		t.Errorf("status after sync = %+v", st)
+	}
+}
+
+func TestSetStateRefusals(t *testing.T) {
+	g, _ := setup(t)
+	e := findEntry(t, g, "Call the vet about Fido's checkup")
+	if err := SetState(g, e.ID, "SHIPPED", fixtureNow, "P", "p@x"); err == nil {
+		t.Error("unknown keyword accepted")
+	}
+	if err := SetState(g, "work.org:99", "DONE", fixtureNow, "P", "p@x"); err == nil {
+		t.Error("bad id accepted")
+	}
+	ref := decode[outlineResult](t)(Outline(g, true, fixtureNow)).Reference[0].Entries[0]
+	if err := SetState(g, ref.ID, "DONE", fixtureNow, "P", "p@x"); err == nil {
+		t.Error("state change in reference/ accepted")
+	}
+	os.WriteFile(filepath.Join(repoDir(g), ".gitattributes"), []byte("personal.org merge=union\n"), 0o644)
+	err := SetState(g, e.ID, "DONE", fixtureNow, "P", "p@x")
+	if err == nil || !strings.Contains(err.Error(), "merge=union") {
+		t.Errorf("SetState in a union-merged file = %v", err)
+	}
+}

@@ -1019,19 +1019,22 @@ runs interactively from inside orgtd, so they're config-file only.
 
 ## iOS companion
 
-`ios/` holds an iPhone app that captures into the inbox (in the app, or
-from the share sheet) and shows a read-only agenda, inbox and outline of
-the same org directory, which must be a git repository on a server the
-phone can reach over SSH (your own machine is fine; nothing needs to be
-hosted by a third party). The
-phone never edits an existing entry: it only appends new entries to
-`inbox_file`, committed to a `mobile` branch you merge into your main
-branch yourself (a normal merge or fast-forward). Adding
-`inbox.org merge=union` (use your `inbox_file`) to the org repository's
-`.gitattributes` lets git merge concurrent desktop and phone captures
-without a conflict. It reads the keywords, inbox name, agenda window and
-colors from `.orgtd.toml` (above). See [ios/README.md](ios/README.md)
-for building and setup.
+`ios/` holds an iPhone app for the same org directory. It captures into
+the inbox (in the app, or from the share sheet), changes entries' TODO
+states, and shows an agenda, inbox and outline.
+
+- **Hosting:** the org directory must be a git repository on a server
+  the phone can reach over SSH. Your own machine is fine; nothing needs
+  to be hosted by a third party.
+- **What the phone writes:** new entries appended to `inbox_file`, and
+  keyword changes to existing entries (with `CLOSED` and repeaters
+  handled as `r` does), touching only that entry's lines. Everything is
+  committed to a `mobile` branch you merge into your main branch
+  yourself (a normal merge or fast-forward).
+- **Settings:** it reads the keywords, inbox name, agenda window and
+  colors from `.orgtd.toml` (above).
+
+See [ios/README.md](ios/README.md) for building and setup.
 
 ## Development
 

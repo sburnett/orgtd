@@ -200,6 +200,39 @@ final class AppModel {
         await reloadAll()
     }
 
+    /// Changes an entry's TODO keyword ("" for none), committed locally
+    /// at once and pushed on the next Sync.
+    func setState(of entry: Entry, to keyword: String) async {
+        await run("Saving…") {
+            try await self.core.setState(entryID: entry.id, keyword: keyword, author: self.author)
+        }
+        await reloadAll()
+    }
+
+    /// Forgets the dropped state changes once they've been shown.
+    func dismissDropped() async {
+        try? await core.dismissDropped()
+        await reloadStatus()
+    }
+
+    /// The freshest copy of an entry from the loaded views, so a detail
+    /// screen reflects a state change made while it's open.
+    func entry(id: String) -> Entry? {
+        func find(_ entries: [Entry]) -> Entry? {
+            for e in entries {
+                if e.id == id { return e }
+                if let hit = find(e.children ?? []) { return hit }
+            }
+            return nil
+        }
+        if let outline, let hit = find((outline.files + outline.reference).flatMap(\.entries)) { return hit }
+        if let hit = inbox?.entries.first(where: { $0.id == id }) { return hit }
+        for section in agenda?.sections ?? [] {
+            if let hit = section.items?.first(where: { $0.entry.id == id }) { return hit.entry }
+        }
+        return nil
+    }
+
     func pendingCapture(id: String) async -> CaptureDraft? {
         do { return try await core.pendingCapture(id: id) } catch {
             lastError = error.localizedDescription
