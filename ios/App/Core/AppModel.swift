@@ -238,11 +238,20 @@ final class AppModel {
         await reloadAll()
     }
 
+    /// Whether setting `entry` to `keyword` closes it — a done state for
+    /// an entry that isn't done — which asks for a closing note first, as
+    /// desktop "r" does (see ClosingNotePrompt).
+    func closes(_ entry: Entry, to keyword: String) -> Bool {
+        !entry.isReference && self.keyword(keyword)?.done == true && self.keyword(entry.keyword)?.done != true
+    }
+
     /// Changes an entry's TODO keyword ("" for none), committed locally
     /// at once and pushed on the next Sync.
-    func setState(of entry: Entry, to keyword: String) async {
+    /// `note`, if not blank, is logged as a closing note when the change
+    /// closes the entry (see `closes`).
+    func setState(of entry: Entry, to keyword: String, note: String = "") async {
         let ok = await run("Saving…") {
-            try await self.core.setState(entryID: entry.id, keyword: keyword, author: self.author)
+            try await self.core.setState(entryID: entry.id, keyword: keyword, note: note, author: self.author)
         }
         if !ok { actionError = lastError }
         await reloadAll()

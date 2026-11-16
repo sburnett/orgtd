@@ -30,6 +30,8 @@ struct OutlineView: View {
     @State private var editingEntry: Entry?
     /// The entry the state swipe asked to change the state of.
     @State private var settingState: Entry?
+    /// A swipe's close, waiting on its closing note.
+    @State private var closing: ClosingRequest?
 
     var body: some View {
         @Bindable var model = model
@@ -85,6 +87,7 @@ struct OutlineView: View {
         .sheet(item: $settingState) { entry in
             StatePickerSheet(entry: entry)
         }
+        .closingNotePrompt($closing)
         .sheet(item: $editingEntry) { entry in
             EditEntrySheet(entry: entry) {
                 withAnimation(.snappy(duration: 0.2)) { renumber(Renumbering(file: entry.file, removed: entry.id, inserted: nil)) }
@@ -194,9 +197,7 @@ struct OutlineView: View {
                     } else if !entry.isReference {
                         // The first is the full swipe's: DONE, by default.
                         ForEach(quickStates(for: entry), id: \.name) { k in
-                            Button {
-                                Task { await model.setState(of: entry, to: k.name) }
-                            } label: {
+                            Button { chooseState(k.name, for: entry) } label: {
                                 Text(k.name)
                             }
                             .tint(model.keywordColor(k.name))
@@ -235,6 +236,16 @@ struct OutlineView: View {
             }
         }
         .onMove(perform: arranging ? { from, to in move(from, to: to, in: rows) } : nil)
+    }
+
+    /// Sets a swipe's chosen state — after asking for a closing note, if
+    /// it closes the entry.
+    private func chooseState(_ keyword: String, for entry: Entry) {
+        if model.closes(entry, to: keyword) {
+            closing = ClosingRequest(entry: entry, keyword: keyword)
+        } else {
+            Task { await model.setState(of: entry, to: keyword) }
+        }
     }
 
     /// The states a right swipe offers as buttons, besides More (the
@@ -778,6 +789,7 @@ private struct StatePickerSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let entry: Entry
+    @State private var closing: ClosingRequest?
 
     var body: some View {
         NavigationStack {
@@ -799,14 +811,19 @@ private struct StatePickerSheet: View {
                 }
             }
         }
+        .closingNotePrompt($closing) { dismiss() }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
     private func row<Label: View>(_ keyword: String, @ViewBuilder label: () -> Label) -> some View {
         Button {
-            dismiss()
-            if keyword != entry.keyword {
+            if keyword == entry.keyword {
+                dismiss()
+            } else if model.closes(entry, to: keyword) {
+                closing = ClosingRequest(entry: entry, keyword: keyword) // dismisses once it's set
+            } else {
+                dismiss()
                 Task { await model.setState(of: entry, to: keyword) }
             }
         } label: {

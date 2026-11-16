@@ -618,8 +618,10 @@ func (l *loaded) isOutlineFile(f *org.File) bool {
 // first (see Status's dropped list). Refused for reference material,
 // for a keyword that isn't configured, and for a file .gitattributes
 // gives merge=union (a union merge would keep both versions of the
-// edited line).
-func SetState(groupDir, entryID, keyword string, nowUnix int64, authorName, authorEmail string) error {
+// edited line). A non-blank note is logged as a closing note if the
+// change closes the entry, as desktop "r" asks for one, and ignored
+// otherwise.
+func SetState(groupDir, entryID, keyword, note string, nowUnix int64, authorName, authorEmail string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	l, err := load(groupDir)
@@ -650,6 +652,7 @@ func SetState(groupDir, entryID, keyword string, nowUnix int64, authorName, auth
 		return fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate entries whose state changes; remove that line (on your computer) to change states there from the phone", rel)
 	}
 	op := gitsync.NewStateOp(rel, h, keyword, now(nowUnix))
+	op.Note = strings.TrimSpace(note)
 	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
 		return err
 	}

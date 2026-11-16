@@ -591,26 +591,35 @@ struct StateMenu<Label: View>: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
     @ViewBuilder var label: () -> Label
+    @State private var closing: ClosingRequest?
 
     var body: some View {
         Menu {
-            StateMenuItems(entry: entry)
+            StateMenuItems(entry: entry) { keyword in
+                if model.closes(entry, to: keyword) {
+                    closing = ClosingRequest(entry: entry, keyword: keyword)
+                } else {
+                    Task { await model.setState(of: entry, to: keyword) }
+                }
+            }
         } label: {
             label()
         }
         .disabled(entry.isReference || model.busy != nil)
+        .closingNotePrompt($closing)
     }
 }
 
-/// The items of a state menu.
+/// The items of a state menu; `choose` gets the picked keyword.
 struct StateMenuItems: View {
     @Environment(AppModel.self) private var model
     let entry: Entry
+    let choose: (String) -> Void
 
     var body: some View {
         ForEach(model.status.keywords, id: \.name) { k in
             Button {
-                Task { await model.setState(of: entry, to: k.name) }
+                choose(k.name)
             } label: {
                 if k.name == entry.keyword {
                     SwiftUI.Label(k.name, systemImage: "checkmark")
@@ -621,7 +630,7 @@ struct StateMenuItems: View {
             .disabled(k.name == entry.keyword)
         }
         Button {
-            Task { await model.setState(of: entry, to: "") }
+            choose("")
         } label: {
             if entry.keyword.isEmpty {
                 SwiftUI.Label("None", systemImage: "checkmark")
@@ -684,5 +693,47 @@ extension Entry {
             return "It was captured on this phone and isn't merged yet, so it's gone for good." + under
         }
         return "It's removed from \(file) when you merge." + under
+    }
+}
+
+/// Closing `entry` with `keyword` (a done state), waiting on a closing
+/// note (see ClosingNotePrompt).
+struct ClosingRequest: Identifiable {
+    let entry: Entry
+    let keyword: String
+    var id: String { entry.id + "|" + keyword }
+}
+
+/// Asks for an optional closing note before closing an entry, as desktop
+/// "r" does: confirming logs the note (or none, left empty) and sets the
+/// state; Cancel leaves the state as it was. `closed` runs once it's set.
+struct ClosingNotePrompt: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @Binding var request: ClosingRequest?
+    var closed: () -> Void = {}
+    @State private var note = ""
+
+    func body(content: Content) -> some View {
+        content.alert("Closing note", isPresented: Binding(get: { request != nil }, set: { if !$0 { request = nil } }),
+                      presenting: request) { r in
+            TextField("Optional", text: $note)
+            Button("Cancel", role: .cancel) { note = "" }
+            Button("Mark \(r.keyword)") {
+                let note = note
+                self.note = ""
+                Task { await model.setState(of: r.entry, to: r.keyword, note: note) }
+                closed()
+            }
+        } message: { r in
+            Text("“\(r.entry.title)” — add a note, or leave it empty.")
+        }
+    }
+}
+
+extension View {
+    /// Asks for a closing note while `request` is set (see
+    /// ClosingNotePrompt).
+    func closingNotePrompt(_ request: Binding<ClosingRequest?>, closed: @escaping () -> Void = {}) -> some View {
+        modifier(ClosingNotePrompt(request: request, closed: closed))
     }
 }

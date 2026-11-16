@@ -29,6 +29,9 @@ type StateOp struct {
 	Fingerprint string `json:"fingerprint"`
 	From        string `json:"from"` // keyword before ("" for none)
 	To          string `json:"to"`   // keyword after
+	// Note, when set and the op closes the entry, is logged as a closing
+	// note, as desktop "r" does (see orgdate.ClosingNoteLines).
+	Note string `json:"note,omitempty"`
 	// Edit, when set, also changes the entry's other fields — only
 	// those the user actually changed, so untouched ones (a date's
 	// repeater, say) are left exactly as written.

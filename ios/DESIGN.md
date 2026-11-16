@@ -708,3 +708,14 @@ README/DESIGN.md current (per repo convention).
   title truncates before it ever hides. Rows with a subtitle (Agenda,
   search) already show their date there, and reference entries have
   none, as on the desktop.
+- **Closing notes.** Choosing a done state for an entry that isn't done
+  — from a swipe button, the state sheet or the Agenda's state menu —
+  asks for an optional note first (`ClosingNotePrompt`, an alert with a
+  text field), as desktop `r` does; Cancel leaves the state alone. The
+  note rides on the state change (`StateOp.Note`, `SetState`'s `note`)
+  and is logged on replay with the desktop's own helpers
+  (`orgdate.ClosingNoteLines`, with `StateNoteHeading` for a repeating
+  item) at the top of the body, right after a property drawer that opens
+  it (`prependBody`), using the op's own time like CLOSED. A note on a
+  change that doesn't close is ignored. Closing through the edit form's
+  keyword picker doesn't ask.

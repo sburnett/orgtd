@@ -420,7 +420,12 @@ func patchEntry(own []string, h *org.Headline, op capturequeue.StateOp) ([]strin
 	indent := strings.Repeat(" ", h.Level+1)
 	bodyIndent := commonIndent(h.TrimmedBody(), indent)
 
+	closing := org.IsDoneKeyword(op.To) && !org.IsDoneKeyword(h.Keyword)
+	noteHeading := orgdate.ClosingNoteHeading
 	sc := orgdate.ChangeState(h, op.To, op.CreatedAt)
+	if sc.Repeat {
+		noteHeading = orgdate.StateNoteHeading(op.To, h.Keyword)
+	}
 	sc.Apply(h)
 
 	var newBody []string
@@ -473,7 +478,27 @@ func patchEntry(own []string, h *org.Headline, op capturequeue.StateOp) ([]strin
 	if bodyChanged {
 		rest = replaceBody(rest, newBody)
 	}
+	if closing && strings.TrimSpace(op.Note) != "" {
+		rest = prependBody(rest, orgdate.ClosingNoteLines(noteHeading, op.Note, h.Level, op.CreatedAt))
+	}
 	return append(out, rest...), nil
+}
+
+// prependBody puts lines at the top of an entry's body: among its own
+// lines after the planning line (rest), right after a property drawer
+// that opens them, or first. That's where desktop "r" logs a closing
+// note, newest first, as org-mode does.
+func prependBody(rest, lines []string) []string {
+	at := 0
+	if len(rest) > 0 && strings.TrimSpace(rest[0]) == ":PROPERTIES:" {
+		for i, l := range rest {
+			if strings.TrimSpace(l) == ":END:" {
+				at = i + 1
+				break
+			}
+		}
+	}
+	return append(append(append([]string{}, rest[:at]...), lines...), rest[at:]...)
 }
 
 // cookieRe matches a timestamp's repeater ("+1w", "++1w", ".+1w") or

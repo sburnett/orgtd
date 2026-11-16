@@ -438,7 +438,7 @@ func findEntry(t *testing.T, g, title string) entry {
 func TestSetStateMarksDoneAndPending(t *testing.T) {
 	g, _ := setup(t)
 	e := findEntry(t, g, "Call the vet about Fido's checkup")
-	if err := SetState(g, e.ID, "DONE", fixtureNow, "P", "p@x"); err != nil {
+	if err := SetState(g, e.ID, "DONE", "", fixtureNow, "P", "p@x"); err != nil {
 		t.Fatal(err)
 	}
 	after := findEntry(t, g, "Call the vet about Fido's checkup")
@@ -468,18 +468,18 @@ func TestSetStateMarksDoneAndPending(t *testing.T) {
 func TestSetStateRefusals(t *testing.T) {
 	g, _ := setup(t)
 	e := findEntry(t, g, "Call the vet about Fido's checkup")
-	if err := SetState(g, e.ID, "SHIPPED", fixtureNow, "P", "p@x"); err == nil {
+	if err := SetState(g, e.ID, "SHIPPED", "", fixtureNow, "P", "p@x"); err == nil {
 		t.Error("unknown keyword accepted")
 	}
-	if err := SetState(g, "work.org:99", "DONE", fixtureNow, "P", "p@x"); err == nil {
+	if err := SetState(g, "work.org:99", "DONE", "", fixtureNow, "P", "p@x"); err == nil {
 		t.Error("bad id accepted")
 	}
 	ref := decode[outlineResult](t)(Outline(g, true, fixtureNow)).Reference[0].Entries[0]
-	if err := SetState(g, ref.ID, "DONE", fixtureNow, "P", "p@x"); err == nil {
+	if err := SetState(g, ref.ID, "DONE", "", fixtureNow, "P", "p@x"); err == nil {
 		t.Error("state change in reference/ accepted")
 	}
 	os.WriteFile(filepath.Join(repoDir(g), ".gitattributes"), []byte("personal.org merge=union\n"), 0o644)
-	err := SetState(g, e.ID, "DONE", fixtureNow, "P", "p@x")
+	err := SetState(g, e.ID, "DONE", "", fixtureNow, "P", "p@x")
 	if err == nil || !strings.Contains(err.Error(), "merge=union") {
 		t.Errorf("SetState in a union-merged file = %v", err)
 	}
@@ -883,5 +883,20 @@ func TestMoveEntryToFileRefusals(t *testing.T) {
 	}
 	if st := decode[statusResult](t)(Status(g)); st.PendingStates != 0 {
 		t.Errorf("refusals queued %d changes", st.PendingStates)
+	}
+}
+
+func TestSetStateLogsAClosingNote(t *testing.T) {
+	g, _ := setup(t)
+	e := findEntry(t, g, "Book flights for the November offsite")
+	if err := SetState(g, e.ID, "DONE", "  Booked via the travel desk ", fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	inbox, _ := os.ReadFile(filepath.Join(repoDir(g), "inbox.org"))
+	if !strings.Contains(string(inbox), "- CLOSING NOTE [") || !strings.Contains(string(inbox), "\n    Booked via the travel desk\n") {
+		t.Errorf("inbox.org has no closing note:\n%s", inbox)
+	}
+	if after := findEntry(t, g, e.Title); !strings.HasPrefix(after.Body, "- CLOSING NOTE [") {
+		t.Errorf("body = %q, want the note first", after.Body)
 	}
 }

@@ -765,3 +765,52 @@ func TestPasteSubtreeIntoAnEmptyFileAddsNoBlankLines(t *testing.T) {
 		t.Errorf("pasteSubtree = %q", got)
 	}
 }
+
+// queueClose queues and replays setting title (in work.org) to keyword
+// with a closing note.
+func (f *fixture) queueClose(title, keyword, note string) string {
+	f.t.Helper()
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+	var h *org.Headline
+	org.Walk(of.Headlines, func(x *org.Headline) {
+		if x.Title == title {
+			h = x
+		}
+	})
+	op := NewStateOp("work.org", h, keyword, opTime)
+	op.Note = note
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, op); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		f.t.Fatal(err)
+	}
+	out, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	return string(out)
+}
+
+func TestClosingNoteIsLoggedAtTheTopOfTheBody(t *testing.T) {
+	stamp := opTime.Format("2006-01-02 Mon 15:04") // as CLOSED is: the op's own time
+	t.Run("after the property drawer", func(t *testing.T) {
+		got := newOpsFixture(t).queueClose("Write report", "DONE", "  Sent   it\nto the team ")
+		want := "** DONE Write report\n   CLOSED: [" + stamp + "]\n   :PROPERTIES:\n   :CREATED:  [2026-11-01 Sun 10:00]\n   :END:\n" +
+			"   - CLOSING NOTE [" + stamp + "] \\\\\n     Sent it to the team\n** TODO Water plants\n"
+		if !strings.Contains(got, want) {
+			t.Errorf("work.org =\n%s\nwant it to contain\n%s", got, want)
+		}
+	})
+	t.Run("a repeating item logs a state change", func(t *testing.T) {
+		got := newOpsFixture(t).queueClose("Water plants", "DONE", "Done for the week")
+		want := "   - State \"DONE\"       from \"TODO\"       [" + stamp + "] \\\\\n     Done for the week\n"
+		if !strings.Contains(got, want) || !strings.Contains(got, "** TODO Water plants") {
+			t.Errorf("work.org =\n%s\nwant it to contain\n%s", got, want)
+		}
+	})
+	t.Run("ignored when not closing", func(t *testing.T) {
+		got := newOpsFixture(t).queueClose("Write report", "NEXT", "not a close")
+		if strings.Contains(got, "not a close") {
+			t.Errorf("a note was logged without a close:\n%s", got)
+		}
+	})
+}

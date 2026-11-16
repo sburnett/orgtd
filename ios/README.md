@@ -237,7 +237,12 @@ either.
   the states shown (an open entry gets DONE and your first two active
   states, a done entry your first three active ones; a full swipe sets
   the first), or **More** for all of them. Details opened in Agenda
-  have a state menu. This works as desktop `r` does: a done state stamps
+  have a state menu.
+  - Closing an entry (a done state for one that isn't done) first asks
+    for an optional closing note, as desktop `r` does: it's logged at the
+    top of the entry's body, `- CLOSING NOTE [time] \\` with the note
+    under it (or under a `State "DONE" from ...` line for a repeating
+    item). Leave it empty for none; Cancel leaves the state unchanged. This works as desktop `r` does: a done state stamps
   `CLOSED`, leaving one clears it, and completing a repeating item
   advances its dates and sets `LAST_REPEAT` instead. Changed entries
   show a clock until they're merged.
