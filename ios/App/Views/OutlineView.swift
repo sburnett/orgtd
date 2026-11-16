@@ -587,7 +587,7 @@ private struct FileRowView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Text(name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.semibold)) // an entry's size: the tree's top layer, set apart by weight
                     .lineLimit(1)
                 if !isExpanded && !file.entries.isEmpty {
                     Text("(\(TreeRowView.descendants(file.entries)))")

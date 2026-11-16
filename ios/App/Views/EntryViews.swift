@@ -212,9 +212,12 @@ extension View {
     }
 }
 
-/// A list row's background: the list's own, tinted while the row's entry
-/// is open, so the entry and its details read as one block, unlike the
-/// rows (its children) below it. In the outline it also draws `guides`:
+/// A list row's background: the list's own — or, while the row's entry
+/// is open, a step lighter (the secondary background) and tinted, so the
+/// entry and its details read as one block, unlike the rows (its
+/// children) below it. On a plain list's black (dark mode) a tint alone
+/// barely shows. The details and form boxes inside go a step lighter
+/// again (`entryPanelBackground`). In the outline it also draws `guides`:
 /// a thin vertical line at each x (from the row's leading edge), one per
 /// level of nesting, which join up across rows into the tree's branches.
 /// `plain` is for a plain-style list (the outline), whose rows sit on the
@@ -226,9 +229,11 @@ struct EntryRowBackground: View {
 
     var body: some View {
         ZStack {
-            Color(plain ? .systemBackground : .secondarySystemGroupedBackground)
             if isOpen {
-                Color.accentColor.opacity(0.1)
+                Color(.secondarySystemBackground)
+                Color.accentColor.opacity(0.12)
+            } else {
+                Color(plain ? .systemBackground : .secondarySystemGroupedBackground)
             }
             if !guides.isEmpty {
                 Canvas { ctx, size in
@@ -241,6 +246,11 @@ struct EntryRowBackground: View {
         }
     }
 }
+
+/// The box an open row's details or edit form sits in: a step lighter
+/// than the open row's own background (see EntryRowBackground), with its
+/// text fields a step back down.
+let entryPanelBackground = Color(.tertiarySystemBackground)
 
 extension View {
     /// The row background of an entry row (see EntryRowBackground). It
@@ -426,7 +436,7 @@ struct InlineEntryDetails: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(entryPanelBackground))
     }
 }
 
@@ -555,7 +565,7 @@ struct InlineForm: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(entryPanelBackground))
         .onAppear { if focusTitle { titleFocused = true } }
     }
 }
@@ -565,7 +575,7 @@ extension View {
     func inlineField() -> some View {
         padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemBackground)))
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(.secondarySystemBackground)))
     }
 }
 
