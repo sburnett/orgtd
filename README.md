@@ -107,7 +107,8 @@ same keys, and sits below your own config file: an explicit flag wins,
 then (for the directory only) `$ORGTD_DIR`, then your config file, then
 `<org_dir>/.orgtd.toml`, then the built-in default. It can't set
 `org_dir` (it's found through it) or anything machine-local — `editor`,
-`vcs_editor`, `scratch_dir`, `debug`, or the `[gcalsync]` section —
+`vcs_editor`, `url_formatter`, `format_links_url_formatter`,
+`scratch_dir`, `debug`, or the `[gcalsync]` section —
 those are ignored with a warning on the command line at startup. A
 malformed `.orgtd.toml` stops orgtd at startup, like a malformed config
 file. `:config` shows, after each setting, which of these layers its

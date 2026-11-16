@@ -36,7 +36,12 @@ func (s Sources) Of(key string) string { return s[key] }
 // paths or programs on one particular machine, or (gcalsync) hold
 // secrets, so they have no business being committed to a shared
 // directory. org_dir is also circular: the repo file is found through it.
-var machineLocalKeys = []string{"org_dir", "editor", "vcs_editor", "scratch_dir", "debug", "gcalsync"}
+//
+// Every key naming a program to run must be here, and not just because
+// it's machine-specific: the repo file arrives via git pull, so anyone
+// who can push to the repo (or the server hosting it) could otherwise
+// make orgtd run any command they like as you.
+var machineLocalKeys = []string{"org_dir", "editor", "vcs_editor", "url_formatter", "format_links_url_formatter", "scratch_dir", "debug", "gcalsync"}
 
 // LoadRepo reads dir's RepoFileName, the shared, committed config layer
 // (see README's "Config file"). A missing file is not an error and

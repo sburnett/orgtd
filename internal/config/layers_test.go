@@ -20,6 +20,8 @@ func TestLoadRepoDropsMachineLocalKeysWithWarnings(t *testing.T) {
 	content := `org_dir = "/elsewhere"
 editor = "emacs"
 vcs_editor = "gitui"
+url_formatter = "sh -c evil"
+format_links_url_formatter = "sh -c evil"
 scratch_dir = "/tmp/x"
 debug = true
 inbox_file = "in.org"
@@ -44,15 +46,15 @@ done = true
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(warnings) != 6 {
-		t.Errorf("warnings = %q, want one per machine-local key (6)", warnings)
+	if len(warnings) != 8 {
+		t.Errorf("warnings = %q, want one per machine-local key (8)", warnings)
 	}
 	for _, w := range warnings {
 		if !strings.Contains(w, "machine-local") {
 			t.Errorf("warning %q doesn't say why", w)
 		}
 	}
-	if cfg.OrgDir != "" || cfg.Editor != "" || cfg.VCSEditor != "" || cfg.ScratchDir != "" || cfg.Debug || cfg.Gcalsync.OAuthClientSecret != "" {
+	if cfg.OrgDir != "" || cfg.Editor != "" || cfg.VCSEditor != "" || cfg.URLFormatter != "" || cfg.FormatLinksURLFormatter != "" || cfg.ScratchDir != "" || cfg.Debug || cfg.Gcalsync.OAuthClientSecret != "" {
 		t.Errorf("machine-local keys kept: %+v", cfg)
 	}
 	if cfg.InboxFile != "in.org" || cfg.AgendaWindowDays != 3 || cfg.Colors.TODO != "#ff0000" || len(cfg.Keywords) != 2 {

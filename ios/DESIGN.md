@@ -299,7 +299,7 @@ README/DESIGN.md current (per repo convention).
   precedence: flag > `$ORGTD_DIR` (dir only) > `~/.config/orgtd/config.toml`
   > `<org_dir>/.orgtd.toml` > built-in default. The repo file can't set
   `org_dir` itself (circular), or machine-local keys (`editor`,
-  `vcs_editor`, `scratch_dir`, `debug`, `[gcalsync]` secrets). Reject or
+  `vcs_editor`, `url_formatter`, `format_links_url_formatter`, `scratch_dir`, `debug`, `[gcalsync]` secrets). Reject or
   ignore those with a warning.
 - Note: `org_dir` must be resolved before the repo file is read, which
   changes `resolveConfig`'s order.

@@ -538,3 +538,36 @@ func mustParse(t *testing.T, rfc3339 string) time.Time {
 	}
 	return tm
 }
+
+// An invite's fields are written by whoever sent it, so a line break in
+// one must not let it add headlines or properties of its own to the file.
+func TestBuildFileKeepsInviteFieldsFromAddingStructure(t *testing.T) {
+	events := []gcal.Event{{
+		ID:          "abc123",
+		CalendarID:  "primary",
+		Summary:     "Hi\n* TODO injected\n:PROPERTIES:\n:GCAL_HTML_LINK: https://evil.example/\n:END:",
+		Location:    "Room 1\r\n* NEXT also injected",
+		Description: "line one\r* TODO from description\r\nline three",
+		HTMLLink:    "https://calendar.google.com/x\n* TODO from link",
+		Start:       mustParse(t, "2026-09-10T09:00:00-07:00"),
+		End:         mustParse(t, "2026-09-10T09:15:00-07:00"),
+	}}
+	rendered := org.RenderFile(BuildFile("/tmp/calendar.org", events, nil, nil))
+	if strings.Contains(rendered, "\r") {
+		t.Errorf("rendered file contains a carriage return:\n%q", rendered)
+	}
+	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org")
+	if err != nil {
+		t.Fatalf("Parse(rendered): %v", err)
+	}
+	if len(parsed.Headlines) != 1 {
+		t.Fatalf("len(Headlines) = %d, want 1; rendered:\n%s", len(parsed.Headlines), rendered)
+	}
+	h := parsed.Headlines[0]
+	if h.Keyword != "" || len(h.Children) != 0 {
+		t.Errorf("headline = %+v, want no keyword or children", h)
+	}
+	if got, want := h.Properties["GCAL_HTML_LINK"], "https://calendar.google.com/x * TODO from link"; got != want {
+		t.Errorf("GCAL_HTML_LINK = %q, want %q", got, want)
+	}
+}

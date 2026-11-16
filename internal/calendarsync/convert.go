@@ -76,7 +76,7 @@ func BuildFile(path string, events []gcal.Event, attendeeTagDomains, attendeeIgn
 }
 
 func buildHeadline(ev gcal.Event, attendeeTagDomains, attendeeIgnorePatterns []string) *org.Headline {
-	title := ev.Summary
+	title := oneLine(ev.Summary)
 	if title == "" {
 		title = "(no title)"
 	}
@@ -91,49 +91,67 @@ func buildHeadline(ev gcal.Event, attendeeTagDomains, attendeeIgnorePatterns []s
 		h.Tags = append(h.Tags, "recurring")
 	}
 	h.Tags = append(h.Tags, attendeeTags(ev, attendeeTagDomains, attendeeIgnorePatterns)...)
-	h.SetProperty("GCAL_EVENT_ID", ev.ID)
-	h.SetProperty("GCAL_CALENDAR_ID", ev.CalendarID)
+	h.SetProperty("GCAL_EVENT_ID", oneLine(ev.ID))
+	h.SetProperty("GCAL_CALENDAR_ID", oneLine(ev.CalendarID))
 	// Read back by internal/ui's "gM" picker (meetings.Meeting.Accepted)
 	// to require acceptance, not just invitation, before a meeting counts
 	// as "in progress" for ranking purposes — see meetings.Less.
-	h.SetProperty("GCAL_SELF_RESPONSE_STATUS", ev.SelfResponseStatus)
+	h.SetProperty("GCAL_SELF_RESPONSE_STATUS", oneLine(ev.SelfResponseStatus))
 	if ev.RecurringEventID != "" {
 		// Stable across every occurrence of the series (unlike
 		// GCAL_EVENT_ID above, which is this one instance's own ID) —
 		// what a task or project would associate with, per DESIGN.md's
 		// project<->meeting concept, to mean "this recurring meeting" in
 		// general rather than one specific occurrence of it.
-		h.SetProperty("GCAL_RECURRING_EVENT_ID", ev.RecurringEventID)
+		h.SetProperty("GCAL_RECURRING_EVENT_ID", oneLine(ev.RecurringEventID))
 	}
 	start, end := eventBounds(ev)
 	h.SetProperty("GCAL_START", start.Format(time.RFC3339))
 	h.SetProperty("GCAL_END", end.Format(time.RFC3339))
-	if ev.HTMLLink != "" {
+	htmlLink := oneLine(ev.HTMLLink)
+	if htmlLink != "" {
 		// Machine-readable copy of the link below, so orgtd can resolve
 		// a GCAL_EVENT_IDS reference on some other entry back to this
 		// event's URL (and this title) without having to parse it back
 		// out of body text — see the status line's "current entry's
 		// link" feature in internal/ui.
-		h.SetProperty("GCAL_HTML_LINK", ev.HTMLLink)
+		h.SetProperty("GCAL_HTML_LINK", htmlLink)
 	}
 
 	indent := strings.Repeat(" ", h.Level+1)
 	h.Body = append(h.Body, indent+orgTimestamp(ev))
 
-	if ev.Location != "" {
-		h.Body = append(h.Body, indent+"Location: "+ev.Location)
+	if location := oneLine(ev.Location); location != "" {
+		h.Body = append(h.Body, indent+"Location: "+location)
 	}
 	if ev.Description != "" {
 		h.Body = append(h.Body, "")
-		for _, line := range strings.Split(strings.TrimRight(ev.Description, "\n"), "\n") {
+		for _, line := range strings.Split(strings.TrimRight(normalizeNewlines(ev.Description), "\n"), "\n") {
 			h.Body = append(h.Body, indent+line)
 		}
 	}
-	if ev.HTMLLink != "" {
-		h.Body = append(h.Body, "", indent+"[["+ev.HTMLLink+"][Open in Google Calendar]]")
+	if htmlLink != "" {
+		h.Body = append(h.Body, "", indent+"[["+htmlLink+"][Open in Google Calendar]]")
 	}
 
 	return h
+}
+
+// oneLine flattens a field from Google that's written into a single
+// line of the org file (a title, a property value, "Location: ...") onto
+// that one line: any line break becomes a space. Event fields are set by
+// whoever sent the invite, not the calendar's owner, so a newline in one
+// could otherwise start a headline, property drawer, or anything else of
+// its own in calendar.org.
+func oneLine(s string) string {
+	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s)
+}
+
+// normalizeNewlines turns "\r\n" and lone "\r" line breaks into "\n", so
+// a multi-line field split on "\n" (the description) leaves no "\r"
+// behind to start a line of its own in some reader of the file.
+func normalizeNewlines(s string) string {
+	return strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(s)
 }
 
 // maxAttendeesForTags caps how large an event can be and still get

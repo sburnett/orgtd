@@ -8,7 +8,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// View renders the whole screen, passed through sanitizeTerminal so no
+// escape sequence from org content (see there) reaches the terminal.
 func (m Model) View() string {
+	return sanitizeTerminal(m.render())
+}
+
+func (m Model) render() string {
 	if m.layout != nil {
 		return m.splitView()
 	}
