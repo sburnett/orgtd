@@ -648,7 +648,10 @@ README/DESIGN.md current (per repo convention).
   show (closed and hidden, or outside the outline files) keep opening
   in place. Search results work the same way: a tap dismisses search
   (the field too, not just its text, so the keyboard doesn't cover the
-  outline) and reveals the entry; a hidden one opens in the results.
+  outline) and reveals the entry. Search only finds entries in the
+  outline's files, so every result has a place there: one closed and
+  hidden turns on showing closed items first (`showClosedItems`) rather
+  than opening in place — the point of the tap is seeing it in context.
 - **Files as the tree's top layer.** The Outline was one List section
   per file, but SwiftUI's `onMove` can't cross sections, and filing an
   inbox item into a project file is the move people most want. So the

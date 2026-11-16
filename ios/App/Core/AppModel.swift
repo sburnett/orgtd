@@ -364,6 +364,14 @@ final class AppModel {
         if let s = try? await core.status() { status = s }
     }
 
+    /// Turns on showing closed items, if off, and waits for the outline
+    /// to reload with them.
+    func showClosedItems() async {
+        guard !showClosed else { return }
+        showClosed = true
+        await reloadOutline()
+    }
+
     func reloadOutline() async {
         guard status.cloned else { return }
         do { outline = try await core.outline(showClosed: showClosed) } catch { lastError = error.localizedDescription }

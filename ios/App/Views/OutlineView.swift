@@ -18,8 +18,6 @@ struct OutlineView: View {
     @State private var query = ""
     /// Whether the search field is active; a revealed result dismisses it.
     @State private var searching = false
-    /// The search result open in place (one the outline doesn't show).
-    @State private var openResult: String?
     @State private var results: [Entry] = []
     @State private var expanded: Set<String> = []
     /// Files whose entries are hidden (files start expanded).
@@ -42,14 +40,11 @@ struct OutlineView: View {
                         ContentUnavailableView.search(text: query)
                     }
                     ForEach(results) { entry in
-                        // As on the Agenda: a tap shows the entry in the
-                        // outline, in context; one the outline leaves out
-                        // (closed and hidden) opens here instead.
-                        EntryListRow(entry: entry, key: entry.id, open: $openResult, subtitle: Text(entry.place),
-                                     deleted: { openResult = nil },
-                                     tapped: model.outlineShows(entry.id) ? { reveal(entry) } : nil)
+                        // A tap shows the entry in the outline, in context
+                        // (search only finds entries the outline has).
+                        EntryListRow(entry: entry, key: entry.id, open: .constant(nil), subtitle: Text(entry.place),
+                                     tapped: { reveal(entry) })
                             .compactEntryRowInsets()
-                            .entryRowBackground(isOpen: openResult == entry.id, plain: true)
                     }
                 } else if let outline = model.outline {
                     nodes(outline)
@@ -69,7 +64,6 @@ struct OutlineView: View {
         .sensoryFeedback(.impact(weight: .medium), trigger: arranging) { _, now in now }
         .searchable(text: $query, isPresented: $searching, prompt: "Search titles, tags, notes")
         .task(id: query) {
-            openResult = nil
             results = query.isEmpty ? [] : await model.search(query)
         }
         .toolbar {
@@ -383,8 +377,15 @@ struct OutlineView: View {
         if let o = open { open = r.apply(o) }
     }
 
-    /// Leaves search, expands the entry's ancestors, and scrolls to it.
-    private func reveal(_ entry: Entry) { reveal(entry.id) }
+    /// Reveals a search result. One closed and hidden turns on showing
+    /// closed items first (the eye button), so the outline has it.
+    private func reveal(_ entry: Entry) {
+        guard !model.outlineShows(entry.id) else { return reveal(entry.id) }
+        Task {
+            await model.showClosedItems()
+            reveal(entry.id)
+        }
+    }
 
     /// Leaves search and arranging, expands the entry `id`'s ancestors,
     /// opens its details, and scrolls to it.
