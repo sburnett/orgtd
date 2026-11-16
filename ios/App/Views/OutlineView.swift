@@ -542,6 +542,14 @@ private func treeGuides(depth: Int) -> [CGFloat] {
     (0..<depth).map { d in treeRowInset + CGFloat(d) * treeIndent + chevronWidth / 2 }
 }
 
+/// Where an open row's highlight starts in a row at `depth`: past its
+/// chevron's column, halfway into the gap before the entry, so the
+/// highlight covers the entry alone, not the arrow that expands its
+/// subtree (see EntryRowBackground).
+private func treeOpenLeading(depth: Int) -> CGFloat {
+    treeRowInset + CGFloat(depth) * treeIndent + chevronWidth + chevronGap / 2
+}
+
 /// A chevron's button: a faint rounded tile behind the arrow, darker
 /// while pressed, so its tap target reads as separate from the entry's
 /// own (which opens details) beside it.
@@ -664,7 +672,8 @@ private struct TreeRowView: View {
         .onPreferenceChange(HeadlineHeightKey.self) { headlineHeight = $0 }
         .padding(.leading, CGFloat(depth) * treeIndent)
         .listRowInsets(EdgeInsets(top: 0, leading: treeRowInset, bottom: 0, trailing: 12))
-        .entryRowBackground(isOpen: open == entry.id, guides: treeGuides(depth: depth), plain: true)
+        .entryRowBackground(isOpen: open == entry.id, guides: treeGuides(depth: depth), plain: true,
+                            openLeading: treeOpenLeading(depth: depth))
     }
 
     /// How many entries a collapsed row hides, like the desktop's "(N)".
@@ -716,7 +725,8 @@ private struct AddEntryRow: View {
         .padding(.leading, CGFloat(depth) * treeIndent + chevronWidth + chevronGap)
         .padding(.bottom, isOpen ? 8 : 0)
         .listRowInsets(EdgeInsets(top: 0, leading: treeRowInset, bottom: 0, trailing: 12))
-        .entryRowBackground(isOpen: isOpen, guides: treeGuides(depth: depth), plain: true)
+        .entryRowBackground(isOpen: isOpen, guides: treeGuides(depth: depth), plain: true,
+                            openLeading: treeOpenLeading(depth: depth))
         .onChange(of: isOpen) { _, nowOpen in
             if nowOpen { reset() }
         }

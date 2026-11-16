@@ -222,18 +222,24 @@ extension View {
 /// level of nesting, which join up across rows into the tree's branches.
 /// `plain` is for a plain-style list (the outline), whose rows sit on the
 /// screen's own background rather than a grouped list's card.
+/// `openLeading` keeps the open highlight off the row's first points —
+/// in the outline, its indentation and chevron, so the highlight covers
+/// the entry alone and doesn't read as selecting its whole subtree.
 struct EntryRowBackground: View {
     var isOpen: Bool
     var guides: [CGFloat] = []
     var plain = false
+    var openLeading: CGFloat = 0
 
     var body: some View {
         ZStack {
+            Color(plain ? .systemBackground : .secondarySystemGroupedBackground)
             if isOpen {
-                Color(.secondarySystemBackground)
-                Color.accentColor.opacity(0.12)
-            } else {
-                Color(plain ? .systemBackground : .secondarySystemGroupedBackground)
+                ZStack {
+                    Color(.secondarySystemBackground)
+                    Color.accentColor.opacity(0.12)
+                }
+                .padding(.leading, openLeading)
             }
             if !guides.isEmpty {
                 Canvas { ctx, size in
@@ -255,8 +261,8 @@ let entryPanelBackground = Color(.tertiarySystemBackground)
 extension View {
     /// The row background of an entry row (see EntryRowBackground). It
     /// must be on the row itself, not nested inside it, to take effect.
-    func entryRowBackground(isOpen: Bool, guides: [CGFloat] = [], plain: Bool = false) -> some View {
-        listRowBackground(EntryRowBackground(isOpen: isOpen, guides: guides, plain: plain))
+    func entryRowBackground(isOpen: Bool, guides: [CGFloat] = [], plain: Bool = false, openLeading: CGFloat = 0) -> some View {
+        listRowBackground(EntryRowBackground(isOpen: isOpen, guides: guides, plain: plain, openLeading: openLeading))
     }
 }
 

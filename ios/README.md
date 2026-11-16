@@ -225,7 +225,9 @@ either.
   editing and the state are on the swipes (below); details opened in
   Agenda have a state menu and a pencil instead. An open
   entry's row is tinted, which sets its details apart from its children
-  below. In Outline, a thin line runs down from each expanded entry's
+  below. In Outline, the tint starts after the entry's chevron, since
+  it marks just that entry, not the subtree the chevron expands, and a
+  thin line runs down from each expanded entry's
   chevron past its last child.
 - **From the Agenda:** tap an entry to jump to it in Outline, expanded
   to and scrolled into view, with its details open. An entry Outline
