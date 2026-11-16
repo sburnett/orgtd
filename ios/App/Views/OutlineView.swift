@@ -105,10 +105,13 @@ struct OutlineView: View {
     @ToolbarContentBuilder
     private var browsingToolbar: some ToolbarContent {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Like expand/collapse, the icon shows what a tap will
+                // do: an open eye shows closed items, a crossed-out one
+                // hides them.
                 Button {
                     model.showClosed.toggle()
                 } label: {
-                    Image(systemName: model.showClosed ? "eye" : "eye.slash")
+                    Image(systemName: model.showClosed ? "eye.slash" : "eye")
                 }
                 .accessibilityLabel(model.showClosed ? "Hide closed items" : "Show closed items")
 
