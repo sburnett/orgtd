@@ -233,19 +233,23 @@ either.
   to and scrolled into view, with its details open. An entry Outline
   doesn't show (closed and hidden, or in a file it leaves out) opens
   its details in the Agenda instead.
+- **From search:** in Outline, search matches titles, tags and notes;
+  tap a result to jump to it in Outline the same way. A closed entry
+  that's hidden turns on showing closed items first, so it has a place
+  to jump to.
 - **Changing an entry's state:** in Outline, swipe it right: tap one of
   the states shown (an open entry gets DONE and your first two active
   states, a done entry your first three active ones; a full swipe sets
   the first), or **More** for all of them. Details opened in Agenda
-  have a state menu.
+  have a state menu. This works as desktop `r` does: a done state stamps
+  `CLOSED`, leaving one clears it, and completing a repeating item
+  advances its dates and sets `LAST_REPEAT` instead. Changed entries
+  show a clock until they're merged.
   - Closing an entry (a done state for one that isn't done) first asks
     for an optional closing note, as desktop `r` does: it's logged at the
     top of the entry's body, `- CLOSING NOTE [time] \\` with the note
     under it (or under a `State "DONE" from ...` line for a repeating
-    item). Leave it empty for none; Cancel leaves the state unchanged. This works as desktop `r` does: a done state stamps
-  `CLOSED`, leaving one clears it, and completing a repeating item
-  advances its dates and sets `LAST_REPEAT` instead. Changed entries
-  show a clock until they're merged.
+    item). Leave it empty for none; Cancel leaves the state unchanged.
   - If you change the same entry on your computer before merging, the
     phone's change is dropped rather than guessed at, and the app tells
     you so.
