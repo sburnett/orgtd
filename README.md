@@ -53,6 +53,12 @@ orgtd --dir ~/org
 
 `:config` shows the current, effective value of everything above.
 
+`inbox_file`, `calendar_file` and `meeting_tags_file` must be plain file
+names inside `--dir`: one containing `/` or `\`, or set to `.` or `..`,
+stops orgtd at startup, wherever it was set (flag, config file, or
+`.orgtd.toml`) — so a shared `.orgtd.toml` can't aim orgtd's writes at a
+file outside the org directory.
+
 Every `.org` file directly inside `--dir` is loaded, sorted alphabetically,
 except any matching `outline_ignore_files`.
 The one subdirectory that's scanned too is `reference/` (its `.org` files

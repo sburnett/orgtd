@@ -182,9 +182,41 @@ func DefaultKeywords() []KeywordConfig {
 	}
 }
 
-// Normalize validates c.Keywords and fills in any missing shortcuts,
-// returning the first problem found. An empty list is left alone.
+// CheckFileNames reports an error if inbox_file, calendar_file or
+// meeting_tags_file is set to anything but a plain file name (see
+// isBaseName). Each is joined onto org_dir to find the file it names,
+// and orgtd writes to all three, :sync-calendar without being asked — so
+// a value like "../.zshrc" from a committed .orgtd.toml, which arrives
+// via git pull, would otherwise let whoever can push to the repo
+// overwrite any file of yours. Unset (empty) values are fine.
+func (c *Config) CheckFileNames() error {
+	for _, f := range []struct{ key, value string }{
+		{"inbox_file", c.InboxFile},
+		{"calendar_file", c.CalendarFile},
+		{"meeting_tags_file", c.MeetingTagsFile},
+	} {
+		if f.value != "" && !isBaseName(f.value) {
+			return fmt.Errorf("%s: %q must be a plain file name inside the org directory, with no directory part", f.key, f.value)
+		}
+	}
+	return nil
+}
+
+// isBaseName reports whether name is a plain file name: no path
+// separator of either kind (a backslash is one on Windows, so it's
+// rejected everywhere, keeping a shared .orgtd.toml portable), and not
+// "." or "..".
+func isBaseName(name string) bool {
+	return !strings.ContainsAny(name, `/\`) && name != "." && name != ".."
+}
+
+// Normalize checks the file-name settings (see CheckFileNames), validates
+// c.Keywords and fills in any missing shortcuts, returning the first
+// problem found. An empty keyword list is left alone.
 func (c *Config) Normalize() error {
+	if err := c.CheckFileNames(); err != nil {
+		return err
+	}
 	if len(c.Keywords) == 0 {
 		return nil
 	}

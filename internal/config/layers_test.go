@@ -90,3 +90,35 @@ func TestOverlayMergesSectionsKeyByKeyAndRecordsSources(t *testing.T) {
 		t.Errorf("MarkDefaults didn't fill unset-but-present keys: %v", sources)
 	}
 }
+
+// A committed .orgtd.toml arrives via git pull, so its file-name settings
+// mustn't be able to point outside the org directory: orgtd writes to
+// each of them.
+func TestLoadRepoRejectsFileNamesOutsideOrgDir(t *testing.T) {
+	for _, line := range []string{
+		`calendar_file = "../.zshrc"`,
+		`inbox_file = "/etc/passwd"`,
+		`meeting_tags_file = "sub/tags.org"`,
+		`calendar_file = "..\\evil.org"`,
+		`inbox_file = ".."`,
+		`meeting_tags_file = "."`,
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, RepoFileName), []byte(line+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := LoadRepo(dir); err == nil || !strings.Contains(err.Error(), "plain file name") {
+			t.Errorf("LoadRepo with %s: err = %v, want a plain-file-name error", line, err)
+		}
+	}
+}
+
+func TestCheckFileNamesAcceptsPlainNames(t *testing.T) {
+	c := Config{InboxFile: "in.org", CalendarFile: "cal..org", MeetingTagsFile: ".tags.org"}
+	if err := c.CheckFileNames(); err != nil {
+		t.Errorf("CheckFileNames(%+v) = %v, want nil", c, err)
+	}
+	if err := (&Config{}).CheckFileNames(); err != nil {
+		t.Errorf("CheckFileNames(empty) = %v, want nil", err)
+	}
+}

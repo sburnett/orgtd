@@ -42,6 +42,12 @@ func main() {
 		os.Exit(1)
 	}
 	cfg, sources := resolveLayers(*flags, os.Getenv("ORGTD_DIR"), fileCfg, repoCfg)
+	// Both config files were already checked as they loaded; this
+	// catches the same mistakes in a command-line flag.
+	if err := cfg.CheckFileNames(); err != nil {
+		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
+		os.Exit(1)
+	}
 
 	// The TUI owns the terminal once it starts, so plain log output
 	// can't share it — redirect to a file instead of leaving it on
