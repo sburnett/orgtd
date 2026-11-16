@@ -10,11 +10,16 @@ import SwiftUI
 /// moves it one level deeper or shallower (as desktop ">>" and "<<"
 /// do), and every list visible starts and ends with a "New entry" row,
 /// which opens a form for the new entry right where it will go. A file
-/// with no entries showing always has a "New entry" row. Picking a
-/// search result opens the outline at that entry.
+/// with no entries showing always has a "New entry" row. Tapping a
+/// search result leaves search and reveals it in the outline, as tapping
+/// an Agenda entry does.
 struct OutlineView: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
+    /// Whether the search field is active; a revealed result dismisses it.
+    @State private var searching = false
+    /// The search result open in place (one the outline doesn't show).
+    @State private var openResult: String?
     @State private var results: [Entry] = []
     @State private var expanded: Set<String> = []
     /// Files whose entries are hidden (files start expanded).
@@ -37,13 +42,14 @@ struct OutlineView: View {
                         ContentUnavailableView.search(text: query)
                     }
                     ForEach(results) { entry in
-                        Button {
-                            reveal(entry)
-                        } label: {
-                            CompactEntryRow(entry: entry, subtitle: Text(entry.place))
-                        }
-                        .buttonStyle(.plain)
-                        .compactEntryRowInsets()
+                        // As on the Agenda: a tap shows the entry in the
+                        // outline, in context; one the outline leaves out
+                        // (closed and hidden) opens here instead.
+                        EntryListRow(entry: entry, key: entry.id, open: $openResult, subtitle: Text(entry.place),
+                                     deleted: { openResult = nil },
+                                     tapped: model.outlineShows(entry.id) ? { reveal(entry) } : nil)
+                            .compactEntryRowInsets()
+                            .entryRowBackground(isOpen: openResult == entry.id, plain: true)
                     }
                 } else if let outline = model.outline {
                     nodes(outline)
@@ -61,8 +67,9 @@ struct OutlineView: View {
         .listStyle(.plain)
         .navigationTitle(arranging ? "Arrange" : "Outline")
         .sensoryFeedback(.impact(weight: .medium), trigger: arranging) { _, now in now }
-        .searchable(text: $query, prompt: "Search titles, tags, notes")
+        .searchable(text: $query, isPresented: $searching, prompt: "Search titles, tags, notes")
         .task(id: query) {
+            openResult = nil
             results = query.isEmpty ? [] : await model.search(query)
         }
         .toolbar {
@@ -387,6 +394,9 @@ struct OutlineView: View {
         expanded.formUnion(Entry.ancestorIDs(of: id))
         open = id
         query = ""
+        // Clearing the text alone leaves the field focused, with the
+        // keyboard over the outline; this dismisses search as Cancel does.
+        searching = false
         Task { @MainActor in
             // Let the outline rows exist before scrolling to one.
             try? await Task.sleep(for: .milliseconds(150))
