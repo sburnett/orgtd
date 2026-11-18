@@ -46,6 +46,14 @@ type insertSession struct {
 	// resolved, applied or cancelled — for "gd", which only uses insert
 	// mode to set the deadline.
 	exitAfterDate bool
+
+	// inTags is whether the caret is in the tag area at the end of the
+	// first line, where tags — lifted out of buf meanwhile, with an
+	// empty one at the end for a new tag — are edited one at a time,
+	// tagIdx the one under the caret (see insert_tags.go).
+	inTags bool
+	tags   []string
+	tagIdx int
 }
 
 // caretStart is where insert mode puts the caret on entering it.
@@ -73,7 +81,7 @@ func (m *Model) enterInsertMode(h *org.Headline, insert *insertContext, caret ca
 		// vim's "a" on an empty line.
 		buf.col = min(m.titleStartCol(h, buf.lines[0])+1, len(buf.runes(0)))
 	case caretAtLineEnd:
-		buf.lineEnd()
+		buf.col, _ = splitTitleTags(buf.lines[0]) // the title's end, before any tags
 	}
 	m.ins = insertSession{target: h, insert: insert, buf: buf, keywords: m.view != referenceView}
 	if caret == caretAtLineStart && m.ins.keywords {
@@ -110,6 +118,7 @@ func (m *Model) titleStartCol(h *org.Headline, line string) int {
 // step for the whole session, as vim records "i, type, Esc"; a new entry
 // left with no title is dropped again.
 func (m Model) finishInsert() (tea.Model, tea.Cmd) {
+	m.leaveTags()
 	s := m.ins
 	m.mode = normalMode
 	m.ins = insertSession{}
@@ -144,6 +153,7 @@ func (m *Model) resumeInsertFromEditor(text string) {
 	m.ins.buf = b
 	m.ins.onKeyword = false
 	m.snapOutOfKeyword()
+	m.snapOutOfTags()
 	m.snapOutOfTimestamp(m.ins.buf.row, m.ins.buf.col)
 }
 
@@ -157,9 +167,10 @@ func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		return m.finishInsert()
 	case tea.KeyCtrlG:
+		m.leaveTags()
 		return m, m.editInsertInEditor()
 	}
-	if m.insertKeywordKey(msg) || m.insertTimestampKey(msg) {
+	if m.insertTagsKey(msg) || m.insertKeywordKey(msg) || m.insertTimestampKey(msg) {
 		return m, nil
 	}
 	fromRow, fromCol := m.ins.buf.row, m.ins.buf.col
@@ -221,6 +232,7 @@ func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.ins.buf = b
 	m.snapOutOfKeyword()
+	m.snapOutOfTags()
 	m.snapOutOfTimestamp(fromRow, fromCol)
 	return m, nil
 }
@@ -338,7 +350,8 @@ func (m Model) insertLead(r row, bg lipgloss.TerminalColor) (lead, blank string)
 // the width left after lead — what the first line starts with — or
 // blank, what every later one does, and padded out with bg. The caret is
 // drawn on the character it sits on, or past the end of its line — or,
-// on a timestamp, over all of it; on the keyword slot, over the whole keyword, or as a blank cell before
+// on a timestamp, over all of it; in the tag area, over the tag (see
+// tagsDisplay); on the keyword slot, over the whole keyword, or as a blank cell before
 // the title if there's none; caret is the index of the screen line
 // holding it.
 func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) (lines []string, caret int) {
@@ -358,6 +371,9 @@ func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) 
 			if s, ok := m.onTimestamp(); ok {
 				c1 = s[1] // the whole timestamp is the caret
 			}
+		}
+		if i == 0 && m.ins.inTags {
+			rs, c0, c1 = m.tagsDisplay()
 		}
 		if i == 0 && m.ins.onKeyword {
 			if n := utf8.RuneCountInString(kw); n > 0 {

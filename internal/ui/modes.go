@@ -142,8 +142,13 @@ func init() {
 		insertMode: {
 			update: Model.updateInsertMode,
 			// The status picker's candidates, while the caret is on the
-			// keyword slot (see insert_keyword.go).
+			// keyword slot (see insert_keyword.go), or the workspace's
+			// tags the one being typed could be, in the tag area (see
+			// insert_tags.go).
 			infoAbove: func(m *Model) []string {
+				if m.ins.inTags {
+					return m.appendInfoSection(nil, "Tags:", m.insertTagMatches())
+				}
 				if !m.ins.onKeyword {
 					return nil
 				}
@@ -154,6 +159,8 @@ func init() {
 				hint := "(Esc: done, ctrl-g: edit in $EDITOR)"
 				if m.ins.onKeyword {
 					hint = "(keyword: type a shortcut, Delete for none, → for the title; Esc: done)"
+				} else if m.ins.inTags {
+					hint = "(tags: type to edit this one, Enter for a new one, Tab completes; Esc: done)"
 				} else if _, ok := m.onTimestamp(); ok {
 					hint = "(date: Enter to change it, Delete to remove it; Esc: done)"
 				}

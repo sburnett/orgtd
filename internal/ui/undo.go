@@ -146,8 +146,8 @@ func (a *closingNoteAction) revert(m *Model) *org.Headline {
 func (a *closingNoteAction) file() *org.File           { return a.f }
 func (a *closingNoteAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
-// tagChangeAction records "gt" toggling one tag on or off an entry's
-// Tags (see applyTagInput). The mutation is in place, so the same
+// tagChangeAction records "gt" on a calendar event toggling one tag on
+// or off a meeting-tags.org record's Tags (see applyMeetingTag). The mutation is in place, so the same
 // headline pointer is "affected" either way.
 type tagChangeAction struct {
 	h                *org.Headline

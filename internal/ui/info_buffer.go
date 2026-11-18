@@ -183,7 +183,9 @@ func (m *Model) infoBufferHeight() int {
 // keeping whatever's actually on screen from shifting position any more
 // than it has to:
 //
-//   - "Tags:" — while "gt" is prompting for a tag (tagMode) and there's
+//   - "Tags:" — in insert mode's tag area, the workspace tags the one
+//     under the caret could be (see insert_tags.go); or while "gt" is
+//     prompting for a calendar event's tag (tagMode) and there's
 //     more than one completion match (see completeTagInput), the
 //     matches themselves, one per line, instead of the old single
 //     space-joined line appended to the prompt.

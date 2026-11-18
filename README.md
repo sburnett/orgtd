@@ -646,7 +646,7 @@ parent before the file name.
 | `i` | Edit the current entry's own text (title, planning line, properties, and body — not its children, which are left untouched) right where it is, in insert mode (see Insert mode, below), caret at the start of the title — after any TODO keyword and priority (`TODO [#A] `), or at the very start in `:reference`, which shows a keyword as plain title text. The text has no leading bullet (`*`) to edit around, and the whole entry — not just the title — is dedented by one level to match, so properties/planning/body lines that would otherwise still be indented under the now-absent bullet start flush left too; it's just the entry's text, plain, re-indented automatically when you're done. On a file's own header row, edits the whole file in `$EDITOR` instead (after a confirmation, since this discards undo history and marks for that file) |
 | `I` | Same as `i`, but the caret lands on the entry's TODO keyword — or the empty slot where one goes — to change, add or remove it with a single key (see The keyword, under Insert mode, below); vim's own "insert at the start of the line". In `:reference`, which has no keyword slot, the very start of the line |
 | `a` | Same as `i`, but the caret lands one character further right — vim's own "append after the cursor", with `i`'s position standing in for the cursor (so after the title's first character) |
-| `A` | Same as `i`, but the caret lands at the end of the entry's first line instead (vim's own "append" position) |
+| `A` | Same as `i`, but the caret lands at the end of the title instead (vim's own "append" position) — before any tags |
 | `ctrl-g` | Edit the current entry in `$EDITOR` instead, and apply the result when it exits — the same text as `i`, starting on line 1 (a vim-family `$EDITOR` — vi/vim/nvim/gvim/mvim — starts there in its normal mode, as you were in orgtd's). Below it, git-commit-style, is a comment block sketching the entry's place in the outline (its file, parent, siblings, and its own children, each with their real bullets) with a `[THIS ENTRY HERE]` marker standing in for the entry itself — for orientation only; editing it has no effect. On a file's own header row, same as `i`. In insert mode, `ctrl-g` hands what you've typed so far to `$EDITOR` instead (see Insert mode, below) |
 | `o` / `O` | Insert a new entry after / before the current one (or at the end/start of a file, from a file header row), and start typing it in insert mode — the same bullet-free text as `i`, blank, caret on line 1, prefilled with a `CREATED` property set to now (edit or delete it like anything else before leaving insert mode). Leaving insert mode with no title typed drops the new entry again. In `:calendar` view, on a row associated with a meeting — the event's own row/body, or an item already linked to it (see below) — `o`/`O` behave identically instead: both append the new entry to the end of the inbox (same target as `gC`) and attach it to that meeting outright, the same properties `gM` would set but chosen automatically, with no picker step, since the meeting is already unambiguous from the cursor's row — the capture and the attach are one undo step together, unlike tagging a meeting via `gt`/`gM` elsewhere, which is always its own separate step. There's no "before"/"after" left to distinguish once the target is always the end of one shared file rather than a position relative to the cursor; the entry's place among any others linked to the same meeting (see `:calendar`, below) is decided by `CREATED` instead, so repeated `o`/`O` presses still show up in the order they were actually captured regardless of which file each one is later filed into. Since `:calendar` can't show the new entry until it's attached, it's typed in outline view, at the end of the inbox, as with `gC`; but unlike `gC`/`gX` (below), once you leave insert mode it goes back to `:calendar` view, right on the newly captured entry now nested under its meeting (or, if cancelled, back where it was) |
 | `dd` | Delete the current entry and its subtree (undoable; also fills the paste register, or the named one given by a `"<register>` prefix — see Registers, below). The cursor stays at the same screen row, landing on whatever now occupies it (or the new last row, if it was the last one) — matching vim's own `dd` |
@@ -661,7 +661,7 @@ parent before the file name.
 | `gC` | Capture: append a new entry to the end of the inbox file and start typing it in insert mode, as `o` does, regardless of the current cursor position or view (same as `:capture`). From a view that doesn't list it (the agenda, say), it first switches to outline view, on the new entry at the end of the inbox, so it's typed in place there like any other; once you leave insert mode the cursor stays on it, ready for further edits right away (`ctrl-o` jumps back to where you were). Cancelling — leaving insert mode with no title typed — returns to the view you started from. Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
 | `gM` | Open a picker (type to filter by title or attendee tag — e.g. "alice" matches a meeting tagged `@alice`, same tags `:sync-calendar` stamps on for Tag-based meeting links, below — ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the info buffer's "Meeting" section — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. A linked entry (attached via `gM`, or tag-matched — see Tag-based meeting links, above) shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it's linked to a meeting is visible at a glance, in every view, without opening it |
 | `gX` | `gC` immediately followed by `gM`: capture as usual, and once you leave insert mode, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion. Cancelling the capture (no title typed) never opens the picker; if nothing's synced yet, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
-| `gt` | Prompt for a tag and toggle it on the current entry: typing one already on the entry removes it, anything else is added. `Tab` completes against every tag already used anywhere in the workspace (extending to the longest common prefix and listing the matches, same as command-mode `:<Tab>`); an empty prompt's `Tab` lists all of them. Enter with nothing typed, or `Esc`, cancels without changes. Tags can also be added/removed by hand in `i`/edit mode (a trailing `:tag1:tag2:` on the title line) — `gt` is just the faster path for one at a time. A tag matching one on a synced calendar event automatically links the two — see Tag-based meeting links, above. On a `:calendar` entry's own row, `gt` instead records the tag in `meeting_tags_file` so it survives `:sync-calendar` (see Tag-based meeting links, above); `"recurring"` is refused there as a reserved name |
+| `gt` | Edit the current entry's tags, in insert mode (see Tags, under Insert mode, below), with the caret on a new, empty tag after the existing ones — type it, `Tab` to complete it against every tag used anywhere in the workspace, `Enter` for another, `Esc` when done. A tag matching one on a synced calendar event automatically links the two — see Tag-based meeting links, above. On a synced calendar event's own row (in `:calendar`, or nested in `:meeting-tags`), `gt` instead prompts for one tag and toggles it in `meeting_tags_file`, so it survives `:sync-calendar` (see Tag-based meeting links, above) — typing one already recorded removes it, `Tab` completes, and Enter with nothing typed, or `Esc`, cancels; `"recurring"` is refused there as a reserved name |
 | `u` / `ctrl-r` | Undo / redo (single global stack for the session) |
 
 ### Insert mode
@@ -678,7 +678,7 @@ goes into the entry, normal-mode commands included, until you leave.
 | `ctrl-g` | Open what you've typed so far in `$EDITOR` (with the same comment block as normal-mode `ctrl-g`; a vim-family `$EDITOR` starts in insert mode, as you were in orgtd's). When it exits, you're back in insert mode with the editor's version of the text, to carry on or leave with `Esc` — as `ctrl-g` works in a shell or in Claude Code's prompt |
 | `Enter` | New line (planning, properties and body lines go below the title, as in the file) |
 | `←`/`→`/`↑`/`↓`, `ctrl-b`/`ctrl-f`/`ctrl-p`/`ctrl-n` | Move by character / line |
-| `Home`/`End`, `ctrl-a`/`ctrl-e` | Start / end of the line |
+| `Home`/`End`, `ctrl-a`/`ctrl-e` | Start / end of the line — on the first line, the start and end of the title, then (pressed again) the keyword and the tags |
 | `alt-b`/`alt-f`, `ctrl-←`/`ctrl-→` | Back / forward a word |
 | `Backspace`, `Delete`/`ctrl-d` | Delete the character before / under the caret, joining lines at either end of one |
 | `ctrl-w`/`alt-Backspace`, `alt-d` | Delete the word before / after the caret |
@@ -727,6 +727,32 @@ Elsewhere, the cursor motions step over a timestamp as one character, and
 would cut into one, removes it whole. Each half of a range
 (`<…>--<…>`) is a timestamp of its own. A label like `DEADLINE:` is
 ordinary text: removing its timestamp leaves it in place.
+
+#### Tags
+
+Each of an entry's tags — the `:home:errand:` at the end of its first
+line — counts as a single character too. `→` from the end of the title,
+`End` (twice, from elsewhere on the line), or `gt` moves into the tags:
+an empty tag is added at the end for a new one (`:home:errand::`), the
+caret highlights one tag at a time, and a `Tags:` list below shows the
+workspace's tags that the one under the caret could be.
+
+| Key, in the tags | Action |
+|---|---|
+| Letters, digits, `_@%#+` | Add to the end of the tag under the caret. Spaces and other characters a tag can't hold can't be typed |
+| `:` | On to the next tag, if there is one — so typing `work:home` gives two tags |
+| `Backspace` | Delete the tag's last character; on an empty tag, move to the one before, to carry on deleting there |
+| `ctrl-w`/`ctrl-u`/`alt-Backspace` | Empty the tag under the caret |
+| `Delete`/`ctrl-d` | Remove the tag under the caret |
+| `Tab` | Complete the tag under the caret to the workspace tag it starts, or as far as several share |
+| `Enter`, `End` | On to the new tag at the end, to type another |
+| `←`/`→` | The tag before / after; `←` from the first leaves the tags, to the end of the title |
+| `Home`, `↓` | Leave the tags, to the title's start / the line below |
+
+When the caret leaves the tags (or insert mode ends), they're written
+back: empty ones dropped, and any that repeat an earlier one. Elsewhere
+on the first line, the caret stops at the end of the title, and
+`Delete` or `ctrl-k` there leave the tags alone.
 
 Long lines wrap at the window's edge. Bare URLs are formatted into org
 links when you leave insert mode, the same as after `$EDITOR` (see

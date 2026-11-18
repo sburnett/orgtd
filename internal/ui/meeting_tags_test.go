@@ -196,8 +196,8 @@ func TestGtTagCompletionIncludesExistingMeetingTag(t *testing.T) {
 	m = typeKeys(m, "bob")
 	m = sendKey(m, "tab")
 
-	if m.tagInput != "bob_project" {
-		t.Errorf("tagInput = %q, want %q (completed from meeting-tags.org)", m.tagInput, "bob_project")
+	if got := m.ins.tags[m.ins.tagIdx]; got != "bob_project" {
+		t.Errorf("tag = %q, want %q (completed from meeting-tags.org)", got, "bob_project")
 	}
 }
 
@@ -461,7 +461,15 @@ func TestMeetingTagsViewNestedEventSupportsGt(t *testing.T) {
 	m = gtOnCalendarRow(t, m, "Meeting abc123", "bob_project")
 
 	m.switchToView(meetingTagsView)
-	m.cursor = findRow(t, m, "Meeting abc123")
+	m.cursor = -1
+	for i, r := range m.rows {
+		if r.kind == rowCalendarEvent && r.headline == event {
+			m.cursor = i
+		}
+	}
+	if m.cursor < 0 {
+		t.Fatalf("no nested event row for %q in %+v", event.Title, m.rows)
+	}
 	m = sendKey(m, "g")
 	m = sendKey(m, "t")
 	m = typeKeys(m, "launch")

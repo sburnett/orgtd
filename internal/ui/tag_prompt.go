@@ -12,11 +12,21 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
-// startTagPrompt opens the tag-entry prompt ("gt") for the current
-// headline. A no-op on file rows or a locked (:format-links) entry.
+// startTagPrompt ("gt") edits the current headline's tags: in insert
+// mode, with the caret on a new, empty tag at the end of the tag area,
+// ready to type it (see insert_tags.go). A synced calendar event is the
+// exception — its own tags would be lost on the next :sync-calendar —
+// and gets the tag prompt instead, which records the tag in
+// meeting_tags_file (see applyMeetingTag). A no-op on file rows or a
+// locked (:format-links) entry.
 func (m *Model) startTagPrompt() {
 	h := m.currentHeadline()
 	if h == nil || m.refuseIfImmutable(h) {
+		return
+	}
+	if _, ok := meetings.Identity(h); !ok {
+		m.enterInsertMode(h, nil, caretAtTitle)
+		m.enterTags(true)
 		return
 	}
 	m.mode = tagMode
@@ -150,20 +160,13 @@ func (m *Model) completeTagInput() {
 	}
 }
 
-// applyTagInput toggles the typed tag (trimmed) on tagTarget: appended
-// if not already present, removed if it is — so pressing "gt" and
-// retyping the same tag is how a tag comes back off, matching the
-// keybinding table's own "adding a tag again removes it". A blank
-// input (Enter with nothing typed) cancels without changes, same as
-// Esc, rather than clearing every tag — there's no way to distinguish
-// "clear all tags" from "typed nothing" otherwise, and gd's own
-// empty-clears convention doesn't apply here since a headline can carry
-// more than one tag. Always returns to normal mode.
-//
-// If target is itself a synced calendar event (meetings.Identity), the
-// tag is recorded in meeting-tags.org instead (see applyMeetingTag) —
-// editing target's own Tags here would just be undone by the next
-// :sync-calendar, which wholesale-regenerates the calendar file.
+// applyTagInput records the typed tag (trimmed) for tagTarget, a synced
+// calendar event, in meeting-tags.org (see applyMeetingTag) — toggled
+// there, so retyping a tag removes it — since editing the event's own
+// Tags would just be undone by the next :sync-calendar, which
+// wholesale-regenerates the calendar file. A blank input (Enter with
+// nothing typed) cancels without changes, same as Esc. Always returns to
+// normal mode.
 func (m Model) applyTagInput() (tea.Model, tea.Cmd) {
 	m.message = ""
 	tag := strings.TrimSpace(m.tagInput)
@@ -175,25 +178,8 @@ func (m Model) applyTagInput() (tea.Model, tea.Cmd) {
 	if tag == "" || target == nil {
 		return m, nil
 	}
-
 	if key, ok := meetings.Identity(target); ok {
 		m.applyMeetingTag(target, key.Kind, key.ID, tag)
-		return m, nil
 	}
-
-	old := append([]string(nil), target.Tags...)
-	var newTags []string
-	removed := false
-	for _, t := range target.Tags {
-		if t == tag {
-			removed = true
-			continue
-		}
-		newTags = append(newTags, t)
-	}
-	if !removed {
-		newTags = append(newTags, tag)
-	}
-	m.pushUndo(&tagChangeAction{h: target, f: m.ws.FileOf(target), oldTags: old, newTags: newTags})
 	return m, nil
 }
