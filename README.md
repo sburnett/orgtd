@@ -197,6 +197,7 @@ status_bar_inactive_bg  = "#767676"
 cursor_row_bg           = "#204060"  # the row under the cursor
 inactive_cursor_row_bg  = "#1c2c3c"  # the row under the cursor in every window but the active one, once split
 visual_selection_bg     = "#102030"  # the rest of a visual-mode selection, besides the cursor's own row
+insert_bg               = "#1f3f1f"  # the entry being edited in insert mode
 search_highlight_bg     = "#ffd75f"  # every match of the active search term (vim's 'hlsearch'), drawn with black text
 
 # The TODO keywords: one [[keywords]] table each, in the order the

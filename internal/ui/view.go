@@ -37,7 +37,7 @@ func (m Model) listing(active bool) string {
 	}
 	var b strings.Builder
 	if active && m.insertInline() {
-		for _, line := range m.listingWithInsert(cursorBg) {
+		for _, line := range m.listingWithInsert() {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}

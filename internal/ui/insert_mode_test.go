@@ -8,6 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
+	"github.com/sburnett/orgtd/internal/config"
 )
 
 func TestInsertModeTypesIntoTheEntryAndEscAppliesIt(t *testing.T) {
@@ -328,5 +331,47 @@ func TestAOnAnEmptyTitleStaysAtTheLineEnd(t *testing.T) {
 	m = sendKey(m, "a")
 	if want := len([]rune(m.ins.buf.lines[0])); m.ins.buf.col != want {
 		t.Errorf("caret col = %d on %q, want %d (the line end, not past it)", m.ins.buf.col, m.ins.buf.lines[0], want)
+	}
+}
+
+func TestInsertModeUsesInsertBgAndDimsOtherRows(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.ANSI) })
+	m := New(loadFixture(t), WithColors(config.ColorsConfig{InsertBg: "#123456"}))
+	m.width, m.height = 80, 30
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m.ensureVisible()
+	other := m.rows[m.cursor-1] // the inbox.org file row, just above
+	normal := m.renderRow(other)
+	m = sendKey(m, "i")
+
+	lines := m.listingWithInsert()
+	var dimmed string
+	for _, l := range lines {
+		if stripANSI(l) == stripANSI(normal) {
+			dimmed = l
+		}
+	}
+	if dimmed == "" {
+		t.Fatalf("row %q not drawn in %q", stripANSI(normal), lines)
+	}
+	if !strings.HasPrefix(dimmed, "\x1b[2m") {
+		t.Errorf("other row %q isn't faint", dimmed)
+	}
+	// Faint, not recolored: its own colors are all still there, each
+	// followed by faint again, since the row's styling may reset it.
+	for _, seq := range sgrRe.FindAllString(normal, -1) {
+		if !strings.Contains(dimmed, seq+"\x1b[2m") {
+			t.Errorf("dimmed row %q lost %q, or faint after it", dimmed, seq)
+		}
+	}
+
+	lead, blank := m.insertLead(m.rows[m.cursor], lipgloss.Color("#123456"))
+	edit, _ := m.insertEditorLines(lead, blank, lipgloss.Color("#123456"))
+	if !strings.Contains(edit[0], "48;2;18;52;86") {
+		t.Fatalf("editor line %q isn't on insert_bg", edit[0])
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), edit[0]) {
+		t.Errorf("entry's first line isn't drawn on insert_bg")
 	}
 }

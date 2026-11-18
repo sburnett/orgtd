@@ -116,6 +116,12 @@ const (
 	// than the cursor.
 	defaultVisualSelectionBg = "#102030"
 
+	// defaultInsertBg is the background of the entry being edited in
+	// insert mode: a dark green, unlike any other row highlight, so it's
+	// obvious at a glance that keys now type into the entry rather than
+	// command the outline.
+	defaultInsertBg = "#1f3f1f"
+
 	// defaultSearchHighlightBg marks every occurrence of the active
 	// search term (see activeSearchQuery) — vim's 'hlsearch' — layered on
 	// top of whatever background (if any) a segment already carries.
@@ -276,6 +282,12 @@ func (m Model) cursorBg() lipgloss.TerminalColor {
 // isn't the cursor's own entry.
 func (m Model) visualSelectionBg() lipgloss.TerminalColor {
 	return lipgloss.Color(orDefault(m.cfg.Colors.VisualSelectionBg, defaultVisualSelectionBg))
+}
+
+// insertBg is the background of the entry being edited in insert mode,
+// in place of cursorBg (see listingWithInsert).
+func (m Model) insertBg() lipgloss.TerminalColor {
+	return lipgloss.Color(orDefault(m.cfg.Colors.InsertBg, defaultInsertBg))
 }
 
 // searchHighlightBg marks every occurrence of the active search term

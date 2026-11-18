@@ -211,7 +211,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	line("Keywords: %s", strings.Join(kws, ", "))
 	from("keywords")
 
-	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), panel-fg (%s), status-bar (%s on %s), inactive status-bar (%s on %s), cursor-row (%s), inactive cursor-row (%s), visual-selection (%s), search-highlight (%s)",
+	line("Colors: file (%s), todo (%s), next (%s), waiting (%s), someday (%s), done (%s), cancelled (%s), tag (%s), done-title (%s), status (%s), timestamp (%s), error (%s), body (%s), caret (%s on %s), highlight (%s), panel (%s), panel-fg (%s), status-bar (%s on %s), inactive status-bar (%s on %s), cursor-row (%s), inactive cursor-row (%s), visual-selection (%s), insert (%s), search-highlight (%s)",
 		orDefault(m.cfg.Colors.File, defaultFileColor),
 		orDefault(m.cfg.Colors.TODO, defaultTODOColor),
 		orDefault(m.cfg.Colors.Next, defaultNextColor),
@@ -234,6 +234,7 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		orDefault(m.cfg.Colors.CursorRowBg, defaultCursorRowBg),
 		orDefault(m.cfg.Colors.InactiveCursorRowBg, defaultInactiveCursorRowBg),
 		orDefault(m.cfg.Colors.VisualSelectionBg, defaultVisualSelectionBg),
+		orDefault(m.cfg.Colors.InsertBg, defaultInsertBg),
 		orDefault(m.cfg.Colors.SearchHighlightBg, defaultSearchHighlightBg))
 	from("colors")
 }

@@ -440,6 +440,10 @@ type ColorsConfig struct {
 	// CursorRowBg's blue).
 	VisualSelectionBg string `toml:"visual_selection_bg"`
 
+	// InsertBg is the background of the entry being edited in insert
+	// mode, in place of CursorRowBg (default: a dark green).
+	InsertBg string `toml:"insert_bg"`
+
 	// SearchHighlightBg marks every occurrence of the active search term
 	// (vim's 'hlsearch') (default: a dark green).
 	SearchHighlightBg string `toml:"search_highlight_bg"`

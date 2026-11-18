@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -228,10 +229,11 @@ func (m *Model) keepInsertTargetInView() {
 
 // listingWithInsert is listing (see view.go) while insert mode is
 // editing the entry under the cursor: the buffer replaces that entry's
-// rows, at its indentation, with the rows before and after it around it
-// as usual — scrolled, if the buffer has grown, so that the caret's line
-// always stays on screen.
-func (m Model) listingWithInsert(bg lipgloss.TerminalColor) []string {
+// rows, at its indentation and on insertBg, with the rows before and
+// after it around it as usual but faint (see dimRow) — scrolled, if
+// the buffer has grown, so that the caret's line always stays on screen.
+func (m Model) listingWithInsert() []string {
+	bg := m.insertBg()
 	budget := m.contentBudget()
 	cs, ce := m.cursor, m.entryEnd(m.cursor)
 	start := min(m.offset, cs)
@@ -248,7 +250,7 @@ func (m Model) listingWithInsert(bg lipgloss.TerminalColor) []string {
 		if i > start && m.rows[i].kind == rowSection {
 			pre = append(pre, "")
 		}
-		pre = append(pre, m.renderRow(m.rows[i]))
+		pre = append(pre, m.dimRow(m.rows[i]))
 	}
 	if room := budget - len(edit); len(pre) > room {
 		pre = pre[len(pre)-room:]
@@ -262,13 +264,27 @@ func (m Model) listingWithInsert(bg lipgloss.TerminalColor) []string {
 				break
 			}
 		}
-		lines = append(lines, m.renderRow(m.rows[i]))
+		lines = append(lines, m.dimRow(m.rows[i]))
 	}
 	for len(lines) < budget {
 		lines = append(lines, "")
 	}
 	return lines
 }
+
+// dimRow draws r, a row other than the one being edited, faint (SGR 2)
+// but otherwise in its own colors — a subtle step back, so the entry
+// being edited stands out without the rest becoming hard to read. The
+// row's own styling resets intensity as it goes (bold off, or a full
+// reset, is SGR 22 or 0), so faint is set again after every SGR
+// sequence in it.
+func (m Model) dimRow(r row) string {
+	const faint, normal = "\x1b[2m", "\x1b[22m"
+	return faint + sgrRe.ReplaceAllString(m.renderRow(r), "${0}"+faint) + normal
+}
+
+// sgrRe matches one SGR (styling) escape sequence.
+var sgrRe = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
 
 // insertLead returns what the buffer's first line (lead) and every later
 // line (blank) start with, matching how r, the entry's own row, lays out
