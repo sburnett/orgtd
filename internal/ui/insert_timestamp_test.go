@@ -238,21 +238,27 @@ func TestDateFieldPreviewsTheResolvedDate(t *testing.T) {
 	}
 }
 
-func TestDateFieldEditsLikeALine(t *testing.T) {
+func TestDateFieldIsEditedAtItsEndLikeATag(t *testing.T) {
 	m := sendKey(onCapturedAt(t), "enter")
-	m = typeKeys(m, "nxt fri")
-	for range len(" fri") {
-		m = sendCtrl(m, tea.KeyLeft)
-	}
-	m = sendCtrl(m, tea.KeyLeft)
-	m = sendCtrl(m, tea.KeyLeft)
-	m = typeKeys(m, "e")
-	if got := m.ins.date.input.String(); got != "next fri" {
-		t.Errorf("field = %q, want the e inserted mid-word", got)
-	}
 	lines, caret := m.insertEditorLines("", "", lipgloss.NoColor{})
-	if want := m.caretStyle().Render("x"); !strings.Contains(lines[caret], want) {
-		t.Errorf("caret line %q: caret not on the x after the inserted e", lines[caret])
+	if want := "[" + m.caretStyle().Render(" ") + "]"; !strings.Contains(lines[caret], want) {
+		t.Errorf("empty field %q, want one blank caret cell between the brackets", lines[caret])
+	}
+
+	m = typeKeys(m, "next fr")
+	m = sendCtrl(m, tea.KeyLeft) // no position within the field to move to
+	m = sendCtrl(m, tea.KeyHome)
+	m = typeKeys(m, "i")
+	if got := m.ins.date.input.String(); got != "next fri" {
+		t.Errorf("field = %q, want typing to add at the end", got)
+	}
+	lines, caret = m.insertEditorLines("", "", lipgloss.NoColor{})
+	if want := "[" + m.caretStyle().Render("next fri") + "]"; !strings.Contains(lines[caret], want) {
+		t.Errorf("field %q, want the caret over all of \"next fri\", no extra cell", lines[caret])
+	}
+	m = sendKey(m, "backspace")
+	if got := m.ins.date.input.String(); got != "next fr" {
+		t.Errorf("Backspace = %q, want the last character gone", got)
 	}
 }
 

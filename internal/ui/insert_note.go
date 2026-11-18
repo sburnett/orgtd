@@ -99,8 +99,8 @@ func (m Model) noteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	n := m.ins.note
 	b := &m.ins.buf
-	line := textBuffer{lines: []string{m.noteText()}, col: max(0, b.col-n.prefix), goal: -1}
-	editOneLine(&line, msg)
+	line := textBuffer{lines: []string{m.noteText()}, goal: -1}
+	editAtEnd(&line, msg)
 	prefix := string([]rune(b.lines[n.row])[:n.prefix])
 	b.lines = append([]string(nil), b.lines...)
 	b.lines[n.row] = prefix + line.lines[0]
@@ -117,6 +117,26 @@ func (m *Model) endDirectNote() {
 	m.ins = insertSession{}
 	m.applyStatus(keyword, note)
 	m.ensureVisible()
+}
+
+// editAtEnd applies an editing key to line, a field the caret covers
+// all of — a date being typed, or a closing note, drawn as a tag is —
+// at its end: typing adds there, and Backspace, ctrl-w and ctrl-u take
+// away from it. Keys that would move within it do nothing, there being
+// no position within it to show.
+func editAtEnd(line *textBuffer, msg tea.KeyMsg) {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyRight, tea.KeyHome, tea.KeyEnd, tea.KeyCtrlLeft, tea.KeyCtrlRight,
+		tea.KeyCtrlA, tea.KeyCtrlB, tea.KeyCtrlE, tea.KeyCtrlF:
+		return
+	case tea.KeyRunes:
+		if msg.Alt && !msg.Paste && (string(msg.Runes) == "b" || string(msg.Runes) == "f") {
+			return
+		}
+	}
+	line.lineEnd()
+	editOneLine(line, msg)
+	line.lineEnd()
 }
 
 // editOneLine applies an editing key to line, a single line of text — a

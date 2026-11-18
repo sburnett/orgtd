@@ -391,9 +391,13 @@ func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) 
 		}
 		p0, p1, previewStyle := -1, -1, lipgloss.NewStyle()
 		if d := m.ins.date; d != nil && i == d.row {
-			rs, c0, p0, p1, previewStyle = m.dateFieldDisplay()
-			c1 = c0 + 1
+			rs, c0, c1, p0, p1, previewStyle = m.dateFieldDisplay()
 			previewStyle = previewStyle.Background(bg)
+		}
+		if n := m.ins.note; n != nil && i == n.row && n.prefix < len(rs) {
+			// The caret covers the whole note typed so far, as a tag's
+			// does; an empty one gets a blank cell past the line's end.
+			c0, c1 = n.prefix, len(rs)
 		}
 		if i == 0 && m.ins.onKeyword {
 			if n := utf8.RuneCountInString(kw); n > 0 {

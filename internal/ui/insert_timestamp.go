@@ -169,7 +169,9 @@ type dateLabel struct{ r1, c1, r2, c2 int }
 
 // dateKey handles a key while a date is being typed (see dateField):
 // Enter puts the date typed in place of the timestamp, Esc (or ctrl-c)
-// does too and leaves insert mode, and anything else edits the field.
+// does too and leaves insert mode, and anything else edits the field —
+// at its end, as a tag is: typing adds, Backspace, ctrl-w and ctrl-u
+// take away.
 // With nothing typed, both keep the old date (or, for a new deadline,
 // take its label back out); a date that doesn't parse keeps the field
 // open, saying so. In a "gd" session, either ends insert mode.
@@ -184,7 +186,7 @@ func (m Model) dateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	editOneLine(&m.ins.date.input, msg)
+	editAtEnd(&m.ins.date.input, msg)
 	return m, nil
 }
 
@@ -226,9 +228,10 @@ func (m *Model) closeDateField() (ok bool) {
 
 // dateFieldDisplay returns the line the date field is on as drawn: the
 // field in place of the timestamp, in its brackets, then a preview of
-// what's been typed (see datePreview). caret is the rune the caret is
-// on, and [p0, p1) the preview's runes, drawn in previewStyle.
-func (m *Model) dateFieldDisplay() (rs []rune, caret, p0, p1 int, previewStyle lipgloss.Style) {
+// what's been typed (see datePreview). The caret covers [c0, c1) — all
+// that's typed, as a tag's does (see tagsDisplay), or one blank cell if
+// nothing is — and [p0, p1) is the preview, drawn in previewStyle.
+func (m *Model) dateFieldDisplay() (rs []rune, c0, c1, p0, p1 int, previewStyle lipgloss.Style) {
 	f := m.ins.date
 	line := m.ins.buf.runes(f.row)
 	open, close := "[", "]"
@@ -238,11 +241,12 @@ func (m *Model) dateFieldDisplay() (rs []rune, caret, p0, p1 int, previewStyle l
 	input := []rune(f.input.String())
 	rs = append(rs, line[:f.start]...)
 	rs = append(rs, []rune(open)...)
-	caret = len(rs) + f.input.col
-	rs = append(rs, input...)
-	if f.input.col == len(input) {
-		rs = append(rs, ' ') // a cell for the caret, past what's typed
+	c0 = len(rs)
+	if len(input) == 0 {
+		input = []rune(" ")
 	}
+	rs = append(rs, input...)
+	c1 = len(rs)
 	rs = append(rs, []rune(close)...)
 	preview, isErr := m.datePreview()
 	p0 = len(rs)
@@ -253,7 +257,7 @@ func (m *Model) dateFieldDisplay() (rs []rune, caret, p0, p1 int, previewStyle l
 	if isErr {
 		previewStyle = m.errorStyle()
 	}
-	return rs, caret, p0, p1, previewStyle
+	return rs, c0, c1, p0, p1, previewStyle
 }
 
 // datePreview is what the date field's preview says: what the typed date

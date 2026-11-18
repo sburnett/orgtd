@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -235,15 +236,47 @@ func TestClosingNoteStaysOnItsLine(t *testing.T) {
 	for _, k := range []string{"up", "down", "backspace", "backspace", "backspace"} {
 		m = sendKey(m, k)
 	}
-	m = sendCtrl(m, tea.KeyLeft)
-	if m.ins.buf.row != row || m.ins.buf.lines[row] != "  " || m.ins.buf.col != 2 {
-		t.Errorf("caret %d:%d on %q; want it kept on the (now empty) note line %d", m.ins.buf.row, m.ins.buf.col, m.ins.buf.lines[m.ins.buf.row], row)
+	if m.ins.buf.row != row || m.ins.buf.lines[row] != "  " {
+		t.Errorf("caret on row %d, %q; want it kept on the (now empty) note line %d", m.ins.buf.row, m.ins.buf.lines[m.ins.buf.row], row)
 	}
 	if !strings.Contains(stripANSI(m.View()), "closing note: Enter or Esc when done") {
 		t.Errorf("no closing-note hint on the command line")
 	}
 }
 
+func TestClosingNoteIsEditedAtItsEndLikeATag(t *testing.T) {
+	m, _ := closingNoteModel(t, "* TODO Task\n")
+	m = sendKey(m, "r")
+	m = sendKey(m, "d")
+	lines, caret := m.insertEditorLines("", "", lipgloss.NoColor{})
+	if want := m.caretStyle().Render(" "); !strings.Contains(lines[caret], want) {
+		t.Errorf("empty note line %q, want one blank caret cell", lines[caret])
+	}
+	m = typeKeys(m, "sent i")
+	m = sendCtrl(m, tea.KeyLeft) // no position within the note to move to
+	m = typeKeys(m, "t")
+	if got := m.noteText(); got != "sent it" {
+		t.Errorf("note = %q, want typing to add at the end", got)
+	}
+	lines, caret = m.insertEditorLines("", "", lipgloss.NoColor{})
+	if want := m.caretStyle().Render("sent it"); !strings.Contains(lines[caret], want) {
+		t.Errorf("note line %q, want the caret over all of the note", lines[caret])
+	}
+}
+
+func TestBulkClosingNoteCaretCoversTheNote(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Alpha\n* TODO Beta\n")
+	m := New(ws, WithClock(snippetsClock))
+	m.width, m.height = 80, 30
+	m.cursor = findRow(t, m, "Alpha")
+	m = sendKey(m, "2")
+	m = sendKey(m, "R")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "batch")
+	if n := strings.Count(m.View(), m.caretStyle().Render("batch")); n != 2 {
+		t.Errorf("notes drawn with the caret over them: %d, want 2", n)
+	}
+}
 func TestBulkClosingNoteShowsUnderEachEntryBeingClosed(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Alpha\n  alpha body\n* TODO Beta\n* DONE Gamma\n")
 	m := New(ws, WithClock(snippetsClock))

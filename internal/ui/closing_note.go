@@ -139,6 +139,15 @@ func (m Model) bulkNoteLines(r row) []string {
 	text := lipgloss.NewStyle().Background(bg)
 	return []string{
 		m.padLineToWidth(blank+text.Render(strings.TrimLeft(lines[0], " ")), bg),
-		m.padLineToWidth(blank+text.Render("  "+m.closingNoteInput)+m.caretStyle().Render(" "), bg),
+		m.padLineToWidth(blank+text.Render("  ")+m.caretStyle().Render(noteOrBlank(m.closingNoteInput)), bg),
 	}
+}
+
+// noteOrBlank is note as drawn under the caret that covers it: the note,
+// or one blank cell if there's none yet.
+func noteOrBlank(note string) string {
+	if note == "" {
+		return " "
+	}
+	return note
 }
