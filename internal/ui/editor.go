@@ -19,43 +19,50 @@ import (
 )
 
 // editFinishedMsg reports that the external editor launched by
-// launchEditor has exited. insert is non-nil when this edit session
-// originated from o/O (target is then a tentative placeholder headline,
-// not yet part of undo history) rather than an `i` edit of existing
-// content.
+// launchEditor has exited. resume is set when the session was ctrl-g
+// from insert mode: what comes back goes back into insert mode's buffer
+// (see resumeInsertFromEditor) — for a new entry (o/O, capture), the
+// only way one reaches $EDITOR — instead of being applied to target.
 type editFinishedMsg struct {
 	path   string
 	target *org.Headline
-	insert *insertContext
+	resume bool
 	cmd    *exec.Cmd // the editor process, for execlog.LogCompleted (its Process field is only populated once tea.ExecProcess has actually started it)
 	err    error
 }
 
-// startEdit ("i"/"I") writes the current headline (and its entire subtree)
-// to a temp file and opens it in $EDITOR for editing in place — for a
-// vim-family editor, with the cursor already placed right after the
-// bullet ("* ") and insert mode already started, so typing begins
-// immediately without a manual "i" or cursor motion in the editor
-// itself. See startEditAppend for "A", and startEditWithPlacement for
-// the shared mechanics.
+// startEdit ("i"/"I") puts the current entry into insert mode (see
+// insert_mode.go), caret at the very start of its text, so typing begins
+// right away — the inline counterpart of what used to be an $EDITOR
+// session, which ctrl-g (startEditInEditor) still opens. See
+// startEditAppend for "A", and startEditWithPlacement for the shared
+// mechanics.
 func (m *Model) startEdit() tea.Cmd {
-	return m.startEditWithPlacement(extprog.AtEntryStart)
+	return m.startEditWithPlacement(extprog.AtEntryStart, false)
 }
 
-// startEditAppend ("A") is startEdit, but positions the cursor at the
-// end of the entry's first line instead of right after the bullet —
-// vim's own "A" (append at end of line), once the editor's open.
+// startEditAppend ("A") is startEdit, but with the caret at the end of
+// the entry's first line instead — vim's own "A" (append at end of line).
 func (m *Model) startEditAppend() tea.Cmd {
-	return m.startEditWithPlacement(extprog.AtLineEnd)
+	return m.startEditWithPlacement(extprog.AtLineEnd, false)
+}
+
+// startEditInEditor (ctrl-g in normal mode) edits the current entry in
+// $EDITOR, applying the result once the editor exits — the round trip
+// "i" used to make before insert mode existed.
+func (m *Model) startEditInEditor() tea.Cmd {
+	return m.startEditWithPlacement(extprog.AtEntryStart, true)
 }
 
 // startEditWithPlacement is the shared implementation behind startEdit
-// ("i") and startEditAppend ("A") — writes the current headline (and its
-// entire subtree) to a temp file and opens it in $EDITOR, positioning
-// the cursor per placement. Returns nil if there's nothing to edit or
-// the editor couldn't be launched, in which case any error is left in
+// ("i"), startEditAppend ("A") and startEditInEditor (ctrl-g): on a file
+// row it asks to open the whole file in $EDITOR (there's no inline
+// equivalent); on an entry, it enters insert mode with the caret placed
+// per placement, or — external — writes the entry to a scratch file and
+// opens it in $EDITOR. Returns nil if there's nothing to edit or the
+// editor couldn't be launched, in which case any error is left in
 // m.message.
-func (m *Model) startEditWithPlacement(placement extprog.Placement) tea.Cmd {
+func (m *Model) startEditWithPlacement(placement extprog.Placement, external bool) tea.Cmd {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		if f := m.rows[m.cursor].file; f != nil {
 			// A whole-file edit hands the raw file to $EDITOR directly,
@@ -71,8 +78,8 @@ func (m *Model) startEditWithPlacement(placement extprog.Placement) tea.Cmd {
 			// clears any mark/review-target on its headlines) even if
 			// the user ends up changing nothing — confirm first rather
 			// than doing that as a side effect of a single keystroke.
-			// Both i and A land here identically: there's no single
-			// entry to position a cursor within.
+			// i, A and ctrl-g all land here identically: there's no
+			// single entry to position a cursor within.
 			m.mode = confirmMode
 			m.pendingFileEdit = f
 			m.confirmMessage = fmt.Sprintf("Edit %s in $EDITOR? This clears undo history and marks for this file. [y/N]", filepath.Base(f.Path))
@@ -83,7 +90,11 @@ func (m *Model) startEditWithPlacement(placement extprog.Placement) tea.Cmd {
 	if h == nil || m.refuseIfImmutable(h) {
 		return nil
 	}
-	return m.launchEditor(h, nil, placement)
+	if external {
+		return m.launchEditor(h, nil, placement)
+	}
+	m.enterInsertMode(h, nil, placement == extprog.AtLineEnd)
+	return nil
 }
 
 // fileEditFinishedMsg reports that the external editor launched by
@@ -221,17 +232,32 @@ func (m *Model) scratchFilePath() (string, error) {
 // Returns nil if the scratch file couldn't be created or the editor
 // couldn't be started, in which case the error is left in m.message.
 func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement extprog.Placement) tea.Cmd {
+	return m.launchEditorText(h, entryEditText(h), ctx, placement, false)
+}
+
+// entryEditText is h's own text as both $EDITOR and insert mode edit
+// it: no bullet, dedented by one level (see org.DedentEntry), and
+// without a trailing newline.
+func entryEditText(h *org.Headline) string {
+	return strings.TrimRight(org.DedentEntry(org.RenderEntry(h), h.Level), "\n")
+}
+
+// launchEditorText is launchEditor with the buffer's entry text given
+// explicitly — insert mode's ctrl-g hands over whatever it has typed so
+// far rather than h's current content — and resume saying where the
+// result goes: back into insert mode (see resumeInsertFromEditor)
+// rather than straight into the outline.
+func (m *Model) launchEditorText(h *org.Headline, entry string, ctx *insertContext, placement extprog.Placement, resume bool) tea.Cmd {
 	path, err := m.scratchFilePath()
 	if err != nil {
 		m.message = fmt.Sprintf("Could not create scratch file: %v", err)
 		return nil
 	}
 
-	entry := org.DedentEntry(org.RenderEntry(h), h.Level)
 	if !strings.HasSuffix(entry, "\n") {
 		entry += "\n"
 	}
-	content := entry + "\n" + m.editEntryContext(h, ctx != nil)
+	content := entry + "\n" + m.editEntryContextFor(h, ctx != nil, resume)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		os.Remove(path)
 		m.message = fmt.Sprintf("Could not write scratch file: %v", err)
@@ -242,7 +268,7 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement extp
 	editorCmd := extprog.EditorCommand(m.editorCommand(), path, "", placement, col)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
-		return editFinishedMsg{path: path, target: h, insert: ctx, cmd: editorCmd, err: err}
+		return editFinishedMsg{path: path, target: h, resume: resume, cmd: editorCmd, err: err}
 	})
 }
 
@@ -264,6 +290,13 @@ func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement extp
 // ("# ..."), so it's inert whether the user deletes it or leaves it in
 // place.
 func (m *Model) editEntryContext(h *org.Headline, isInsert bool) string {
+	return m.editEntryContextFor(h, isInsert, false)
+}
+
+// editEntryContextFor is editEntryContext, with resume (ctrl-g from
+// insert mode) changing the instructions to say that exiting returns to
+// insert mode rather than applying the change.
+func (m *Model) editEntryContextFor(h *org.Headline, isInsert, resume bool) string {
 	fileName := ""
 	if f := m.ws.FileOf(h); f != nil {
 		fileName = filepath.Base(f.Path)
@@ -297,8 +330,12 @@ func (m *Model) editEntryContext(h *org.Headline, isInsert bool) string {
 		action = "Inserting a new entry."
 	}
 	fmt.Fprintf(&b, "#\n# %s Lines starting with '#' are ignored. Save and\n", action)
-	fmt.Fprintln(&b, "# exit to apply your changes, or delete the entry's content (leaving")
-	fmt.Fprintln(&b, "# only these comments, or nothing) to cancel.")
+	if resume {
+		fmt.Fprintln(&b, "# exit to go back to editing it in orgtd, where Esc applies it.")
+	} else {
+		fmt.Fprintln(&b, "# exit to apply your changes, or delete the entry's content (leaving")
+		fmt.Fprintln(&b, "# only these comments, or nothing) to cancel.")
+	}
 	if m.cfg.URLFormatter != "" {
 		fmt.Fprintln(&b, "#")
 		fmt.Fprintln(&b, "# Bare URLs will be formatted into org-mode links automatically. To")
@@ -362,103 +399,115 @@ func isBlankHeadlineTitle(title string) bool {
 	return s == ""
 }
 
-// finishEdit reads back the edited entry and reparses it. For a plain
-// `i`/`A` edit, the result replaces the original headline's own text in
-// place, its children carried over unchanged since the edit buffer never
-// showed them (see org.IndentEntry below and launchEditor) — or, if
-// the edit left nothing parseable, the original is left untouched. For
-// an o/O insert session, a successful result is committed as a single
-// undo step; any failure (editor error, unreadable file, unparseable or
-// emptied-out result) rolls back the tentative placeholder entirely,
-// leaving no trace. msg.path (see scratchFilePath) is deliberately never
+// finishEdit reads back the edited entry and applies it to msg.target
+// (see applyEditedEntry) — or, for a ctrl-g from insert mode
+// (msg.resume), puts it back into insert mode's buffer instead (see
+// resumeInsertFromEditor). Any failure (editor error, unreadable file)
+// leaves the entry, or insert mode's buffer, untouched. msg.path (see scratchFilePath) is deliberately never
 // deleted here — it stays behind as a failsafe in case what comes back
 // from the editor is ever lost or discarded by mistake.
 func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	execlog.LogCompleted(m.execLog, msg.cmd, msg.err)
 
-	if msg.err != nil {
-		m.message = fmt.Sprintf("Editor exited with an error: %v", msg.err)
-		if msg.insert != nil {
-			m.rollbackInsert(*msg.insert, msg.target)
-		}
-		return m, nil
-	}
-
-	data, err := os.ReadFile(msg.path)
+	var data []byte
+	err := msg.err
 	if err != nil {
+		m.message = fmt.Sprintf("Editor exited with an error: %v", err)
+	} else if data, err = os.ReadFile(msg.path); err != nil {
 		m.message = fmt.Sprintf("Could not read edited entry: %v", err)
-		if msg.insert != nil {
-			m.rollbackInsert(*msg.insert, msg.target)
-		}
-		return m, nil
 	}
 
-	// stripCommentLines can leave a trailing blank line behind — the one
-	// separating the real content from editEntryContext's trailer (see
-	// launchEditor) — so trim it the same way git's own cleanup mode
-	// does, rather than let it accumulate as a stray blank body line on
-	// every repeated edit.
-	stripped := strings.TrimRight(stripCommentLines(string(data)), "\n")
+	switch {
+	case err != nil:
+	case msg.resume:
+		m.resumeInsertFromEditor(editorResultText(data))
+	default:
+		m.applyEditedEntry(editorResultText(data), msg.target, nil)
+	}
+	return m, nil
+}
+
+// editorResultText is the entry text an $EDITOR buffer came back with:
+// every comment line dropped — editEntryContext's trailer, and anything
+// else the user commented out — and the trailing newlines that leaves
+// behind trimmed, the same way git's own cleanup mode does, rather than
+// let them accumulate as stray blank body lines on every repeated edit.
+func editorResultText(data []byte) string {
+	return strings.TrimRight(stripCommentLines(string(data)), "\n")
+}
+
+// applyEditedEntry applies an edited entry's text — bullet-free and
+// dedented, as $EDITOR and insert mode both edit it (see entryEditText)
+// — to target. For a plain `i`/`A` edit, the result replaces target's
+// own text in place, its children carried over unchanged since the
+// buffer never showed them (see org.IndentEntry below) — or, if the
+// edit left nothing parseable or changed nothing at all, target is left
+// untouched, with no undo step recorded. For an o/O insert session
+// (insert non-nil), a successful result is committed as a single undo
+// step; an unparseable or emptied-out one rolls back the tentative
+// placeholder entirely.
+func (m *Model) applyEditedEntry(text string, target *org.Headline, insert *insertContext) {
+	text = strings.TrimRight(text, "\n")
+	if insert == nil && text == entryEditText(target) {
+		return
+	}
 
 	// The buffer never showed a bullet (see org.DedentEntry), so an
 	// all-blank result unambiguously means "cancel" — org.IndentEntry
 	// below would otherwise turn it into a real, blank-titled headline
 	// instead of nothing at all.
-	if strings.TrimSpace(stripped) == "" {
-		if msg.insert != nil {
-			m.rollbackInsert(*msg.insert, msg.target)
+	if strings.TrimSpace(text) == "" {
+		if insert != nil {
+			m.rollbackInsert(*insert, target)
 			m.message = "Insert cancelled (empty)"
 		} else {
 			m.message = "Edited entry had no headline; leaving it unchanged"
 		}
-		return m, nil
+		return
 	}
-	stripped = org.IndentEntry(stripped, msg.target.Level)
-
-	text := m.formatURLs(stripped)
+	text = m.formatURLs(org.IndentEntry(text, target.Level))
 
 	file, err := org.Parse(strings.NewReader(text), "")
 	if err != nil {
 		m.message = fmt.Sprintf("Could not parse edited entry: %v", err)
-		if msg.insert != nil {
-			m.rollbackInsert(*msg.insert, msg.target)
+		if insert != nil {
+			m.rollbackInsert(*insert, target)
 		}
-		return m, nil
+		return
 	}
 
 	if len(file.Headlines) == 0 {
 		// Unreachable in practice — org.IndentEntry above guarantees
 		// the text starts with a real headline line — but kept as a
 		// defensive fallback rather than assuming it.
-		if msg.insert != nil {
-			m.rollbackInsert(*msg.insert, msg.target)
+		if insert != nil {
+			m.rollbackInsert(*insert, target)
 			m.message = "Insert cancelled (empty)"
 		} else {
 			m.message = "Edited entry had no headline; leaving it unchanged"
 		}
-		return m, nil
+		return
 	}
 
-	if msg.insert != nil {
+	if insert != nil {
 		if isBlankHeadlineTitle(file.Headlines[0].Title) {
 			// A headline with stars and maybe a keyword but no actual
 			// text (or just a stray bullet character) is just as
 			// unusable as a genuinely empty result — don't create it.
-			m.rollbackInsert(*msg.insert, msg.target)
+			m.rollbackInsert(*insert, target)
 			m.message = "Insert cancelled (no text)"
-			return m, nil
+			return
 		}
-		m.commitInsert(*msg.insert, msg.target, file.Headlines)
-		if msg.insert.switchToOutline && !m.spec().outlineRows {
-			// commitInsert's own focusHeadline couldn't find the new
-			// entry's row, since the current view's rows don't include
-			// it at all (e.g. captured from agenda or calendar) — bring
-			// it into view explicitly rather than leaving the cursor
-			// wherever it happened to be in that other view.
-			m.switchToView(outlineView)
+		m.commitInsert(*insert, target, file.Headlines)
+		if insert.switched && !insert.switchToOutline {
+			// Typed in the outline only because the view it was started
+			// from couldn't show it yet; now that it's committed (and
+			// attached to its meeting), it can — see
+			// insertContext.switchToOutline.
+			m.switchToViewNoJump(insert.switchedFrom)
 			m.focusHeadline(file.Headlines[0])
 		}
-		if msg.insert.thenPickMeeting {
+		if insert.thenPickMeeting {
 			// commitInsert (and the switch above, if it ran) already
 			// focused file.Headlines[0], so the picker (see
 			// startMeetingPicker) targets the just-captured entry — see
@@ -468,23 +517,21 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 		// insertCalendarCapture's attachMeeting, if set, was already
 		// folded into commitInsert's own undo step above — nothing left
 		// to do here (see insertContext.attachMeeting).
-		return m, nil
+		return
 	}
 
-	// The edit buffer never showed msg.target's children (see
-	// launchEditor), so they never went through the editor at all —
-	// carry them over as-is rather than leaving the edited entry
-	// childless, or discarding them in favor of whatever (if anything)
-	// the user happened to type at a deeper level in the buffer.
-	file.Headlines[0].Children = msg.target.Children
+	// The buffer never showed target's children, so they never went
+	// through the edit at all — carry them over as-is rather than
+	// leaving the edited entry childless, or discarding them in favor of
+	// whatever (if anything) the user happened to type at a deeper level.
+	file.Headlines[0].Children = target.Children
 	for _, c := range file.Headlines[0].Children {
 		c.Parent = file.Headlines[0]
 	}
 
 	m.pushUndo(&subtreeReplaceAction{
-		f:      m.ws.FileOf(msg.target),
-		oldSet: []*org.Headline{msg.target},
+		f:      m.ws.FileOf(target),
+		oldSet: []*org.Headline{target},
 		newSet: file.Headlines,
 	})
-	return m, nil
 }

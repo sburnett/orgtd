@@ -193,8 +193,7 @@ func TestFoldLoneZIsPendingAndCancellable(t *testing.T) {
 	m = sendKey(m, "z")
 	m = sendKey(m, "j") // cancels
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	_, cmd := sendKeyCmd(m, "o")
-	if cmd == nil {
+	if m = sendKey(m, "o"); m.mode != insertMode {
 		t.Errorf("expected a cancelled z to leave o as a normal insert command")
 	}
 }

@@ -26,6 +26,7 @@ const (
 	meetingPickerMode
 	tagMode
 	closingNoteMode
+	insertMode
 
 	numModes // not a mode: the number of modes, sizing modeSpecs
 )
@@ -142,6 +143,16 @@ func init() {
 			update: Model.updateClosingNoteMode,
 			prompt: func(m *Model) string {
 				return m.editedLine(" Closing note (empty for none, Esc cancels): " + m.closingNoteInput)
+			},
+		},
+		insertMode: {
+			update: Model.updateInsertMode,
+			prompt: func(m *Model) string {
+				line := m.statusStyle().Render("-- INSERT --  (Esc: done, ctrl-g: edit in $EDITOR)")
+				if m.message != "" {
+					line += "  " + m.errorStyle().Render(m.message)
+				}
+				return line
 			},
 		},
 		confirmMode: {

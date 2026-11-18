@@ -316,7 +316,7 @@ func TestLaunchEditorWritesToConfiguredScratchDirOutsideOrgDir(t *testing.T) {
 	m.cfg.ScratchDir = filepath.Join(t.TempDir(), "not", "yet", "there")
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
-	if _, cmd := sendKeyCmd(m, "i"); cmd == nil {
+	if _, cmd := sendKeyCmd(m, "ctrl+g"); cmd == nil {
 		t.Fatalf("expected a non-nil edit command")
 	}
 
@@ -350,7 +350,7 @@ func TestLaunchEditorTempFileHasContextTrailerThatDoesNotLeak(t *testing.T) {
 	scratchGlob := filepath.Join(ws.Dir, "scratch", "*", "*", "*", "*.org")
 	before, _ := filepath.Glob(scratchGlob)
 
-	_, cmd := sendKeyCmd(m, "i")
+	_, cmd := sendKeyCmd(m, "ctrl+g")
 	if cmd == nil {
 		t.Fatalf("expected a non-nil edit command")
 	}

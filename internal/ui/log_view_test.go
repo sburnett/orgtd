@@ -147,7 +147,7 @@ func TestLogViewIncludesEditorStartWithPidAndArgsAndExit(t *testing.T) {
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
-	cmd := m.startEdit()
+	cmd := m.startEditInEditor()
 	if cmd == nil {
 		t.Fatal("expected a non-nil edit command")
 	}

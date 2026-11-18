@@ -185,6 +185,10 @@ type Model struct {
 	lastSearchQuery   string // most recently confirmed search, repeated by n/N
 	lastSearchForward bool   // that search's direction ("n" repeats it, "N" reverses it)
 
+	// ins is what insertMode is editing (see insert_mode.go); the zero
+	// value outside it.
+	ins insertSession
+
 	confirmMessage  string    // prompt shown in confirmMode
 	pendingFileEdit *org.File // the file to open in $EDITOR if confirmMode's prompt is accepted ("y")
 
@@ -326,6 +330,7 @@ func (m *Model) findMeetingTagsFile() *org.File {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
 	if nm, ok := next.(Model); ok {
+		nm.keepInsertTargetInView()
 		nm.syncWindows()
 		next = nm
 	}
@@ -377,7 +382,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finishVCS(msg)
 
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
+		// In insert mode ctrl-c just leaves it, as in vim (see
+		// updateInsertMode).
+		if msg.String() == "ctrl+c" && m.mode != insertMode {
 			if len(m.dirty) == 0 || m.pendingForceQuit {
 				return m, tea.Quit
 			}

@@ -36,6 +36,13 @@ func (m Model) listing(active bool) string {
 		cursorBg = m.inactiveCursorBg()
 	}
 	var b strings.Builder
+	if active && m.insertInline() {
+		for _, line := range m.listingWithInsert(cursorBg) {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
 	if len(m.rows) == 0 {
 		// No items to list (an empty agenda, or a workspace with no org
 		// files at all) — still falls through to the status/command-line

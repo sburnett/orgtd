@@ -17,15 +17,10 @@ import (
 // which sets thenPickMeeting.
 func commitCaptureAndPickMeeting(t *testing.T, m Model, body string) Model {
 	t.Helper()
-	tentative := m.currentHeadline()
-	if tentative == nil {
-		t.Fatalf("cursor is not on a headline")
+	if m.ins.insert == nil || !m.ins.insert.thenPickMeeting {
+		t.Fatalf("insert session isn't a gX capture")
 	}
-	f, parent, idx := m.ws.Locate(tentative)
-	ctx := insertContext{f: f, parent: parent, index: idx, thenPickMeeting: true}
-	path := writeTempOrgFile(t, body)
-	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
-	return updated.(Model)
+	return finishInsertWith(t, m, body)
 }
 
 func TestGXOpensMeetingPickerAfterCaptureCommits(t *testing.T) {

@@ -180,6 +180,7 @@ func buildNormalKeys() *keymap {
 	// Editing a single entry.
 	km.bind(func(m *Model) tea.Cmd { return m.startEdit() }, "i", "I")
 	km.bind(func(m *Model) tea.Cmd { return m.startEditAppend() }, "A")
+	km.bind(func(m *Model) tea.Cmd { return m.startEditInEditor() }, "ctrl+g")
 	km.bind(func(m *Model) tea.Cmd { return m.insertHeadline(false) }, "o")
 	km.bind(func(m *Model) tea.Cmd { return m.insertHeadline(true) }, "O")
 	km.bind(func(m *Model) tea.Cmd { return m.startCapture() }, "g C")

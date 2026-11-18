@@ -6,7 +6,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/sburnett/orgtd/internal/capture"
-	"github.com/sburnett/orgtd/internal/extprog"
 	"github.com/sburnett/orgtd/internal/meetings"
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -60,8 +59,8 @@ func (m *Model) resolveInsertPosition(before bool) (f *org.File, parent *org.Hea
 }
 
 // insertHeadline inserts a blank headline (see resolveInsertPosition for
-// where) and opens it in $EDITOR. The insert isn't recorded in undo
-// history until the editor session finishes successfully (see
+// where) and starts insert mode on it. The insert isn't recorded in
+// undo history until insert mode ends with a title typed (see
 // commitInsert), so the whole "open a headline, type into it" session is
 // one undo step, matching vim's o/O. A row associated with a meeting —
 // the event's own row/body, or (in calendarView) an item already linked
@@ -116,8 +115,9 @@ func (m *Model) insertHeadline(before bool) tea.Cmd {
 // switchToOutline is false only from calendarView itself (unlike
 // gC/gX): once the meeting attach commits alongside the insert, the new
 // entry already shows up nested under its meeting in calendarView's own
-// rows, so the cursor stays right there rather than jumping to outline
-// view. Any other view that can surface a meeting row (meetingTagsView)
+// rows, so the cursor goes back there once it's typed (in the outline —
+// see insertContext.switchedFrom) rather than staying in outline view.
+// Any other view that can surface a meeting row (meetingTagsView)
 // has no such nested listing of its own to land on, so there switching
 // to outline view is what actually gets the cursor onto the new entry —
 // same as gC/gX.
@@ -148,12 +148,12 @@ func (m *Model) insertCalendarCapture() (cmd tea.Cmd, handled bool) {
 }
 
 // startCapture (:capture, "gC") appends a blank top-level headline to
-// the end of the inbox file and opens it in $EDITOR — a dedicated
+// the end of the inbox file and starts insert mode on it — a dedicated
 // quick-add path, distinct from o/O, that always targets the inbox
 // regardless of the current cursor position or view (agenda, review,
 // or scrolled to some other file entirely in outline). A no-op (with a
-// status message) if the inbox file isn't loaded. Once the editor
-// session commits, the outline view is focused on the newly captured
+// status message) if the inbox file isn't loaded. Once insert mode
+// commits it, the outline view is focused on the newly captured
 // entry (switching to it first if the current view's rows don't
 // already include it — see insertContext.switchToOutline and
 // viewSpec.outlineRows), ready for further edits (promote/demote, tag,
@@ -163,13 +163,12 @@ func (m *Model) startCapture() tea.Cmd {
 }
 
 // startCaptureAndPickMeeting ("gX") is startCapture immediately followed
-// by "gM" (see startMeetingPicker) once the capture's editor session
-// finishes successfully (see insertContext.thenPickMeeting/finishEdit) —
+// by "gM" (see startMeetingPicker) once the capture's insert session
+// finishes successfully (see insertContext.thenPickMeeting/applyEditedEntry) —
 // a shortcut for the common case of capturing something during a
 // meeting and wanting to attach that meeting to it right away, without
-// two separate keystrokes bracketing the (possibly slow) editor
-// round-trip. Cancelling the capture (empty/blank result, or the editor
-// failing to run) never opens the picker — there's nothing to attach it
+// two separate keystrokes bracketing the typing. Cancelling the capture
+// (no title typed) never opens the picker — there's nothing to attach it
 // to.
 func (m *Model) startCaptureAndPickMeeting() tea.Cmd {
 	return m.startCaptureImpl(true)
@@ -192,17 +191,17 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 
 // insertHeadlineAt is the shared machinery behind insertHeadline (o/O)
 // and startCapture: splices a blank headline into f (at index within
-// parent's children, or f's top-level list if parent is nil) and opens
-// it in $EDITOR — for a vim-family editor, cursor already right after
-// the bullet and in insert mode (see extprog.AtEntryStart), so typing the
-// new title can start immediately — pre-filled with a CREATED property
+// parent's children, or f's top-level list if parent is nil) and starts
+// insert mode on it, caret on its empty title, so typing it can start
+// immediately — in the outline, if the current view doesn't list it
+// (see insertContext.switchedFrom) — pre-filled with a CREATED property
 // set to now — org-mode's standard (if not automatic) convention for
 // recording an entry's creation time, e.g. via org-capture's %U escape.
 // It's part of the editable template, not stamped after the fact, so
 // it's just as overridable or deletable as anything else the user types
 // before saving. origin (and originFile, its fallback when origin is
 // nil) is refocused if the session is rolled back — see rollbackInsert.
-// The insert isn't recorded in undo history until the editor session
+// The insert isn't recorded in undo history until the insert session
 // finishes successfully (see commitInsert), so the whole "open a
 // headline, type into it" session is one undo step.
 //
@@ -214,7 +213,7 @@ func (m *Model) startCaptureImpl(thenPickMeeting bool) tea.Cmd {
 // startMeetingPicker) is the deliberate, interactive way to attach a
 // meeting instead — nothing here does it for you, though
 // thenPickMeeting (set only by startCaptureAndPickMeeting, "gX") queues
-// it up to run automatically right after the editor session commits —
+// it up to run automatically right after the insert session commits —
 // see insertContext.thenPickMeeting and finishEdit. attachMeeting (set
 // only by insertCalendarCapture, o/O from calendarView) instead attaches
 // a specific, already-known meeting outright, with no picker — see
@@ -227,11 +226,14 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 	m.focusHeadline(tentative)
 
 	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile, thenPickMeeting: thenPickMeeting, switchToOutline: switchToOutline, attachMeeting: attachMeeting}
-	cmd := m.launchEditor(tentative, &ctx, extprog.AtEntryStart)
-	if cmd == nil {
-		// Couldn't even launch the editor; don't leave a blank
-		// placeholder headline behind with no way to remove it.
-		m.rollbackInsert(ctx, tentative)
+	if m.currentHeadline() != tentative {
+		// The current view doesn't list the new entry (a capture from
+		// the agenda, say): type it in place in the outline instead,
+		// where it does show up — see insertContext.switchedFrom.
+		ctx.switchedFrom, ctx.switched = m.view, true
+		m.switchToView(outlineView)
+		m.focusHeadline(tentative)
 	}
-	return cmd
+	m.enterInsertMode(tentative, &ctx, false)
+	return nil
 }

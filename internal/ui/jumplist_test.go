@@ -343,9 +343,9 @@ func TestPlainIStillEditsAndDoesNotJump(t *testing.T) {
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
-	m, cmd := sendKeyCmd(m, "i")
-	if cmd == nil {
-		t.Errorf("plain i should still start an edit (launch $EDITOR)")
+	m = sendKey(m, "i")
+	if m.mode != insertMode {
+		t.Errorf("plain i should still start an edit (insert mode), got mode %d", m.mode)
 	}
 	if m.mode == meetingPickerMode {
 		t.Errorf("plain i should never be treated as the gi jump-forward chord")

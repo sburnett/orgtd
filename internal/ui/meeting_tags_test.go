@@ -638,11 +638,10 @@ func TestMeetingTagsOOnNestedEventCapturesToInboxAndAttaches(t *testing.T) {
 		if !ok {
 			t.Fatalf("key %q: meetings.FromEvent: event not recognized as a synced meeting", key)
 		}
-		f, parent, idx := m.ws.Locate(tentative)
-		ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: true, attachMeeting: &cand}
-		path := writeTempOrgFile(t, "Follow up on budget numbers\n")
-		updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
-		m = updated.(Model)
+		if m.ins.target != tentative || m.ins.insert == nil || m.ins.insert.attachMeeting == nil || m.ins.insert.attachMeeting.Key != cand.Key {
+			t.Fatalf("key %q: insert session = %+v, want the tentative entry, attaching %v", key, m.ins, cand)
+		}
+		m = finishInsertWith(t, m, "Follow up on budget numbers\n")
 
 		final := findInboxHeadlines(t, m)
 		got := final[len(final)-1]

@@ -324,22 +324,24 @@ type insertContext struct {
 	// thenPickMeeting above) unconditionally, and by insertCalendarCapture
 	// (capture plus attachMeeting above) everywhere except calendarView
 	// itself — never by a plain o/O elsewhere, whose insert position is
-	// always wherever the cursor already was, so there's nothing to jump
-	// to. gC/gX always target the inbox regardless of the current view,
-	// so once the editor session commits, finishEdit switches to outline
-	// view (unless already showing outline rows — see viewSpec.outlineRows) so
-	// the newly captured entry is right there under the cursor, ready for
-	// further edits, rather than left off-screen in whatever view (agenda,
-	// calendar, ...) the capture was triggered from. insertCalendarCapture
-	// stays put only when triggered from calendarView itself: since
-	// attachMeeting's property write lands before commitInsert's own
-	// rebuildRows/focusHeadline, the new entry already qualifies as a
-	// linked item nested under its meeting by the time the cursor moves,
-	// so there's somewhere sensible to land without leaving calendar view
-	// at all. Triggered from any other view (meetingTagsView) there's no
-	// such nested listing to land on, so it switches to outline instead,
-	// same as gC/gX.
+	// always wherever the cursor already was. It says where the cursor
+	// ends up once the entry is committed, if the view it was started
+	// from doesn't list the new entry (see switchedFrom): in the outline,
+	// where it was typed, ready for further edits (promote/demote, tag,
+	// schedule, ...); or, when unset, back in that view — calendarView,
+	// where the meeting attach (folded in by commitInsert) makes the new
+	// entry show up nested under its meeting, so there's somewhere
+	// sensible to land without leaving it.
 	switchToOutline bool
+
+	// switchedFrom is the view the session was started from when it
+	// didn't list the new entry (a capture from the agenda, o/O on a
+	// :calendar meeting), so insertHeadlineAt switched to the outline for
+	// it to be typed in place there; switched says whether it did.
+	// rollbackInsert goes back to it, as does a commit without
+	// switchToOutline.
+	switchedFrom viewKind
+	switched     bool
 }
 
 // spliceAction is the shared machinery behind insertAction and
@@ -480,6 +482,9 @@ func (m *Model) commitInsert(ctx insertContext, tentative *org.Headline, final [
 // leaving no trace in the tree and no entry in undo history.
 func (m *Model) rollbackInsert(ctx insertContext, tentative *org.Headline) {
 	m.spliceReplace([]*org.Headline{tentative}, nil)
+	if ctx.switched {
+		m.switchToViewNoJump(ctx.switchedFrom)
+	}
 	m.rebuildRows()
 	originFile := ctx.originFile
 	if originFile == nil {

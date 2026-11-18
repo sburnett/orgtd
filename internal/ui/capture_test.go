@@ -18,15 +18,10 @@ import (
 // the cursor already was) doesn't set it.
 func commitCaptureRollback(t *testing.T, m Model, origin *org.Headline, originFile *org.File) Model {
 	t.Helper()
-	tentative := m.currentHeadline()
-	if tentative == nil {
-		t.Fatalf("cursor is not on a headline")
+	if s := m.ins.insert; s == nil || s.origin != origin || originFile != nil && s.originFile != originFile {
+		t.Fatalf("insert session = %+v, want origin %v, originFile %v", m.ins.insert, origin, originFile)
 	}
-	f, parent, idx := m.ws.Locate(tentative)
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin, originFile: originFile}
-	path := writeTempOrgFile(t, "")
-	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
-	return updated.(Model)
+	return finishInsertWith(t, m, "")
 }
 
 func TestCaptureAppendsToEndOfInbox(t *testing.T) {
@@ -208,15 +203,13 @@ func TestCaptureWorksWhileReviewing(t *testing.T) {
 func commitCapture(t *testing.T, m Model, body string) Model {
 	t.Helper()
 	inbox := findInboxHeadlines(t, m)
-	if len(inbox) == 0 {
-		t.Fatalf("no tentative headline in the inbox file")
+	if len(inbox) == 0 || m.ins.target != inbox[len(inbox)-1] {
+		t.Fatalf("insert session isn't editing the inbox's last entry")
 	}
-	tentative := inbox[len(inbox)-1]
-	f, parent, idx := m.ws.Locate(tentative)
-	ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: true}
-	path := writeTempOrgFile(t, body)
-	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
-	return updated.(Model)
+	if m.ins.insert == nil || !m.ins.insert.switchToOutline {
+		t.Fatalf("insert session isn't a capture")
+	}
+	return finishInsertWith(t, m, body)
 }
 
 // TestCaptureFromAgendaViewSwitchesToOutline is a regression test for

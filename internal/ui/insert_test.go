@@ -9,22 +9,25 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
-// commitTentative simulates the external editor finishing on the
-// tentative headline the cursor is currently on (as left by o/O),
-// replacing its content with body. origin is the headline the cursor
-// was on before o/O was pressed (used by rollbackInsert if body parses
-// to nothing), matching what insertHeadline itself records.
-func commitTentative(t *testing.T, m Model, origin *org.Headline, body string) Model {
+// finishInsertWith ends the insert-mode session m is in (as o/O, gC/gX
+// or i/A leave it) with body as the entry's whole text: replaces the
+// buffer, as if body had been typed over it, then presses Esc.
+func finishInsertWith(t *testing.T, m Model, body string) Model {
 	t.Helper()
-	tentative := m.currentHeadline()
-	if tentative == nil {
-		t.Fatalf("cursor is not on a headline")
+	if m.mode != insertMode {
+		t.Fatalf("mode = %d, want insertMode", m.mode)
 	}
-	f, parent, idx := m.ws.Locate(tentative)
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: origin}
-	path := writeTempOrgFile(t, body)
-	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
-	return updated.(Model)
+	m.ins.buf = newTextBuffer(body)
+	return sendKey(m, "esc")
+}
+
+// commitTentative ends the o/O insert session m is in with body (see
+// finishInsertWith). origin, the headline the cursor was on before o/O,
+// is what the session itself already recorded; it's kept as a parameter
+// so call sites still say what a rollback should land on.
+func commitTentative(t *testing.T, m Model, _ *org.Headline, body string) Model {
+	t.Helper()
+	return finishInsertWith(t, m, body)
 }
 
 func TestInsertAfterCreatesSiblingAfter(t *testing.T) {
@@ -326,22 +329,28 @@ func TestInsertNotRollbackWhenTitleStartsWithBulletButHasRealText(t *testing.T) 
 	}
 }
 
-func TestInsertRollbackOnEditorError(t *testing.T) {
+func TestInsertEditorErrorKeepsInsertModeThenEscRollsBack(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	orig := m.currentHeadline()
 	before := len(m.rows)
 	beforeUndoPos := m.undoPos
 
 	m = sendKey(m, "o")
+	m = typeKeys(m, "half typed")
 	tentative := m.currentHeadline()
-	f, parent, idx := m.ws.Locate(tentative)
-	ctx := insertContext{f: f, parent: parent, index: idx, origin: orig}
 
-	updated, _ := m.Update(editFinishedMsg{path: "/nonexistent", target: tentative, insert: &ctx, err: errors.New("boom")})
+	updated, _ := m.Update(editFinishedMsg{path: "/nonexistent", target: tentative, resume: true, err: errors.New("boom")})
 	m = updated.(Model)
+	if m.mode != insertMode {
+		t.Fatalf("mode after a failed ctrl-g editor = %d, want still insertMode", m.mode)
+	}
+	if got := m.ins.buf.lines[0]; got != "half typed" {
+		t.Errorf("buffer's first line after a failed ctrl-g editor = %q, want what was typed kept", got)
+	}
 
+	m.ins.buf = newTextBuffer("")
+	m = sendKey(m, "esc")
 	if len(m.rows) != before {
 		t.Errorf("rows after rollback = %d, want %d", len(m.rows), before)
 	}

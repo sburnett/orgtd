@@ -1052,42 +1052,46 @@ func TestAnyOtherKeyDeclinesTheFileEditConfirmation(t *testing.T) {
 	}
 }
 
-func TestIKeyOnHeadlineReturnsEditCmd(t *testing.T) {
+// TestEditKeysOnHeadlineEnterInsertMode: i and I put the caret at the
+// start of the entry's text, A at the end of its first line — all
+// inline, with no $EDITOR command.
+func TestEditKeysOnHeadlineEnterInsertMode(t *testing.T) {
+	for _, c := range []struct {
+		key     string
+		wantCol int
+	}{{"i", 0}, {"I", 0}, {"A", len("TODO Call the vet about Fido's checkup")}} {
+		ws := loadFixture(t)
+		m := New(ws)
+		m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+		h := m.currentHeadline()
+		m, cmd := sendKeyCmd(m, c.key)
+		if cmd != nil {
+			t.Errorf("%s: returned a command, want insert mode inline", c.key)
+		}
+		if m.mode != insertMode || m.ins.target != h || m.ins.insert != nil {
+			t.Fatalf("%s: mode %d, session %+v; want insert mode on the entry", c.key, m.mode, m.ins)
+		}
+		if got := m.ins.buf.String(); got != entryEditText(h) {
+			t.Errorf("%s: buffer = %q, want %q", c.key, got, entryEditText(h))
+		}
+		if m.ins.buf.row != 0 || m.ins.buf.col != c.wantCol {
+			t.Errorf("%s: caret at %d:%d, want 0:%d", c.key, m.ins.buf.row, m.ins.buf.col, c.wantCol)
+		}
+	}
+}
+
+// TestCtrlGOnHeadlineReturnsEditCmd: ctrl-g in normal mode is what i
+// used to be, an $EDITOR round trip.
+func TestCtrlGOnHeadlineReturnsEditCmd(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	_, cmd := sendKeyCmd(m, "i")
+	m, cmd := sendKeyCmd(m, "ctrl+g")
 	if cmd == nil {
 		t.Fatalf("expected a non-nil edit command")
 	}
-	// Deliberately not invoking cmd() — that would actually launch $EDITOR.
-}
-
-// TestCapitalIKeyOnHeadlineReturnsEditCmd mirrors
-// TestIKeyOnHeadlineReturnsEditCmd: "I" is just an alias for "i", going
-// through the exact same startEditWithPlacement path.
-func TestCapitalIKeyOnHeadlineReturnsEditCmd(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	_, cmd := sendKeyCmd(m, "I")
-	if cmd == nil {
-		t.Fatalf("expected a non-nil edit command")
-	}
-	// Deliberately not invoking cmd() — that would actually launch $EDITOR.
-}
-
-// TestAKeyOnHeadlineReturnsEditCmd mirrors TestIKeyOnHeadlineReturnsEditCmd:
-// "A" goes through the exact same startEditWithPlacement path as "i",
-// just with a different extprog.Placement, so it should behave
-// identically at this level (mode, non-nil command).
-func TestAKeyOnHeadlineReturnsEditCmd(t *testing.T) {
-	ws := loadFixture(t)
-	m := New(ws)
-	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	_, cmd := sendKeyCmd(m, "A")
-	if cmd == nil {
-		t.Fatalf("expected a non-nil edit command")
+	if m.mode != normalMode {
+		t.Errorf("mode = %d, want normal mode (the editor's result is applied directly)", m.mode)
 	}
 	// Deliberately not invoking cmd() — that would actually launch $EDITOR.
 }

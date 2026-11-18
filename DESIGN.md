@@ -226,7 +226,8 @@ including its known weak points, so changes can be made deliberately.
 | `search.go` | `/` `?` `n` `N` incremental search and the search row space |
 | `edit_ops.go` | Delete/yank/paste/promote/demote and bulk status changes |
 | `status_picker.go`, `deadline.go`, `tag_prompt.go`, `meeting_picker.go` | The `r`/`R`, `gd`, `gt`, `gM` prompts |
-| `editor.go` | `$EDITOR` round trip: scratch files, entry context, `finishEdit` (the command line itself is built by `internal/extprog`) |
+| `editor.go` | `$EDITOR` round trip: scratch files, entry context, `finishEdit`, and `applyEditedEntry`, which insert mode shares (the command line itself is built by `internal/extprog`) |
+| `insert_mode.go`, `textbuf.go` | Insert mode: editing an entry's text in place (i/A/o/O/capture), drawn over its rows in the listing or in the info buffer; `textBuffer` is the line editor underneath |
 | `edit_file.go` | `:edit`/`:e`: open, load or create a file in the org directory or `reference/` and focus its header |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch (both run formatters through `internal/extprog`) |

@@ -17,18 +17,12 @@ import (
 // thenPickMeeting is the interactive-picker equivalent of this. Locates
 // the tentative headline via the inbox file directly, same reasoning as
 // commitCapture: calendarView's own rows never include it.
-func commitCalendarCapture(t *testing.T, m Model, body string, cand meetings.Meeting) Model {
+func commitCalendarCapture(t *testing.T, m Model, body string, _ meetings.Meeting) Model {
 	t.Helper()
-	inbox := findInboxHeadlines(t, m)
-	if len(inbox) == 0 {
-		t.Fatalf("no tentative headline in the inbox file")
+	if m.ins.insert == nil || m.ins.insert.attachMeeting == nil {
+		t.Fatalf("insert session has no meeting to attach")
 	}
-	tentative := inbox[len(inbox)-1]
-	f, parent, idx := m.ws.Locate(tentative)
-	ctx := insertContext{f: f, parent: parent, index: idx, switchToOutline: false, attachMeeting: &cand}
-	path := writeTempOrgFile(t, body)
-	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, insert: &ctx})
-	return updated.(Model)
+	return finishInsertWith(t, m, body)
 }
 
 // TestCalendarOOnEventRowCapturesToInboxAndAttaches is the reported
@@ -148,6 +142,11 @@ func TestCalendarOOStaysInCalendarViewFocusedOnNewEntry(t *testing.T) {
 	m.cursor = findRow(t, m, event.Title)
 
 	m = sendKey(m, "O")
+	// calendarView can't list the new entry until it's attached, so it's
+	// typed in place in the outline meanwhile.
+	if m.view != outlineView || m.currentHeadline() != m.ins.target {
+		t.Fatalf("while typing: view %v, cursor on %v; want the outline, on the new entry", m.view, m.currentHeadline())
+	}
 	cand, ok := meetings.FromEvent(event)
 	if !ok {
 		t.Fatalf("meetings.FromEvent: event not recognized as a synced meeting")
@@ -270,5 +269,29 @@ func TestLinkedMeetingItemsOrderedByCreatedNotFileOrder(t *testing.T) {
 	}
 	if items[0].Title != "Captured first" || items[1].Title != "Captured second" {
 		t.Errorf("linkedMeetingItems order = [%q, %q], want [\"Captured first\", \"Captured second\"]", items[0].Title, items[1].Title)
+	}
+}
+
+func TestCalendarOOCancelledReturnsToTheEvent(t *testing.T) {
+	ws := loadFixture(t)
+	now := time.Now()
+	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
+	ws.Files = append(ws.Files, &org.File{
+		Path:      filepath.Join(ws.Dir, "calendar.org"),
+		Headlines: []*org.Headline{event},
+	})
+	m := New(ws)
+	m.switchToView(calendarView)
+	m.cursor = findRow(t, m, event.Title)
+	before := len(findInboxHeadlines(t, m))
+
+	m = sendKey(m, "o")
+	m = sendKey(m, "esc")
+
+	if m.view != calendarView || m.currentHeadline() != event {
+		t.Errorf("after cancelling: view %v, cursor on %v; want calendarView, back on the event", m.view, m.currentHeadline())
+	}
+	if got := len(findInboxHeadlines(t, m)); got != before {
+		t.Errorf("inbox headlines = %d, want %d (nothing captured)", got, before)
 	}
 }
