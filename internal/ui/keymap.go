@@ -202,16 +202,18 @@ func buildNormalKeys() *keymap {
 		if m.refuseTaskStateInReference() {
 			return
 		}
-		if m.currentHeadline() != nil {
-			m.mode = selectMode
-			if count > 1 {
-				m.selectModeTargets = m.headlinesInRowRange(m.countRowRange(count))
-			} else {
-				m.selectModeTargets = nil
-			}
-			m.selectFilter = ""
-			m.selectIndex = m.currentStatusIndex()
+		if m.currentHeadline() == nil {
+			return
 		}
+		if count <= 1 {
+			// One entry: its keyword, in insert mode (see startStatusEdit).
+			m.startStatusEdit()
+			return
+		}
+		m.mode = selectMode
+		m.selectModeTargets = m.headlinesInRowRange(m.countRowRange(count))
+		m.selectFilter = ""
+		m.selectIndex = m.currentStatusIndex()
 	}), "r", "R")
 
 	// Delete, yank, paste, move.

@@ -104,6 +104,7 @@ func TestSelectModeShowsCandidatesInInfoBufferNotOnPromptLine(t *testing.T) {
 	m.width, m.height = 100, 30
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
+	m = sendKey(m, "2") // the picker is for several entries
 	m = sendKey(m, "R")
 
 	lines := strings.Split(m.View(), "\n")
@@ -144,6 +145,7 @@ func TestSelectModeHighlightsCurrentCandidateInInfoBuffer(t *testing.T) {
 		t.Fatalf("fixture assumption broken: keyword = %q, want WAITING", m.currentHeadline().Keyword)
 	}
 
+	m = sendKey(m, "2") // the picker is for several entries
 	m = sendKey(m, "R")
 
 	var highlightedLine string

@@ -50,6 +50,12 @@ type insertSession struct {
 	// note is the closing note being typed, if one is (see insert_note.go).
 	note *noteEdit
 
+	// statusOnly marks an "r" session (see startStatusEdit): only there
+	// to set the keyword, which is applied to the entry itself as soon as
+	// it's chosen, ending insert mode. Moving off the keyword slot makes
+	// it an ordinary edit.
+	statusOnly bool
+
 	// inTags is whether the caret is in the tag area at the end of the
 	// first line, where tags — lifted out of buf meanwhile, with an
 	// empty one at the end for a new tag — are edited one at a time,

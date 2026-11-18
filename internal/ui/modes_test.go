@@ -37,7 +37,7 @@ func TestPromptModesRenderTheirPrompt(t *testing.T) {
 		{"search backward", func(m Model) Model { return typeKeys(m, "?fido") }, "?fido"},
 		{"deadline", func(m Model) Model { return typeKeys(m, "gd3d") }, "Deadline"},
 		{"tag", func(m Model) Model { return typeKeys(m, "gtpro") }, "tags: type to edit"},
-		{"status picker", func(m Model) Model { return typeKeys(m, "r") }, "Set status"},
+		{"status picker", func(m Model) Model { return typeKeys(m, "2r") }, "Set status"},
 		{"visual", func(m Model) Model { return typeKeys(m, "V") }, "-- VISUAL LINE --"},
 	}
 	for _, c := range cases {

@@ -30,7 +30,7 @@ type noteEdit struct {
 	// of it come before the note's text (its indentation).
 	row, prefix int
 
-	// direct is set for "r" (see startStatusNote): insert mode is only
+	// direct is set for "r" (see startStatusEdit): insert mode is only
 	// where the note is typed, so confirming it applies the state change
 	// to the entry itself, exactly as "r" always has, and ends insert
 	// mode.
@@ -164,25 +164,4 @@ func (m *Model) endDirectNote() {
 	m.ins = insertSession{}
 	m.applyStatus(keyword, note)
 	m.ensureVisible()
-}
-
-// startStatusNote is "r" choosing a done state for the entry under the
-// cursor: it's shown in insert mode with the state change and an empty
-// closing note in place, the caret on the note (see beginNote), until
-// Enter or Esc applies it (see noteEdit.direct).
-func (m *Model) startStatusNote(keyword string) {
-	h := m.currentHeadline()
-	if h == nil || m.refuseIfImmutable(h) {
-		return
-	}
-	m.enterInsertMode(h, nil, caretAtTitle)
-	m.beginNote(keyword)
-	if m.ins.note == nil {
-		// No note to type after all: just apply it.
-		m.mode = normalMode
-		m.ins = insertSession{}
-		m.applyStatus(keyword, "")
-		return
-	}
-	m.ins.note.direct = true
 }

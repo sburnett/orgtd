@@ -79,9 +79,11 @@ func (m *Model) insertKeywordKey(msg tea.KeyMsg) (handled bool) {
 			switch {
 			case msg.Paste:
 				// Pasted text is title text, not a keyword choice.
+				m.ins.statusOnly = false
 				m.leaveKeywordSlot()
 				return false
 			case msg.Alt && string(msg.Runes) == "f":
+				m.ins.statusOnly = false
 				m.leaveKeywordSlot()
 			case !msg.Alt && len(msg.Runes) == 1:
 				for _, c := range m.statusCandidates() {
@@ -92,17 +94,23 @@ func (m *Model) insertKeywordKey(msg tea.KeyMsg) (handled bool) {
 				}
 			}
 		case tea.KeyRight, tea.KeyCtrlF, tea.KeyCtrlRight:
+			m.ins.statusOnly = false
 			m.leaveKeywordSlot()
 		case tea.KeyEnd, tea.KeyCtrlE:
+			m.ins.statusOnly = false
 			m.leaveKeywordSlot()
-			b.lineEnd()
+			b.col, _ = splitTitleTags(b.lines[0])
 		case tea.KeyDown, tea.KeyCtrlN:
+			m.ins.statusOnly = false
 			m.ins.onKeyword = false
 			b.col = 0
 			b.down()
 			m.snapOutOfKeyword()
 		case tea.KeyDelete, tea.KeyCtrlD:
-			if kw != "" {
+			switch {
+			case m.ins.statusOnly:
+				m.applyStatusDirectly("")
+			case kw != "":
 				m.setInsertKeyword("", "")
 				m.enterKeywordSlot()
 			}
@@ -178,9 +186,45 @@ func (m *Model) chooseInsertKeyword(c statusCandidate) {
 	kw, _ := m.insertKeyword()
 	if org.IsDoneKeyword(c.keyword) && !org.IsDoneKeyword(kw) {
 		m.beginNote(c.keyword)
+		if m.ins.statusOnly && m.ins.note != nil {
+			m.ins.note.direct = true
+		} else if m.ins.statusOnly {
+			m.applyStatusDirectly(c.keyword)
+		}
+		return
+	}
+	if m.ins.statusOnly {
+		m.applyStatusDirectly(c.keyword)
 		return
 	}
 	m.applyInsertKeyword(c.keyword, "")
+}
+
+// startStatusEdit is "r" on one entry: insert mode with the caret on its
+// keyword slot, showing the status picker's candidates, so choosing a
+// state works just as it does there (see insertKeywordKey) — except that
+// the choice is applied to the entry straight away, as "r" always has
+// (see applyStatusDirectly), ending insert mode. Esc ends it with no
+// change, and moving off the slot carries on as an ordinary edit.
+func (m *Model) startStatusEdit() {
+	h := m.currentHeadline()
+	if h == nil || m.refuseIfImmutable(h) {
+		return
+	}
+	m.enterInsertMode(h, nil, caretAtLineStart)
+	m.ins.statusOnly = true
+}
+
+// applyStatusDirectly ends an "r" session (see startStatusEdit),
+// applying keyword to the entry itself with the same in-place status
+// change "r" has always made — not through the edit text — so it's one
+// undo step of its own, and :review moves on if it closed the pinned
+// item (see applyStatus).
+func (m *Model) applyStatusDirectly(keyword string) {
+	m.mode = normalMode
+	m.ins = insertSession{}
+	m.applyStatus(keyword, "")
+	m.ensureVisible()
 }
 
 // applyInsertKeyword sets keyword, as chooseInsertKeyword or the closing

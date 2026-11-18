@@ -75,6 +75,7 @@ func TestStatusLineStaysVisibleInSelectMode(t *testing.T) {
 	m.width, m.height = 100, 30
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 
+	m = sendKey(m, "2") // the picker is for several entries
 	m = sendKey(m, "R")
 
 	status, command := splitBottomLines(t, m)

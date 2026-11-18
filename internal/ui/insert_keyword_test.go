@@ -278,3 +278,71 @@ func sendCtrl(m Model, k tea.KeyType) Model {
 	updated, _ := m.Update(tea.KeyMsg{Type: k})
 	return updated.(Model)
 }
+
+func TestRPicksAKeywordAndEndsInsertMode(t *testing.T) {
+	m := vetEntry(t)
+	h := m.currentHeadline()
+	undoBefore := m.undoPos
+	m = sendKey(m, "r")
+	m = sendKey(m, "n")
+	if m.mode != normalMode {
+		t.Fatalf("mode after r n = %v, want normal mode", m.mode)
+	}
+	// Applied in place, as r always has: the same headline, one step.
+	if h.Keyword != "NEXT" || m.currentHeadline() != h {
+		t.Errorf("keyword %q (same headline: %v), want NEXT on the same headline", h.Keyword, m.currentHeadline() == h)
+	}
+	if m.undoPos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	}
+}
+
+func TestREscChangesNothing(t *testing.T) {
+	m := vetEntry(t)
+	undoBefore := m.undoPos
+	m = sendKey(m, "r")
+	m = sendKey(m, "esc")
+	if m.mode != normalMode || m.undoPos != undoBefore || len(m.dirty) != 0 {
+		t.Errorf("r then Esc: mode %v, undo steps %d, dirty %v; want nothing changed", m.mode, m.undoPos-undoBefore, m.dirty)
+	}
+}
+
+func TestRDeleteRemovesTheKeyword(t *testing.T) {
+	m := vetEntry(t)
+	h := m.currentHeadline()
+	m = sendKey(m, "r")
+	m = sendCtrl(m, tea.KeyDelete)
+	if m.mode != normalMode || h.Keyword != "" {
+		t.Errorf("r then Delete: mode %v, keyword %q; want it removed, back in normal mode", m.mode, h.Keyword)
+	}
+}
+
+func TestRThenMovingIntoTheTextIsAnOrdinaryEdit(t *testing.T) {
+	m := vetEntry(t)
+	m = sendKey(m, "r")
+	m = sendCtrl(m, tea.KeyRight) // into the title
+	m = typeKeys(m, "Soon: ")
+	if m.mode != insertMode {
+		t.Fatalf("mode after typing in the title = %v, want still insert mode", m.mode)
+	}
+	m = sendCtrl(m, tea.KeyLeft)
+	m = sendCtrl(m, tea.KeyHome)
+	m = sendCtrl(m, tea.KeyHome) // back on the keyword
+	m = sendKey(m, "n")
+	if m.mode != insertMode {
+		t.Fatalf("choosing a keyword after editing: mode %v, want still insert mode (it's an ordinary edit now)", m.mode)
+	}
+	m = sendKey(m, "esc")
+	if h := m.currentHeadline(); h.Keyword != "NEXT" || h.Title != "Soon: Call the vet about Fido's checkup" {
+		t.Errorf("after Esc: %q %q", h.Keyword, h.Title)
+	}
+}
+
+func TestROnALockedEntryRefuses(t *testing.T) {
+	m := vetEntry(t)
+	m.immutable[m.currentHeadline()] = true
+	m = sendKey(m, "r")
+	if m.mode != normalMode {
+		t.Errorf("r on a locked entry: mode %v, want normal mode", m.mode)
+	}
+}

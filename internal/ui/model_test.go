@@ -715,12 +715,21 @@ func TestLowercaseRSameAsUppercaseR(t *testing.T) {
 		t.Fatalf("fixture assumption broken: keyword = %q, want WAITING", h.Keyword)
 	}
 
+	// On one entry, r (like R) edits its keyword in insert mode, the
+	// caret on it — the status picker's list, with its current keyword
+	// highlighted, below.
 	m = sendKey(m, "r")
-	if m.mode != selectMode {
-		t.Fatalf("mode after r = %v, want selectMode", m.mode)
+	if m.mode != insertMode || !m.ins.onKeyword {
+		t.Fatalf("mode after r = %v (onKeyword %v), want insert mode on the keyword", m.mode, m.ins.onKeyword)
 	}
-	if got, want := m.statusCandidates()[m.selectIndex].keyword, "WAITING"; got != want {
-		t.Errorf("preselected keyword = %q, want %q", got, want)
+	var highlighted string
+	for _, l := range m.infoBufferLines() {
+		if strings.Contains(l, cursorStyleSGR()) {
+			highlighted = stripANSI(l)
+		}
+	}
+	if !strings.Contains(highlighted, "WAITING") {
+		t.Errorf("highlighted candidate = %q, want WAITING", highlighted)
 	}
 
 	m = sendKey(m, "d")     // shortcut for DONE
@@ -762,6 +771,7 @@ func TestSelectModePreselectsCurrentStatus(t *testing.T) {
 		t.Fatalf("fixture assumption broken: keyword = %q, want WAITING", h.Keyword)
 	}
 
+	m = sendKey(m, "2") // the picker is for several entries; r on one edits its keyword inline
 	m = sendKey(m, "R")
 	if m.mode != selectMode {
 		t.Fatalf("mode = %v, want selectMode", m.mode)
@@ -816,6 +826,7 @@ func TestSelectModeInvalidKeyIgnored(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
+	m = sendKey(m, "2") // the picker is for several entries; r on one edits its keyword inline
 	m = sendKey(m, "R")
 	m = sendKey(m, "x") // not a shortcut for any candidate
 	if m.mode != selectMode {
@@ -836,6 +847,7 @@ func TestSelectModeNavigateAndEnter(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
+	m = sendKey(m, "2") // the picker is for several entries; r on one edits its keyword inline
 	m = sendKey(m, "R") // preselects TODO (index 0)
 	m = sendKey(m, "j") // -> NEXT
 	m = sendKey(m, "j") // -> WAITING
@@ -856,6 +868,7 @@ func TestSelectModeEscCancelsWithoutChange(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
 
+	m = sendKey(m, "2") // the picker is for several entries; r on one edits its keyword inline
 	m = sendKey(m, "R")
 	m = sendKey(m, "j")
 	m = sendKey(m, "esc")
