@@ -98,6 +98,7 @@ func TestDeletingATimestampTakesItWhole(t *testing.T) {
 		key  tea.KeyMsg
 	}{
 		{"Delete on it", capturedStart, tea.KeyMsg{Type: tea.KeyDelete}},
+		{"Backspace on it", capturedStart, tea.KeyMsg{Type: tea.KeyBackspace}},
 		{"ctrl-d on it", capturedStart, tea.KeyMsg{Type: tea.KeyCtrlD}},
 		{"Backspace past it", capturedEnd, tea.KeyMsg{Type: tea.KeyBackspace}},
 		{"ctrl-w past it", capturedEnd, tea.KeyMsg{Type: tea.KeyCtrlW}},
@@ -117,14 +118,15 @@ func TestDeletingATimestampTakesItWhole(t *testing.T) {
 func TestEnterOnATimestampChangesItsDate(t *testing.T) {
 	m := onCapturedAt(t)
 	m = sendKey(m, "enter")
-	if m.mode != timestampMode {
-		t.Fatalf("mode after Enter on a timestamp = %d, want the date prompt", m.mode)
+	if m.mode != insertMode || m.ins.date == nil {
+		t.Fatalf("after Enter on a timestamp: mode %d, field %v; want a date field in insert mode", m.mode, m.ins.date)
 	}
-	if m.ins.dateInput != "" {
-		t.Errorf("prompt prefilled with %q, want it blank", m.ins.dateInput)
+	if got := m.ins.date.input.String(); got != "" {
+		t.Errorf("field starts with %q, want it empty", got)
 	}
-	if !strings.Contains(stripANSI(m.View()), "Date (") {
-		t.Errorf("date prompt not shown:\n%s", stripANSI(m.View()))
+	// The field replaces the timestamp in place, the old date previewed.
+	if view := stripANSI(m.View()); !strings.Contains(view, ":CAPTURED_AT: [ ]  currently [2026-09-05 Sat 09:12]") {
+		t.Errorf("field not drawn in place:\n%s", view)
 	}
 	m = typeKeys(m, "2026-12-25")
 	m = sendKey(m, "enter")
@@ -159,33 +161,98 @@ func TestTimestampPromptTakesFuzzyDatesAndKeepsActive(t *testing.T) {
 	}
 }
 
-func TestTimestampPromptErrorsAndCancels(t *testing.T) {
-	m := onCapturedAt(t)
-	m = sendKey(m, "enter")
-	m.ins.dateInput = "not a date"
-	m = sendKey(m, "enter")
-	if m.mode != timestampMode || m.message == "" {
-		t.Errorf("invalid date: mode %d, message %q; want the prompt kept open with an error", m.mode, m.message)
-	}
-	m = sendKey(m, "esc")
-	if m.mode != insertMode || m.ins.buf.lines[capturedRow] != ":CAPTURED_AT: [2026-09-05 Sat 09:12]" {
-		t.Errorf("Esc from the prompt: mode %d, line %q; want insert mode, unchanged", m.mode, m.ins.buf.lines[capturedRow])
-	}
-
-	m = sendKey(m, "enter")
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	m = updated.(Model)
-	if cmd != nil || m.mode != insertMode {
-		t.Errorf("ctrl-c in the prompt: cmd %v, mode %d; want back in insert mode, no quit", cmd, m.mode)
+func TestDateFieldRefusesAnInvalidDate(t *testing.T) {
+	for _, key := range []string{"enter", "esc"} {
+		m := onCapturedAt(t)
+		m = sendKey(m, "enter")
+		m = typeKeys(m, "not a date")
+		if !strings.Contains(stripANSI(m.View()), "✗ not a date") {
+			t.Errorf("%s: preview doesn't say the date is invalid", key)
+		}
+		m = sendKey(m, key)
+		if m.mode != insertMode || m.ins.date == nil || m.message == "" {
+			t.Errorf("%s on an invalid date: mode %d, field %v, message %q; want the field kept open with an error", key, m.mode, m.ins.date, m.message)
+		}
+		if !strings.Contains(lastLine(m), "invalid date") {
+			t.Errorf("%s: command line %q, want the error", key, lastLine(m))
+		}
 	}
 }
 
-func TestEmptyDateRemovesTheTimestamp(t *testing.T) {
+func TestEscInTheDateFieldAppliesItAndEndsInsertMode(t *testing.T) {
+	m := onCapturedAt(t)
+	m = sendKey(m, "enter")
+	m = typeKeys(m, "2026-12-25")
+	m = sendKey(m, "esc")
+	if m.mode != normalMode {
+		t.Fatalf("mode after Esc = %d, want insert mode ended", m.mode)
+	}
+	if got := m.currentHeadline().Properties["CAPTURED_AT"]; got != "[2026-12-25 Fri]" {
+		t.Errorf("CAPTURED_AT = %q, want the typed date", got)
+	}
+}
+
+func TestCtrlCInTheDateFieldIsEsc(t *testing.T) {
+	m := onCapturedAt(t)
+	m = sendKey(m, "enter")
+	m = typeKeys(m, "2026-12-25")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updated.(Model)
+	if cmd != nil || m.mode != normalMode || m.currentHeadline().Properties["CAPTURED_AT"] != "[2026-12-25 Fri]" {
+		t.Errorf("ctrl-c in the field: cmd %v, mode %d; want it applied as Esc does, no quit", cmd, m.mode)
+	}
+}
+
+func TestAnEmptyDateFieldKeepsTheOldDate(t *testing.T) {
 	m := onCapturedAt(t)
 	m = sendKey(m, "enter")
 	m = sendKey(m, "enter")
-	if got := m.ins.buf.lines[capturedRow]; got != ":CAPTURED_AT: " {
-		t.Errorf("empty date: line %q, want the timestamp removed", got)
+	if got := m.ins.buf.lines[capturedRow]; got != ":CAPTURED_AT: [2026-09-05 Sat 09:12]" || m.ins.date != nil {
+		t.Errorf("empty Enter: line %q, field %v; want the old date kept, the field closed", got, m.ins.date)
+	}
+	if m.ins.buf.col != capturedStart {
+		t.Errorf("caret col %d, want back on the timestamp", m.ins.buf.col)
+	}
+	m = sendKey(m, "enter")
+	m = sendKey(m, "esc")
+	if m.mode != normalMode || len(m.dirty) != 0 {
+		t.Errorf("empty Esc: mode %d, dirty %v; want insert mode ended, nothing changed", m.mode, m.dirty)
+	}
+}
+
+func TestDateFieldPreviewsTheResolvedDate(t *testing.T) {
+	m := onCapturedAt(t)
+	m.clock = func() time.Time { return time.Date(2026, 11, 17, 10, 0, 0, 0, time.Local) }
+	m = sendKey(m, "enter")
+	for _, c := range []struct{ typed, want string }{
+		{"3d", "→ Fri 2026-11-20, in 3 days"},
+		{"tomorrow", "→ Wed 2026-11-18, tomorrow"},
+		{"2026-11-17 14:30", "→ Tue 2026-11-17 14:30, today"},
+		{"2026-11-10", "→ Tue 2026-11-10, 7 days ago"},
+	} {
+		m = sendCtrl(m, tea.KeyCtrlU)
+		m = typeKeys(m, c.typed)
+		if got, _ := m.datePreview(); !strings.Contains(got, c.want) {
+			t.Errorf("preview of %q = %q, want %q", c.typed, got, c.want)
+		}
+	}
+}
+
+func TestDateFieldEditsLikeALine(t *testing.T) {
+	m := sendKey(onCapturedAt(t), "enter")
+	m = typeKeys(m, "nxt fri")
+	for range len(" fri") {
+		m = sendCtrl(m, tea.KeyLeft)
+	}
+	m = sendCtrl(m, tea.KeyLeft)
+	m = sendCtrl(m, tea.KeyLeft)
+	m = typeKeys(m, "e")
+	if got := m.ins.date.input.String(); got != "next fri" {
+		t.Errorf("field = %q, want the e inserted mid-word", got)
+	}
+	lines, caret := m.insertEditorLines("", "", lipgloss.NoColor{})
+	if want := m.caretStyle().Render("x"); !strings.Contains(lines[caret], want) {
+		t.Errorf("caret line %q: caret not on the x after the inserted e", lines[caret])
 	}
 }
 
@@ -213,11 +280,11 @@ func TestTimestampPromptCtrlUAndCtrlW(t *testing.T) {
 	m := sendKey(onCapturedAt(t), "enter")
 	m = typeKeys(m, "2026-09-05 09:12")
 	m = sendCtrl(m, tea.KeyCtrlW)
-	if m.ins.dateInput != "2026-09-05 " {
-		t.Errorf("ctrl-w = %q, want the time gone", m.ins.dateInput)
+	if got := m.ins.date.input.String(); got != "2026-09-05 " {
+		t.Errorf("ctrl-w = %q, want the time gone", got)
 	}
 	m = sendCtrl(m, tea.KeyCtrlU)
-	if m.ins.dateInput != "" {
-		t.Errorf("ctrl-u = %q, want it cleared", m.ins.dateInput)
+	if got := m.ins.date.input.String(); got != "" {
+		t.Errorf("ctrl-u = %q, want it cleared", got)
 	}
 }

@@ -110,7 +110,7 @@ func TestStatusLineStaysVisibleInConfirmMode(t *testing.T) {
 	}
 }
 
-func TestStatusLineStaysVisibleInDeadlineMode(t *testing.T) {
+func TestStatusLineStaysVisibleWhileSettingADeadline(t *testing.T) {
 	ws := loadFixture(t)
 	m := New(ws)
 	m.width, m.height = 100, 30
@@ -123,8 +123,8 @@ func TestStatusLineStaysVisibleInDeadlineMode(t *testing.T) {
 	if !strings.Contains(status, "item") {
 		t.Errorf("status line = %q, want it to still show the usual item count", status)
 	}
-	if !strings.Contains(command, "Deadline") {
-		t.Errorf("command line = %q, want the deadline prompt", command)
+	if !strings.Contains(command, "date: Enter when done") {
+		t.Errorf("command line = %q, want the date field's hint", command)
 	}
 }
 

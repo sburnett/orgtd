@@ -100,6 +100,30 @@ func (m Model) noteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	n := m.ins.note
 	b := &m.ins.buf
 	line := textBuffer{lines: []string{m.noteText()}, col: max(0, b.col-n.prefix), goal: -1}
+	editOneLine(&line, msg)
+	prefix := string([]rune(b.lines[n.row])[:n.prefix])
+	b.lines = append([]string(nil), b.lines...)
+	b.lines[n.row] = prefix + line.lines[0]
+	b.row, b.col = n.row, n.prefix+line.col
+	return m, nil
+}
+
+// endDirectNote ends an "r" closing note (see noteEdit.direct) and
+// insert mode with it, applying the state change to the entry itself
+// with the note typed — or none, if it's blank.
+func (m *Model) endDirectNote() {
+	keyword, note := m.ins.note.keyword, strings.TrimSpace(m.noteText())
+	m.mode = normalMode
+	m.ins = insertSession{}
+	m.applyStatus(keyword, note)
+	m.ensureVisible()
+}
+
+// editOneLine applies an editing key to line, a single line of text — a
+// closing note, or a date being typed (see dateField) — that the caret
+// never leaves: the usual line-editing keys, and text typed or pasted,
+// a line break or tab in it becoming a space.
+func editOneLine(line *textBuffer, msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeySpace:
 		line.insert(" ")
@@ -112,8 +136,6 @@ func (m Model) noteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case msg.Alt && !msg.Paste && string(msg.Runes) == "d":
 			line.deleteWordForward()
 		default:
-			// A note is one line: a pasted line break or tab is a
-			// space (the note's lines collapse runs of them anyway).
 			line.insert(strings.Map(func(r rune) rune {
 				if r == '\n' || r == '\r' || r == '\t' {
 					return ' '
@@ -148,20 +170,4 @@ func (m Model) noteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnd, tea.KeyCtrlE:
 		line.lineEnd()
 	}
-	prefix := string([]rune(b.lines[n.row])[:n.prefix])
-	b.lines = append([]string(nil), b.lines...)
-	b.lines[n.row] = prefix + line.lines[0]
-	b.row, b.col = n.row, n.prefix+line.col
-	return m, nil
-}
-
-// endDirectNote ends an "r" closing note (see noteEdit.direct) and
-// insert mode with it, applying the state change to the entry itself
-// with the note typed — or none, if it's blank.
-func (m *Model) endDirectNote() {
-	keyword, note := m.ins.note.keyword, strings.TrimSpace(m.noteText())
-	m.mode = normalMode
-	m.ins = insertSession{}
-	m.applyStatus(keyword, note)
-	m.ensureVisible()
 }

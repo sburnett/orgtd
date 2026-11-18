@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -21,9 +22,9 @@ func (m *Model) refuseTaskStateInReference() bool {
 // startSetDeadline ("gd") puts the current entry into insert mode with
 // the caret on its deadline's date, ready for Enter to change it (see
 // insert_timestamp.go). With no deadline yet, it adds a "DEADLINE: "
-// label to the planning line — making one if need be — and opens the
-// date prompt for it right away; cancelling that takes the label back
-// out. Once the deadline's set — or that's cancelled — insert mode ends
+// label to the planning line — making one if need be — with a date
+// field open after it right away (see dateField); leaving that empty
+// takes the label back out. Once the deadline's set — or that's cancelled — insert mode ends
 // too (see insertSession.exitWhenDone). A no-op on file rows.
 func (m *Model) startSetDeadline() {
 	h := m.currentHeadline()
@@ -65,11 +66,7 @@ func (m *Model) startSetDeadline() {
 		label = dateLabel{0, title, 1, b.col}
 	}
 	b.goal = -1
-	m.ins.date = [2]int{b.col, b.col}
-	m.ins.dateActive = true
-	m.ins.dateLabel = &label
-	m.ins.dateInput = ""
-	m.mode = timestampMode
+	m.ins.date = &dateField{row: b.row, start: b.col, active: true, label: &label, input: newTextBuffer("")}
 }
 
 // planningDate finds keyword's timestamp ("DEADLINE", ...) on insert
@@ -103,4 +100,44 @@ func isPlanningLine(line string) bool {
 		}
 	}
 	return false
+}
+
+// planningLabelRe matches one planning keyword's label, and any space
+// after it.
+var planningLabelRe = regexp.MustCompile(`(?:SCHEDULED|DEADLINE|CLOSED):[ \t]*`)
+
+// dropDatelessPlanningLabels removes, from insert mode's planning line,
+// every "SCHEDULED:"/"DEADLINE:"/"CLOSED:" left with no timestamp after
+// it — as deleting a deadline's date leaves "DEADLINE: " — and the line
+// itself if that empties it. Run as insert mode ends (see finishInsert):
+// a label with nothing after it isn't planning to org, and would
+// otherwise be kept as stray body text.
+func (m *Model) dropDatelessPlanningLabels() {
+	b := &m.ins.buf
+	if len(b.lines) < 2 || !isPlanningLine(b.lines[1]) {
+		return
+	}
+	line := b.lines[1]
+	var kept strings.Builder
+	last := 0
+	for _, loc := range planningLabelRe.FindAllStringIndex(line, -1) {
+		if ts := timestampRe.FindStringIndex(line[loc[1]:]); ts != nil && ts[0] == 0 {
+			continue
+		}
+		kept.WriteString(line[last:loc[0]])
+		last = loc[1]
+	}
+	kept.WriteString(line[last:])
+	cleaned := strings.Join(strings.Fields(kept.String()), " ")
+	if cleaned == strings.Join(strings.Fields(line), " ") {
+		return
+	}
+	lines := append([]string(nil), b.lines...)
+	if cleaned == "" {
+		lines = append(lines[:1], lines[2:]...)
+	} else {
+		lines[1] = cleaned
+	}
+	b.lines = lines
+	b.clamp()
 }

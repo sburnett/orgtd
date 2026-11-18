@@ -106,7 +106,9 @@ func (m *Model) insertKeywordKey(msg tea.KeyMsg) (handled bool) {
 			b.col = 0
 			b.down()
 			m.snapOutOfKeyword()
-		case tea.KeyDelete, tea.KeyCtrlD:
+		case tea.KeyDelete, tea.KeyCtrlD, tea.KeyBackspace, tea.KeyCtrlH:
+			// Either delete key removes the highlighted keyword (a Mac's
+			// "delete" is Backspace).
 			switch {
 			case m.ins.statusOnly:
 				m.applyStatusDirectly("")
@@ -269,9 +271,7 @@ func (m *Model) parsedInsertEntry() *org.Headline {
 	return f.Headlines[0]
 }
 
-// inInsertSession reports whether an insert-mode session is underway:
-// in insert mode itself, or in the date prompt Enter on a timestamp
-// opened (see insert_timestamp.go).
+// inInsertSession reports whether an insert-mode session is underway.
 func (m *Model) inInsertSession() bool {
-	return m.mode == insertMode || m.mode == timestampMode
+	return m.mode == insertMode
 }

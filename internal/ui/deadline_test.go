@@ -22,8 +22,8 @@ func gdOn(t *testing.T, m Model, title string) Model {
 // edited entry (a new headline, once the edit applies).
 func setDeadlineVia(t *testing.T, m Model, date string) (Model, *org.Headline) {
 	t.Helper()
-	if m.mode != timestampMode {
-		t.Fatalf("mode = %v, want the deadline prompt", m.mode)
+	if m.mode != insertMode || m.ins.date == nil {
+		t.Fatalf("mode = %v (field %v), want a date field open", m.mode, m.ins.date)
 	}
 	m = typeKeys(m, date)
 	m = sendKey(m, "enter")
@@ -63,14 +63,14 @@ func TestGdWithNoDeadlineAddsOneAndOpensThePrompt(t *testing.T) {
 	m := New(loadFixture(t))
 	undoBefore := m.undoPos
 	m = gdOn(t, m, "Call the vet about Fido's checkup")
-	if m.mode != timestampMode {
-		t.Fatalf("mode = %v, want the deadline prompt open right away", m.mode)
+	if m.mode != insertMode || m.ins.date == nil {
+		t.Fatalf("mode = %v (field %v), want a date field open right away", m.mode, m.ins.date)
 	}
 	if got := m.ins.buf.lines[1]; got != "DEADLINE: " {
 		t.Errorf("line below the title = %q, want a new DEADLINE label", got)
 	}
-	if !strings.Contains(stripANSI(lastLine(m)), "Deadline (") {
-		t.Errorf("prompt = %q, want it labelled Deadline", lastLine(m))
+	if view := stripANSI(m.View()); !strings.Contains(view, "DEADLINE: < >  e.g.") {
+		t.Errorf("no empty deadline field drawn after the label:\n%s", view)
 	}
 
 	m, h := setDeadlineVia(t, m, "2026-12-25")
@@ -181,14 +181,14 @@ func TestDeadlineInvalidInputStaysOpenForCorrection(t *testing.T) {
 	m := gdOn(t, New(loadFixture(t)), "Call the vet about Fido's checkup")
 	m = typeKeys(m, "not-a-date")
 	m = sendKey(m, "enter")
-	if m.mode != timestampMode {
-		t.Fatalf("mode after invalid input = %v, want the prompt kept open", m.mode)
+	if m.ins.date == nil {
+		t.Fatalf("field closed after invalid input, want it kept open")
 	}
-	if m.ins.dateInput != "not-a-date" || m.message == "" {
-		t.Errorf("input %q, message %q; want the input kept and an error", m.ins.dateInput, m.message)
+	if got := m.ins.date.input.String(); got != "not-a-date" || m.message == "" {
+		t.Errorf("input %q, message %q; want the input kept and an error", got, m.message)
 	}
 
-	for range m.ins.dateInput {
+	for range "not-a-date" {
 		m = sendKey(m, "backspace")
 	}
 	_, h := setDeadlineVia(t, m, "2026-12-25")
@@ -224,8 +224,8 @@ func TestDeadlineReportedRepro(t *testing.T) {
 	m = gdOn(t, m, "Call the vet about Fido's checkup")
 	m = typeKeys(m, "last thursday in august, 202")
 	m = sendKey(m, "enter")
-	if m.mode != timestampMode || m.message == "" {
-		t.Fatalf("mode %v, message %q; want the prompt open with a visible error", m.mode, m.message)
+	if m.ins.date == nil || m.message == "" {
+		t.Fatalf("field %v, message %q; want the field open with a visible error", m.ins.date, m.message)
 	}
 	if !strings.Contains(lastLine(m), m.message) {
 		t.Errorf("command line = %q, missing the error %q", lastLine(m), m.message)
@@ -264,13 +264,12 @@ func TestOtherTimestampPromptsStayInInsertMode(t *testing.T) {
 	}
 }
 
-func TestDeadlineErrorClearsOnEsc(t *testing.T) {
+func TestDeadlineEscOnAnInvalidDateKeepsTheField(t *testing.T) {
 	m := gdOn(t, New(loadFixture(t)), "Call the vet about Fido's checkup")
 	m = typeKeys(m, "not-a-date")
-	m = sendKey(m, "enter")
 	m = sendKey(m, "esc")
-	if m.message != "" {
-		t.Errorf("m.message = %q, want cleared on Esc", m.message)
+	if m.mode != insertMode || m.ins.date == nil || m.message == "" {
+		t.Errorf("Esc on an invalid date: mode %v, field %v, message %q; want the field kept open, saying why", m.mode, m.ins.date, m.message)
 	}
 }
 
@@ -301,5 +300,39 @@ func TestDeadlineAcceptsShorthandAndPhrases(t *testing.T) {
 		if want := c.want.Format("2006-01-02 Mon"); h.Deadline == nil || h.Deadline.Raw != want {
 			t.Errorf("%q: deadline = %v, want %q (and no time of day)", c.input, h.Deadline, want)
 		}
+	}
+}
+
+func TestDeletingADateDropsItsLabelOnLeavingInsertMode(t *testing.T) {
+	for _, c := range []struct {
+		name, entry, wantPlanning string
+	}{
+		{"alone", "* TODO Thing\n  DEADLINE: <2026-11-20 Fri>\n  Some body\n", ""},
+		{"with SCHEDULED", "* TODO Thing\n  SCHEDULED: <2026-11-18 Wed> DEADLINE: <2026-11-20 Fri>\n", "SCHEDULED: <2026-11-18 Wed>"},
+	} {
+		m := gdOn(t, New(agendaFixture(t, c.entry)), "Thing")
+		m = sendKey(m, "backspace") // the caret's on the deadline's date
+		if !strings.Contains(m.ins.buf.lines[1], "DEADLINE:") {
+			t.Fatalf("%s: label gone while still editing: %q", c.name, m.ins.buf.lines[1])
+		}
+		m = sendKey(m, "esc")
+		h := m.currentHeadline()
+		if h.Deadline != nil {
+			t.Errorf("%s: deadline = %v, want none", c.name, h.Deadline)
+		}
+		if got := org.PlanningLine(h); got != c.wantPlanning {
+			t.Errorf("%s: planning line = %q, want %q", c.name, got, c.wantPlanning)
+		}
+		if body := strings.Join(h.Body, "\n"); strings.Contains(body, "DEADLINE") {
+			t.Errorf("%s: body = %q, want no stray DEADLINE label", c.name, body)
+		}
+	}
+}
+
+func TestADatelessLabelInTheBodyIsLeftAlone(t *testing.T) {
+	m := gdOn(t, New(agendaFixture(t, "* TODO Thing\n  DEADLINE: <2026-11-20 Fri>\n  Mind the DEADLINE: it moved\n")), "Thing")
+	m = sendKey(m, "esc")
+	if body := strings.Join(m.currentHeadline().Body, "\n"); !strings.Contains(body, "Mind the DEADLINE: it moved") {
+		t.Errorf("body = %q, want the body's mention kept", body)
 	}
 }

@@ -85,8 +85,8 @@ func TestSamePrefixKeyHasDifferentMeaningsPerChord(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m = sendKey(m, "g")
 	m = sendKey(m, "d")
-	if m.mode != timestampMode {
-		t.Errorf("mode after g d = %v, want the deadline prompt", m.mode)
+	if m.ins.date == nil {
+		t.Errorf("after g d: mode %v, no date field open", m.mode)
 	}
 }
 

@@ -1,11 +1,15 @@
 package ui
 
 import (
+	"fmt"
+	"math"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
@@ -16,8 +20,8 @@ import (
 // insert_keyword.go). With the caret at a timestamp's start the whole
 // timestamp is the caret; motions step over it, and deletions that
 // would cut into it take it whole. Letters typed on it go nowhere;
-// Enter opens a prompt to change its date (timestampMode), which takes
-// what "gd" takes.
+// Enter turns it into a field to type its new date in, in place, which
+// takes what "gd" takes (see dateField).
 
 // timestampRe matches one org timestamp: a date, optionally followed by
 // a weekday, time, repeater and so on, in <> or [] — each half of a
@@ -72,9 +76,13 @@ func (m *Model) insertTimestampKey(msg tea.KeyMsg) (handled bool) {
 	b := &m.ins.buf
 
 	// Deleting backward from just past a timestamp takes it whole —
-	// Backspace, or a word deletion ending inside it.
+	// Backspace, or a word deletion ending inside it. (Backspace on one
+	// removes it too: see below.)
 	switch {
 	case msg.Type == tea.KeyBackspace && !msg.Alt, msg.Type == tea.KeyCtrlH:
+		if _, on := m.onTimestamp(); on {
+			break
+		}
 		if s, ok := m.insertTimestampAt(b.row, b.col, false); ok {
 			b.deleteRange(b.row, s[0], b.row, b.col)
 			return true
@@ -101,9 +109,11 @@ func (m *Model) insertTimestampKey(msg tea.KeyMsg) (handled bool) {
 	}
 	switch msg.Type {
 	case tea.KeyEnter:
-		m.startTimestampPrompt(s)
+		m.openDateField(s)
 		return true
-	case tea.KeyDelete, tea.KeyCtrlD:
+	case tea.KeyDelete, tea.KeyCtrlD, tea.KeyBackspace, tea.KeyCtrlH:
+		// The highlighted timestamp is the thing to delete — whichever
+		// delete key it is (a Mac's "delete" is Backspace).
 		b.deleteRange(b.row, s[0], b.row, s[1])
 		return true
 	case tea.KeySpace:
@@ -133,15 +143,23 @@ func (m *Model) snapOutOfTimestamp(row, col int) {
 	}
 }
 
-// startTimestampPrompt opens the date prompt for the timestamp at span
-// on the caret's row, blank — the timestamp itself is still in view
-// above it — ready for the new date.
-func (m *Model) startTimestampPrompt(span [2]int) {
-	m.ins.date = span
-	m.ins.dateActive = m.ins.buf.runes(m.ins.buf.row)[span[0]] == '<'
-	m.ins.dateLabel = nil
-	m.ins.dateInput = ""
-	m.mode = timestampMode
+// dateField is a timestamp being retyped in place (see openDateField):
+// the field shows in its spot, in its brackets, until Enter or Esc puts
+// the date it resolves to there instead.
+type dateField struct {
+	row, start int        // where the timestamp starts in the buffer (its opening bracket)
+	old        string     // the timestamp's text, brackets and all; "" for a new deadline "gd" is adding
+	active     bool       // <...>, not [...]
+	label      *dateLabel // what "gd" added for a new deadline, taken back out if it gets no date
+	input      textBuffer // what's been typed: one line
+}
+
+// openDateField (Enter on a timestamp) turns the timestamp at span on
+// the caret's row into an empty field to type its new date in.
+func (m *Model) openDateField(span [2]int) {
+	b := m.ins.buf
+	old := string(b.runes(b.row)[span[0]:span[1]])
+	m.ins.date = &dateField{row: b.row, start: span[0], old: old, active: old[0] == '<', input: newTextBuffer("")}
 }
 
 // dateLabel is text "gd" added for a new deadline — "DEADLINE: ", and
@@ -149,86 +167,135 @@ func (m *Model) startTimestampPrompt(span [2]int) {
 // insert mode's buffer, taken back out if no date is given for it.
 type dateLabel struct{ r1, c1, r2, c2 int }
 
-// cancelNewDate takes back out the label "gd" added for a new deadline
-// that's getting no date after all, returning the caret to the title.
-func (m *Model) cancelNewDate() {
-	if l := m.ins.dateLabel; l != nil {
-		m.ins.buf.deleteRange(l.r1, l.c1, l.r2, l.c2)
-		m.ins.dateLabel = nil
-		m.ins.buf.row, m.ins.buf.col = 0, m.titleStartCol(m.ins.target, m.ins.buf.lines[0])
-		m.ins.buf.clamp()
-	}
-}
-
-// updateTimestampMode handles the date prompt opened on a timestamp in
-// insert mode: Enter applies the typed date, as "gd" reads it — an
-// empty one removes the timestamp — and Esc (or ctrl-c) returns to
-// insert mode leaving it as it was. ctrl-u clears what's been typed and
-// ctrl-w its last word. In a "gd" session, either way ends insert mode
-// too, applying the edit.
-func (m Model) updateTimestampMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type != tea.KeyEnter {
-		m.message = ""
-	}
+// dateKey handles a key while a date is being typed (see dateField):
+// Enter puts the date typed in place of the timestamp, Esc (or ctrl-c)
+// does too and leaves insert mode, and anything else edits the field.
+// With nothing typed, both keep the old date (or, for a new deadline,
+// take its label back out); a date that doesn't parse keeps the field
+// open, saying so. In a "gd" session, either ends insert mode.
+func (m Model) dateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
-		m.mode = insertMode
-		m.ins.dateInput = ""
-		m.cancelNewDate()
-	case tea.KeyEnter:
-		m.applyTimestampInput()
-	case tea.KeyBackspace:
-		if r := []rune(m.ins.dateInput); len(r) > 0 {
-			m.ins.dateInput = string(r[:len(r)-1])
+	case tea.KeyEnter, tea.KeyCtrlJ, tea.KeyEsc, tea.KeyCtrlC:
+		if !m.closeDateField() {
+			return m, nil
 		}
-	case tea.KeyCtrlU:
-		m.ins.dateInput = ""
-	case tea.KeyCtrlW:
-		m.ins.dateInput = strings.TrimRight(m.ins.dateInput, " ")
-		m.ins.dateInput = m.ins.dateInput[:strings.LastIndex(m.ins.dateInput, " ")+1]
-	case tea.KeySpace:
-		m.ins.dateInput += " "
-	case tea.KeyRunes:
-		m.ins.dateInput += typedText(msg.Runes)
+		if msg.Type == tea.KeyEsc || msg.Type == tea.KeyCtrlC || m.ins.exitWhenDone {
+			return m.finishInsert()
+		}
+		return m, nil
 	}
-	if m.mode == insertMode && m.ins.exitWhenDone {
-		// Resolved, one way or the other: "gd" is done.
-		return m.finishInsert()
-	}
+	editOneLine(&m.ins.date.input, msg)
 	return m, nil
 }
 
-// applyTimestampInput replaces the timestamp the date prompt was opened
-// on with the typed date, parsed as "gd" parses it, keeping only whether
-// it was active <...> or inactive [...]; the caret ends up just past it.
-// An empty input removes it; an invalid one is reported, leaving the
-// prompt open to correct it.
-func (m *Model) applyTimestampInput() {
-	m.message = ""
+// closeDateField resolves the date field: the typed date replaces the
+// timestamp — active or inactive as it was — with the caret just past
+// it; with nothing typed, the old one stays (a new deadline's label is
+// taken back out). ok is false, the field left open with an error, if
+// the typed date doesn't parse.
+func (m *Model) closeDateField() (ok bool) {
+	f := m.ins.date
 	b := &m.ins.buf
-	span := m.ins.date
-	input := strings.TrimSpace(m.ins.dateInput)
-	if input == "" && m.ins.dateLabel != nil {
-		// No date for a new deadline: there's nothing to remove.
-		m.mode = insertMode
-		m.cancelNewDate()
-		return
-	}
-	replacement := ""
-	if input != "" {
-		ts, err := orgdate.ParseDeadlineInput(input, m.now())
-		if err != nil {
-			m.message = err.Error()
-			return
+	input := strings.TrimSpace(f.input.String())
+	if input == "" {
+		m.ins.date = nil
+		if l := f.label; l != nil {
+			b.deleteRange(l.r1, l.c1, l.r2, l.c2)
+			b.row, b.col, b.goal = 0, m.titleStartCol(m.ins.target, b.lines[0]), -1
+			b.clamp()
+		} else {
+			b.row, b.col = f.row, f.start // back on the timestamp
 		}
-		replacement = "<" + ts.Raw + ">"
-		if !m.ins.dateActive {
-			replacement = "[" + ts.Raw + "]"
-		}
+		return true
 	}
-	b.deleteRange(b.row, span[0], b.row, span[1])
+	ts, err := orgdate.ParseDeadlineInput(input, m.now())
+	if err != nil {
+		m.message = err.Error()
+		return false
+	}
+	replacement := "<" + ts.Raw + ">"
+	if !f.active {
+		replacement = "[" + ts.Raw + "]"
+	}
+	m.ins.date = nil
+	b.deleteRange(f.row, f.start, f.row, f.start+utf8.RuneCountInString(f.old))
+	b.row, b.col = f.row, f.start
 	b.insert(replacement)
-	m.mode = insertMode
-	m.ins.dateInput = ""
-	m.ins.dateLabel = nil
+	return true
+}
+
+// dateFieldDisplay returns the line the date field is on as drawn: the
+// field in place of the timestamp, in its brackets, then a preview of
+// what's been typed (see datePreview). caret is the rune the caret is
+// on, and [p0, p1) the preview's runes, drawn in previewStyle.
+func (m *Model) dateFieldDisplay() (rs []rune, caret, p0, p1 int, previewStyle lipgloss.Style) {
+	f := m.ins.date
+	line := m.ins.buf.runes(f.row)
+	open, close := "[", "]"
+	if f.active {
+		open, close = "<", ">"
+	}
+	input := []rune(f.input.String())
+	rs = append(rs, line[:f.start]...)
+	rs = append(rs, []rune(open)...)
+	caret = len(rs) + f.input.col
+	rs = append(rs, input...)
+	if f.input.col == len(input) {
+		rs = append(rs, ' ') // a cell for the caret, past what's typed
+	}
+	rs = append(rs, []rune(close)...)
+	preview, isErr := m.datePreview()
+	p0 = len(rs)
+	rs = append(rs, []rune(preview)...)
+	p1 = len(rs)
+	rs = append(rs, line[f.start+utf8.RuneCountInString(f.old):]...)
+	previewStyle = m.statusStyle()
+	if isErr {
+		previewStyle = m.errorStyle()
+	}
+	return rs, caret, p0, p1, previewStyle
+}
+
+// datePreview is what the date field's preview says: what the typed date
+// resolves to, and how far off that is ("→ Fri 2026-11-20, in 3 days");
+// why it doesn't resolve (isErr); or, with nothing typed yet, the date
+// it's replacing — or some examples, for a new deadline.
+func (m *Model) datePreview() (text string, isErr bool) {
+	f := m.ins.date
+	input := strings.TrimSpace(f.input.String())
+	if input == "" {
+		if f.old == "" {
+			return "  e.g. 2026-12-25, 3d, 2w, next tue", false
+		}
+		return "  currently " + f.old, false
+	}
+	ts, err := orgdate.ParseDeadlineInput(input, m.now())
+	if err != nil {
+		return "  ✗ not a date", true
+	}
+	t, hasTime, err := orgdate.ParseFlexible(ts.Raw)
+	if err != nil {
+		return "  → " + ts.Raw, false
+	}
+	when := t.Format("Mon 2006-01-02")
+	if hasTime {
+		when += t.Format(" 15:04")
+	}
+	return "  → " + when + ", " + relativeDays(orgdate.TruncateToDate(t), orgdate.TruncateToDate(m.now())), false
+}
+
+// relativeDays says how far day is from today, in words.
+func relativeDays(day, today time.Time) string {
+	n := int(math.Round(day.Sub(today).Hours() / 24))
+	switch {
+	case n == 0:
+		return "today"
+	case n == 1:
+		return "tomorrow"
+	case n == -1:
+		return "yesterday"
+	case n > 0:
+		return fmt.Sprintf("in %d days", n)
+	}
+	return fmt.Sprintf("%d days ago", -n)
 }

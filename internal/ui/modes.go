@@ -26,7 +26,6 @@ const (
 	tagMode
 	closingNoteMode
 	insertMode
-	timestampMode
 
 	numModes // not a mode: the number of modes, sizing modeSpecs
 )
@@ -167,30 +166,22 @@ func init() {
 			},
 			prompt: func(m *Model) string {
 				hint := "(Esc: done, ctrl-g: edit in $EDITOR)"
-				if m.ins.note != nil {
+				if m.ins.date != nil {
+					hint = "(date: Enter when done, empty keeps it; Esc: done)"
+				} else if m.ins.note != nil {
 					hint = "(closing note: Enter or Esc when done, empty for none)"
 				} else if m.ins.onKeyword {
-					hint = "(keyword: type a shortcut, Delete for none, → for the title; Esc: done)"
+					hint = "(keyword: type a shortcut, Backspace/Delete for none, → for the title; Esc: done)"
 				} else if m.ins.inTags {
 					hint = "(tags: type to edit this one, Enter for a new one, Tab completes; Esc: done)"
 				} else if _, ok := m.onTimestamp(); ok {
-					hint = "(date: Enter to change it, Delete to remove it; Esc: done)"
+					hint = "(date: Enter to change it, Backspace/Delete to remove it; Esc: done)"
 				}
 				line := m.statusStyle().Render("-- INSERT --  " + hint)
 				if m.message != "" {
 					line += "  " + m.errorStyle().Render(m.message)
 				}
 				return line
-			},
-		},
-		timestampMode: {
-			update: Model.updateTimestampMode,
-			prompt: func(m *Model) string {
-				what, empty := "Date", "removes it"
-				if m.ins.dateLabel != nil {
-					what, empty = "Deadline", "cancels"
-				}
-				return m.editedLine(" " + what + " (YYYY-MM-DD, \"3d\", \"next tue\"; empty " + empty + "): " + m.ins.dateInput)
 			},
 		},
 		confirmMode: {

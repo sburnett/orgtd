@@ -33,14 +33,9 @@ type insertSession struct {
 	keywords  bool
 	onKeyword bool
 
-	// date is the timestamp (on buf's caret row, as [start, end) runes)
-	// timestampMode's prompt is changing — empty, for a new deadline
-	// "gd" is adding — and dateInput what's been typed there (see
+	// date is the timestamp being retyped in place, if one is (see
 	// insert_timestamp.go).
-	date       [2]int
-	dateInput  string
-	dateActive bool       // the timestamp is active <...>, not inactive [...]
-	dateLabel  *dateLabel // what "gd" added for a new deadline, if the prompt is for one
+	date *dateField
 
 	// exitWhenDone ends the session as soon as a date prompt is
 	// resolved, applied or cancelled — for "gd", which only uses insert
@@ -128,6 +123,7 @@ func (m *Model) titleStartCol(h *org.Headline, line string) int {
 // left with no title is dropped again.
 func (m Model) finishInsert() (tea.Model, tea.Cmd) {
 	m.leaveTags()
+	m.dropDatelessPlanningLabels()
 	s := m.ins
 	m.mode = normalMode
 	m.ins = insertSession{}
@@ -177,6 +173,9 @@ func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.message = ""
 	if m.ins.note != nil {
 		return m.noteKey(msg)
+	}
+	if m.ins.date != nil {
+		return m.dateKey(msg)
 	}
 	switch msg.Type {
 	case tea.KeyEsc, tea.KeyCtrlC:
@@ -390,6 +389,12 @@ func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) 
 		if i == 0 && m.ins.inTags {
 			rs, c0, c1 = m.tagsDisplay()
 		}
+		p0, p1, previewStyle := -1, -1, lipgloss.NewStyle()
+		if d := m.ins.date; d != nil && i == d.row {
+			rs, c0, p0, p1, previewStyle = m.dateFieldDisplay()
+			c1 = c0 + 1
+			previewStyle = previewStyle.Background(bg)
+		}
 		if i == 0 && m.ins.onKeyword {
 			if n := utf8.RuneCountInString(kw); n > 0 {
 				c0, c1 = 0, n
@@ -411,25 +416,33 @@ func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) 
 			}
 			var s strings.Builder
 			s.WriteString(prefix)
-			span := func(from, to int, st lipgloss.Style) {
-				if from < to {
-					s.WriteString(st.Render(strings.ReplaceAll(string(rs[from:to]), "\t", " ")))
+			// Each rune is drawn as text, the caret, or the date
+			// field's preview, in runs of the same kind.
+			const asText, asCaret, asPreview = 0, 1, 2
+			kind := func(k int) int {
+				switch {
+				case c0 >= 0 && !atEnd && k >= c0 && k < c1:
+					return asCaret
+				case k >= p0 && k < p1:
+					return asPreview
 				}
+				return asText
 			}
-			switch {
-			case c0 >= 0 && !atEnd:
-				span(seg[0], min(c0, seg[1]), text)
-				span(max(c0, seg[0]), min(c1, seg[1]), m.caretStyle())
-				span(max(c1, seg[0]), seg[1], text)
-				if c0 >= seg[0] && c0 < seg[1] {
-					caret = len(lines)
+			styles := [...]lipgloss.Style{asText: text, asCaret: m.caretStyle(), asPreview: previewStyle}
+			for k := seg[0]; k < seg[1]; {
+				end := k + 1
+				for end < seg[1] && kind(end) == kind(k) {
+					end++
 				}
-			default:
-				span(seg[0], seg[1], text)
-				if atEnd && j == len(segs)-1 {
-					s.WriteString(m.caretStyle().Render(" "))
-					caret = len(lines)
-				}
+				s.WriteString(styles[kind(k)].Render(strings.ReplaceAll(string(rs[k:end]), "\t", " ")))
+				k = end
+			}
+			if c0 >= 0 && !atEnd && c0 >= seg[0] && c0 < seg[1] {
+				caret = len(lines)
+			}
+			if atEnd && j == len(segs)-1 {
+				s.WriteString(m.caretStyle().Render(" "))
+				caret = len(lines)
 			}
 			lines = append(lines, m.padLineToWidth(s.String(), bg))
 		}

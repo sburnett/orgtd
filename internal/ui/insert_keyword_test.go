@@ -346,3 +346,17 @@ func TestROnALockedEntryRefuses(t *testing.T) {
 		t.Errorf("r on a locked entry: mode %v, want normal mode", m.mode)
 	}
 }
+
+func TestBackspaceOnTheKeywordRemovesIt(t *testing.T) {
+	m := sendKey(vetEntry(t), "I")
+	m = sendKey(m, "backspace")
+	if firstLine(m) != "Call the vet about Fido's checkup" || !m.ins.onKeyword {
+		t.Errorf("Backspace on the keyword: %q, onKeyword %v; want it gone, caret still on the slot", firstLine(m), m.ins.onKeyword)
+	}
+
+	m = sendKey(vetEntry(t), "r")
+	m = sendKey(m, "backspace")
+	if h := m.currentHeadline(); m.mode != normalMode || h.Keyword != "" {
+		t.Errorf("r then Backspace: mode %v, keyword %q; want it removed, back in normal mode", m.mode, h.Keyword)
+	}
+}

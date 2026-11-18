@@ -35,7 +35,7 @@ func TestPromptModesRenderTheirPrompt(t *testing.T) {
 		{"command", func(m Model) Model { return typeKeys(m, ":wq") }, ":wq"},
 		{"search forward", func(m Model) Model { return typeKeys(m, "/fido") }, "/fido"},
 		{"search backward", func(m Model) Model { return typeKeys(m, "?fido") }, "?fido"},
-		{"deadline", func(m Model) Model { return typeKeys(m, "gd3d") }, "Deadline"},
+		{"deadline", func(m Model) Model { return typeKeys(m, "gd3d") }, "date: Enter when done"},
 		{"tag", func(m Model) Model { return typeKeys(m, "gtpro") }, "tags: type to edit"},
 		{"status picker", func(m Model) Model { return typeKeys(m, "2r") }, "Set status"},
 		{"visual", func(m Model) Model { return typeKeys(m, "V") }, "-- VISUAL LINE --"},
@@ -68,12 +68,12 @@ func TestPromptShowsAMessageSetWithoutLeavingTheMode(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m = typeKeys(m, "gdnot a date")
 	m = sendKey(m, "enter")
-	if m.mode != timestampMode {
-		t.Fatalf("mode = %v, want the prompt to stay open", m.mode)
+	if m.ins.date == nil {
+		t.Fatalf("mode = %v, want the date field to stay open", m.mode)
 	}
 	line := lastLine(m)
-	if !strings.Contains(line, "Deadline") || !strings.Contains(line, "invalid date") {
-		t.Errorf("command row = %q, want the prompt and the error", line)
+	if !strings.Contains(line, "date: Enter when done") || !strings.Contains(line, "invalid date") {
+		t.Errorf("command row = %q, want the date field's hint and the error", line)
 	}
 }
 
