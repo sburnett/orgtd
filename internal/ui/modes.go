@@ -147,8 +147,21 @@ func init() {
 		},
 		insertMode: {
 			update: Model.updateInsertMode,
+			// The status picker's candidates, while the caret is on the
+			// keyword slot (see insert_keyword.go).
+			infoAbove: func(m *Model) []string {
+				if !m.ins.onKeyword {
+					return nil
+				}
+				kw, _ := m.insertKeyword()
+				return m.appendInfoSectionRendered(nil, "Status:", m.statusLines(m.statusCandidateIndex(kw)))
+			},
 			prompt: func(m *Model) string {
-				line := m.statusStyle().Render("-- INSERT --  (Esc: done, ctrl-g: edit in $EDITOR)")
+				hint := "(Esc: done, ctrl-g: edit in $EDITOR)"
+				if m.ins.onKeyword {
+					hint = "(keyword: type a shortcut, Delete for none, → for the title; Esc: done)"
+				}
+				line := m.statusStyle().Render("-- INSERT --  " + hint)
 				if m.message != "" {
 					line += "  " + m.errorStyle().Render(m.message)
 				}

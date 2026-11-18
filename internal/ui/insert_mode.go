@@ -26,6 +26,12 @@ type insertSession struct {
 	target *org.Headline  // the entry being edited, or o/O's tentative placeholder
 	insert *insertContext // non-nil for a new entry (o/O, capture); see finishEdit's own insert sessions
 	buf    textBuffer
+
+	// keywords is whether the first line's TODO keyword is a slot of its
+	// own (see insert_keyword.go) — everywhere but :reference — and
+	// onKeyword whether the caret is on it, rather than at buf's row/col.
+	keywords  bool
+	onKeyword bool
 }
 
 // caretStart is where insert mode puts the caret on entering it.
@@ -47,7 +53,7 @@ func (m *Model) enterInsertMode(h *org.Headline, insert *insertContext, caret ca
 	case caretAtTitle:
 		buf.col = m.titleStartCol(h, buf.lines[0])
 	case caretAtLineStart:
-		buf.lineStart()
+		buf.lineStart() // and onto the keyword slot, below
 	case caretAfterTitleStart:
 		// Past the end of the line only if there's nothing there, as
 		// vim's "a" on an empty line.
@@ -55,7 +61,10 @@ func (m *Model) enterInsertMode(h *org.Headline, insert *insertContext, caret ca
 	case caretAtLineEnd:
 		buf.lineEnd()
 	}
-	m.ins = insertSession{target: h, insert: insert, buf: buf}
+	m.ins = insertSession{target: h, insert: insert, buf: buf, keywords: m.view != referenceView}
+	if caret == caretAtLineStart && m.ins.keywords {
+		m.enterKeywordSlot()
+	}
 	m.mode = insertMode
 	m.pendingCount = 0
 }
@@ -119,6 +128,8 @@ func (m *Model) resumeInsertFromEditor(text string) {
 	b.goal = -1
 	b.clamp()
 	m.ins.buf = b
+	m.ins.onKeyword = false
+	m.snapOutOfKeyword()
 }
 
 // updateInsertMode handles a key in insert mode: text and the usual
@@ -127,12 +138,17 @@ func (m *Model) resumeInsertFromEditor(text string) {
 // returns to normal mode; ctrl-g opens it in $EDITOR.
 func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.message = ""
-	b := m.ins.buf
 	switch msg.Type {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		return m.finishInsert()
 	case tea.KeyCtrlG:
 		return m, m.editInsertInEditor()
+	}
+	if m.insertKeywordKey(msg) {
+		return m, nil
+	}
+	b := m.ins.buf
+	switch msg.Type {
 	case tea.KeyEnter, tea.KeyCtrlJ:
 		b.insert("\n")
 	case tea.KeySpace:
@@ -188,6 +204,7 @@ func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.lineEnd()
 	}
 	m.ins.buf = b
+	m.snapOutOfKeyword()
 	return m, nil
 }
 
@@ -208,7 +225,7 @@ func typedText(runes []rune) string {
 // (see listingWithInsert). keepInsertTargetInView sees to it that it
 // always is.
 func (m *Model) insertInline() bool {
-	return m.mode == insertMode && m.currentHeadline() == m.ins.target
+	return m.inInsertSession() && m.currentHeadline() == m.ins.target
 }
 
 // keepInsertTargetInView keeps the cursor on the entry insert mode is
@@ -217,7 +234,7 @@ func (m *Model) insertInline() bool {
 // rows out from under it — falling back to the outline, which lists
 // every entry, if the current view no longer shows it at all.
 func (m *Model) keepInsertTargetInView() {
-	if m.mode != insertMode || m.currentHeadline() == m.ins.target {
+	if !m.inInsertSession() || m.currentHeadline() == m.ins.target {
 		return
 	}
 	m.focusHeadline(m.ins.target)
@@ -303,20 +320,36 @@ func (m Model) insertLead(r row, bg lipgloss.TerminalColor) (lead, blank string)
 // line of text wrapped (at any character, as vim's own 'wrap' does) to
 // the width left after lead — what the first line starts with — or
 // blank, what every later one does, and padded out with bg. The caret is
-// drawn on the character it sits on, or past the end of its line; caret
-// is the index of the screen line holding it.
+// drawn on the character it sits on, or past the end of its line — or,
+// on the keyword slot, over the whole keyword, or as a blank cell before
+// the title if there's none; caret is the index of the screen line
+// holding it.
 func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) (lines []string, caret int) {
 	avail := math.MaxInt
 	if m.width > 0 {
 		avail = max(1, m.width-lipgloss.Width(lead))
 	}
 	b := m.ins.buf
+	kw, _ := m.insertKeyword()
 	text := lipgloss.NewStyle().Background(bg)
 	for i, line := range b.lines {
 		rs := []rune(line)
+		// The caret covers runes [c0, c1) of this line, if it's on it.
+		c0, c1 := -1, -1
+		if i == b.row {
+			c0, c1 = b.col, b.col+1
+		}
+		if i == 0 && m.ins.onKeyword {
+			if n := utf8.RuneCountInString(kw); n > 0 {
+				c0, c1 = 0, n
+			} else {
+				rs = append([]rune{' '}, rs...)
+				c0, c1 = 0, 1
+			}
+		}
+		atEnd := c0 == len(rs)
 		segs, lastW := wrapRunes(rs, avail)
-		caretLine := i == b.row
-		if caretLine && b.col == len(rs) && lastW >= avail {
+		if atEnd && lastW >= avail {
 			// No room left for the caret after the last character.
 			segs = append(segs, [2]int{len(rs), len(rs)})
 		}
@@ -327,23 +360,25 @@ func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) 
 			}
 			var s strings.Builder
 			s.WriteString(prefix)
-			plain := func(from, to int) {
+			span := func(from, to int, st lipgloss.Style) {
 				if from < to {
-					s.WriteString(text.Render(strings.ReplaceAll(string(rs[from:to]), "\t", " ")))
+					s.WriteString(st.Render(strings.ReplaceAll(string(rs[from:to]), "\t", " ")))
 				}
 			}
-			onCaret := caretLine && (b.col >= seg[0] && b.col < seg[1] || j == len(segs)-1 && b.col == seg[1])
-			if onCaret {
-				caret = len(lines)
-				plain(seg[0], b.col)
-				under := " "
-				if b.col < seg[1] {
-					under = strings.ReplaceAll(string(rs[b.col]), "\t", " ")
+			switch {
+			case c0 >= 0 && !atEnd:
+				span(seg[0], min(c0, seg[1]), text)
+				span(max(c0, seg[0]), min(c1, seg[1]), m.caretStyle())
+				span(max(c1, seg[0]), seg[1], text)
+				if c0 >= seg[0] && c0 < seg[1] {
+					caret = len(lines)
 				}
-				s.WriteString(m.caretStyle().Render(under))
-				plain(min(b.col+1, seg[1]), seg[1])
-			} else {
-				plain(seg[0], seg[1])
+			default:
+				span(seg[0], seg[1], text)
+				if atEnd && j == len(segs)-1 {
+					s.WriteString(m.caretStyle().Render(" "))
+					caret = len(lines)
+				}
 			}
 			lines = append(lines, m.padLineToWidth(s.String(), bg))
 		}

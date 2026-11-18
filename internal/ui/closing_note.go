@@ -35,10 +35,18 @@ func (m *Model) closesAny(keyword string) bool {
 // updateClosingNoteMode handles key presses while the closing-note prompt
 // is open: Enter applies the state chosen in the picker, recording the
 // typed note if there is one, and Esc cancels the state change altogether.
+// Opened from insert mode's keyword slot (closingNoteForInsert), either
+// way returns to insert mode, and Enter applies the state to the text
+// being edited (see applyInsertKeyword).
 func (m Model) updateClosingNoteMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
-	case tea.KeyEsc:
+	case tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = normalMode
+		if m.closingNoteForInsert {
+			// Back to insert mode, on the keyword slot, unchanged.
+			m.mode = insertMode
+			m.closingNoteForInsert = false
+		}
 		m.closingNoteInput = ""
 		m.selectModeTargets = nil
 		return m, nil
@@ -47,6 +55,12 @@ func (m Model) updateClosingNoteMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = normalMode
 		note := m.closingNoteInput
 		m.closingNoteInput = ""
+		if m.closingNoteForInsert {
+			m.mode = insertMode
+			m.closingNoteForInsert = false
+			m.applyInsertKeyword(m.closingNoteKeyword, note)
+			return m, nil
+		}
 		m.applyStatusToTargets(m.closingNoteKeyword, m.closingNoteLabel, note)
 		return m, nil
 

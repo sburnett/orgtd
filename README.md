@@ -644,7 +644,7 @@ parent before the file name.
 | Key | Action |
 |---|---|
 | `i` | Edit the current entry's own text (title, planning line, properties, and body — not its children, which are left untouched) right where it is, in insert mode (see Insert mode, below), caret at the start of the title — after any TODO keyword and priority (`TODO [#A] `), or at the very start in `:reference`, which shows a keyword as plain title text. The text has no leading bullet (`*`) to edit around, and the whole entry — not just the title — is dedented by one level to match, so properties/planning/body lines that would otherwise still be indented under the now-absent bullet start flush left too; it's just the entry's text, plain, re-indented automatically when you're done. On a file's own header row, edits the whole file in `$EDITOR` instead (after a confirmation, since this discards undo history and marks for that file) |
-| `I` | Same as `i`, but the caret lands at the very start of the line, before any TODO keyword and priority — vim's own "insert at the start of the line", handy for changing or adding a keyword |
+| `I` | Same as `i`, but the caret lands on the entry's TODO keyword — or the empty slot where one goes — to change, add or remove it with a single key (see The keyword, under Insert mode, below); vim's own "insert at the start of the line". In `:reference`, which has no keyword slot, the very start of the line |
 | `a` | Same as `i`, but the caret lands one character further right — vim's own "append after the cursor", with `i`'s position standing in for the cursor (so after the title's first character) |
 | `A` | Same as `i`, but the caret lands at the end of the entry's first line instead (vim's own "append" position) |
 | `ctrl-g` | Edit the current entry in `$EDITOR` instead, and apply the result when it exits — the same text as `i`, starting on line 1 (a vim-family `$EDITOR` — vi/vim/nvim/gvim/mvim — starts there in its normal mode, as you were in orgtd's). Below it, git-commit-style, is a comment block sketching the entry's place in the outline (its file, parent, siblings, and its own children, each with their real bullets) with a `[THIS ENTRY HERE]` marker standing in for the entry itself — for orientation only; editing it has no effect. On a file's own header row, same as `i`. In insert mode, `ctrl-g` hands what you've typed so far to `$EDITOR` instead (see Insert mode, below) |
@@ -683,6 +683,30 @@ goes into the entry, normal-mode commands included, until you leave.
 | `Backspace`, `Delete`/`ctrl-d` | Delete the character before / under the caret, joining lines at either end of one |
 | `ctrl-w`/`alt-Backspace`, `alt-d` | Delete the word before / after the caret |
 | `ctrl-u`, `ctrl-k` | Delete to the start / end of the line (`ctrl-k` at the end joins the next line) |
+
+#### The keyword
+
+An entry's TODO keyword counts as a single character in insert mode,
+sitting in a slot of its own at the start of the first line — holding
+the keyword, or nothing. `I`, or `←`/`Home` from the start of the title,
+puts the caret on it: the whole keyword (or a blank cell, if there's
+none) is highlighted, the same `Status:` list as `r` opens below it, and
+the only things you can type are its shortcuts.
+
+| Key, on the keyword | Action |
+|---|---|
+| A shortcut (`t`, `n`, `d`, …) | Set that keyword, with everything `r` does along with it — choosing a done state stamps `CLOSED` and asks for a closing note (`Esc` there keeps the keyword as it was), and on a repeating item advances its dates instead — right away, in the text you're editing. The caret moves to the start of the title. All of it lands in the outline with the rest of the edit when you leave insert mode, as one undo step |
+| `-`, `Delete`/`ctrl-d` | Remove the keyword |
+| `→`, `End`, `↓` | Back into the text |
+
+Elsewhere, the cursor motions step over the keyword as one character,
+and `Backspace` (or `ctrl-w`) at the start of the title, or `ctrl-u`
+anywhere on the first line, removes it whole, the same as `-`. A new
+entry starts without a keyword, the caret on its title; press `←` to
+give it one. `:reference`, which shows a keyword as plain title text,
+has no slot: it's ordinary characters there. Typing a keyword's name
+out at the start of the title makes it the keyword too — but only as
+text, without the `CLOSED` stamp and the rest of what choosing it does.
 
 Long lines wrap at the window's edge. Bare URLs are formatted into org
 links when you leave insert mode, the same as after `$EDITOR` (see

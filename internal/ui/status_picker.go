@@ -257,7 +257,13 @@ func (m Model) statusSelectorLines() []string {
 		}
 		highlighted = m.statusCandidateIndex(matches[idx].keyword)
 	}
+	return m.statusLines(highlighted)
+}
 
+// statusLines renders statusCandidates one per line, "[shortcut] label",
+// the one at index highlighted (if any) in reverse video — for the "r"
+// picker (statusSelectorLines) and insert mode's keyword slot.
+func (m Model) statusLines(highlighted int) []string {
 	cands := m.statusCandidates()
 	lines := make([]string, len(cands))
 	for i, c := range cands {
