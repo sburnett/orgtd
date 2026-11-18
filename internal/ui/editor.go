@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -120,6 +122,10 @@ func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	newFile, err := org.ParseFile(msg.target.Path)
+	if msg.target.New && errors.Is(err, fs.ErrNotExist) {
+		// A new file the editor quit without writing: nothing changed.
+		return m, nil
+	}
 	if err != nil {
 		m.message = fmt.Sprintf("Could not reload %s: %v", filepath.Base(msg.target.Path), err)
 		return m, nil

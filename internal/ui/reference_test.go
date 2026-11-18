@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,12 +208,76 @@ func TestEditCreatesAnEmptyReferenceFileAndFocusesItsHeader(t *testing.T) {
 	if r := m.rows[m.cursor]; r.kind != rowFile || filepath.Base(r.file.Path) != "wifi.org" {
 		t.Errorf("cursor row = %+v, want wifi.org's header", r)
 	}
-	path := filepath.Join(m.ws.Dir, "reference", "wifi.org")
-	if data, err := os.ReadFile(path); err != nil || len(data) != 0 {
-		t.Errorf("file on disk = %q, %v; want empty", data, err)
+	// Like vim, a new file isn't written — nor its directory created —
+	// until :w saves an edit to it.
+	if _, err := os.Stat(filepath.Join(m.ws.Dir, "reference")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("reference/ stat err = %v, want not created yet", err)
 	}
-	if !strings.Contains(m.message, "Created reference/wifi.org") {
+	if !strings.Contains(m.message, `"reference/wifi.org" [New]`) {
 		t.Errorf("message = %q", m.message)
+	}
+}
+
+func TestEditedNewFileIsWrittenOnlyByW(t *testing.T) {
+	m := editFixture(t)
+	m = runEdit(m, "e reference/wifi")
+	path := filepath.Join(m.ws.Dir, "reference", "wifi.org")
+
+	// Untouched, it isn't dirty: :w writes nothing and :q doesn't object.
+	if msg, ok := m.writeAllResult(false); !ok || msg != "No changes to write" {
+		t.Errorf(":w on an untouched new file = %q, %v", msg, ok)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stat after :w with no edits: %v, want not written", err)
+	}
+
+	m = sendKey(m, "o")
+	m = commitTentative(t, m, nil, "Network: home\n")
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stat after adding an entry: %v, want still not written before :w", err)
+	}
+	if msg, ok := m.writeAllResult(false); !ok {
+		t.Fatalf(":w = %q, want success", msg)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "* Network: home\n" {
+		t.Errorf("file on disk = %q, %v", data, err)
+	}
+}
+
+func TestNewFileCreatedOnDiskMeanwhileIsNotClobbered(t *testing.T) {
+	m := editFixture(t)
+	m = runEdit(m, "e notes")
+	m = sendKey(m, "o")
+	m = commitTentative(t, m, nil, "Mine\n")
+
+	path := filepath.Join(m.ws.Dir, "notes.org")
+	if err := os.WriteFile(path, []byte("* Theirs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if msg, ok := m.writeAllResult(false); ok || !strings.Contains(msg, "notes.org changed on disk") {
+		t.Errorf(":w = %q, %v; want refused", msg, ok)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "* Theirs\n" {
+		t.Errorf("file on disk = %q, want untouched", data)
+	}
+	if msg, ok := m.writeAllResult(true); !ok {
+		t.Fatalf(":w! = %q", msg)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "* Mine\n" {
+		t.Errorf("file on disk after :w! = %q", data)
+	}
+}
+
+func TestReloadOfUnwrittenNewFileDiscardsItsEdits(t *testing.T) {
+	m := editFixture(t)
+	m = runEdit(m, "e notes")
+	m = sendKey(m, "o")
+	m = commitTentative(t, m, nil, "Mine\n")
+	m = runEdit(m, "e! notes")
+	f := m.loadedFile(filepath.Join(m.ws.Dir, "notes.org"))
+	if f == nil || !f.New || len(f.Headlines) != 0 || m.dirty[f] {
+		t.Errorf("after :e! = %+v (dirty %v), message %q; want an empty, clean new file", f, f != nil && m.dirty[f], m.message)
 	}
 }
 

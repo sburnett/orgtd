@@ -17,8 +17,9 @@ import (
 // cursor goes to the file's header row — in :reference for a file in
 // reference/, in :outline for any other. If the file isn't loaded yet it
 // is first added to the workspace: loaded from disk if something outside
-// orgtd created it, or else created empty (on disk right away, since an
-// empty file has no edit for ":w" to save). arg is relative to the org
+// orgtd created it, or else as a new, empty file that exists only in
+// memory until ":w" — like vim, nothing touches disk until it's saved,
+// and a new file left unedited is never written. arg is relative to the org
 // directory — "notes", "notes.org" and "reference/wifi" are all fine; the
 // ".org" extension is added if missing, and nothing outside the org
 // directory and its reference/ subdirectory is accepted, since no other
@@ -65,7 +66,7 @@ func (m *Model) editFile(arg string) {
 		m.focusFile(f)
 	}
 	if created {
-		m.message = "Created " + rel
+		m.message = fmt.Sprintf("%q [New]", rel)
 	}
 }
 
@@ -99,6 +100,11 @@ func (m *Model) reloadFile(arg string) {
 		return
 	}
 	newFile, err := org.ParseFile(f.Path)
+	if f.New && errors.Is(err, fs.ErrNotExist) {
+		// Never written, and still not on disk: "reloading" it means
+		// going back to the empty file :edit started with.
+		newFile, err = &org.File{Path: f.Path, New: true}, nil
+	}
 	if err != nil {
 		m.message = fmt.Sprintf("Could not reload %s: %v", name, err)
 		return
@@ -180,22 +186,15 @@ func (m *Model) loadedFile(path string) *org.File {
 }
 
 // addFile adds the file at path to the workspace: parsed from disk if it's
-// there (created outside orgtd), otherwise created empty first, along
-// with its directory. created reports which.
+// there (created outside orgtd), otherwise a new, empty file held only in
+// memory — nothing is written, not even its directory, until ":w" saves
+// an edit to it (see org.File.New). created reports which.
 func (m *Model) addFile(path string) (f *org.File, created bool, err error) {
-	if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, false, fmt.Errorf("Creating %s: %v", filepath.Dir(path), err)
-		}
-		fh, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err != nil {
-			return nil, false, fmt.Errorf("Creating %s: %v", filepath.Base(path), err)
-		}
-		fh.Close()
-		created = true
-	}
 	f, err = org.ParseFile(path)
-	if err != nil {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		f, created = &org.File{Path: path, New: true}, true
+	case err != nil:
 		return nil, false, fmt.Errorf("Loading %s: %v", filepath.Base(path), err)
 	}
 	m.ws.Files = append(m.ws.Files, f)

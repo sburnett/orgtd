@@ -172,6 +172,7 @@ func (h *Headline) TrimmedBody() []string {
 type File struct {
 	Path      string
 	DiskHash  string   // hash of the file's bytes as last read from or written to disk; "" if never (see ChangedOnDisk)
+	New       bool     // created in memory (":edit" of a missing file) and not yet written; Path doesn't exist on disk (see ChangedOnDisk)
 	Preamble  []string // lines before the first headline (e.g. #+TITLE:)
 	Headlines []*Headline
 }

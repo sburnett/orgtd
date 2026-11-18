@@ -21,9 +21,21 @@ func hashContent(data []byte) string {
 // editor rewrote it since — so that writing f would silently clobber
 // that change. Compares content rather than mtime, so a touch or a
 // checkout that leaves the bytes the same isn't a change. A file that's
-// gone from disk counts as changed. A file with no recorded hash (never
-// read from or written to disk) is never reported as changed.
+// gone from disk counts as changed. A New file (never written) counts
+// as changed if something else has since created a file at its path —
+// vim's "file exists" check. Any other file with no recorded hash
+// (never read from or written to disk) is never reported as changed.
 func ChangedOnDisk(f *File) (bool, error) {
+	if f.New {
+		_, err := os.Stat(f.Path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("org: checking %s: %w", f.Path, err)
+		}
+		return true, nil
+	}
 	if f.DiskHash == "" {
 		return false, nil
 	}
@@ -40,9 +52,15 @@ func ChangedOnDisk(f *File) (bool, error) {
 // WriteFile renders f and writes it to f.Path atomically: the new
 // content is written to a temp file in the same directory, then renamed
 // over the original, so a crash or error mid-write can never leave a
-// truncated or corrupted file on disk.
+// truncated or corrupted file on disk. A New file's directory is
+// created first if it's missing.
 func WriteFile(f *File) error {
 	dir := filepath.Dir(f.Path)
+	if f.New {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("org: creating %s: %w", dir, err)
+		}
+	}
 
 	tmp, err := os.CreateTemp(dir, ".orgtd-write-*.tmp")
 	if err != nil {
@@ -67,5 +85,6 @@ func WriteFile(f *File) error {
 		return fmt.Errorf("org: replacing %s: %w", f.Path, err)
 	}
 	f.DiskHash = hashContent([]byte(content))
+	f.New = false
 	return nil
 }
