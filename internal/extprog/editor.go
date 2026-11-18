@@ -39,11 +39,13 @@ var vimFamily = map[string]bool{
 type Placement int
 
 const (
-	// NoPlacement just lands on the entry's first line, same as
-	// always — used only for a whole-file edit (startEditFile), where
-	// there's no single entry to position a cursor within.
+	// NoPlacement just lands on the entry's first line, in the editor's
+	// own normal mode — used for a whole-file edit (startEditFile),
+	// where there's no single entry to position a cursor within, and
+	// for ctrl-g from orgtd's normal mode, which shouldn't drop you into
+	// insert mode in vim either.
 	NoPlacement Placement = iota
-	// AtEntryStart ("i", "o"/"O") puts the cursor at the very start
+	// AtEntryStart (ctrl-g from orgtd's insert mode) puts the cursor at the very start
 	// of the entry's own text — column 1, since the buffer never shows a
 	// bullet to land after (see org.DedentEntry, launchEditor, and
 	// ResolveEntryPlacement) — in insert mode, so typing
@@ -51,7 +53,7 @@ const (
 	// that spot would. For o/O the entry is a blank template, so this is
 	// also where its title will end up starting.
 	AtEntryStart
-	// AtLineEnd ("A") puts the cursor at the end of the entry's
+	// AtLineEnd puts the cursor at the end of the entry's
 	// first line, in insert mode — vim's own "A" (append at end of
 	// line), landing on whichever text (keyword, title, tags) the line
 	// actually ends with.
