@@ -80,13 +80,13 @@ func TestAPrefixKeyAfterAnotherPrefixStartsItsOwnChord(t *testing.T) {
 
 func TestSamePrefixKeyHasDifferentMeaningsPerChord(t *testing.T) {
 	// "o" opens a fold after z, but inserts an entry on its own; "d" after
-	// g is a deadline prompt, after d a delete.
+	// g sets a deadline, after d deletes.
 	m := New(loadFixture(t))
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m = sendKey(m, "g")
 	m = sendKey(m, "d")
-	if m.mode != deadlineMode {
-		t.Errorf("mode after g d = %v, want deadlineMode", m.mode)
+	if m.mode != timestampMode {
+		t.Errorf("mode after g d = %v, want the deadline prompt", m.mode)
 	}
 }
 

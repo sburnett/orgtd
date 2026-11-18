@@ -32,6 +32,20 @@ type insertSession struct {
 	// onKeyword whether the caret is on it, rather than at buf's row/col.
 	keywords  bool
 	onKeyword bool
+
+	// date is the timestamp (on buf's caret row, as [start, end) runes)
+	// timestampMode's prompt is changing — empty, for a new deadline
+	// "gd" is adding — and dateInput what's been typed there (see
+	// insert_timestamp.go).
+	date       [2]int
+	dateInput  string
+	dateActive bool       // the timestamp is active <...>, not inactive [...]
+	dateLabel  *dateLabel // what "gd" added for a new deadline, if the prompt is for one
+
+	// exitAfterDate ends the session as soon as a date prompt is
+	// resolved, applied or cancelled — for "gd", which only uses insert
+	// mode to set the deadline.
+	exitAfterDate bool
 }
 
 // caretStart is where insert mode puts the caret on entering it.
@@ -130,6 +144,7 @@ func (m *Model) resumeInsertFromEditor(text string) {
 	m.ins.buf = b
 	m.ins.onKeyword = false
 	m.snapOutOfKeyword()
+	m.snapOutOfTimestamp(m.ins.buf.row, m.ins.buf.col)
 }
 
 // updateInsertMode handles a key in insert mode: text and the usual
@@ -144,9 +159,10 @@ func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlG:
 		return m, m.editInsertInEditor()
 	}
-	if m.insertKeywordKey(msg) {
+	if m.insertKeywordKey(msg) || m.insertTimestampKey(msg) {
 		return m, nil
 	}
+	fromRow, fromCol := m.ins.buf.row, m.ins.buf.col
 	b := m.ins.buf
 	switch msg.Type {
 	case tea.KeyEnter, tea.KeyCtrlJ:
@@ -205,6 +221,7 @@ func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.ins.buf = b
 	m.snapOutOfKeyword()
+	m.snapOutOfTimestamp(fromRow, fromCol)
 	return m, nil
 }
 
@@ -321,7 +338,7 @@ func (m Model) insertLead(r row, bg lipgloss.TerminalColor) (lead, blank string)
 // the width left after lead — what the first line starts with — or
 // blank, what every later one does, and padded out with bg. The caret is
 // drawn on the character it sits on, or past the end of its line — or,
-// on the keyword slot, over the whole keyword, or as a blank cell before
+// on a timestamp, over all of it; on the keyword slot, over the whole keyword, or as a blank cell before
 // the title if there's none; caret is the index of the screen line
 // holding it.
 func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) (lines []string, caret int) {
@@ -338,6 +355,9 @@ func (m Model) insertEditorLines(lead, blank string, bg lipgloss.TerminalColor) 
 		c0, c1 := -1, -1
 		if i == b.row {
 			c0, c1 = b.col, b.col+1
+			if s, ok := m.onTimestamp(); ok {
+				c1 = s[1] // the whole timestamp is the caret
+			}
 		}
 		if i == 0 && m.ins.onKeyword {
 			if n := utf8.RuneCountInString(kw); n > 0 {

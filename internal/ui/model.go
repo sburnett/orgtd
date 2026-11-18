@@ -160,8 +160,6 @@ type Model struct {
 	meetingPickerFilter     string
 	meetingPickerIndex      int
 
-	deadlineInput string // typed so far, in deadlineMode
-
 	// tagTarget is the entry "gt" was invoked on, whose Tags is toggled
 	// (added if absent, removed if already present — see applyTagInput)
 	// on Enter. tagInput is typed so far; tagCompletions is the

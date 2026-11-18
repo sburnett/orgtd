@@ -146,31 +146,9 @@ func (a *closingNoteAction) revert(m *Model) *org.Headline {
 func (a *closingNoteAction) file() *org.File           { return a.f }
 func (a *closingNoteAction) affected() []*org.Headline { return []*org.Headline{a.h} }
 
-// deadlineChangeAction records a DEADLINE change ("gd"), including
-// clearing it (newDeadline nil). Like statusChangeAction, the mutation
-// is in place, so the same headline pointer is "affected" either way.
-type deadlineChangeAction struct {
-	h                        *org.Headline
-	f                        *org.File
-	oldDeadline, newDeadline *org.Timestamp
-}
-
-func (a *deadlineChangeAction) apply(m *Model) *org.Headline {
-	a.h.Deadline = a.newDeadline
-	return a.h
-}
-
-func (a *deadlineChangeAction) revert(m *Model) *org.Headline {
-	a.h.Deadline = a.oldDeadline
-	return a.h
-}
-
-func (a *deadlineChangeAction) file() *org.File           { return a.f }
-func (a *deadlineChangeAction) affected() []*org.Headline { return []*org.Headline{a.h} }
-
 // tagChangeAction records "gt" toggling one tag on or off an entry's
-// Tags (see applyTagInput). Like deadlineChangeAction, the mutation is
-// in place, so the same headline pointer is "affected" either way.
+// Tags (see applyTagInput). The mutation is in place, so the same
+// headline pointer is "affected" either way.
 type tagChangeAction struct {
 	h                *org.Headline
 	f                *org.File

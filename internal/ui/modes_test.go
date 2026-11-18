@@ -68,7 +68,7 @@ func TestPromptShowsAMessageSetWithoutLeavingTheMode(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	m = typeKeys(m, "gdnot a date")
 	m = sendKey(m, "enter")
-	if m.mode != deadlineMode {
+	if m.mode != timestampMode {
 		t.Fatalf("mode = %v, want the prompt to stay open", m.mode)
 	}
 	line := lastLine(m)

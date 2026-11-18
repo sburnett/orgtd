@@ -657,7 +657,7 @@ parent before the file name.
 | `>>` / `<<` | Demote / promote the current entry (re-parents it, not just cosmetic indentation) |
 | `r` / `R` | Open a picker to set the TODO state directly (type to filter, or use a candidate's bracketed shortcut — configurable, see `[[keywords]]`). Choosing a done state for an entry that isn't already done then asks for a one-line closing note: `Enter` closes it with that note, or with none if left empty, and `Esc` cancels the state change. See File format, below |
 | `<N>r` / `<N>R` | Open the same picker, but apply the chosen state to the current entry and the next N-1 (each independently, nesting included), as one undo step (e.g. `2R` sets the current and next entry). A closing note is asked for once, and goes on every entry this closes |
-| `gd` | Set the current entry's deadline — accepts an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday" |
+| `gd` | Set the current entry's deadline, in insert mode (see Timestamps, under Insert mode, below): the caret lands on its `DEADLINE` date, ready for `Enter` to change it. With no deadline yet, `DEADLINE: ` is added to the planning line (just below the title, after any `SCHEDULED`, before any `CLOSED`; the line is created if need be) and the date prompt opens for it right away — an exact date, `3d`/`2w`/`1m`/`1y` shorthand, or a fuzzy phrase like "next tuesday". Cancelling that prompt, or leaving it empty, takes the label back out. As soon as the date's prompt is done with — the date set, or cancelled — insert mode ends too, with the change applied, back in normal mode |
 | `gC` | Capture: append a new entry to the end of the inbox file and start typing it in insert mode, as `o` does, regardless of the current cursor position or view (same as `:capture`). From a view that doesn't list it (the agenda, say), it first switches to outline view, on the new entry at the end of the inbox, so it's typed in place there like any other; once you leave insert mode the cursor stays on it, ready for further edits right away (`ctrl-o` jumps back to where you were). Cancelling — leaving insert mode with no title typed — returns to the view you started from. Deliberately doesn't guess at a calendar meeting to attach, even one in progress at the moment of capture — see `gM` below, the interactive way to do that |
 | `gM` | Open a picker (type to filter by title or attendee tag — e.g. "alice" matches a meeting tagged `@alice`, same tags `:sync-calendar` stamps on for Tag-based meeting links, below — ↑/↓ to browse, Enter to pick, Esc to cancel) over every distinct meeting `:sync-calendar` currently has synced at least one instance of — a recurring series (deduped by series) or a one-off event alike — and toggle it on or off the current entry's `GCAL_RECURRING_EVENT_IDS`/`GCAL_RECURRING_EVENT_LINKS` (recurring) or `GCAL_EVENT_IDS`/`GCAL_EVENT_LINKS` (one-off) properties (the `..._LINKS` one is a title/link snapshot, used by the info buffer's "Meeting" section — see above — to keep showing the meeting's name and link even after it drops off the calendar entirely; see the agenda's Meetings section, also above, for what the IDs are for). Picking a meeting already attached detaches it instead of adding a duplicate. A no-op (with a status message) if `:sync-calendar` hasn't synced anything at all — there's nothing to offer. A linked entry (attached via `gM`, or tag-matched — see Tag-based meeting links, above) shows a `▣` in its own gutter column (alongside any mark, lock, or dirty marker), so whether it's linked to a meeting is visible at a glance, in every view, without opening it |
 | `gX` | `gC` immediately followed by `gM`: capture as usual, and once you leave insert mode, the meeting picker opens automatically on the just-captured entry — for capturing something during a meeting and attaching that meeting in one motion. Cancelling the capture (no title typed) never opens the picker; if nothing's synced yet, the capture still commits, just without the picker (same no-op message as a bare `gM`) |
@@ -707,6 +707,26 @@ give it one. `:reference`, which shows a keyword as plain title text,
 has no slot: it's ordinary characters there. Typing a keyword's name
 out at the start of the title makes it the keyword too — but only as
 text, without the `CLOSED` stamp and the rest of what choosing it does.
+
+#### Timestamps
+
+Every org timestamp in the entry — active `<2026-11-17 Tue>` or inactive
+`[2026-11-17 Tue 18:50]`, on the planning line, in a property like
+`:CREATED:`, or in the title or body — counts as a single character too.
+With the caret on one, the whole timestamp is highlighted as the caret,
+and:
+
+| Key, on a timestamp | Action |
+|---|---|
+| `Enter` | Change its date: a blank prompt opens below that takes — an exact date (optionally with a time), `3d`/`2w`/`1m`/`1y`, or a phrase like `next tue`. `ctrl-u` clears what you've typed and `ctrl-w` its last word. `Enter` applies it (an empty one removes the timestamp), `Esc` leaves it as it was. The new one stays active or inactive, as the old one was; like `gd`, a phrase without a time gives a plain date, and a repeater (`+1w`) isn't kept |
+| `Delete`/`ctrl-d` | Remove it |
+| Letters | Nothing — `Enter` changes the date |
+
+Elsewhere, the cursor motions step over a timestamp as one character, and
+`Backspace` just past one, or a word deletion (`ctrl-w`, `alt-d`) that
+would cut into one, removes it whole. Each half of a range
+(`<…>--<…>`) is a timestamp of its own. A label like `DEADLINE:` is
+ordinary text: removing its timestamp leaves it in place.
 
 Long lines wrap at the window's edge. Bare URLs are formatted into org
 links when you leave insert mode, the same as after `$EDITOR` (see

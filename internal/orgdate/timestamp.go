@@ -39,7 +39,7 @@ func RepeaterCookie(ts *org.Timestamp) string {
 // ParseTimestampDate returns ts's date, with any time-of-day dropped, if
 // it can be parsed as one of Layouts — the same layouts
 // accepted when typing a date into the deadline prompt, which covers
-// every format orgtd itself writes (see the ui package's applyDeadlineInput) plus a
+// every format orgtd itself writes (see orgdate.ParseDeadlineInput) plus a
 // weekday-less fallback for hand-edited files. A repeater cookie
 // (e.g. "+1w") and/or a warning-period cookie (e.g. "-3d") are stripped
 // before that match is attempted, and — for a repeater — the parsed date

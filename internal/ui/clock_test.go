@@ -62,12 +62,13 @@ func TestWithClockResolvesRelativeDeadlinePhrases(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Plan the trip\n")
 	m := New(ws, fixedClock(pinned))
 	m.cursor = findRow(t, m, "Plan the trip")
-	h := m.currentHeadline()
 
 	m = sendKey(m, "g")
 	m = sendKey(m, "d")
 	m = typeKeys(m, "2w")
 	m = sendKey(m, "enter")
+	m = sendKey(m, "esc")
+	h := m.currentHeadline()
 
 	if want := "2031-03-28 Fri"; h.Deadline == nil || h.Deadline.Raw != want {
 		t.Errorf("deadline = %v, want %q (two weeks after the pinned date)", h.Deadline, want)

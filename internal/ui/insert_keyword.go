@@ -229,8 +229,9 @@ func (m *Model) parsedInsertEntry() *org.Headline {
 }
 
 // inInsertSession reports whether an insert-mode session is underway:
-// in insert mode itself, or in the closing-note prompt choosing a done
-// keyword on its keyword slot opened.
+// in insert mode itself, in the closing-note prompt choosing a done
+// keyword on its keyword slot opened, or in the date prompt Enter on a
+// timestamp opened (see insert_timestamp.go).
 func (m *Model) inInsertSession() bool {
-	return m.mode == insertMode || m.mode == closingNoteMode && m.closingNoteForInsert
+	return m.mode == insertMode || m.mode == timestampMode || m.mode == closingNoteMode && m.closingNoteForInsert
 }

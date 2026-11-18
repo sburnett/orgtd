@@ -19,7 +19,6 @@ const (
 	normalMode mode = iota
 	commandMode
 	selectMode
-	deadlineMode
 	searchMode
 	confirmMode
 	visualMode
@@ -27,6 +26,7 @@ const (
 	tagMode
 	closingNoteMode
 	insertMode
+	timestampMode
 
 	numModes // not a mode: the number of modes, sizing modeSpecs
 )
@@ -133,12 +133,6 @@ func init() {
 				return m.appendInfoSection(nil, "Tags:", strings.Fields(m.tagCompletions))
 			},
 		},
-		deadlineMode: {
-			update: Model.updateDeadlineMode,
-			prompt: func(m *Model) string {
-				return m.editedLine(" Deadline (YYYY-MM-DD, \"3d\", \"next tue\"; empty clears): " + m.deadlineInput)
-			},
-		},
 		closingNoteMode: {
 			update: Model.updateClosingNoteMode,
 			prompt: func(m *Model) string {
@@ -160,12 +154,24 @@ func init() {
 				hint := "(Esc: done, ctrl-g: edit in $EDITOR)"
 				if m.ins.onKeyword {
 					hint = "(keyword: type a shortcut, Delete for none, → for the title; Esc: done)"
+				} else if _, ok := m.onTimestamp(); ok {
+					hint = "(date: Enter to change it, Delete to remove it; Esc: done)"
 				}
 				line := m.statusStyle().Render("-- INSERT --  " + hint)
 				if m.message != "" {
 					line += "  " + m.errorStyle().Render(m.message)
 				}
 				return line
+			},
+		},
+		timestampMode: {
+			update: Model.updateTimestampMode,
+			prompt: func(m *Model) string {
+				what, empty := "Date", "removes it"
+				if m.ins.dateLabel != nil {
+					what, empty = "Deadline", "cancels"
+				}
+				return m.editedLine(" " + what + " (YYYY-MM-DD, \"3d\", \"next tue\"; empty " + empty + "): " + m.ins.dateInput)
 			},
 		},
 		confirmMode: {

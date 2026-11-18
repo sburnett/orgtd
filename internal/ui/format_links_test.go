@@ -294,8 +294,8 @@ func TestImmutableEntryRefusesDeadlineChange(t *testing.T) {
 	m = sendKey(m, "g")
 	m = sendKey(m, "d")
 
-	if m.mode == deadlineMode {
-		t.Error("deadline prompt should not open for a locked entry")
+	if m.mode != normalMode {
+		t.Errorf("mode = %v: setting a deadline shouldn't start for a locked entry", m.mode)
 	}
 }
 
