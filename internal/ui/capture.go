@@ -234,6 +234,6 @@ func (m *Model) insertHeadlineAt(f *org.File, parent *org.Headline, idx, level i
 		m.switchToView(outlineView)
 		m.focusHeadline(tentative)
 	}
-	m.enterInsertMode(tentative, &ctx, false)
+	m.enterInsertMode(tentative, &ctx, caretAtTitle)
 	return nil
 }

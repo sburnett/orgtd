@@ -294,3 +294,39 @@ func TestCancelledCaptureFromAgendaReturnsToTheAgenda(t *testing.T) {
 		t.Errorf("after cancelling: view %v, cursor on %v; want the agenda, back on %v", m.view, m.currentHeadline(), origin)
 	}
 }
+
+func TestITitleStartSkipsKeywordAndPriority(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m.currentHeadline().Priority = "A"
+	m = sendKey(m, "i")
+	if got := string(m.ins.buf.runes(0)[m.ins.buf.col:]); !strings.HasPrefix(got, "Call the vet") {
+		t.Errorf("caret before %q, want at the title, past \"TODO [#A] \"", got)
+	}
+	m = typeKeys(m, "Really ")
+	m = sendKey(m, "esc")
+	if h := m.currentHeadline(); h.Keyword != "TODO" || h.Priority != "A" || h.Title != "Really Call the vet about Fido's checkup" {
+		t.Errorf("after typing at the caret: %q [#%s] %q", h.Keyword, h.Priority, h.Title)
+	}
+}
+
+func TestITitleStartWithoutKeywordIsLineStart(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m.currentHeadline().Keyword = ""
+	m = sendKey(m, "i")
+	if m.ins.buf.col != 0 {
+		t.Errorf("caret col = %d, want 0 with no keyword", m.ins.buf.col)
+	}
+}
+
+func TestAOnAnEmptyTitleStaysAtTheLineEnd(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+	h.Title = ""
+	m = sendKey(m, "a")
+	if want := len([]rune(m.ins.buf.lines[0])); m.ins.buf.col != want {
+		t.Errorf("caret col = %d on %q, want %d (the line end, not past it)", m.ins.buf.col, m.ins.buf.lines[0], want)
+	}
+}

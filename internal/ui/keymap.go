@@ -178,7 +178,9 @@ func buildNormalKeys() *keymap {
 	km.bind(do((*Model).foldToggleAll), "z A")
 
 	// Editing a single entry.
-	km.bind(func(m *Model) tea.Cmd { return m.startEdit() }, "i", "I")
+	km.bind(func(m *Model) tea.Cmd { return m.startEdit() }, "i")
+	km.bind(func(m *Model) tea.Cmd { return m.startEditAtLineStart() }, "I")
+	km.bind(func(m *Model) tea.Cmd { return m.startEditAfter() }, "a")
 	km.bind(func(m *Model) tea.Cmd { return m.startEditAppend() }, "A")
 	km.bind(func(m *Model) tea.Cmd { return m.startEditInEditor() }, "ctrl+g")
 	km.bind(func(m *Model) tea.Cmd { return m.insertHeadline(false) }, "o")

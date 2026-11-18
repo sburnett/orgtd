@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -26,18 +27,58 @@ type insertSession struct {
 	buf    textBuffer
 }
 
-// enterInsertMode starts editing h in place, caret at the start of its
-// text or, with atLineEnd, at the end of its first line (vim's "A").
+// caretStart is where insert mode puts the caret on entering it.
+type caretStart int
+
+const (
+	caretAtTitle         caretStart = iota // "i": the start of the title (see titleStartCol)
+	caretAtLineStart                       // "I": the very start of the first line, before any keyword
+	caretAfterTitleStart                   // "a": one character past that, as vim's "a" is past its cursor
+	caretAtLineEnd                         // "A": the end of the first line
+)
+
+// enterInsertMode starts editing h in place, caret placed per caret.
 // insert is non-nil when h is a tentative new entry (see
 // insertHeadlineAt), committed or rolled back once insert mode ends.
-func (m *Model) enterInsertMode(h *org.Headline, insert *insertContext, atLineEnd bool) {
+func (m *Model) enterInsertMode(h *org.Headline, insert *insertContext, caret caretStart) {
 	buf := newTextBuffer(entryEditText(h))
-	if atLineEnd {
+	switch caret {
+	case caretAtTitle:
+		buf.col = m.titleStartCol(h, buf.lines[0])
+	case caretAtLineStart:
+		buf.lineStart()
+	case caretAfterTitleStart:
+		// Past the end of the line only if there's nothing there, as
+		// vim's "a" on an empty line.
+		buf.col = min(m.titleStartCol(h, buf.lines[0])+1, len(buf.runes(0)))
+	case caretAtLineEnd:
 		buf.lineEnd()
 	}
 	m.ins = insertSession{target: h, insert: insert, buf: buf}
 	m.mode = insertMode
 	m.pendingCount = 0
+}
+
+// titleStartCol is where "i" puts the caret on line, h's first buffer
+// line: past its TODO keyword and priority cookie ("TODO [#A] "), at the
+// start of the title text itself, which is what's usually edited. In
+// :reference, which shows a keyword as plain title text (see
+// renderPlainTitle), that's the very start of the line instead.
+func (m *Model) titleStartCol(h *org.Headline, line string) int {
+	if m.view == referenceView {
+		return 0
+	}
+	var prefix string
+	if h.Keyword != "" {
+		prefix += h.Keyword + " "
+	}
+	if h.Priority != "" {
+		prefix += "[#" + h.Priority + "] "
+	}
+	if !strings.HasPrefix(line, prefix) {
+		return 0
+	}
+	return utf8.RuneCountInString(prefix)
 }
 
 // finishInsert leaves insert mode (Esc), applying what was typed exactly
@@ -54,12 +95,15 @@ func (m Model) finishInsert() (tea.Model, tea.Cmd) {
 }
 
 // editInsertInEditor (ctrl-g in insert mode) opens what's been typed so
-// far in $EDITOR; once it exits, the result comes back into insert mode
+// far in $EDITOR — a vim-family one in insert mode, right where the
+// caret is (see extprog.InsertAt); once it exits, the result comes back into insert mode
 // (see resumeInsertFromEditor) to carry on with, or apply with Esc — as
 // ctrl-g does in a shell's or Claude Code's prompt. Insert mode stays on
 // throughout, with the TUI suspended while the editor runs.
 func (m *Model) editInsertInEditor() tea.Cmd {
-	return m.launchEditorText(m.ins.target, m.ins.buf.String(), m.ins.insert, extprog.AtEntryStart, true)
+	b := m.ins.buf
+	text := b.String()
+	return m.launchEditorText(m.ins.target, text, m.ins.insert, extprog.InsertAt(text, b.row, b.col), true)
 }
 
 // resumeInsertFromEditor replaces insert mode's buffer with text, what

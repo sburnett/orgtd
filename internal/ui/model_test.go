@@ -1052,14 +1052,15 @@ func TestAnyOtherKeyDeclinesTheFileEditConfirmation(t *testing.T) {
 	}
 }
 
-// TestEditKeysOnHeadlineEnterInsertMode: i and I put the caret at the
-// start of the entry's text, A at the end of its first line — all
-// inline, with no $EDITOR command.
+// TestEditKeysOnHeadlineEnterInsertMode: i puts the caret at the start
+// of the title, after its TODO keyword, I at the very start of the line,
+// a one past i, A at the end of the first line — all inline, with no
+// $EDITOR command.
 func TestEditKeysOnHeadlineEnterInsertMode(t *testing.T) {
 	for _, c := range []struct {
 		key     string
 		wantCol int
-	}{{"i", 0}, {"I", 0}, {"A", len("TODO Call the vet about Fido's checkup")}} {
+	}{{"i", len("TODO ")}, {"I", 0}, {"a", len("TODO C")}, {"A", len("TODO Call the vet about Fido's checkup")}} {
 		ws := loadFixture(t)
 		m := New(ws)
 		m.cursor = findRow(t, m, "Call the vet about Fido's checkup")

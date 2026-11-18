@@ -31,20 +31,35 @@ type editFinishedMsg struct {
 	err    error
 }
 
-// startEdit ("i"/"I") puts the current entry into insert mode (see
-// insert_mode.go), caret at the very start of its text, so typing begins
+// startEdit ("i") puts the current entry into insert mode (see
+// insert_mode.go), caret at the start of its title, so typing begins
 // right away — the inline counterpart of what used to be an $EDITOR
 // session, which ctrl-g (startEditInEditor) still opens. See
-// startEditAppend for "A", and startEditWithPlacement for the shared
-// mechanics.
+// startEditAtLineStart for "I", startEditAfter for "a",
+// startEditAppend for "A", and startEditAt for the shared mechanics.
 func (m *Model) startEdit() tea.Cmd {
-	return m.startEditWithPlacement(extprog.AtEntryStart, false)
+	return m.startEditAt(caretAtTitle, false)
+}
+
+// startEditAtLineStart ("I") is startEdit, but with the caret at the
+// very start of the entry's first line, before any TODO keyword and
+// priority — vim's own "I" (insert at the start of the line), and the
+// quick way to change or add a keyword.
+func (m *Model) startEditAtLineStart() tea.Cmd {
+	return m.startEditAt(caretAtLineStart, false)
+}
+
+// startEditAfter ("a") is startEdit, but with the caret one character
+// further right — vim's own "a" (append after the cursor), with "i"'s
+// position standing in for the cursor.
+func (m *Model) startEditAfter() tea.Cmd {
+	return m.startEditAt(caretAfterTitleStart, false)
 }
 
 // startEditAppend ("A") is startEdit, but with the caret at the end of
 // the entry's first line instead — vim's own "A" (append at end of line).
 func (m *Model) startEditAppend() tea.Cmd {
-	return m.startEditWithPlacement(extprog.AtLineEnd, false)
+	return m.startEditAt(caretAtLineEnd, false)
 }
 
 // startEditInEditor (ctrl-g in normal mode) edits the current entry in
@@ -54,18 +69,19 @@ func (m *Model) startEditAppend() tea.Cmd {
 // line (extprog.NoPlacement); only ctrl-g from insert mode (see
 // editInsertInEditor) starts it in insert mode.
 func (m *Model) startEditInEditor() tea.Cmd {
-	return m.startEditWithPlacement(extprog.NoPlacement, true)
+	return m.startEditAt(caretAtTitle, true)
 }
 
-// startEditWithPlacement is the shared implementation behind startEdit
-// ("i"), startEditAppend ("A") and startEditInEditor (ctrl-g): on a file
-// row it asks to open the whole file in $EDITOR (there's no inline
-// equivalent); on an entry, it enters insert mode with the caret placed
-// per placement, or — external — writes the entry to a scratch file and
-// opens it in $EDITOR. Returns nil if there's nothing to edit or the
+// startEditAt is the shared implementation behind startEdit ("i"),
+// startEditAtLineStart ("I"), startEditAfter ("a"), startEditAppend
+// ("A") and startEditInEditor (ctrl-g): on a file row it asks to open the whole file in $EDITOR
+// (there's no inline equivalent); on an entry, it enters insert mode
+// with the caret placed per caret, or — external — writes the entry to
+// a scratch file and opens it in $EDITOR, in the editor's normal mode
+// (extprog.NoPlacement). Returns nil if there's nothing to edit or the
 // editor couldn't be launched, in which case any error is left in
 // m.message.
-func (m *Model) startEditWithPlacement(placement extprog.Placement, external bool) tea.Cmd {
+func (m *Model) startEditAt(caret caretStart, external bool) tea.Cmd {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		if f := m.rows[m.cursor].file; f != nil {
 			// A whole-file edit hands the raw file to $EDITOR directly,
@@ -81,7 +97,7 @@ func (m *Model) startEditWithPlacement(placement extprog.Placement, external boo
 			// clears any mark/review-target on its headlines) even if
 			// the user ends up changing nothing — confirm first rather
 			// than doing that as a side effect of a single keystroke.
-			// i, A and ctrl-g all land here identically: there's no
+			// i, I, a, A and ctrl-g all land here identically: there's no
 			// single entry to position a cursor within.
 			m.mode = confirmMode
 			m.pendingFileEdit = f
@@ -94,9 +110,9 @@ func (m *Model) startEditWithPlacement(placement extprog.Placement, external boo
 		return nil
 	}
 	if external {
-		return m.launchEditor(h, nil, placement)
+		return m.launchEditor(h)
 	}
-	m.enterInsertMode(h, nil, placement == extprog.AtLineEnd)
+	m.enterInsertMode(h, nil, caret)
 	return nil
 }
 
@@ -116,7 +132,7 @@ type fileEditFinishedMsg struct {
 // this — the editor already wrote the change directly to disk, so
 // there's no in-memory action to record or revert.
 func (m *Model) startEditFile(f *org.File) tea.Cmd {
-	editorCmd := extprog.EditorCommand(m.editorCommand(), f.Path, "", extprog.NoPlacement, 0)
+	editorCmd := extprog.EditorCommand(m.editorCommand(), f.Path, "", extprog.NoPlacement)
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return fileEditFinishedMsg{target: f, cmd: editorCmd, err: err}
 	})
@@ -214,28 +230,18 @@ func (m *Model) scratchFilePath() (string, error) {
 	return filepath.Join(dir, now.Format("15-04-05.000000000")+".org"), nil
 }
 
-// launchEditor writes h to a scratch file (see scratchFilePath) and
-// opens it in $EDITOR (vim by default), suspending the TUI for the
-// duration. ctx tags the resulting
-// editFinishedMsg so finishEdit knows whether this is an o/O insert
-// session or a plain `i`/`A` edit, and also which buffer format to
-// expect back: both an o/O (or "gC"/"gX" capture) insert session and a
-// plain `i`/`A` edit of an existing entry now share the same shape — the
-// entry's own text (title, minus its bullet, plus its planning line,
-// properties, and body, the whole thing dedented by one level — see
-// org.DedentEntry and org.RenderEntry) comes first in the buffer, cursor
-// already there, followed by a blank line and a git-commit-style comment
-// trailer sketching the entry's place in the outline below it (see
-// editEntryContext). ctx tags the resulting editFinishedMsg so finishEdit
-// knows whether this is an insert session or a plain edit, and is also
-// what selects the trailer's wording ("Inserting a new entry." vs
-// "Editing this entry.").
-// placement (see extprog.Placement) controls where a vim-family
-// editor lands the cursor and whether it starts in insert mode already.
-// Returns nil if the scratch file couldn't be created or the editor
-// couldn't be started, in which case the error is left in m.message.
-func (m *Model) launchEditor(h *org.Headline, ctx *insertContext, placement extprog.Placement) tea.Cmd {
-	return m.launchEditorText(h, entryEditText(h), ctx, placement, false)
+// launchEditor writes h's own text to a scratch file (see
+// scratchFilePath and entryEditText) and opens it in $EDITOR (vim by
+// default), suspending the TUI for the duration, with the cursor on its
+// first line in the editor's normal mode — ctrl-g from orgtd's normal
+// mode. The text is followed by a blank line and a git-commit-style
+// comment trailer sketching the entry's place in the outline (see
+// editEntryContext). finishEdit applies the result once the editor
+// exits. Returns nil if the scratch file couldn't be created or the
+// editor couldn't be started, in which case the error is left in
+// m.message.
+func (m *Model) launchEditor(h *org.Headline) tea.Cmd {
+	return m.launchEditorText(h, entryEditText(h), nil, extprog.NoPlacement, false)
 }
 
 // entryEditText is h's own text as both $EDITOR and insert mode edit
@@ -247,9 +253,11 @@ func entryEditText(h *org.Headline) string {
 
 // launchEditorText is launchEditor with the buffer's entry text given
 // explicitly — insert mode's ctrl-g hands over whatever it has typed so
-// far rather than h's current content — and resume saying where the
-// result goes: back into insert mode (see resumeInsertFromEditor)
-// rather than straight into the outline.
+// far rather than h's current content — along with where the cursor
+// goes (placement), whether it's a new entry (ctx non-nil, which picks
+// the trailer's wording), and resume saying where the result goes: back
+// into insert mode (see resumeInsertFromEditor) rather than straight
+// into the outline.
 func (m *Model) launchEditorText(h *org.Headline, entry string, ctx *insertContext, placement extprog.Placement, resume bool) tea.Cmd {
 	path, err := m.scratchFilePath()
 	if err != nil {
@@ -267,8 +275,7 @@ func (m *Model) launchEditorText(h *org.Headline, entry string, ctx *insertConte
 		return nil
 	}
 
-	placement, col := extprog.ResolveEntryPlacement(entry, placement)
-	editorCmd := extprog.EditorCommand(m.editorCommand(), path, "", placement, col)
+	editorCmd := extprog.EditorCommand(m.editorCommand(), path, "", placement)
 
 	return tea.ExecProcess(editorCmd, func(err error) tea.Msg {
 		return editFinishedMsg{path: path, target: h, resume: resume, cmd: editorCmd, err: err}

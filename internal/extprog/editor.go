@@ -23,84 +23,69 @@ var editorsWithLineArg = map[string]bool{
 // vimFamily is the subset of editorsWithLineArg that additionally
 // understands vim's ex-command syntax — a "+{command}" argument
 // executing an arbitrary command, not just a bare line number — used to
-// start "i"/"A" directly in insert mode at a specific spot (see
+// start the editor directly in insert mode at a specific spot (see
 // CursorArg). emacs/emacsclient and nano share the "+N" line
 // convention but have no equivalent notion of "insert mode" to start
-// (nano isn't modal; plain emacs isn't either), so they always just get
-// a bare "+N" regardless of placement.
+// (nano isn't modal; plain emacs isn't either), so they just get a bare
+// "+N" for the placement's line.
 var vimFamily = map[string]bool{
 	"vi": true, "vim": true, "nvim": true, "gvim": true, "mvim": true,
 }
 
-// Placement selects where EditorCommand positions the cursor,
-// and whether it starts the editor directly in insert mode, when the
-// configured editor is vim-family (see vimFamily) — a plain "+N" line
-// jump for anything else, or for NoPlacement.
-type Placement int
-
-const (
-	// NoPlacement just lands on the entry's first line, in the editor's
-	// own normal mode — used for a whole-file edit (startEditFile),
-	// where there's no single entry to position a cursor within, and
-	// for ctrl-g from orgtd's normal mode, which shouldn't drop you into
-	// insert mode in vim either.
-	NoPlacement Placement = iota
-	// AtEntryStart (ctrl-g from orgtd's insert mode) puts the cursor at the very start
-	// of the entry's own text — column 1, since the buffer never shows a
-	// bullet to land after (see org.DedentEntry, launchEditor, and
-	// ResolveEntryPlacement) — in insert mode, so typing
-	// immediately inserts text there exactly as pressing vim's own "i" at
-	// that spot would. For o/O the entry is a blank template, so this is
-	// also where its title will end up starting.
-	AtEntryStart
-	// AtLineEnd puts the cursor at the end of the entry's
-	// first line, in insert mode — vim's own "A" (append at end of
-	// line), landing on whichever text (keyword, title, tags) the line
-	// actually ends with.
-	AtLineEnd
-)
-
-// CursorArg returns the "+..." argument EditorCommand
-// should pass for the given editor basename, startLine (1-based), col
-// (1-based, meaningful only for AtEntryStart), and placement.
-// Non-vim-family editors (or NoPlacement) always get a bare
-// "+startLine" — see Placement and vimFamily.
-func CursorArg(editorBase string, startLine, col int, placement Placement) string {
-	if vimFamily[editorBase] {
-		switch placement {
-		case AtEntryStart:
-			return fmt.Sprintf("+call cursor(%d,%d)|startinsert", startLine, col)
-		case AtLineEnd:
-			// startinsert! is vim's own "A": moves to the end of the
-			// current line before entering insert mode, so there's no
-			// need to compute or pass a column at all.
-			return fmt.Sprintf("+%d|startinsert!", startLine)
-		}
-	}
-	return fmt.Sprintf("+%d", startLine)
+// Placement says where EditorCommand puts the cursor within the
+// content (the text after EditorCommand's before) and whether the
+// editor starts in insert mode there. The zero value, NoPlacement, just
+// lands on the content's first line, in the editor's own normal mode;
+// InsertAt builds the other kind.
+type Placement struct {
+	// Insert says to start in insert mode at Line/Col — for a vim-family
+	// editor (see vimFamily). Any other editor in editorsWithLineArg
+	// still lands on Line, but has no insert mode to start.
+	Insert bool
+	Line   int  // 1-based line within the content
+	Col    int  // 1-based byte column within that line (vim's cursor() counts bytes)
+	AtEnd  bool // the cursor is past the line's last character, where cursor() can't go
 }
 
-// ResolveEntryPlacement returns the placement and (1-based) column
-// launchEditor should actually request for a dedented entry buffer (see
-// org.DedentEntry): AtEntryStart always targets column 1, since
-// there's no bullet to land after — for either an existing
-// entry ("i"/"A") or a blank o/O template alike. It downgrades to
-// AtLineEnd when the first line is completely empty (a
-// just-started o/O insert, or an existing entry with a blank title):
-// vim's cursor()+startinsert needs the target column to be an existing
-// character — cursor() clamps to the line's last real character rather
-// than allowing a column one past the end — so requesting column 1 on a
-// zero-length line would fail. AtLineEnd's startinsert! (append)
-// sidesteps this entirely: on an empty line, "end of line" and "column
-// 1" are the exact same position anyway.
-func ResolveEntryPlacement(entry string, placement Placement) (Placement, int) {
-	if placement == AtEntryStart {
-		firstLine, _, _ := strings.Cut(entry, "\n")
-		if len(firstLine) == 0 {
-			placement = AtLineEnd
+// NoPlacement lands on the content's first line in the editor's normal
+// mode: for a whole-file edit, and for ctrl-g from orgtd's normal mode.
+var NoPlacement = Placement{}
+
+// InsertAt places the cursor in insert mode on row (0-based) of text, at
+// runeCol (0-based, in runes, as orgtd's own insert mode counts) — for
+// ctrl-g from orgtd's insert mode, so the editor carries on from exactly
+// where its caret was.
+func InsertAt(text string, row, runeCol int) Placement {
+	lines := strings.Split(text, "\n")
+	row = max(0, min(row, len(lines)-1))
+	runes := []rune(lines[row])
+	runeCol = max(0, min(runeCol, len(runes)))
+	return Placement{
+		Insert: true,
+		Line:   row + 1,
+		Col:    len(string(runes[:runeCol])) + 1,
+		AtEnd:  runeCol == len(runes),
+	}
+}
+
+// CursorArg returns the "+..." argument EditorCommand should pass for
+// the given editor basename, with the content starting on startLine
+// (1-based). A vim-family editor with an insert placement gets
+// cursor()+startinsert — or, past the end of the line, startinsert!,
+// vim's own "A", since cursor() clamps to the last real character;
+// anything else a bare "+N" for the placement's line.
+func CursorArg(editorBase string, startLine int, p Placement) string {
+	line := startLine
+	if p.Insert {
+		line += p.Line - 1
+		if vimFamily[editorBase] {
+			if p.AtEnd {
+				return fmt.Sprintf("+%d|startinsert!", line)
+			}
+			return fmt.Sprintf("+call cursor(%d,%d)|startinsert", line, p.Col)
 		}
 	}
-	return placement, 1
+	return fmt.Sprintf("+%d", line)
 }
 
 // EditorCommand builds the *exec.Cmd for opening path in the editor
@@ -112,9 +97,8 @@ func ResolveEntryPlacement(entry string, placement Placement) (Placement, int) {
 // NoPlacement, at a specific column within it and already in
 // insert mode (before is the context text written ahead of it in the
 // file; its newline count is exactly the 1-based line the real content
-// starts on). col is the 1-based column AtEntryStart should land
-// on; unused otherwise.
-func EditorCommand(editorEnv, path, before string, placement Placement, col int) *exec.Cmd {
+// starts on).
+func EditorCommand(editorEnv, path, before string, placement Placement) *exec.Cmd {
 	fields := ParseCommand(editorEnv)
 	if len(fields) == 0 {
 		fields = []string{"vim"}
@@ -123,7 +107,7 @@ func EditorCommand(editorEnv, path, before string, placement Placement, col int)
 	base := filepath.Base(fields[0])
 	if editorsWithLineArg[base] {
 		startLine := strings.Count(before, "\n") + 1
-		args = append(args, CursorArg(base, startLine, col, placement))
+		args = append(args, CursorArg(base, startLine, placement))
 	}
 	args = append(args, path)
 	return exec.Command(fields[0], args...)
