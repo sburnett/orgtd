@@ -173,21 +173,18 @@ func (m *Model) removeInsertKeyword() {
 
 // chooseInsertKeyword applies the status picker candidate c, typed on
 // the keyword slot, as "r" does: completing the entry first asks for a
-// closing note (see closingNoteForInsert), which then applies it.
+// closing note, right in the entry (see beginNote).
 func (m *Model) chooseInsertKeyword(c statusCandidate) {
 	kw, _ := m.insertKeyword()
 	if org.IsDoneKeyword(c.keyword) && !org.IsDoneKeyword(kw) {
-		m.mode = closingNoteMode
-		m.closingNoteKeyword = c.keyword
-		m.closingNoteLabel = c.label
-		m.closingNoteForInsert = true
+		m.beginNote(c.keyword)
 		return
 	}
 	m.applyInsertKeyword(c.keyword, "")
 }
 
 // applyInsertKeyword sets keyword, as chooseInsertKeyword or the closing
-// note it asked for resolves it, and moves the caret to the title's
+// note it asked for (see confirmNote) resolves it, and moves the caret to the title's
 // start, ready to type it.
 func (m *Model) applyInsertKeyword(keyword, note string) {
 	m.setInsertKeyword(keyword, note)
@@ -229,9 +226,8 @@ func (m *Model) parsedInsertEntry() *org.Headline {
 }
 
 // inInsertSession reports whether an insert-mode session is underway:
-// in insert mode itself, in the closing-note prompt choosing a done
-// keyword on its keyword slot opened, or in the date prompt Enter on a
-// timestamp opened (see insert_timestamp.go).
+// in insert mode itself, or in the date prompt Enter on a timestamp
+// opened (see insert_timestamp.go).
 func (m *Model) inInsertSession() bool {
-	return m.mode == insertMode || m.mode == timestampMode || m.mode == closingNoteMode && m.closingNoteForInsert
+	return m.mode == insertMode || m.mode == timestampMode
 }

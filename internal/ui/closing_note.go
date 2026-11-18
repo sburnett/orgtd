@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
@@ -32,35 +34,18 @@ func (m *Model) closesAny(keyword string) bool {
 	return false
 }
 
-// updateClosingNoteMode handles key presses while the closing-note prompt
-// is open: Enter applies the state chosen in the picker, recording the
-// typed note if there is one, and Esc cancels the state change altogether.
-// Opened from insert mode's keyword slot (closingNoteForInsert), either
-// way returns to insert mode, and Enter applies the state to the text
-// being edited (see applyInsertKeyword).
+// updateClosingNoteMode handles key presses while a closing note is
+// typed for several entries at once (a single entry's is typed in the
+// entry itself — see startStatusNote), shown under each of them (see
+// bulkNoteLines): Enter or Esc applies the state chosen in the picker,
+// recording the typed note if there is one — as Esc ends a note typed in
+// insert mode; "u" undoes it.
 func (m Model) updateClosingNoteMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
-		m.mode = normalMode
-		if m.closingNoteForInsert {
-			// Back to insert mode, on the keyword slot, unchanged.
-			m.mode = insertMode
-			m.closingNoteForInsert = false
-		}
-		m.closingNoteInput = ""
-		m.selectModeTargets = nil
-		return m, nil
-
-	case tea.KeyEnter:
+	case tea.KeyEnter, tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = normalMode
 		note := m.closingNoteInput
 		m.closingNoteInput = ""
-		if m.closingNoteForInsert {
-			m.mode = insertMode
-			m.closingNoteForInsert = false
-			m.applyInsertKeyword(m.closingNoteKeyword, note)
-			return m, nil
-		}
 		m.applyStatusToTargets(m.closingNoteKeyword, m.closingNoteLabel, note)
 		return m, nil
 
@@ -70,6 +55,11 @@ func (m Model) updateClosingNoteMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.KeyCtrlU:
+		m.closingNoteInput = ""
+	case tea.KeyCtrlW:
+		in := strings.TrimRight(m.closingNoteInput, " ")
+		m.closingNoteInput = in[:strings.LastIndex(in, " ")+1]
 	case tea.KeySpace:
 		m.closingNoteInput += " "
 		return m, nil
@@ -94,4 +84,61 @@ func (m *Model) withClosingNote(a undoAction, h *org.Headline, heading, note str
 		oldBody: h.Body,
 		newBody: append(lines, h.Body...),
 	}}}
+}
+
+// bulkNoteTargets returns the entries a closing note typed for several
+// at once (closingNoteMode, from "R" on a selection or with a count)
+// will be logged on: those the chosen state completes. Empty in any
+// other mode.
+func (m Model) bulkNoteTargets() map[*org.Headline]bool {
+	if m.mode != closingNoteMode {
+		return nil
+	}
+	out := map[*org.Headline]bool{}
+	for _, h := range m.selectModeTargets {
+		if !m.immutable[h] && !org.IsDoneKeyword(h.Keyword) {
+			out[h] = true
+		}
+	}
+	return out
+}
+
+// isEntryTitleEnd reports whether row i is the last row of its entry's
+// title (it can wrap onto several), before any body rows — where a
+// closing note's lines go.
+func (m Model) isEntryTitleEnd(i int) bool {
+	r := m.rows[i]
+	if r.kind == rowBody && r.entryLine == 0 {
+		return false
+	}
+	if i+1 < len(m.rows) {
+		next := m.rows[i+1]
+		if next.headline == r.headline && next.kind == rowBody && next.entryLine > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// bulkNoteLines draws the closing note being typed for several entries
+// at once as it'll be logged under r's entry — its heading, then the
+// note so far — in insert mode's colors, each with a caret where the
+// typing goes, so it's clear the one note is going on all of them.
+func (m Model) bulkNoteLines(r row) []string {
+	h := r.headline
+	bg := m.insertBg()
+	heading := orgdate.ClosingNoteHeading
+	if orgdate.ChangeState(h, m.closingNoteKeyword, m.now()).Repeat {
+		heading = orgdate.StateNoteHeading(m.closingNoteKeyword, h.Keyword)
+	}
+	lines := orgdate.ClosingNoteLines(heading, "", 0, m.now())
+	blank := bgSpan(bg, "     ")
+	if r.kind == rowHeadline || r.kind == rowCalendarEvent {
+		blank = m.entryContent(r, bg).blank
+	}
+	text := lipgloss.NewStyle().Background(bg)
+	return []string{
+		m.padLineToWidth(blank+text.Render(strings.TrimLeft(lines[0], " ")), bg),
+		m.padLineToWidth(blank+text.Render("  "+m.closingNoteInput)+m.caretStyle().Render(" "), bg),
+	}
 }

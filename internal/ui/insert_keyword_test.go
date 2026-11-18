@@ -172,25 +172,25 @@ func TestNewEntryKeywordSlot(t *testing.T) {
 	}
 }
 
-func TestDoneOnTheKeywordAsksForANoteAndClosesIt(t *testing.T) {
+func TestDoneOnTheKeywordAsksForANoteInline(t *testing.T) {
 	m := vetEntry(t)
 	undoBefore := m.undoPos
 	m = sendKey(m, "I")
-	m = sendKey(m, "d")
-	if m.mode != closingNoteMode {
-		t.Fatalf("mode after d on the keyword = %d, want the closing-note prompt", m.mode)
+	m = typeKeys(m, "d")
+	if m.mode != insertMode || m.ins.note == nil {
+		t.Fatalf("after d on the keyword: mode %d, note %v; want insert mode typing a note", m.mode, m.ins.note)
 	}
-	if !strings.Contains(stripANSI(m.View()), "TODO Call the vet") {
-		t.Errorf("entry being edited not drawn during the closing-note prompt")
+	text := m.ins.buf.String()
+	if !strings.HasPrefix(text, "DONE Call the vet") || !strings.Contains(text, "CLOSED:") || !strings.Contains(text, "- CLOSING NOTE") {
+		t.Errorf("buffer = %q, want the keyword, CLOSED and the note's heading in place", text)
 	}
 	m = typeKeys(m, "booked for Tuesday")
 	m = sendKey(m, "enter")
-	if m.mode != insertMode {
-		t.Fatalf("mode after the note = %d, want back in insert mode", m.mode)
+	if m.mode != insertMode || m.ins.note != nil {
+		t.Fatalf("after Enter: mode %d, note %v; want insert mode carrying on", m.mode, m.ins.note)
 	}
-	text := m.ins.buf.String()
-	if !strings.HasPrefix(text, "DONE Call the vet") || !strings.Contains(text, "CLOSED:") || !strings.Contains(text, "booked for Tuesday") {
-		t.Errorf("buffer after DONE = %q, want the keyword, a CLOSED stamp and the note", text)
+	if m.ins.buf.row != 0 || m.ins.buf.col != len("DONE ") {
+		t.Errorf("caret at %d:%d, want the title's start", m.ins.buf.row, m.ins.buf.col)
 	}
 	if h := m.currentHeadline(); h.Keyword != "TODO" {
 		t.Errorf("outline changed before Esc: %q", h.Keyword)
@@ -210,25 +210,28 @@ func TestDoneOnTheKeywordAsksForANoteAndClosesIt(t *testing.T) {
 	}
 }
 
-func TestEscFromTheClosingNoteKeepsTheKeyword(t *testing.T) {
+func TestBlankNoteOnTheKeywordLeavesNoNote(t *testing.T) {
 	m := sendKey(vetEntry(t), "I")
-	m = sendKey(m, "d")
+	m = typeKeys(m, "d")
+	m = sendKey(m, "enter")
+	if text := m.ins.buf.String(); !strings.HasPrefix(text, "DONE ") || strings.Contains(text, "CLOSING NOTE") {
+		t.Errorf("buffer = %q, want DONE with no note", text)
+	}
+}
+
+func TestEscFromTheNoteOnTheKeywordKeepsItAndEndsTheEdit(t *testing.T) {
+	m := sendKey(vetEntry(t), "I")
+	m = typeKeys(m, "d")
+	m = typeKeys(m, "done it")
 	m = sendKey(m, "esc")
-	if m.mode != insertMode || !m.ins.onKeyword || firstLine(m) != "TODO Call the vet about Fido's checkup" {
-		t.Errorf("after Esc from the note: mode %d, onKeyword %v, %q; want back on the unchanged keyword", m.mode, m.ins.onKeyword, firstLine(m))
+	if m.mode != normalMode {
+		t.Fatalf("after Esc in the note: mode %d, want insert mode ended", m.mode)
+	}
+	h := m.currentHeadline()
+	if h.Keyword != "DONE" || h.Closed == nil || !strings.Contains(strings.Join(h.Body, "\n"), "done it") {
+		t.Errorf("after Esc: keyword %q, closed %v, body %q; want closed with the note", h.Keyword, h.Closed, h.Body)
 	}
 }
-
-func TestCtrlCInTheClosingNoteFromInsertModeDoesNotQuit(t *testing.T) {
-	m := sendKey(vetEntry(t), "I")
-	m = sendKey(m, "d")
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	m = updated.(Model)
-	if cmd != nil || m.mode != insertMode {
-		t.Errorf("ctrl-c in the closing note: cmd %v, mode %d; want back in insert mode, no quit", cmd, m.mode)
-	}
-}
-
 func TestDoneOnARepeatingKeywordAdvancesItsDate(t *testing.T) {
 	today := orgdate.TruncateToDate(time.Now())
 	m := New(agendaFixture(t, fmt.Sprintf("* TODO Weekly review\n  SCHEDULED: <%s +1w>\n", ts(today))))

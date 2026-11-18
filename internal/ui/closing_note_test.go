@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -29,11 +31,19 @@ func TestClosingNoteIsLoggedLikeOrgMode(t *testing.T) {
 
 	m = sendKey(m, "r")
 	m = sendKey(m, "d")
-	if m.mode != closingNoteMode {
-		t.Fatalf("mode after choosing DONE = %v, want closingNoteMode", m.mode)
+	if m.mode != insertMode || m.ins.note == nil {
+		t.Fatalf("mode after choosing DONE = %v (note %v), want insert mode, typing the note", m.mode, m.ins.note)
 	}
 	if h.Keyword != "TODO" {
 		t.Fatalf("keyword = %q, want no change until the note is entered", h.Keyword)
+	}
+	// The entry, as it'll be, shows inline with the caret on an empty note.
+	text := m.ins.buf.String()
+	if !strings.HasPrefix(text, "DONE Task\nCLOSED: [2026-10-31 Sat 15:00]") || !strings.Contains(text, "- CLOSING NOTE [2026-10-31 Sat 15:00]") {
+		t.Errorf("buffer = %q, want the state change and the note's heading in place", text)
+	}
+	if got := m.ins.buf.lines[m.ins.buf.row]; got != "  " {
+		t.Errorf("caret line = %q, want the empty note line", got)
 	}
 	m = typeKeys(m, "Sent it")
 	m = sendKey(m, "enter")
@@ -73,15 +83,15 @@ func TestClosingNoteEmptyClosesWithoutNote(t *testing.T) {
 	}
 }
 
-func TestClosingNoteEscCancelsStateChange(t *testing.T) {
+func TestClosingNoteEscAppliesItToo(t *testing.T) {
 	m, h := closingNoteModel(t, "* TODO Task\n* TODO Other\n")
 	m = sendKey(m, "2")
 	m = sendKey(m, "r")
 	m = sendKey(m, "d")
-	m = typeKeys(m, "abandoned")
+	m = typeKeys(m, "wrapped up")
 	m = sendKey(m, "esc")
-	if m.mode != normalMode || h.Keyword != "TODO" || h.Closed != nil || len(h.Body) != 0 {
-		t.Errorf("mode=%v keyword=%q closed=%v body=%q, want nothing changed", m.mode, h.Keyword, h.Closed, h.Body)
+	if m.mode != normalMode || h.Keyword != "DONE" || h.Closed == nil || !strings.Contains(strings.Join(h.Body, "\n"), "wrapped up") {
+		t.Errorf("mode=%v keyword=%q closed=%v body=%q, want it closed with the note", m.mode, h.Keyword, h.Closed, h.Body)
 	}
 	if len(m.selectModeTargets) != 0 || m.closingNoteInput != "" {
 		t.Errorf("targets=%v input=%q, want the prompt's state cleared", m.selectModeTargets, m.closingNoteInput)
@@ -193,5 +203,145 @@ func TestClosingNoteShownInSnippets(t *testing.T) {
 	}
 	if view := m.View(); !strings.Contains(view, "Sent to the team") {
 		t.Errorf("view doesn't show the note:\n%s", view)
+	}
+}
+
+func TestClosingNoteEscKeepsItAndUndoTakesItBack(t *testing.T) {
+	m, h := closingNoteModel(t, "* TODO Task\n  Existing body\n")
+	undoBefore := m.undoPos
+	m = sendKey(m, "r")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "all done")
+	m = sendKey(m, "esc")
+	if m.mode != normalMode || h.Keyword != "DONE" || h.Closed == nil || !strings.Contains(strings.Join(h.Body, "\n"), "all done") {
+		t.Errorf("after Esc: mode %v, keyword %q, closed %v, body %q; want normal mode, closed with the note",
+			m.mode, h.Keyword, h.Closed, h.Body)
+	}
+	if m.undoPos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	}
+	m = sendKey(m, "u")
+	if h.Keyword != "TODO" || h.Closed != nil || strings.Contains(strings.Join(h.Body, "\n"), "all done") {
+		t.Errorf("after u: keyword %q, closed %v, body %q; want it all undone", h.Keyword, h.Closed, h.Body)
+	}
+}
+
+func TestClosingNoteStaysOnItsLine(t *testing.T) {
+	m, _ := closingNoteModel(t, "* TODO Task\n  Existing body\n")
+	m = sendKey(m, "r")
+	m = sendKey(m, "d")
+	row := m.ins.buf.row
+	m = typeKeys(m, "ab")
+	for _, k := range []string{"up", "down", "backspace", "backspace", "backspace"} {
+		m = sendKey(m, k)
+	}
+	m = sendCtrl(m, tea.KeyLeft)
+	if m.ins.buf.row != row || m.ins.buf.lines[row] != "  " || m.ins.buf.col != 2 {
+		t.Errorf("caret %d:%d on %q; want it kept on the (now empty) note line %d", m.ins.buf.row, m.ins.buf.col, m.ins.buf.lines[m.ins.buf.row], row)
+	}
+	if !strings.Contains(stripANSI(m.View()), "closing note: Enter or Esc when done") {
+		t.Errorf("no closing-note hint on the command line")
+	}
+}
+
+func TestBulkClosingNoteShowsUnderEachEntryBeingClosed(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Alpha\n  alpha body\n* TODO Beta\n* DONE Gamma\n")
+	m := New(ws, WithClock(snippetsClock))
+	m.width, m.height = 80, 30
+	m.cursor = findRow(t, m, "Alpha")
+	m = sendKey(m, "V")
+	m = sendKey(m, "j")
+	m = sendKey(m, "j")
+	m = sendKey(m, "j")
+	m = sendKey(m, "R")
+	m = sendKey(m, "d")
+	if m.mode != closingNoteMode {
+		t.Fatalf("mode after R d on a selection = %v, want the closing note", m.mode)
+	}
+	m = typeKeys(m, "shipped it")
+
+	view := stripANSI(m.View())
+	lines := strings.Split(view, "\n")
+	find := func(s string) int {
+		for i, l := range lines {
+			if strings.Contains(l, s) {
+				return i
+			}
+		}
+		return -1
+	}
+	alpha, beta, gamma := find("Alpha"), find("Beta"), find("Gamma")
+	if n := strings.Count(view, "- CLOSING NOTE [2026-10-31 Sat 15:00]"); n != 2 {
+		t.Errorf("CLOSING NOTE headings shown = %d, want 2 (Gamma's already done):\n%s", n, view)
+	}
+	if n := strings.Count(view, "shipped it"); n != 2 {
+		t.Errorf("note shown %d times, want under both entries:\n%s", n, view)
+	}
+	// Under each title, before Alpha's body.
+	if !strings.Contains(lines[alpha+1], "CLOSING NOTE") || !strings.Contains(lines[alpha+2], "shipped it") || !strings.Contains(lines[alpha+3], "alpha body") {
+		t.Errorf("lines under Alpha = %q, want the note then its body", lines[alpha+1:alpha+4])
+	}
+	if !strings.Contains(lines[beta+2], "shipped it") || gamma != beta+3 {
+		t.Errorf("lines under Beta = %q, want the note, then Gamma", lines[beta+1:gamma+1])
+	}
+	if !strings.Contains(view, "CLOSING NOTE for 2 entries") {
+		t.Errorf("no bulk closing-note banner:\n%s", view)
+	}
+	if n := len(lines); n != m.height {
+		t.Errorf("view is %d lines, want the %d-line screen", n, m.height)
+	}
+
+	m = sendKey(m, "enter")
+	for _, title := range []string{"Alpha", "Beta"} {
+		m.cursor = findRow(t, m, title)
+		h := m.currentHeadline()
+		if h.Keyword != "DONE" || !strings.Contains(strings.Join(h.Body, "\n"), "shipped it") {
+			t.Errorf("%s after Enter: %q, body %q", title, h.Keyword, h.Body)
+		}
+	}
+}
+
+func TestBulkClosingNoteEscAppliesIt(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Alpha\n* TODO Beta\n")
+	m := New(ws, WithClock(snippetsClock))
+	m.cursor = findRow(t, m, "Alpha")
+	m = sendKey(m, "2")
+	m = sendKey(m, "R")
+	m = sendKey(m, "d")
+	m = typeKeys(m, "yep")
+	m = sendKey(m, "esc")
+	for _, title := range []string{"Alpha", "Beta"} {
+		m.cursor = findRow(t, m, title)
+		if h := m.currentHeadline(); h.Keyword != "DONE" || !strings.Contains(strings.Join(h.Body, "\n"), "yep") {
+			t.Errorf("%s after Esc: %q, body %q; want closed with the note", title, h.Keyword, h.Body)
+		}
+	}
+	if strings.Contains(stripANSI(m.View()), "CLOSING NOTE") {
+		t.Errorf("note lines still shown after Esc")
+	}
+}
+
+func TestCtrlCInAClosingNoteIsEsc(t *testing.T) {
+	m, h := closingNoteModel(t, "* TODO Task\n")
+	m = sendKey(m, "r")
+	m = sendKey(m, "d")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updated.(Model)
+	if cmd != nil || m.mode != normalMode || h.Keyword != "DONE" {
+		t.Errorf("ctrl-c in the note: cmd %v, mode %v, keyword %q; want it applied as Esc does, no quit", cmd, m.mode, h.Keyword)
+	}
+}
+
+func TestCtrlCInABulkClosingNoteIsEsc(t *testing.T) {
+	ws := agendaFixture(t, "* TODO Alpha\n* TODO Beta\n")
+	m := New(ws, WithClock(snippetsClock))
+	m.cursor = findRow(t, m, "Alpha")
+	m = sendKey(m, "2")
+	m = sendKey(m, "R")
+	m = sendKey(m, "d")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = updated.(Model)
+	if cmd != nil || m.mode != normalMode {
+		t.Errorf("ctrl-c in a bulk note: cmd %v, mode %v; want it applied as Esc does, no quit", cmd, m.mode)
 	}
 }

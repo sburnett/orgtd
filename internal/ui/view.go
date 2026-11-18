@@ -77,11 +77,16 @@ func (m Model) listing(active bool) string {
 			selStart, selEnd = m.visualRange()
 		}
 
-		sepShown := 0
-		for i := start; i < end; i++ {
+		// While a closing note is typed for several entries at once, its
+		// lines show under each of them (see bulkNoteLines), which can
+		// push rows further down than visibleRowCount allowed for.
+		notes := m.bulkNoteTargets()
+		budget := m.contentBudget()
+		written := 0
+		for i := start; i < end && written < budget; i++ {
 			if i > start && m.rows[i].kind == rowSection {
 				b.WriteString("\n")
-				sepShown++
+				written++
 			}
 			var line string
 			switch {
@@ -94,13 +99,23 @@ func (m Model) listing(active bool) string {
 			}
 			b.WriteString(line)
 			b.WriteString("\n")
+			written++
+			if notes[m.rows[i].headline] && m.isEntryTitleEnd(i) {
+				for _, l := range m.bulkNoteLines(m.rows[i]) {
+					if written < budget {
+						b.WriteString(l)
+						b.WriteString("\n")
+						written++
+					}
+				}
+			}
 		}
 		// Pad with blank lines so the status bar always sits on the last
 		// row of the screen — end (via visibleRowCount) already fills as
 		// much of contentBudget as the remaining rows allow, so this is
 		// only needed once the list itself runs out before the budget
 		// does (e.g. the last page of a paginated view).
-		for i := (end - start) + sepShown; i < m.contentBudget(); i++ {
+		for ; written < budget; written++ {
 			b.WriteString("\n")
 		}
 	}

@@ -135,8 +135,18 @@ func init() {
 		},
 		closingNoteMode: {
 			update: Model.updateClosingNoteMode,
+			// The note itself shows under each entry it's for (see
+			// bulkNoteLines).
 			prompt: func(m *Model) string {
-				return m.editedLine(" Closing note (empty for none, Esc cancels): " + m.closingNoteInput)
+				n, noun := len(m.bulkNoteTargets()), "entries"
+				if n == 1 {
+					noun = "entry"
+				}
+				line := m.statusStyle().Render(fmt.Sprintf("-- CLOSING NOTE for %d %s --  (Enter or Esc when done, empty for none)", n, noun))
+				if m.message != "" {
+					line += "  " + m.errorStyle().Render(m.message)
+				}
+				return line
 			},
 		},
 		insertMode: {
@@ -157,7 +167,9 @@ func init() {
 			},
 			prompt: func(m *Model) string {
 				hint := "(Esc: done, ctrl-g: edit in $EDITOR)"
-				if m.ins.onKeyword {
+				if m.ins.note != nil {
+					hint = "(closing note: Enter or Esc when done, empty for none)"
+				} else if m.ins.onKeyword {
 					hint = "(keyword: type a shortcut, Delete for none, → for the title; Esc: done)"
 				} else if m.ins.inTags {
 					hint = "(tags: type to edit this one, Enter for a new one, Tab completes; Esc: done)"

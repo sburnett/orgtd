@@ -177,7 +177,7 @@ func sendKeyCmd(m Model, key string) (Model, tea.Cmd) {
 func setStatus(m Model, shortcut string) Model {
 	m = sendKey(m, "r")
 	m = sendKey(m, shortcut)
-	if m.mode == closingNoteMode {
+	if m.mode == closingNoteMode || m.mode == insertMode && m.ins.note != nil {
 		m = sendKey(m, "enter")
 	}
 	return m

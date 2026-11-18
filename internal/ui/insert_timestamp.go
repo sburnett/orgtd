@@ -191,7 +191,7 @@ func (m Model) updateTimestampMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		m.ins.dateInput += typedText(msg.Runes)
 	}
-	if m.mode == insertMode && m.ins.exitAfterDate {
+	if m.mode == insertMode && m.ins.exitWhenDone {
 		// Resolved, one way or the other: "gd" is done.
 		return m.finishInsert()
 	}

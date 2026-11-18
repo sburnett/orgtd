@@ -137,10 +137,9 @@ type Model struct {
 	selectFilter string // typed so far, in selectMode
 	selectIndex  int    // highlighted index within the filtered candidates, in selectMode
 
-	closingNoteInput     string // typed so far, in closingNoteMode
-	closingNoteForInsert bool   // closingNoteMode was opened from insert mode's keyword slot, and returns there
-	closingNoteKeyword   string // the state chosen in the picker, applied once closingNoteMode resolves
-	closingNoteLabel     string // that state's label, for the bulk status message
+	closingNoteInput   string // typed so far, in closingNoteMode
+	closingNoteKeyword string // the state chosen in the picker, applied once closingNoteMode resolves
+	closingNoteLabel   string // that state's label, for the bulk status message
 
 	// meetingPickerTarget is the entry "gM" was invoked on, whose
 	// GCAL_RECURRING_EVENT_IDS or GCAL_EVENT_IDS (matching whichever the
@@ -382,8 +381,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// In insert mode ctrl-c just leaves it, as in vim (see
-		// updateInsertMode), or the closing-note prompt it opened.
-		if msg.String() == "ctrl+c" && !m.inInsertSession() {
+		// updateInsertMode), and in a closing note it's Esc, too.
+		if msg.String() == "ctrl+c" && !m.inInsertSession() && m.mode != closingNoteMode {
 			if len(m.dirty) == 0 || m.pendingForceQuit {
 				return m, tea.Quit
 			}

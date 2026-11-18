@@ -24,14 +24,14 @@ func (m *Model) refuseTaskStateInReference() bool {
 // label to the planning line — making one if need be — and opens the
 // date prompt for it right away; cancelling that takes the label back
 // out. Once the deadline's set — or that's cancelled — insert mode ends
-// too (see insertSession.exitAfterDate). A no-op on file rows.
+// too (see insertSession.exitWhenDone). A no-op on file rows.
 func (m *Model) startSetDeadline() {
 	h := m.currentHeadline()
 	if h == nil || m.refuseIfImmutable(h) {
 		return
 	}
 	m.enterInsertMode(h, nil, caretAtTitle)
-	m.ins.exitAfterDate = true
+	m.ins.exitWhenDone = true
 	b := &m.ins.buf
 	if row, span, ok := m.planningDate("DEADLINE"); ok {
 		b.row, b.col, b.goal = row, span[0], -1

@@ -175,9 +175,16 @@ func (m Model) applySelectedStatus() (tea.Model, tea.Cmd) {
 
 // applyChosenStatus resolves the picker's choice of keyword (labeled
 // label, for the bulk status message), first asking for a closing note if
-// it completes anything (see closesAny) — shared by applySelectedStatus
-// (Enter) and typeSelectChar's single-match auto-apply.
+// it completes anything (see closesAny): typed in the entry itself for
+// one (see startStatusNote), or under each of several at once (see
+// closingNoteMode) — shared by applySelectedStatus (Enter) and
+// typeSelectChar's single-match auto-apply.
 func (m *Model) applyChosenStatus(keyword, label string) {
+	if m.closesAny(keyword) && len(m.selectModeTargets) == 0 {
+		// One entry: its closing note is typed right in it.
+		m.startStatusNote(keyword)
+		return
+	}
 	if m.closesAny(keyword) {
 		m.mode = closingNoteMode
 		m.closingNoteKeyword = keyword

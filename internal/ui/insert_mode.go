@@ -42,10 +42,13 @@ type insertSession struct {
 	dateActive bool       // the timestamp is active <...>, not inactive [...]
 	dateLabel  *dateLabel // what "gd" added for a new deadline, if the prompt is for one
 
-	// exitAfterDate ends the session as soon as a date prompt is
+	// exitWhenDone ends the session as soon as a date prompt is
 	// resolved, applied or cancelled — for "gd", which only uses insert
 	// mode to set the deadline.
-	exitAfterDate bool
+	exitWhenDone bool
+
+	// note is the closing note being typed, if one is (see insert_note.go).
+	note *noteEdit
 
 	// inTags is whether the caret is in the tag area at the end of the
 	// first line, where tags — lifted out of buf meanwhile, with an
@@ -123,6 +126,9 @@ func (m Model) finishInsert() (tea.Model, tea.Cmd) {
 	m.mode = normalMode
 	m.ins = insertSession{}
 	m.applyEditedEntry(s.buf.String(), s.target, s.insert)
+	// As "r" does, with :review on: past the pinned item, if this just
+	// closed it.
+	m.advanceReviewTargetIfDone()
 	m.ensureVisible()
 	return m, nil
 }
@@ -163,6 +169,9 @@ func (m *Model) resumeInsertFromEditor(text string) {
 // returns to normal mode; ctrl-g opens it in $EDITOR.
 func (m Model) updateInsertMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.message = ""
+	if m.ins.note != nil {
+		return m.noteKey(msg)
+	}
 	switch msg.Type {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		return m.finishInsert()
