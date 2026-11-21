@@ -103,7 +103,8 @@ struct MainTabs: View {
 /// on every tab. It also carries the sync status: a spinner while
 /// anything is running, a crossed-out Wi-Fi symbol while the server
 /// can't be reached, and an exclamation mark after any other failure
-/// (Settings has the details).
+/// (Settings has the details). Unless it's busy, a badge on the icon
+/// counts the local changes (captures and edits) not pushed yet.
 struct SyncButton: View {
     @Environment(AppModel.self) private var model
 
@@ -111,21 +112,57 @@ struct SyncButton: View {
         !model.isOffline && !(model.lastError ?? model.status.lastError).isEmpty
     }
 
+    private var unpushed: Int { model.status.unpushed }
+
     var body: some View {
         Button { Task { await model.sync() } } label: {
             if model.busy != nil {
                 ProgressView()
-            } else if model.isOffline {
-                Image(systemName: "wifi.slash")
-            } else if failed {
-                Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
-                    .symbolRenderingMode(.multicolor)
             } else {
-                Image(systemName: "arrow.triangle.2.circlepath")
+                icon.overlay(alignment: .topTrailing) {
+                    if unpushed > 0 { UnpushedBadge(count: unpushed) }
+                }
             }
         }
         .disabled(model.busy != nil)
-        .accessibilityLabel(model.busy ?? (model.isOffline ? "Sync (server unreachable)" : failed ? "Sync (last attempt failed)" : "Sync"))
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    @ViewBuilder private var icon: some View {
+        if model.isOffline {
+            Image(systemName: "wifi.slash")
+        } else if failed {
+            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                .symbolRenderingMode(.multicolor)
+        } else {
+            Image(systemName: "arrow.triangle.2.circlepath")
+        }
+    }
+
+    private var accessibilityLabel: String {
+        if let busy = model.busy { return busy }
+        let state = model.isOffline ? "server unreachable" : failed ? "last attempt failed" : nil
+        let changes = unpushed == 0 ? nil : unpushed == 1 ? "1 change to push" : "\(unpushed) changes to push"
+        let details = [state, changes].compactMap { $0 }
+        return details.isEmpty ? "Sync" : "Sync (\(details.joined(separator: ", ")))"
+    }
+}
+
+/// The number of unpushed changes, on the Sync button's icon.
+private struct UnpushedBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.caption2.weight(.bold))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Capsule().fill(.tint))
+            .fixedSize()
+            .offset(x: 8, y: -8)
+            .allowsHitTesting(false)
     }
 }
 

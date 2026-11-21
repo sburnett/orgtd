@@ -210,7 +210,9 @@ either.
   If something other than this phone moved `origin/mobile`, the push is
   refused. The Sync button shows a spinner while it works, and an
   exclamation mark if it fails; Settings (the gear) has the details,
-  including when the app last fetched and pushed.
+  including when the app last fetched and pushed. Except while it's
+  busy, a badge on it counts the captures and edits made on the phone that haven't been
+  pushed yet; it clears once a Sync gets them through.
 - **Files** are the top level of Outline: each file's name has an
   arrow that expands or collapses its entries (tapping the name does
   too), with reference files after the others. Files start expanded;
