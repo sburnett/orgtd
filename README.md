@@ -338,6 +338,24 @@ JSON file is written to the system temp directory, readable only by
 you, and deleted once the command exits. A command without
 `context = true` gets none of this.
 
+For example, `scripts/claude_entry.py` starts a Claude Code session
+about the entry you're on: its system prompt holds the entry, everything
+nested under it and each ancestor heading's own notes, and Claude opens
+by summarizing the task and proposing a first step. It starts in the
+directory named by a `:PROJECT_DIR:` property on the entry or its
+nearest ancestor that has one (else the org directory), so setting one
+on a project heading covers every task under it. Anything after the
+name goes to `claude`, e.g. `:run claude --model opus`:
+
+```toml
+[[commands]]
+name    = "claude"
+command = "~/git/orgtd/scripts/claude_entry.py"   # wherever your checkout is
+context = true
+```
+
+See the script's own header for the details.
+
 The built-in color scheme (`[colors]` and `[icons]` above) matches the
 dark variant of the [wildcharm](https://github.com/vim/colorschemes/blob/master/colors/wildcharm.vim)
 vim colorscheme — it's fixed rather than adapting to the terminal's own

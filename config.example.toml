@@ -217,6 +217,6 @@
 # name = "sync"
 # command = "~/bin/org-sync --quiet"
 # [[commands]]
-# name = "open"
-# command = "~/bin/org-open"
+# name = "claude"   # a Claude Code session seeded with the current entry
+# command = "~/git/orgtd/scripts/claude_entry.py"
 # context = true
