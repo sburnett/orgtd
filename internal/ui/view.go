@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // View renders the whole screen, passed through sanitizeTerminal so no
@@ -176,6 +177,9 @@ func (m Model) writeCommandLine(b *strings.Builder) {
 // filling m.width: in the status bar's own colors for the active window,
 // or — with splits, for every other window — dimmed, like vim's
 // StatusLineNC, so which window has the cursor is clear at a glance.
+// The active window's line also ends, flush right, with busyIndicator's
+// icon while any background work is in flight; the line's own text is
+// cut short (with "…") rather than ever pushing the icon off screen.
 func (m Model) statusLine(active bool) string {
 	style := lipgloss.NewStyle().Bold(true).Foreground(m.statusBarFg()).Background(m.statusBarBg())
 	bg := m.statusBarBg()
@@ -183,7 +187,36 @@ func (m Model) statusLine(active bool) string {
 		bg = m.statusBarInactiveBg()
 		style = lipgloss.NewStyle().Foreground(m.statusBarInactiveFg()).Background(bg)
 	}
-	return m.padLineToWidth(style.Render(m.normalStatusLine()), bg)
+	line := m.normalStatusLine()
+	if busy := m.busyIndicator(); active && busy != "" {
+		right := busy + " "
+		if m.width > 0 {
+			avail := m.width - lipgloss.Width(right)
+			if lipgloss.Width(line) > avail {
+				line = ansi.Truncate(line, max(avail-1, 0), "…") + " "
+			}
+			line += strings.Repeat(" ", max(avail-lipgloss.Width(line), 0))
+		} else {
+			line += "  "
+		}
+		line += right
+	}
+	return m.padLineToWidth(style.Render(line), bg)
+}
+
+// busyIcon is drawn at the right end of the active window's status line
+// while background work is running (see busyIndicator).
+const busyIcon = "⟳"
+
+// busyIndicator returns busyIcon while any background command is in
+// flight — a calendar sync (manual or automatic) or a :format-links
+// batch — and "" otherwise. The UI stays fully usable while either
+// runs, so without this nothing would show that one is still going.
+func (m *Model) busyIndicator() string {
+	if m.syncingCalendar || m.formatLinksInFlight > 0 {
+		return busyIcon
+	}
+	return ""
 }
 
 // normalStatusLine returns the single line for the default (mode-less)

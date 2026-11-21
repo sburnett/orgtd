@@ -486,7 +486,9 @@ logging is on.
   outline.
 
 The bottom of the screen has up to three parts. The status line (current
-view/directory and item position only) is always exactly one line,
+view/directory and item position, plus a `⟳` at its far right while
+background work — a calendar sync, manual or automatic, or a
+`:format-links` batch — is still running) is always exactly one line,
 always visible regardless of mode; the command line below it — where
 `:`/`/`/`?` input, prompts (deadline, the status picker), the
 visual-mode banner, and messages all appear, blank when there's nothing

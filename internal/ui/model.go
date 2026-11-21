@@ -96,6 +96,11 @@ type Model struct {
 	// lockColumn) and enforced by refuseIfImmutable/filterImmutable.
 	immutable map[*org.Headline]bool
 
+	// formatLinksInFlight counts :format-links batches started but not yet
+	// finished (see startFormatLinks/finishFormatLinks), for the status
+	// line's busy indicator (see busyIndicator).
+	formatLinksInFlight int
+
 	// execLog records every external command run since startup (URL
 	// formatters, $EDITOR), for :log — see execlog.Log's own doc comment for
 	// why it's a pointer rather than a plain value.

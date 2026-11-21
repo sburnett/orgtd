@@ -124,6 +124,7 @@ func (m *Model) startFormatLinks() tea.Cmd {
 		m.immutable[t.h] = true
 	}
 	m.message = fmt.Sprintf("Formatting links for %d entries in the background...", len(targets))
+	m.formatLinksInFlight++
 
 	elog := m.execLog
 	return func() tea.Msg {
@@ -163,6 +164,9 @@ func applyFormatLinksEdits(text string, edits []formatLinksFieldEdit) string {
 func (m Model) finishFormatLinks(msg formatLinksMsg) (tea.Model, tea.Cmd) {
 	for _, t := range msg.targets {
 		delete(m.immutable, t.h)
+	}
+	if m.formatLinksInFlight > 0 {
+		m.formatLinksInFlight--
 	}
 
 	if msg.err != nil {
