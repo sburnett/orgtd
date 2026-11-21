@@ -307,6 +307,12 @@ func TestTagsAndStatusKeywords(t *testing.T) {
 	if !has["ideas"] || has["recurring"] {
 		t.Errorf("tags = %v (want ideas, not calendar's recurring)", tags)
 	}
+	// Most-used first, ties alphabetical: the fixture uses @carol,
+	// oncall, planning and reference twice each, the rest once.
+	want := []string{"@carol", "oncall", "planning", "reference", "@dana"}
+	if len(tags) < len(want) || strings.Join(tags[:len(want)], ",") != strings.Join(want, ",") {
+		t.Errorf("tags = %v, want it to start %v", tags, want)
+	}
 	st := decode[statusResult](t)(Status(g))
 	if len(st.Keywords) != 6 || st.Keywords[0].Name != "TODO" || st.Keywords[0].Color != "#d7005f" {
 		t.Errorf("keywords = %+v", st.Keywords)

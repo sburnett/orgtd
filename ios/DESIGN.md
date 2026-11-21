@@ -366,7 +366,8 @@ README/DESIGN.md current (per repo convention).
 ### Phase 7 — Capture UI & sync
 
 - Capture sheet: title (required), body, tags token field with
-  autocomplete from `Tags()`, SCHEDULED/DEADLINE each with a date picker
+  suggestions from `Tags()` (most-used first) on the field's own
+  line, SCHEDULED/DEADLINE each with a date picker
   and a free-text field run through `ParseDate`.
 - Pending captures badged in Inbox; swipe to edit/delete while pending.
 - Sync button → `Sync`; failures shown on the Sync button's icon, with

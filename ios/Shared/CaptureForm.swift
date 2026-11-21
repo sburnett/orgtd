@@ -25,7 +25,7 @@ struct CaptureForm: View {
                     .lineLimit(3...12)
             }
             Section("Tags") {
-                TagField(tags: $draft.tags, knownTags: knownTags)
+                TagField(tags: $draft.tags, text: $draft.tagInput, knownTags: knownTags)
             }
             Section("Dates") {
                 DateField(label: "Scheduled", value: $draft.scheduled, parseDate: parseDate)
@@ -61,30 +61,58 @@ struct KeywordPicker: View {
         return Button {
             keyword = value
         } label: {
-            Text(label)
-                .font(.caption.monospaced().weight(selected ? .bold : .regular))
-                .foregroundStyle(selected ? color : .secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(selected ? color.opacity(0.18) : Color.secondary.opacity(0.08)))
-                .overlay(Capsule().strokeBorder(selected ? color : .clear, lineWidth: 1))
+            Chip(label: label, selected: selected, color: color)
         }
         .buttonStyle(.borderless)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-/// Tags as removable chips plus a text field that suggests known tags.
+/// A chip's look, shared by the keyword picker and the tag suggestions:
+/// small monospaced text in a capsule, gray, or — selected — bold in
+/// `color` with an outline.
+struct Chip: View {
+    let label: String
+    var selected = false
+    var color: Color = .secondary
+
+    var body: some View {
+        Text(label)
+            .font(.caption.monospaced().weight(selected ? .bold : .regular))
+            .foregroundStyle(selected ? color : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(selected ? color.opacity(0.18) : Color.secondary.opacity(0.08)))
+            .overlay(Capsule().strokeBorder(selected ? color : .clear, lineWidth: 1))
+    }
+}
+
+/// Tags as removable chips plus a text field for adding them. While the
+/// field has the focus, known tags are offered as chips on the field's
+/// own line, to its right, scrolling sideways: there they take no room
+/// of their own and the keyboard can't cover them (iOS keeps the
+/// focused field in view). Before anything's typed they're the
+/// most-used tags (`knownTags` comes most-used first); after, the ones
+/// starting with what's typed, then the ones containing it.
+///
+/// `text` is the draft's `tagInput`, so a tag typed but never turned
+/// into a chip (no Return) is still saved.
 struct TagField: View {
     @Binding var tags: [String]
+    @Binding var text: String
     var knownTags: [String]
-    @State private var text = ""
+    @FocusState private var focused: Bool
 
     private var suggestions: [String] {
+        let unused = knownTags.filter { !tags.contains($0) }
         let q = text.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return [] }
-        return knownTags.filter { $0.lowercased().hasPrefix(q) && !tags.contains($0) }.prefix(8).map { $0 }
+        guard !q.isEmpty else { return Array(unused.prefix(30)) }
+        let starts = unused.filter { $0.lowercased().hasPrefix(q) }
+        let contains = unused.filter { !$0.lowercased().hasPrefix(q) && $0.lowercased().contains(q) }
+        return Array((starts + contains).prefix(30))
     }
+
+    private var showingSuggestions: Bool { focused && !suggestions.isEmpty }
 
     var body: some View {
         if !tags.isEmpty {
@@ -103,26 +131,41 @@ struct TagField: View {
                 }
             }
         }
-        TextField("Add tag", text: $text)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .submitLabel(.done)
-            .onSubmit { add(text) }
-        ForEach(suggestions, id: \.self) { s in
-            Button {
-                add(s)
-            } label: {
-                Label(s, systemImage: "tag")
+        HStack(spacing: 8) {
+            TextField("Add tag", text: $text)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($focused)
+                .onSubmit { add(text) }
+                // Just wide enough for what's typed while the suggestions
+                // share the line; the whole line otherwise.
+                .fixedSize(horizontal: showingSuggestions, vertical: false)
+                .frame(minWidth: 70, alignment: .leading)
+            if showingSuggestions {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(suggestions, id: \.self) { s in
+                            Button {
+                                add(s)
+                            } label: {
+                                Chip(label: s)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Add tag \(s)")
+                        }
+                    }
+                }
+                .accessibilityLabel("Suggested tags")
             }
-            .buttonStyle(.borderless) // in a list row, a plain button would take over the row
         }
     }
 
     private func add(_ raw: String) {
-        let tag = raw.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: ":"))
         text = ""
-        guard !tag.isEmpty, !tags.contains(tag) else { return }
-        tags.append(tag)
+        for tag in CaptureDraft.splitTags(raw) where !tags.contains(tag) {
+            tags.append(tag)
+        }
     }
 }
 

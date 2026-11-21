@@ -1249,8 +1249,9 @@ func Search(groupDir, query string) (string, error) {
 	return toJSON(res)
 }
 
-// Tags returns every tag used anywhere in the loaded files, sorted, as a
-// JSON array of strings — for capture-sheet autocompletion.
+// Tags returns every tag used anywhere in the loaded files, as a JSON
+// array of strings for the tag field's suggestions: most-used first (the
+// ones offered before anything is typed), ties alphabetical.
 func Tags(groupDir string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -1258,22 +1259,27 @@ func Tags(groupDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	seen := map[string]bool{}
+	uses := map[string]int{}
 	for _, f := range l.ws.Files {
 		if l.ws.IsNamed(f, l.cfg.CalendarFile) {
 			continue // attendee tags; noise for capture
 		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
 			for _, t := range h.Tags {
-				seen[t] = true
+				uses[t]++
 			}
 		})
 	}
-	tags := make([]string, 0, len(seen))
-	for t := range seen {
+	tags := make([]string, 0, len(uses))
+	for t := range uses {
 		tags = append(tags, t)
 	}
-	sort.Strings(tags)
+	sort.Slice(tags, func(i, j int) bool {
+		if uses[tags[i]] != uses[tags[j]] {
+			return uses[tags[i]] > uses[tags[j]]
+		}
+		return tags[i] < tags[j]
+	})
 	return toJSON(tags)
 }
 

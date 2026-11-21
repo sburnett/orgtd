@@ -154,7 +154,9 @@ either.
   has one. A form opens right where the entry will
   go, to fill in: an optional
   keyword (your configured, not-done keywords; it starts with the one
-  you used last), title, notes, tags (autocompleted from your files),
+  you used last), title, notes, tags (suggested from your files beside the tag field while you're in it — your
+  most-used ones before you type, then the ones matching what you
+  type; a tag typed but not yet added is saved too),
   and SCHEDULED/DEADLINE dates. You can pick a date, or type one the
   way desktop `gd` accepts (`3d`, `2w`, `next tue`).
   - Saving adds the entry there, with a CREATED stamp as desktop

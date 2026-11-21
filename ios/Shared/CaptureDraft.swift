@@ -11,6 +11,10 @@ struct CaptureDraft: Codable, Equatable {
     var tags: [String] = []
     var scheduled: String = ""
     var deadline: String = ""
+    /// What's typed in the tag field but not yet made a chip. Never
+    /// stored on its own: encoding folds it into `tags` (see `allTags`),
+    /// so a tag typed and then saved without pressing Return is kept.
+    var tagInput: String = ""
 
     enum CodingKeys: String, CodingKey {
         case id, createdAt, keyword, title, body, tags, scheduled, deadline
@@ -49,7 +53,7 @@ struct CaptureDraft: Codable, Equatable {
         try c.encode(keyword, forKey: .keyword)
         try c.encode(title, forKey: .title)
         try c.encode(body, forKey: .body)
-        try c.encode(tags, forKey: .tags)
+        try c.encode(allTags, forKey: .tags)
         try c.encode(scheduled, forKey: .scheduled)
         try c.encode(deadline, forKey: .deadline)
     }
@@ -70,6 +74,21 @@ struct CaptureDraft: Codable, Equatable {
 
     func json() throws -> String {
         String(decoding: try JSONEncoder().encode(self), as: UTF8.self)
+    }
+
+    /// `tags` plus whatever's still typed in the tag field.
+    var allTags: [String] {
+        var all = tags
+        for t in CaptureDraft.splitTags(tagInput) where !all.contains(t) {
+            all.append(t)
+        }
+        return all
+    }
+
+    /// Typed tag text as tags: org tags can't hold spaces, so spaces,
+    /// commas and colons separate them (":a:b:" works too).
+    static func splitTags(_ raw: String) -> [String] {
+        raw.split { $0.isWhitespace || $0 == "," || $0 == ":" }.map(String.init)
     }
 
     var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }

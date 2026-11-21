@@ -543,7 +543,7 @@ struct InlineForm: View {
                     .lineLimit(2...10)
                     .inlineField()
                 VStack(alignment: .leading, spacing: 6) {
-                    TagField(tags: $draft.tags, knownTags: model.tags)
+                    TagField(tags: $draft.tags, text: $draft.tagInput, knownTags: model.tags)
                 }
                 .inlineField()
                 DateField(label: "Scheduled", value: $draft.scheduled, parseDate: { try await model.parseDate($0) })
