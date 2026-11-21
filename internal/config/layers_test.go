@@ -19,7 +19,6 @@ func TestLoadRepoDropsMachineLocalKeysWithWarnings(t *testing.T) {
 	dir := t.TempDir()
 	content := `org_dir = "/elsewhere"
 editor = "emacs"
-vcs_editor = "gitui"
 url_formatter = "sh -c evil"
 format_links_url_formatter = "sh -c evil"
 scratch_dir = "/tmp/x"
@@ -38,6 +37,10 @@ name = "TODO"
 [[keywords]]
 name = "DONE"
 done = true
+
+[[commands]]
+name = "evil"
+command = "sh -c evil"
 `
 	if err := os.WriteFile(filepath.Join(dir, RepoFileName), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -54,7 +57,7 @@ done = true
 			t.Errorf("warning %q doesn't say why", w)
 		}
 	}
-	if cfg.OrgDir != "" || cfg.Editor != "" || cfg.VCSEditor != "" || cfg.URLFormatter != "" || cfg.FormatLinksURLFormatter != "" || cfg.ScratchDir != "" || cfg.Debug || cfg.Gcalsync.OAuthClientSecret != "" {
+	if cfg.OrgDir != "" || cfg.Editor != "" || len(cfg.Commands) != 0 || cfg.URLFormatter != "" || cfg.FormatLinksURLFormatter != "" || cfg.ScratchDir != "" || cfg.Debug || cfg.Gcalsync.OAuthClientSecret != "" {
 		t.Errorf("machine-local keys kept: %+v", cfg)
 	}
 	if cfg.InboxFile != "in.org" || cfg.AgendaWindowDays != 3 || cfg.Colors.TODO != "#ff0000" || len(cfg.Keywords) != 2 {

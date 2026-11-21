@@ -145,7 +145,7 @@ func init() {
 		{names: []string{"format-links"}, run: func(m *Model, _ string) tea.Cmd { return m.startFormatLinks() }},
 		{names: []string{"sync-calendar"}, run: func(m *Model, _ string) tea.Cmd { return m.startSyncCalendar(false) }},
 		{names: []string{"sync-calendar!"}, run: func(m *Model, _ string) tea.Cmd { return m.startSyncCalendar(true) }},
-		{names: []string{"vcs"}, run: func(m *Model, _ string) tea.Cmd { return m.startVCS() }},
+		{names: []string{"run"}, takesArg: true, complete: (*Model).completeRunArg, run: func(m *Model, name string) tea.Cmd { return m.startRun(name) }},
 	}
 }
 

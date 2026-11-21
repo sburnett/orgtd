@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -311,5 +312,45 @@ func TestApplyDefaultsFillsKeywords(t *testing.T) {
 	c.ApplyDefaults()
 	if len(c.Keywords) != 6 || c.Keywords[0].Name != "TODO" {
 		t.Errorf("Keywords = %+v, want the six built-ins", c.Keywords)
+	}
+}
+
+func TestLoadParsesCommands(t *testing.T) {
+	path := writeConfig(t, `
+[[commands]]
+name = "vcs"
+command = "gitui"
+[[commands]]
+name = "sync"
+command = "~/bin/sync --quiet"
+`)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []CommandConfig{{Name: "vcs", Command: "gitui"}, {Name: "sync", Command: "~/bin/sync --quiet"}}
+	if !reflect.DeepEqual(c.Commands, want) {
+		t.Errorf("Commands = %+v, want %+v", c.Commands, want)
+	}
+}
+
+func TestLoadRejectsBadCommands(t *testing.T) {
+	cases := map[string]string{
+		"empty name":     "[[commands]]\nname = \"\"\ncommand = \"gitui\"\n",
+		"space in name":  "[[commands]]\nname = \"my vcs\"\ncommand = \"gitui\"\n",
+		"empty command":  "[[commands]]\nname = \"vcs\"\ncommand = \"  \"\n",
+		"duplicate name": "[[commands]]\nname = \"vcs\"\ncommand = \"gitui\"\n[[commands]]\nname = \"vcs\"\ncommand = \"jjui\"\n",
+	}
+	for name, content := range cases {
+		if _, err := Load(writeConfig(t, content)); err == nil {
+			t.Errorf("%s: Load = nil error, want a validation error", name)
+		}
+	}
+}
+
+func TestLoadRejectsRemovedVCSEditor(t *testing.T) {
+	_, err := Load(writeConfig(t, "vcs_editor = \"gitui\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "[[commands]]") {
+		t.Errorf("Load(vcs_editor) = %v, want an error pointing at [[commands]]", err)
 	}
 }

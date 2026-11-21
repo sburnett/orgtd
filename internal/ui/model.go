@@ -2,7 +2,7 @@
 // foldable outline over every org file in a workspace, with in-memory
 // editing (written to disk only on :w), derived views (agenda, calendar,
 // tags, review, ...), and background commands (calendar sync, link
-// formatting, :vcs). Nearly all behavior lives here, centered on
+// formatting, :run). Nearly all behavior lives here, centered on
 // Model; see DESIGN.md §4-§5 for the runtime model and file layout.
 package ui
 
@@ -376,8 +376,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case autoSyncTickMsg:
 		return m.autoSyncTick()
 
-	case vcsFinishedMsg:
-		return m.finishVCS(msg)
+	case runFinishedMsg:
+		return m.finishRun(msg)
 
 	case tea.KeyMsg:
 		// In insert mode ctrl-c just leaves it, as in vim (see

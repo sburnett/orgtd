@@ -25,9 +25,6 @@ type Config struct {
 	OrgDir string `toml:"org_dir"`
 	Editor string `toml:"editor"`
 
-	// VCSEditor is the command :vcs runs (in OrgDir) to manage version
-	// control, e.g. "gitui" or "jjui". Empty means :vcs is unavailable.
-	VCSEditor        string `toml:"vcs_editor"`
 	URLFormatter     string `toml:"url_formatter"`
 	AgendaWindowDays int    `toml:"agenda_window_days"`
 
@@ -118,6 +115,24 @@ type Config struct {
 	// falls back to DefaultKeywords. When set, it replaces the built-in
 	// set entirely rather than adding to it.
 	Keywords []KeywordConfig `toml:"keywords"`
+
+	// Commands are the user-defined programs ":run <name>" launches, one
+	// "[[commands]]" table each (see CommandConfig). Machine-local: a
+	// repo file can't set them, since they name programs to run.
+	Commands []CommandConfig `toml:"commands"`
+}
+
+// CommandConfig is one "[[commands]]" table: a program ":run <name>"
+// runs in the org directory with the terminal handed over, after saving
+// every file, reloading whatever it changed on disk once it exits.
+type CommandConfig struct {
+	// Name is what follows ":run", e.g. "vcs". Non-empty, no whitespace,
+	// unique among Commands.
+	Name string `toml:"name"`
+
+	// Command is the program and its arguments, split shell-style the
+	// same way as editor (see internal/extprog.ParseCommand).
+	Command string `toml:"command"`
 }
 
 // SnippetsSkip is the one snippets role a KeywordConfig can have (its
@@ -217,6 +232,9 @@ func (c *Config) Normalize() error {
 	if err := c.CheckFileNames(); err != nil {
 		return err
 	}
+	if err := c.checkCommands(); err != nil {
+		return err
+	}
 	if len(c.Keywords) == 0 {
 		return nil
 	}
@@ -266,6 +284,42 @@ func (c *Config) Normalize() error {
 		}
 		if k.Shortcut == "" {
 			return fmt.Errorf("keyword %s: no free shortcut; set one explicitly", k.Name)
+		}
+	}
+	return nil
+}
+
+// checkCommands validates c.Commands: each needs a name with no
+// whitespace, unique among them, and a non-empty command.
+func (c *Config) checkCommands() error {
+	names := make(map[string]bool)
+	for i, cmd := range c.Commands {
+		if cmd.Name == "" || strings.ContainsAny(cmd.Name, " \t") {
+			return fmt.Errorf("commands[%d]: name %q must be non-empty with no whitespace", i, cmd.Name)
+		}
+		if names[cmd.Name] {
+			return fmt.Errorf("commands[%d]: duplicate name %q", i, cmd.Name)
+		}
+		names[cmd.Name] = true
+		if strings.TrimSpace(cmd.Command) == "" {
+			return fmt.Errorf("command %s: command must not be empty", cmd.Name)
+		}
+	}
+	return nil
+}
+
+// removedKeys are settings orgtd no longer reads, each with how to
+// replace it. Load refuses a user config file still setting one, rather
+// than silently ignoring it the way TOML decoding would.
+var removedKeys = map[string]string{
+	"vcs_editor": "replace it with a [[commands]] table, e.g. name = \"vcs\", command = \"gitui\", and use :run vcs",
+}
+
+// checkRemovedKeys reports the first key in raw that's in removedKeys.
+func checkRemovedKeys(raw map[string]any) error {
+	for key, fix := range removedKeys {
+		if _, ok := raw[key]; ok {
+			return fmt.Errorf("%s is no longer supported: %s", key, fix)
 		}
 	}
 	return nil
@@ -596,6 +650,13 @@ func Load(path string) (*Config, error) {
 			return &Config{}, nil
 		}
 		return nil, fmt.Errorf("config: reading %s: %w", path, err)
+	}
+	var raw map[string]any
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("config: parsing %s: %w", path, err)
+	}
+	if err := checkRemovedKeys(raw); err != nil {
+		return nil, fmt.Errorf("config: %s: %w", path, err)
 	}
 	var c Config
 	if err := toml.Unmarshal(data, &c); err != nil {

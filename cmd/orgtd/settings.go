@@ -17,16 +17,16 @@ import (
 // must treat differently (an explicit flag always wins; an unset one
 // leaves whatever the config file said).
 type flagValues struct {
-	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor, vcsEditor string
-	formatLinksURLFormatter, scratchDir                                            string
-	urlFormatterPrefixes                                                           string // comma-separated; see splitList
-	outlineIgnoreFiles                                                             string // comma-separated; see splitList
-	agendaDays                                                                     int
-	snippetsDays                                                                   int
-	hideClosedAfterHours                                                           int
-	debug                                                                          bool
-	configPath                                                                     string
-	explicit                                                                       map[string]bool
+	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor string
+	formatLinksURLFormatter, scratchDir                                 string
+	urlFormatterPrefixes                                                string // comma-separated; see splitList
+	outlineIgnoreFiles                                                  string // comma-separated; see splitList
+	agendaDays                                                          int
+	snippetsDays                                                        int
+	hideClosedAfterHours                                                int
+	debug                                                               bool
+	configPath                                                          string
+	explicit                                                            map[string]bool
 }
 
 // defineFlags registers every command-line flag on fs, bound to the
@@ -46,7 +46,6 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.scratchDir, "scratch-dir", "", "directory editor buffers are written to and kept in; a leading ~ is expanded, and a relative path is relative to the org directory (default: the config file's scratch_dir, else scratch)")
 	fs.IntVar(&f.hideClosedAfterHours, "hide-closed-after-hours", 0, "how many hours after an item's CLOSED timestamp it's hidden from the outline view; :toggleclosed shows everything again (default: the config file's hide_closed_after_hours, else 24)")
 	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
-	fs.StringVar(&f.vcsEditor, "vcs-editor", "", "program :vcs runs in the org directory to manage version control, e.g. \"gitui\" or \"jjui\" (default: the config file's vcs_editor, else :vcs is unavailable)")
 	fs.BoolVar(&f.debug, "debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
 	fs.StringVar(&f.configPath, "config", "", "path to the TOML config file (default: "+config.DefaultPath()+")")
 	return f
@@ -128,7 +127,6 @@ func resolveLayers(f flagValues, orgtdDirEnv string, user, repo *config.Config) 
 	set("scratch-dir", "scratch_dir", func() { out.ScratchDir = f.scratchDir })
 	set("hide-closed-after-hours", "hide_closed_after_hours", func() { out.HideClosedAfterHours = f.hideClosedAfterHours })
 	set("editor", "editor", func() { out.Editor = f.editor })
-	set("vcs-editor", "vcs_editor", func() { out.VCSEditor = f.vcsEditor })
 	set("debug", "debug", func() { out.Debug = f.debug })
 
 	// An explicit zero flag (e.g. -agenda-days 0) means "use the

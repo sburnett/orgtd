@@ -14,12 +14,6 @@
 # expanded to your home directory. Default: $ORGTD_DIR, then ~/org.
 # org_dir = "~/org"
 
-# Program :vcs runs, in org_dir, to manage version control: orgtd saves
-# every file first, hands over the terminal, and reloads whatever changed on
-# disk once the program exits. Same syntax as editor above. Default: unset
-# (:vcs refuses).
-# vcs_editor = "gitui"
-
 # External editor for `i` (edit entry/file). Anything your shell would
 # accept after $EDITOR works, including extra arguments (e.g. "code --wait"),
 # a double- or single-quoted argument containing spaces, and "~" in any word
@@ -202,3 +196,18 @@
 # name = "DONE"
 # shortcut = "d"
 # done = true
+
+# Custom commands, one [[commands]] table each, run by ":run <name>" in
+# org_dir: orgtd saves every file first, hands over the terminal, and
+# reloads whatever changed on disk once the program exits — e.g. a
+# version-control UI that pulls, or a script that rewrites your files.
+# `command` uses the same syntax as editor above. Default: none.
+#
+#   name     what follows :run (no spaces, unique)
+#   command  the program and its arguments
+# [[commands]]
+# name = "vcs"
+# command = "gitui"
+# [[commands]]
+# name = "sync"
+# command = "~/bin/org-sync --quiet"

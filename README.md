@@ -47,7 +47,6 @@ orgtd --dir ~/org
 | `--scratch-dir` | `scratch_dir` | `scratch` | Directory every `$EDITOR` buffer is written to and kept in (see Editing, below). A leading `~` is expanded, and a relative path is relative to `--dir`, so it can live outside the org directory, e.g. `~/.local/state/orgtd/scratch`. Created when first needed |
 | `--hide-closed-after-hours` | `hide_closed_after_hours` | `24` | How many hours after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggleclosed` shows everything again, and toggles back |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched by `ctrl-g` (see Editing, below) and for whole-file edits |
-| `--vcs-editor` | `vcs_editor` | *(unset)* | Program `:vcs` (see below) runs in `--dir` to manage version control — e.g. `gitui` or `jjui`. May include arguments, same syntax as `editor` |
 | `--debug` | `debug` | *(off)* | Log debug info (see Debug log, below) to `debug.log` next to the config file |
 | `--config` | — | `$XDG_CONFIG_HOME/orgtd/config.toml` (or `~/.config/orgtd/config.toml`) | Path to the config file below |
 
@@ -113,8 +112,8 @@ same keys, and sits below your own config file: an explicit flag wins,
 then (for the directory only) `$ORGTD_DIR`, then your config file, then
 `<org_dir>/.orgtd.toml`, then the built-in default. It can't set
 `org_dir` (it's found through it) or anything machine-local — `editor`,
-`vcs_editor`, `url_formatter`, `format_links_url_formatter`,
-`scratch_dir`, `debug`, or the `[gcalsync]` section —
+`url_formatter`, `format_links_url_formatter`,
+`scratch_dir`, `debug`, `[[commands]]`, or the `[gcalsync]` section —
 those are ignored with a warning on the command line at startup. A
 malformed `.orgtd.toml` stops orgtd at startup, like a malformed config
 file. `:config` shows, after each setting, which of these layers its
@@ -122,7 +121,6 @@ value came from (`[flag]`, `[env]`, `[config]`, `[repo]`, `[default]`).
 
 ```toml
 org_dir = "~/org"          # "~" is expanded
-vcs_editor = ""            # e.g. "gitui" or "jjui"; what :vcs launches
 editor = "emacsclient -t"  # falls back to $EDITOR, then vim, if unset
 url_formatter = ""
 url_formatter_prefixes = ["bit.ly/", "go/"]
@@ -233,7 +231,42 @@ name     = "CANCELLED"
 shortcut = "c"
 done     = true
 snippets = "skip"      # never shown in the :snippets view
+
+# Custom commands, run with ":run <name>" (see Running your own commands,
+# below): one [[commands]] table each. None by default.
+[[commands]]
+name    = "vcs"        # what follows :run; non-empty, no spaces, unique
+command = "gitui"      # program and arguments, same syntax as editor
+[[commands]]
+name    = "sync"
+command = "~/bin/org-sync --quiet"
 ```
+
+### Running your own commands (`:run`)
+
+`:run <name>` runs the `[[commands]]` entry called `<name>` from your
+config file — a version-control UI such as `gitui` or `jjui`, a sync
+script, anything that might read or rewrite your `.org` files. `<Tab>`
+completes the name, and `:run` alone lists the configured ones. Each run:
+
+1. Saves every file with unsaved changes, with the same refusals as `:w`
+   (see Files changed on disk, above). If any file can't be saved,
+   nothing is launched, so the program never sees a state that doesn't
+   match what orgtd is showing.
+2. Runs the command in `--dir`, handing it the terminal until it exits.
+3. Reloads every file whose content on disk changed, discarding that
+   file's undo history and marks as `:e!` does. The message line lists
+   what was reloaded, any file that couldn't be (`:e!` to retry), and
+   whether the command exited with an error.
+
+Files the command created or removed aren't picked up — `:e <file>`
+opens a new one. `[[commands]]` is machine-local: a committed
+`.orgtd.toml` can't define commands, since anyone who can push to the
+repo could otherwise make orgtd run anything they like.
+
+This replaces the old `vcs_editor` setting, `--vcs-editor` flag and
+`:vcs` command. A config file still setting `vcs_editor` stops orgtd at
+startup with a message saying what to write instead.
 
 The built-in color scheme (`[colors]` and `[icons]` above) matches the
 dark variant of the [wildcharm](https://github.com/vim/colorschemes/blob/master/colors/wildcharm.vim)
@@ -429,8 +462,8 @@ logging is on.
   file/built-in-default resolution), including whether hide-closed
   filtering is currently on or off. `:outline` returns to the outline.
 - **Log** (`:log`) — a read-only, chronological list of every external
-  command orgtd has run since it started (`$EDITOR`, and any configured
-  URL formatter, live or batch): a line when it starts (with its pid and
+  command orgtd has run since it started (`$EDITOR`, `:run` commands,
+  and any configured URL formatter, live or batch): a line when it starts (with its pid and
   full argument list), one line per line fed to its stdin (if any, e.g.
   every URL a `:format-links` batch sends), one line per stdout/stderr
   line as it's produced, and a line for its exit code, each individually
@@ -925,7 +958,7 @@ History doesn't persist between sessions.
 | `:next` / `:prev` | Only while `:review` is on: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
-| `:vcs` | Save every file with unsaved changes (same refusals as `:w` — if any fails, nothing is launched), run `vcs_editor` (e.g. `gitui`, `jjui`) in `--dir` with the terminal handed over, and when it exits reload every file whose content on disk changed, discarding that file's undo history and marks as `:e!` does. Files the VCS tool created or removed aren't picked up — `:e <file>` opens a new one. Refuses if `vcs_editor` isn't set |
+| `:run <name>` | Save every file with unsaved changes, run the `[[commands]]` entry called `<name>` in `--dir` with the terminal handed over, and reload every file it changed on disk — see Running your own commands, above. `<Tab>` completes `<name>`; `:run` alone lists the configured commands |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:registers` / `:reg` | Toggle showing the registers' contents in the info buffer (off by default; see Registers, above). `%` is shown while `:review` is on either way |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |

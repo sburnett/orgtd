@@ -190,14 +190,14 @@ Bubble Tea: `Model`, `Update`, `View`.
   of structural edits relies on the same pointers being re-inserted.
 - **Slow work runs as a `tea.Cmd`** that returns a message handled in
   `Update`: `:sync-calendar` (`syncCalendarMsg`), `:format-links`
-  (`formatLinksMsg`), `:vcs` (`vcsFinishedMsg`: save, run `vcs_editor`, reload changed files), and the `$EDITOR`
+  (`formatLinksMsg`), `:run` (`runFinishedMsg`: save, run a `[[commands]]` entry, reload changed files), and the `$EDITOR`
   round trip (`editFinishedMsg`, `fileEditFinishedMsg`). While
   `:format-links` is in flight, affected entries are in `m.immutable` and
   every mutating command checks `refuseIfImmutable`/`filterImmutable`.
 - **Not everything is async.** `:w`, scratch-file
   writes and the live in-editor URL formatter run synchronously inside
   `Update`. They are fast in practice; if one ever isn't, convert it to a
-  `tea.Cmd` following the `:vcs` pattern.
+  `tea.Cmd` following the `:run` pattern.
 - **All external commands go through `internal/execlog`** (`execlog.Run`),
   which is what `:log` displays. New subprocess code
   should use it.
@@ -231,7 +231,7 @@ including its known weak points, so changes can be made deliberately.
 | `edit_file.go` | `:edit`/`:e`: open, load or create a file in the org directory or `reference/` and focus its header |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch (both run formatters through `internal/extprog`) |
-| `vcs.go` | `:vcs`: save everything, run the configured `vcs_editor`, reload files it changed on disk |
+| `run_command.go` | `:run <name>`: save everything, run the named `[[commands]]` entry, reload files it changed on disk |
 | `review.go`, `marks.go`, `jumplist.go` | `:review` target (the `%` register, toggled by `:review`), vim-style marks, ctrl-o/`gi` jump list and view switching |
 | `style.go` | Color/icon resolution, text-width and highlight helpers |
 | `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |

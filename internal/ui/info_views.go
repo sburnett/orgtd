@@ -159,8 +159,15 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	from("scratch_dir")
 	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
 	from("hide_closed_after_hours")
-	line("VCS editor: %s", orDefault(m.cfg.VCSEditor, "(not configured)"))
-	from("vcs_editor")
+	if len(m.cfg.Commands) == 0 {
+		line("Commands (:run): (none configured)")
+	} else {
+		line("Commands (:run):")
+		for _, c := range m.cfg.Commands {
+			line("  %s: %s", c.Name, c.Command)
+		}
+	}
+	from("commands")
 	line("Debug logging: %s", onOff(m.cfg.Debug))
 	from("debug")
 
