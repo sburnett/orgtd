@@ -323,12 +323,13 @@ command = "gitui"
 [[commands]]
 name = "sync"
 command = "~/bin/sync --quiet"
+context = true
 `)
 	c, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	want := []CommandConfig{{Name: "vcs", Command: "gitui"}, {Name: "sync", Command: "~/bin/sync --quiet"}}
+	want := []CommandConfig{{Name: "vcs", Command: "gitui"}, {Name: "sync", Command: "~/bin/sync --quiet", Context: true}}
 	if !reflect.DeepEqual(c.Commands, want) {
 		t.Errorf("Commands = %+v, want %+v", c.Commands, want)
 	}

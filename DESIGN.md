@@ -231,7 +231,7 @@ including its known weak points, so changes can be made deliberately.
 | `edit_file.go` | `:edit`/`:e`: open, load or create a file in the org directory or `reference/` and focus its header |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch (both run formatters through `internal/extprog`) |
-| `run_command.go` | `:run <name>`: save everything, run the named `[[commands]]` entry, reload files it changed on disk |
+| `run_command.go`, `run_context.go` | `:run <name> [args...]`: save everything, run the named `[[commands]]` entry, reload files it changed on disk; with `context = true`, the cursor's entry or the visual selection (`commandSelection`) as `ORGTD_*` variables and a JSON file |
 | `review.go`, `marks.go`, `jumplist.go` | `:review` target (the `%` register, toggled by `:review`), vim-style marks, ctrl-o/`gi` jump list and view switching |
 | `style.go` | Color/icon resolution, text-width and highlight helpers |
 | `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |

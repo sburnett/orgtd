@@ -203,11 +203,20 @@
 # version-control UI that pulls, or a script that rewrites your files.
 # `command` uses the same syntax as editor above. Default: none.
 #
-#   name     what follows :run (no spaces, unique)
+#   name     what follows :run (no spaces, unique); anything typed after
+#            the name is appended to the command's arguments
 #   command  the program and its arguments
+#   context  true to pass the entry under the cursor (or the visual
+#            selection) as ORGTD_* environment variables and a JSON file
+#            at $ORGTD_CONTEXT — see the README's "Passing context to a
+#            command"
 # [[commands]]
 # name = "vcs"
 # command = "gitui"
 # [[commands]]
 # name = "sync"
 # command = "~/bin/org-sync --quiet"
+# [[commands]]
+# name = "open"
+# command = "~/bin/org-open"
+# context = true

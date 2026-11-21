@@ -112,6 +112,12 @@ type Model struct {
 
 	visualAnchor int // row index where "V" was pressed; the selection spans from here to m.cursor (see visualRange), both ends snapped to whole entries
 
+	// commandSelection is the visual selection ":" was typed from, nil
+	// when it was typed in normal mode. Only :run reads it (as the
+	// entries it passes as context — see runTargets); every other
+	// command ignores it.
+	commandSelection []*org.Headline
+
 	// selectModeTargets holds the entries a pending R (selectMode) should
 	// apply the chosen status to, if more than just the current one — set
 	// when R is invoked from visual mode (the whole selection) or with a

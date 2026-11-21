@@ -205,3 +205,50 @@ func TestIndentEntryLeavesBlankLinesAlone(t *testing.T) {
 		t.Errorf("IndentEntry() = %q, want %q (blank line not indented)", got, want)
 	}
 }
+
+func TestHeadlineLinesFollowsRenderingOnceWritten(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.org")
+	if err := os.WriteFile(path, []byte("#+TITLE: x\n* One\nbody\n** Two\n* Three\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := f.Headlines[0]
+	one.Body = append([]string{"new line"}, one.Body...) // pushes Two and Three down a line
+	if err := WriteFile(f); err != nil {
+		t.Fatal(err)
+	}
+
+	lines := HeadlineLines(f)
+	two, three := one.Children[0], f.Headlines[1]
+	if lines[one] != 2 || lines[two] != 5 || lines[three] != 6 {
+		t.Errorf("lines = one %d, two %d, three %d; want 2, 5, 6", lines[one], lines[two], lines[three])
+	}
+}
+
+func TestHeadlineLinesUsesSourceLinesForAnUnwrittenFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.org")
+	// Extra spaces before the tags render differently, so the disk
+	// content isn't what rendering produces; the parsed positions are
+	// what's on disk.
+	content := "* One          :tag:\n   SCHEDULED: <2026-11-24 Tue>\n\n\nbody\n* Two\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := ParseFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if RenderFile(f) == content {
+		t.Fatal("fixture renders identically; it doesn't exercise the source-line fallback")
+	}
+
+	lines := HeadlineLines(f)
+	if lines[f.Headlines[0]] != 1 || lines[f.Headlines[1]] != 6 {
+		t.Errorf("lines = %d, %d; want 1, 6", lines[f.Headlines[0]], lines[f.Headlines[1]])
+	}
+}

@@ -133,6 +133,12 @@ type CommandConfig struct {
 	// Command is the program and its arguments, split shell-style the
 	// same way as editor (see internal/extprog.ParseCommand).
 	Command string `toml:"command"`
+
+	// Context passes the entry under the cursor (or the visual
+	// selection) to the command, as ORGTD_* environment variables and a
+	// JSON file named by $ORGTD_CONTEXT (see internal/ui's
+	// buildRunContext).
+	Context bool `toml:"context"`
 }
 
 // SnippetsSkip is the one snippets role a KeywordConfig can have (its

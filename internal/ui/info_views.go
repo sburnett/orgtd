@@ -164,7 +164,11 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	} else {
 		line("Commands (:run):")
 		for _, c := range m.cfg.Commands {
-			line("  %s: %s", c.Name, c.Command)
+			if c.Context {
+				line("  %s: %s (with context)", c.Name, c.Command)
+			} else {
+				line("  %s: %s", c.Name, c.Command)
+			}
 		}
 	}
 	from("commands")

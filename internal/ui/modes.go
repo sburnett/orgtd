@@ -66,7 +66,7 @@ func init() {
 		visualMode: {
 			update: Model.updateVisualMode,
 			prompt: func(m *Model) string {
-				line := m.statusStyle().Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, y: yank, R: set status, Esc: cancel)", len(m.visualSelectedHeadlines())))
+				line := m.statusStyle().Render(fmt.Sprintf("-- VISUAL LINE -- %d selected  (d: delete, y: yank, R: set status, :run: run with selection, Esc: cancel)", len(m.visualSelectedHeadlines())))
 				if m.message != "" {
 					line += "  " + m.errorStyle().Render(m.message)
 				}
@@ -77,7 +77,13 @@ func init() {
 			update: Model.updateCommandMode,
 			// Completion matches themselves are in the info buffer (see
 			// infoBelow), not appended here.
-			prompt: func(m *Model) string { return m.editedLine(":" + m.commandInput) },
+			prompt: func(m *Model) string {
+				line := m.editedLine(":" + m.commandInput)
+				if n := len(m.commandSelection); n > 0 {
+					line = m.statusStyle().Render(fmt.Sprintf("(%d selected) ", n)) + line
+				}
+				return line
+			},
 			infoBelow: func(m *Model) []string {
 				if m.commandCompletions == "" {
 					return nil

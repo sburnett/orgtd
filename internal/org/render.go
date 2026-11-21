@@ -21,15 +21,53 @@ func RenderHeadline(h *Headline) string {
 // text, unrecognized content, and the file preamble are stored as raw
 // lines and do round-trip exactly.
 func RenderFile(f *File) string {
+	s, _ := renderFile(f, nil)
+	return s
+}
+
+// HeadlineLines returns the 1-based line number of every headline in f
+// as the file stands on disk: from rendering f, when that's what's on
+// disk (orgtd wrote it, or it round-trips exactly), or else from each
+// headline's SrcStart — the file hasn't been written since it was
+// parsed, since a write would have made disk and rendering agree. A New
+// file never written uses the rendering too.
+func HeadlineLines(f *File) map[*Headline]int {
+	lines := map[*Headline]int{}
+	content, _ := renderFile(f, lines)
+	if f.DiskHash == "" || hashContent([]byte(content)) == f.DiskHash {
+		return lines
+	}
+	for h := range lines {
+		lines[h] = h.SrcStart + 1
+	}
+	return lines
+}
+
+// renderFile is RenderFile, also recording in lines (if non-nil) each
+// headline's 1-based line number in the result.
+func renderFile(f *File, lines map[*Headline]int) (string, map[*Headline]int) {
 	var b strings.Builder
 	for _, line := range f.Preamble {
 		b.WriteString(line)
 		b.WriteByte('\n')
 	}
-	for _, h := range f.Headlines {
-		writeHeadline(&b, h)
+	n := len(f.Preamble)
+	var walk func(h *Headline)
+	walk = func(h *Headline) {
+		if lines != nil {
+			lines[h] = n + 1
+		}
+		before := b.Len()
+		writeHeadlineFields(&b, h)
+		n += strings.Count(b.String()[before:], "\n")
+		for _, c := range h.Children {
+			walk(c)
+		}
 	}
-	return b.String()
+	for _, h := range f.Headlines {
+		walk(h)
+	}
+	return b.String(), lines
 }
 
 // RenderEntry serializes h's own headline line, planning line, property

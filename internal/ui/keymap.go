@@ -134,12 +134,7 @@ func buildNormalKeys() *keymap {
 	km.addMotions()
 
 	// Mode switches that open a prompt.
-	km.bindKeepView(do(func(m *Model) {
-		m.mode = commandMode
-		m.commandInput = ""
-		m.commandHistoryPos = len(m.commandHistory)
-		m.commandHistoryDraft = ""
-	}), ":")
+	km.bindKeepView(do(func(m *Model) { m.startCommandLine(nil) }), ":")
 	km.bindKeepView(do(func(m *Model) { m.startSearch(true) }), "/")
 	km.bindKeepView(do(func(m *Model) { m.startSearch(false) }), "?")
 	km.bind(do(func(m *Model) { m.repeatSearch(m.lastSearchForward) }), "n")
@@ -279,6 +274,11 @@ func buildVisualKeys() *keymap {
 		}
 	}), "G")
 	km.addPrefix("\"") // "\"<register>" selects the register for the next d/y; see runWithRegister
+	km.bind(do(func(m *Model) {
+		sel := m.visualSelectedHeadlines()
+		m.exitVisualMode()
+		m.startCommandLine(sel)
+	}), ":")
 	km.bind(do((*Model).deleteVisualSelection), "d")
 	km.bind(do((*Model).yankVisualSelection), "y", "Y")
 	km.bind(do(func(m *Model) {

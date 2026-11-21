@@ -11,6 +11,17 @@ import (
 	"github.com/sburnett/orgtd/internal/org"
 )
 
+// startCommandLine opens the ":" command line. selection is the visual
+// selection it was opened from (nil from normal mode), which :run passes
+// as context (see commandSelection).
+func (m *Model) startCommandLine(selection []*org.Headline) {
+	m.mode = commandMode
+	m.commandInput = ""
+	m.commandHistoryPos = len(m.commandHistory)
+	m.commandHistoryDraft = ""
+	m.commandSelection = selection
+}
+
 func (m Model) updateCommandMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type != tea.KeyTab {
 		// Any key other than Tab dismisses a shown completion list, and

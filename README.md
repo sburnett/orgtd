@@ -240,14 +240,21 @@ command = "gitui"      # program and arguments, same syntax as editor
 [[commands]]
 name    = "sync"
 command = "~/bin/org-sync --quiet"
+[[commands]]
+name    = "open"
+command = "~/bin/org-open"
+context = true         # pass the current entry (or selection); see Passing context to a command
 ```
 
 ### Running your own commands (`:run`)
 
-`:run <name>` runs the `[[commands]]` entry called `<name>` from your
-config file — a version-control UI such as `gitui` or `jjui`, a sync
-script, anything that might read or rewrite your `.org` files. `<Tab>`
-completes the name, and `:run` alone lists the configured ones. Each run:
+`:run <name> [args...]` runs the `[[commands]]` entry called `<name>`
+from your config file — a version-control UI such as `gitui` or `jjui`,
+a sync script, anything that might read or rewrite your `.org` files.
+Anything after the name is split shell-style and appended to the
+command's own arguments, so `:run sync --dry-run` runs
+`~/bin/org-sync --quiet --dry-run`. `<Tab>` completes the name, and
+`:run` alone lists the configured ones. Each run:
 
 1. Saves every file with unsaved changes, with the same refusals as `:w`
    (see Files changed on disk, above). If any file can't be saved,
@@ -267,6 +274,69 @@ repo could otherwise make orgtd run anything they like.
 This replaces the old `vcs_editor` setting, `--vcs-editor` flag and
 `:vcs` command. A config file still setting `vcs_editor` stops orgtd at
 startup with a message saying what to write instead.
+
+#### Passing context to a command
+
+A command with `context = true` is told which entry `:run` was typed on:
+the one under the cursor, or — typing `:` in visual mode (see Visual
+selection, below) — every selected entry. On a file's header row it's
+told the file and no entries. It gets these environment variables:
+
+| Variable | Value |
+|---|---|
+| `ORGTD_DIR` | The org directory (`--dir`) |
+| `ORGTD_VIEW` | The current view: `outline`, `agenda`, `calendar`, `reference`, ... |
+| `ORGTD_COUNT` | How many entries were passed: `1` for the cursor's entry, the selection's size, or `0` |
+| `ORGTD_CONTEXT` | Path of a JSON file with all of it (below) |
+| `ORGTD_FILE` | Absolute path of the entry's file, or of the file whose header row the cursor is on |
+| `ORGTD_LINE` | The entry's headline line in that file, counting from 1 |
+| `ORGTD_TITLE` | Its title, without keyword, priority or tags |
+| `ORGTD_TODO` | Its keyword (`NEXT`), or empty |
+| `ORGTD_TAGS` | Its tags in org form (`:work:writing:`), or empty |
+| `ORGTD_OUTLINE_PATH` | Its file name and every ancestor's title, then its own, joined with `/`: `projects.org/Work/Q4/Write report` |
+| `ORGTD_ID` | Its `:ID:` property, or empty |
+
+The variables from `ORGTD_FILE` down describe a single entry, so with a
+visual selection of more than one they aren't set (`ORGTD_FILE` aside,
+on a header row). The JSON file has everything, for every entry:
+
+```json
+{
+  "dir": "/Users/you/org",
+  "view": "outline",
+  "entries": [
+    {
+      "file": "/Users/you/org/projects.org",
+      "line": 142,
+      "level": 3,
+      "todo": "NEXT",
+      "priority": "A",
+      "title": "Write report",
+      "tags": ["work", "writing"],
+      "scheduled": "<2026-11-24 Tue>",
+      "deadline": "",
+      "closed": "",
+      "properties": {"ID": "abc"},
+      "body": "Draft it.",
+      "outline_path": ["projects.org", "Work", "Q4", "Write report"],
+      "ancestors": [
+        {"line": 3, "level": 1, "todo": "", "title": "Work"},
+        {"line": 88, "level": 2, "todo": "", "title": "Q4"}
+      ],
+      "raw": "*** NEXT [#A] Write report   :work:writing:\n..."
+    }
+  ]
+}
+```
+
+A top-level `"file"` is added on a header row. `raw` is the entry's own
+text (headline, planning, properties, body), not its children. Line
+numbers are the file as saved on disk — `:run` saves before launching —
+so `$EDITOR +"$ORGTD_LINE" "$ORGTD_FILE"` opens right at the entry, and
+a script can rewrite it there and have orgtd reload the change. The
+JSON file is written to the system temp directory, readable only by
+you, and deleted once the command exits. A command without
+`context = true` gets none of this.
 
 The built-in color scheme (`[colors]` and `[icons]` above) matches the
 dark variant of the [wildcharm](https://github.com/vim/colorschemes/blob/master/colors/wildcharm.vim)
@@ -856,6 +926,7 @@ below (to its right) if it was the first, and the cursor goes with it.
 | `V` | Enter visual line selection at the current entry. Navigation keys (`j`/`k`, `gg`/`G`, `{`/`}`, `l`/`h`, `^`/`$`, `ctrl-d`/`ctrl-u`, `Page Down`/`Page Up`, `ctrl-e`/`ctrl-y`) extend the selection instead of just moving; `V` again or `Esc` cancels it |
 | `d` | (in visual mode) Delete every selected entry and its subtree. A selected entry whose ancestor is also selected isn't deleted separately — deleting the ancestor already removes it. One undo step per file touched (almost always just one). Fills the paste register with everything deleted (top-to-bottom order preserved), so `p`/`P` pastes the whole selection back as a group |
 | `y` | (in visual mode) Yank every selected entry and its subtree into the paste register, without deleting them — the visual-mode equivalent of `yy`. Same ancestor-covers-descendant rule as `d`. Leaves normal mode afterward, same as `d`/`r`/`R` |
+| `:` | (in visual mode) Open the command line, as in normal mode, remembering the selection — `:run` passes every selected entry to a command with `context = true` (see Passing context to a command, above); every other command ignores it. The command line shows how many entries are selected |
 | `r` / `R` | (in visual mode) Open the same status picker as `<N>r`, applying the chosen state to every selected entry independently (nested entries included, unlike `d`) — also one undo step per file touched. A closing note is asked for once, shown under each entry it goes on, as with `<N>r` |
 
 The cursor's own entry keeps the usual highlight color; the rest of the
@@ -960,7 +1031,7 @@ History doesn't persist between sessions.
 | `:next` / `:prev` | Only while `:review` is on: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
-| `:run <name>` | Save every file with unsaved changes, run the `[[commands]]` entry called `<name>` in `--dir` with the terminal handed over, and reload every file it changed on disk — see Running your own commands, above. `<Tab>` completes `<name>`; `:run` alone lists the configured commands |
+| `:run <name> [args...]` | Save every file with unsaved changes, run the `[[commands]]` entry called `<name>` (with `args` appended) in `--dir` with the terminal handed over, and reload every file it changed on disk — see Running your own commands, above. `<Tab>` completes `<name>`; `:run` alone lists the configured commands |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:registers` / `:reg` | Toggle showing the registers' contents in the info buffer (off by default; see Registers, above). `%` is shown while `:review` is on either way |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
