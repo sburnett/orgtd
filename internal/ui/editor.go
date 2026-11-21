@@ -66,8 +66,8 @@ func (m *Model) startEditAppend() tea.Cmd {
 // $EDITOR, applying the result once the editor exits — the round trip
 // "i" used to make before insert mode existed. Coming from normal mode,
 // a vim-family editor starts in normal mode too, on the entry's first
-// line (extprog.NoPlacement); only ctrl-g from insert mode (see
-// editInsertInEditor) starts it in insert mode.
+// line (extprog.NoPlacement); ctrl-g from insert mode (see
+// editInsertInEditor) lands on the caret instead, still in normal mode.
 func (m *Model) startEditInEditor() tea.Cmd {
 	return m.startEditAt(caretAtTitle, true)
 }

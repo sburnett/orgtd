@@ -23,66 +23,58 @@ var editorsWithLineArg = map[string]bool{
 // vimFamily is the subset of editorsWithLineArg that additionally
 // understands vim's ex-command syntax — a "+{command}" argument
 // executing an arbitrary command, not just a bare line number — used to
-// start the editor directly in insert mode at a specific spot (see
-// CursorArg). emacs/emacsclient and nano share the "+N" line
-// convention but have no equivalent notion of "insert mode" to start
-// (nano isn't modal; plain emacs isn't either), so they just get a bare
-// "+N" for the placement's line.
+// put the cursor on a specific column, not just a line (see CursorArg).
+// emacs/emacsclient and nano share the "+N" line convention but not
+// that, so they just get a bare "+N" for the placement's line.
 var vimFamily = map[string]bool{
 	"vi": true, "vim": true, "nvim": true, "gvim": true, "mvim": true,
 }
 
 // Placement says where EditorCommand puts the cursor within the
-// content (the text after EditorCommand's before) and whether the
-// editor starts in insert mode there. The zero value, NoPlacement, just
-// lands on the content's first line, in the editor's own normal mode;
-// InsertAt builds the other kind.
+// content (the text after EditorCommand's before). The editor always
+// starts in its own normal mode. The zero value, NoPlacement, just
+// lands on the content's first line; CaretAt builds the other kind.
 type Placement struct {
-	// Insert says to start in insert mode at Line/Col — for a vim-family
-	// editor (see vimFamily). Any other editor in editorsWithLineArg
-	// still lands on Line, but has no insert mode to start.
-	Insert bool
-	Line   int  // 1-based line within the content
-	Col    int  // 1-based byte column within that line (vim's cursor() counts bytes)
-	AtEnd  bool // the cursor is past the line's last character, where cursor() can't go
+	// Caret says to land on Line/Col — Col only for a vim-family editor
+	// (see vimFamily); any other editor in editorsWithLineArg still
+	// lands on Line.
+	Caret bool
+	Line  int // 1-based line within the content
+	Col   int // 1-based byte column within that line (vim's cursor() counts bytes)
 }
 
-// NoPlacement lands on the content's first line in the editor's normal
-// mode: for a whole-file edit, and for ctrl-g from orgtd's normal mode.
+// NoPlacement lands on the content's first line: for a whole-file edit,
+// and for ctrl-g from orgtd's normal mode.
 var NoPlacement = Placement{}
 
-// InsertAt places the cursor in insert mode on row (0-based) of text, at
-// runeCol (0-based, in runes, as orgtd's own insert mode counts) — for
-// ctrl-g from orgtd's insert mode, so the editor carries on from exactly
-// where its caret was.
-func InsertAt(text string, row, runeCol int) Placement {
+// CaretAt places the cursor on row (0-based) of text, at runeCol
+// (0-based, in runes, as orgtd's own insert mode counts) — for ctrl-g
+// from orgtd's insert mode, so the editor opens where its caret was. A
+// caret past the line's last character lands on that character, as
+// vim's cursor() clamps it, the closest normal mode can get.
+func CaretAt(text string, row, runeCol int) Placement {
 	lines := strings.Split(text, "\n")
 	row = max(0, min(row, len(lines)-1))
 	runes := []rune(lines[row])
 	runeCol = max(0, min(runeCol, len(runes)))
 	return Placement{
-		Insert: true,
-		Line:   row + 1,
-		Col:    len(string(runes[:runeCol])) + 1,
-		AtEnd:  runeCol == len(runes),
+		Caret: true,
+		Line:  row + 1,
+		Col:   len(string(runes[:runeCol])) + 1,
 	}
 }
 
 // CursorArg returns the "+..." argument EditorCommand should pass for
 // the given editor basename, with the content starting on startLine
-// (1-based). A vim-family editor with an insert placement gets
-// cursor()+startinsert — or, past the end of the line, startinsert!,
-// vim's own "A", since cursor() clamps to the last real character;
-// anything else a bare "+N" for the placement's line.
+// (1-based). A vim-family editor with a caret placement gets cursor(),
+// leaving it in normal mode; anything else a bare "+N" for the
+// placement's line.
 func CursorArg(editorBase string, startLine int, p Placement) string {
 	line := startLine
-	if p.Insert {
+	if p.Caret {
 		line += p.Line - 1
 		if vimFamily[editorBase] {
-			if p.AtEnd {
-				return fmt.Sprintf("+%d|startinsert!", line)
-			}
-			return fmt.Sprintf("+call cursor(%d,%d)|startinsert", line, p.Col)
+			return fmt.Sprintf("+call cursor(%d,%d)", line, p.Col)
 		}
 	}
 	return fmt.Sprintf("+%d", line)
@@ -94,8 +86,7 @@ func CursorArg(editorBase string, startLine int, p Placement) string {
 // editor in editorsWithLineArg, it also inserts a "+..." argument (see
 // CursorArg) so the editor opens with the cursor on the real
 // content — or, for a vim-family editor with placement other than
-// NoPlacement, at a specific column within it and already in
-// insert mode (before is the context text written ahead of it in the
+// NoPlacement, at a specific column within it (before is the context text written ahead of it in the
 // file; its newline count is exactly the 1-based line the real content
 // starts on).
 func EditorCommand(editorEnv, path, before string, placement Placement) *exec.Cmd {

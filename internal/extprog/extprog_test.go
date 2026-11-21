@@ -162,29 +162,22 @@ func TestEditorCommandDefaultsToVimWhenEditorUnset(t *testing.T) {
 	}
 }
 
-func TestCursorArgInsertForVimFamily(t *testing.T) {
+func TestCursorArgCaretForVimFamilyStaysInNormalMode(t *testing.T) {
 	for _, base := range []string{"vi", "vim", "nvim", "gvim", "mvim"} {
 		t.Run(base, func(t *testing.T) {
-			got := CursorArg(base, 4, Placement{Insert: true, Line: 2, Col: 5})
-			if want := "+call cursor(5,5)|startinsert"; got != want {
+			got := CursorArg(base, 4, Placement{Caret: true, Line: 2, Col: 5})
+			if want := "+call cursor(5,5)"; got != want {
 				t.Errorf("CursorArg(%q, ...) = %q, want %q", base, got, want)
 			}
 		})
 	}
 }
 
-func TestCursorArgInsertAtLineEndAppends(t *testing.T) {
-	got := CursorArg("vim", 1, Placement{Insert: true, Line: 3, Col: 9, AtEnd: true})
-	if want := "+3|startinsert!"; got != want {
-		t.Errorf("CursorArg past the line end = %q, want %q (cursor() can't go there)", got, want)
-	}
-}
-
-func TestCursorArgInsertFallsBackToItsLineForNonVimEditors(t *testing.T) {
+func TestCursorArgCaretFallsBackToItsLineForNonVimEditors(t *testing.T) {
 	for _, base := range []string{"emacs", "emacsclient", "nano"} {
-		got := CursorArg(base, 4, Placement{Insert: true, Line: 3, Col: 5})
+		got := CursorArg(base, 4, Placement{Caret: true, Line: 3, Col: 5})
 		if got != "+6" {
-			t.Errorf("CursorArg(%q, insert on line 3) = %q, want the bare \"+6\" — %s has no insert mode to start", base, got, base)
+			t.Errorf("CursorArg(%q, caret on line 3) = %q, want the bare \"+6\"", base, got)
 		}
 	}
 }
@@ -195,37 +188,38 @@ func TestCursorArgNoPlacementIsAlwaysBareEvenForVim(t *testing.T) {
 	}
 }
 
-func TestEditorCommandInsertPlacementForVim(t *testing.T) {
+func TestEditorCommandCaretPlacementForVim(t *testing.T) {
 	// "before" is 3 lines of context, so the real content starts on line 4.
 	before := "# inbox.org\n#\n# * some parent\n"
-	cmd := EditorCommand("vim", "/tmp/x.org", before, Placement{Insert: true, Line: 1, Col: 5})
+	cmd := EditorCommand("vim", "/tmp/x.org", before, Placement{Caret: true, Line: 1, Col: 5})
 	lineArg := cmd.Args[len(cmd.Args)-2]
-	if want := "+call cursor(4,5)|startinsert"; lineArg != want {
+	if want := "+call cursor(4,5)"; lineArg != want {
 		t.Errorf("line arg = %q, want %q", lineArg, want)
 	}
 }
 
-func TestInsertAtCountsBytesAndClamps(t *testing.T) {
+func TestCaretAtCountsBytesAndClamps(t *testing.T) {
 	text := "TODO café run\nsecond"
 	cases := []struct {
 		row, col int
 		want     Placement
 	}{
-		{0, 0, Placement{Insert: true, Line: 1, Col: 1}},
+		{0, 0, Placement{Caret: true, Line: 1, Col: 1}},
 		// "TODO caf" is 8 runes and bytes; é is 2 bytes, so the
 		// character after it starts at byte 11 (1-based).
-		{0, 9, Placement{Insert: true, Line: 1, Col: 11}},
-		{0, 13, Placement{Insert: true, Line: 1, Col: 15, AtEnd: true}},
-		{1, 99, Placement{Insert: true, Line: 2, Col: 7, AtEnd: true}},
-		{5, 0, Placement{Insert: true, Line: 2, Col: 1}},
+		{0, 9, Placement{Caret: true, Line: 1, Col: 11}},
+		// Past the last character: vim's cursor() clamps onto it.
+		{0, 13, Placement{Caret: true, Line: 1, Col: 15}},
+		{1, 99, Placement{Caret: true, Line: 2, Col: 7}},
+		{5, 0, Placement{Caret: true, Line: 2, Col: 1}},
 	}
 	for _, c := range cases {
-		if got := InsertAt(text, c.row, c.col); got != c.want {
-			t.Errorf("InsertAt(row %d, col %d) = %+v, want %+v", c.row, c.col, got, c.want)
+		if got := CaretAt(text, c.row, c.col); got != c.want {
+			t.Errorf("CaretAt(row %d, col %d) = %+v, want %+v", c.row, c.col, got, c.want)
 		}
 	}
-	if got := InsertAt("", 0, 0); got != (Placement{Insert: true, Line: 1, Col: 1, AtEnd: true}) {
-		t.Errorf("InsertAt on an empty buffer = %+v, want line 1, appending", got)
+	if got := CaretAt("", 0, 0); got != (Placement{Caret: true, Line: 1, Col: 1}) {
+		t.Errorf("CaretAt on an empty buffer = %+v, want line 1, col 1", got)
 	}
 }
 
