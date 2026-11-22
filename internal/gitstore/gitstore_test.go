@@ -518,3 +518,25 @@ func TestConcurrentSaves(t *testing.T) {
 	}
 	gitCheck(t, dir)
 }
+
+func TestCloseRemovesInstanceLockFile(t *testing.T) {
+	dir := newRepo(t, nil)
+	s, err := Open(dir, "main", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := s.instanceLockPath(s.ID())
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatalf("no lock file while open: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Errorf("lock file left after Close: %v", err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, ".git", "orgtd", "instances"))
+	if len(entries) != 0 {
+		t.Errorf("instances/ holds %d files after Close", len(entries))
+	}
+}

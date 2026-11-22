@@ -10,6 +10,7 @@ package gitstore
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -90,13 +91,22 @@ func Open(dir, mainBranch string, ignore []string) (*Store, error) {
 }
 
 // Close releases the instance and merge locks, as the OS would if the
-// process exited. The Store must not be used afterwards.
+// process exited, and removes the instance's lock file, so a clean exit
+// leaves nothing behind. (A crashed instance's lock file is removed by
+// the next Orphans that finds it free.) The Store must not be used
+// afterwards.
 func (s *Store) Close() error {
 	if s == nil {
 		return nil
 	}
 	s.mergeLock.Unlock()
-	return s.instanceLock.Unlock()
+	if err := s.instanceLock.Unlock(); err != nil {
+		return err
+	}
+	if err := os.Remove(s.instanceLock.Path()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // Dir is the org directory, as an absolute path.
