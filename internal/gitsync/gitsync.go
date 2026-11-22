@@ -2,8 +2,12 @@
 // clones the org repository, fetches, rebuilds the local "mobile" branch
 // as origin's base branch plus the still-pending captures, and pushes it
 // with a lease. The phone never merges or resolves a conflict: "mobile"
-// only ever differs from the base branch by entries appended to the end
-// of the inbox file, and the user merges it by hand.
+// only ever differs from the base branch by the queued captures and
+// state changes, replayed onto it, each state change dropped if its
+// entry changed since (see Rebuild). So it's always a fast-forward of the
+// base branch as last fetched; desktop orgtd fast-forwards to it when
+// the phone pushes into the org directory itself
+// (gitstore.Store.FastForward), and otherwise the user merges it.
 //
 // The capture queue (internal/capturequeue) is the source of truth; the
 // branch is derived from it on every refresh. Rebuilt commits take their

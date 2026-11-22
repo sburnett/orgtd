@@ -6,7 +6,8 @@ sheet, read the outline and agenda, add entries anywhere in the outline
 tags and dates). Share-sheet captures are appended to `inbox_file`, new
 outline entries are inserted where you put them, and edits
 rewrite just the changed entry's own lines. All of these are committed
-to a `mobile` branch, which you merge on your computer.
+to a `mobile` branch, which desktop orgtd applies on your computer (or
+you merge by hand; see On your computer, below).
 The design is in [DESIGN.md](DESIGN.md).
 
 ## Requirements
@@ -276,15 +277,31 @@ either.
 
 ## On your computer
 
-Fetch from the server and merge `origin/mobile` into your main branch
-with a normal merge or a fast-forward, then push. Don't squash or cherry-pick it: the phone recognizes
-merged captures by commit ancestry. After you merge, the phone's next
+If the phone pushes into your org directory itself (its repo URL is
+that directory, over SSH), there's nothing to do: a running desktop
+orgtd fast-forwards your main branch to `mobile` within a couple of
+seconds of a Sync, and says so. If you've changed the main branch since
+the phone's last Sync, it waits for the next one, which rebuilds
+`mobile` on top of your changes, and the status line says `mobile is
+behind main — Sync the phone`. It also waits while a file the phone
+changed has edits on disk that aren't committed yet, and says which;
+`:w` commits them, then Sync the phone again.
+
+Otherwise (the phone pushes to a separate server), fetch from the
+server and merge `origin/mobile` into your main branch with a normal
+merge or a fast-forward, then push.
+
+Either way, don't squash or cherry-pick it: the phone recognizes
+merged captures by commit ancestry. After it's merged, the phone's next
 Sync drops those captures and state changes from its queues. Once
 nothing is pending, it deletes the `mobile` branch.
 
-Captures added on both sides at once, or a state change made on both
-sides to the same entry, are ordinary git conflicts, for you to resolve
-when merging.
+A state change or edit to an entry you've also changed on your
+computer is dropped by the phone (it tells you), never left as a
+conflict. Merging by hand after the main branch moved can still
+conflict, for example captures added to the end of the inbox on both
+sides at once; resolve those when merging, or Sync the phone first so
+`mobile` is a fast-forward again.
 
 Settings that should apply to the phone too (keywords and their colors,
 `inbox_file`, `agenda_window_days`, `hide_closed_after_hours`,

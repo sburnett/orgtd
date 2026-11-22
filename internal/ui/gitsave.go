@@ -48,6 +48,11 @@ type gitState struct {
 	// Shown on the status line.
 	others int
 
+	// mobile is why pollMain couldn't fast-forward to the phone's branch
+	// on its last try (see gitstore.FastForward), as the status line
+	// says it; empty if it could, or had nothing to do.
+	mobile string
+
 	// orphans are dead instances' unsaved edits found at startup (see
 	// :recover); recovering are the ones :recover has loaded into memory,
 	// to drop once a save gets them into the main branch.
@@ -416,6 +421,8 @@ func (m *Model) gitStatus() string {
 			branch = m.git.store.MainBranch()
 		}
 		return fmt.Sprintf("%s moved — :w merges", branch)
+	case m.git.mobile != "":
+		return m.git.mobile
 	}
 	return ""
 }
@@ -433,6 +440,28 @@ func (m *Model) instancesStatus() string {
 	}
 }
 
+// mobileBranch is the branch the iOS app pushes its changes to
+// (gitsync.MobileBranch; the desktop doesn't import gitsync), which
+// pollMain fast-forwards the main branch to.
+const mobileBranch = "mobile"
+
+// mobileNote is the status line's note on why the phone's branch
+// wasn't fast-forwarded to, and what to do about it; empty if it was, or
+// there was nothing to do.
+func mobileNote(ff gitstore.FastForwardResult, main string) string {
+	switch {
+	case len(ff.Blocked) > 0:
+		return mobileBranch + " waits on outside edits to " + strings.Join(ff.Blocked, ", ") + " — :w, then Sync the phone"
+	case ff.Behind:
+		return mobileBranch + " is behind " + main + " — Sync the phone"
+	case len(ff.Unmanaged) > 0:
+		// Still a fast-forward as far as git is concerned (Unmanaged is
+		// only reported when it is), just not one orgtd will write.
+		return mobileBranch + " changes " + strings.Join(ff.Unmanaged, ", ") + " — run git merge --ff-only " + mobileBranch
+	}
+	return ""
+}
+
 // pollInterval is how often pollMain checks the main branch.
 const pollInterval = 2 * time.Second
 
@@ -444,10 +473,12 @@ func pollTick() tea.Cmd {
 }
 
 // pollMain runs on every gitPollMsg: it recounts the other instances
-// running on the org directory (see instancesStatus), and if the main
-// branch moved since this
-// instance last caught up with it (another instance saved, or a commit or
-// pull from outside), reload the files it changed (see reloadChanged).
+// running on the org directory (see instancesStatus), fast-forwards the
+// main branch to the iOS app's branch if it can (see
+// gitstore.FastForward), and if the main branch moved since this
+// instance last caught up with it (another instance saved, the phone's
+// changes came in, or a commit or pull from outside), reload the files
+// it changed (see reloadChanged).
 // Files with unsaved edits aren't reloaded; the status line says the
 // branch moved, and the next :w merges. Edits made outside orgtd and not
 // yet committed aren't picked up until a save or :run commits them.
@@ -460,6 +491,10 @@ func (m Model) pollMain() (tea.Model, tea.Cmd) {
 	if n, err := store.OtherInstances(); err == nil {
 		m.git.others = n
 	}
+	// Errors (HEAD on another branch, a git command holding the index)
+	// just mean trying again next time.
+	ff, _ := store.FastForward(mobileBranch)
+	m.git.mobile = mobileNote(ff, store.MainBranch())
 	head, err := store.Head()
 	if err != nil || head == m.git.seen {
 		return m, next
@@ -468,7 +503,11 @@ func (m Model) pollMain() (tea.Model, tea.Cmd) {
 	if err != nil {
 		return m, next
 	}
-	if reloaded, _ := m.reloadChanged(head, snapshot, nil); len(reloaded) > 0 {
+	reloaded, _ := m.reloadChanged(head, snapshot, nil)
+	switch {
+	case ff.Moved:
+		m.message = "Applied changes from " + mobileBranch + " to " + strings.Join(ff.Changed, ", ")
+	case len(reloaded) > 0:
 		m.message = "Reloaded " + strings.Join(reloaded, ", ") + " (changed on " + store.MainBranch() + ")"
 	}
 	return m, next

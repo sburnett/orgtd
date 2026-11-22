@@ -120,6 +120,29 @@ The status line also says how many other instances are running on the
 same directory (`2 other instances`), when there are any. Like the
 saving itself, it only sees instances on this machine.
 
+The same check brings in the iOS companion's changes (see iOS companion,
+below), when the phone pushes them straight into the org directory: if
+there's a `mobile` branch that's your main branch plus new commits,
+orgtd fast-forwards the main branch to it and says so (`Applied changes
+from mobile to inbox.org`), then reloads the files as for another
+instance's save. It never merges. When it has to wait, the status line
+says why and what to do:
+
+- `mobile is behind main — Sync the phone`: the main branch moved on
+  (you saved) since the phone last synced. The phone's next Sync
+  rebuilds `mobile` on top of it, and orgtd applies it.
+- `mobile waits on outside edits to inbox.org — :w, then Sync the
+  phone`: a file the phone changed has edits on disk that aren't
+  committed yet. `:w` commits them, which moves the main branch on, so
+  the phone needs to Sync again.
+- `mobile changes notes.txt — run git merge --ff-only mobile`: `mobile`
+  changes something other than the files orgtd loads, which orgtd
+  won't write. It's still a fast-forward, so running that in the org
+  directory finishes the job, and orgtd picks up the result. The phone
+  never does this.
+
+The note goes away once `mobile` is applied, or merged by hand.
+
 Edits made outside orgtd — Emacs, a hand edit, a `:run` script — are
 committed for you (`orgtd: outside edits to inbox.org: add "Captured
 in Emacs"`) at the
@@ -1336,9 +1359,15 @@ entries (TODO state, title, notes, tags, dates).
   existing entries (keyword changes with `CLOSED` and repeaters
   handled as `r` does; title, notes, tags and dates), touching only the
   changed lines of that entry. Everything is
-  committed to a `mobile` branch you merge into your main branch
-  yourself (a normal merge or fast-forward). Running orgtd instances pick
-  the merge up like any other change to the main branch.
+  committed to a `mobile` branch, rebuilt on every Sync as your main
+  branch plus the phone's changes. A phone change whose entry you've
+  changed on your computer since is dropped, and the phone says so, so
+  the phone never has a conflict to resolve. When the phone pushes into
+  the org directory itself, a running orgtd fast-forwards the main
+  branch to `mobile` within a couple of seconds (see Running several
+  instances, above). Otherwise, merge `mobile` into your main branch
+  yourself (a normal merge or fast-forward), and running orgtd
+  instances pick the merge up like any other change to the main branch.
 - **Settings:** it reads the keywords, inbox name, agenda window and
   colors from `.orgtd.toml` (above).
 

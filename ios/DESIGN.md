@@ -22,7 +22,9 @@ The phone's writes are **appending new top-level entries to
 `inbox.org`** and **changing an entry's TODO keyword** (added later; see
 §10), committed to a dedicated `mobile` git branch that the user merges
 into `main` by hand on the Mac. The phone never merges and never
-resolves a conflict.
+resolves a conflict. (As built, the phone also edits, adds, moves and
+deletes entries, and desktop orgtd fast-forwards `main` to `mobile`
+itself; see §10.)
 
 ## 2. Decisions
 
@@ -32,7 +34,7 @@ resolves a conflict.
 | File access | The org directory is a git repo; the app keeps its own clone |
 | Git host / auth | Any git server reachable over SSH (originally GitHub; changed so the org files needn't be hosted by a third party — a self-hosted server, typically reached over Tailscale). An ed25519 key generated on the device and stored in the Keychain; the user adds it to the server account's `authorized_keys`, restricted to `git-shell`. The server's host key is shown at setup for the user to verify by fingerprint, then pinned |
 | Phone writes | Appends to `inbox_file` (default `inbox.org`), and TODO-keyword changes to existing entries (§10). No other edits, deletes, or IDs added to existing entries |
-| Branch | All phone changes live on `mobile`. The user merges `mobile` → `main` on the Mac with a normal merge or fast-forward (never squash/cherry-pick) |
+| Branch | All phone changes live on `mobile`. The user merges `mobile` → `main` on the Mac with a normal merge or fast-forward (never squash/cherry-pick) — as built, desktop orgtd fast-forwards it automatically (§10) |
 | Commit / push | Each capture is committed automatically; pushing only happens on an explicit **Sync** |
 | Branch upkeep | On Sync, `mobile` is rebuilt as `origin/main` + the still-unmerged captures and force-pushed (with lease) |
 | Fetch | On launch, on returning to foreground, and on Sync. Fetch is read-only and can't conflict |
@@ -145,7 +147,12 @@ never has to reason about its own commit history.
 Properties:
 
 - `origin/mobile` always differs from `origin/main` only by lines
-  appended to the end of `inbox_file`.
+  appended to the end of `inbox_file` — as planned. As built, it also
+  holds the queued state changes, edits, additions, moves and deletes,
+  each replayed onto the new `origin/main` after the captures and
+  dropped if its entry changed (§10). Either way, `origin/mobile` is
+  always `origin/main` plus commits that apply cleanly, so merging it
+  is a fast-forward unless `main` moved after the phone's last Sync.
 - If the user merged an *older* pushed tip (fetched before a later
   Sync), step 2 still recognizes exactly the captures that tip held.
 - A lease failure (someone else moved `origin/mobile`) aborts the push and
@@ -182,7 +189,8 @@ The rendering must match what desktop `gC` produces (see
 
 - Merge `mobile` into `main` normally (gitui / jjui / git). Concurrent
   appends to the inbox on both sides are an ordinary merge conflict,
-  resolved by keeping both. (The original plan recommended
+  resolved by keeping both. As built, a running desktop orgtd does this
+  itself when `mobile` is a fast-forward (§10). (The original plan recommended
   `merge=union` for the inbox; that was dropped once the phone could
   edit existing lines, which a union merge would duplicate.)
 
@@ -399,7 +407,8 @@ README/DESIGN.md current (per repo convention).
 - Meetings section (from `calendar.org` as last pushed by the Mac).
 - Widgets, Control Center / Action button, Siri / Shortcuts capture.
 - iPad layout and hardware-keyboard (vim-style) navigation.
-- Desktop orgtd auto-merging `mobile` during `:run`.
+- Desktop orgtd auto-merging `mobile` during `:run`. (Built differently:
+  orgtd fast-forwards to it while polling; see §10.)
 
 ## 10. As built: departures from the plan
 
@@ -720,3 +729,18 @@ README/DESIGN.md current (per repo convention).
   it (`prependBody`), using the op's own time like CLOSED. A note on a
   change that doesn't close is ignored. Closing through the edit form's
   keyword picker doesn't ask.
+- **Desktop fast-forwards `mobile`.** When the phone pushes into the
+  org directory itself (a local `mobile` branch, not `origin/mobile`),
+  each running desktop orgtd, polling every 2 s, moves `main` to
+  `mobile`'s tip when that's a fast-forward, writing the files as a
+  save does (`gitstore.Store.FastForward`; ../DESIGN.md §6). No commit
+  is made, so the phone's tip is on `main` exactly as pushed, and
+  `DropMerged` sees it at the next Sync. It never merges: if `main`
+  moved after the phone's last Sync, it waits for the next Sync to
+  rebuild `mobile` on the new `main`. So no one ever resolves a
+  conflict over the phone's changes: the phone drops a change whose
+  entry changed, and the desktop only fast-forwards. It also waits
+  while a file `mobile` changes has uncommitted edits on disk. Whenever
+  it waits, the desktop status line says why and what to do (usually
+  "Sync the phone"). With a
+  separate server, merging `origin/mobile` is still by hand.

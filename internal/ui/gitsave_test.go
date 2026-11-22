@@ -3,8 +3,18 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/sburnett/orgtd/internal/gitstore"
+	"github.com/sburnett/orgtd/internal/gitsync"
 
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -413,5 +423,131 @@ func TestSaveCommitMessageDescribesTheChange(t *testing.T) {
 	hist, err := a.git.store.History(1)
 	if err != nil || len(hist) != 1 || hist[0] != `orgtd: todo.org: mark DONE "Last"` {
 		t.Errorf("history = %q, %v", hist, err)
+	}
+}
+
+// pushMobile commits content for the top-level file name on top of the
+// main branch and points the "mobile" branch at it, as the iOS app's
+// push does.
+func pushMobile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, err := repo.Reference(plumbing.NewBranchReferenceName("main"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := repo.CommitObject(main.Hash())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := parent.Tree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := func(o interface {
+		Encode(plumbing.EncodedObject) error
+	}) plumbing.Hash {
+		obj := repo.Storer.NewEncodedObject()
+		if err := o.Encode(obj); err != nil {
+			t.Fatal(err)
+		}
+		h, err := repo.Storer.SetEncodedObject(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	blob := repo.Storer.NewEncodedObject()
+	blob.SetType(plumbing.BlobObject)
+	w, _ := blob.Writer()
+	w.Write([]byte(content))
+	w.Close()
+	blobHash, err := repo.Storer.SetEncodedObject(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []object.TreeEntry{}
+	for _, e := range tree.Entries {
+		if e.Name != name {
+			entries = append(entries, e)
+		}
+	}
+	entries = append(entries, object.TreeEntry{Name: name, Mode: filemode.Regular, Hash: blobHash})
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	sig := object.Signature{Name: "phone", Email: "phone@example.com", When: time.Now()}
+	c := &object.Commit{
+		Author: sig, Committer: sig, Message: "Capture",
+		TreeHash:     store(&object.Tree{Entries: entries}),
+		ParentHashes: []plumbing.Hash{parent.Hash},
+	}
+	ref := plumbing.NewHashReference(plumbing.NewBranchReferenceName("mobile"), store(c))
+	if err := repo.Storer.SetReference(ref); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMobileBranchMatchesThePhones(t *testing.T) {
+	if mobileBranch != gitsync.MobileBranch {
+		t.Errorf("mobileBranch = %q, but the phone pushes to %q", mobileBranch, gitsync.MobileBranch)
+	}
+}
+
+func TestPollingAppliesThePhonesBranch(t *testing.T) {
+	a, _, dir := twoInstances(t, map[string]string{"inbox.org": "* TODO Old\n"})
+	pushMobile(t, dir, "inbox.org", "* TODO Old\n* TODO From phone\n")
+
+	a = poll(a)
+	if !strings.Contains(a.message, "Applied changes from mobile to inbox.org") {
+		t.Errorf("message = %q", a.message)
+	}
+	findRow(t, a, "From phone")
+	data, _ := os.ReadFile(filepath.Join(dir, "inbox.org"))
+	if string(data) != "* TODO Old\n* TODO From phone\n" {
+		t.Errorf("disk = %q", data)
+	}
+}
+
+func TestPollingShowsWhatBlocksThePhonesBranch(t *testing.T) {
+	a, _, dir := twoInstances(t, map[string]string{"inbox.org": "* TODO Old\n"})
+	pushMobile(t, dir, "inbox.org", "* TODO Old\n* TODO From phone\n")
+	os.WriteFile(filepath.Join(dir, "inbox.org"), []byte("* TODO Old\n* TODO From emacs\n"), 0o644)
+
+	a = poll(a)
+	if got := a.gitStatus(); got != "mobile waits on outside edits to inbox.org — :w, then Sync the phone" {
+		t.Errorf("gitStatus = %q", got)
+	}
+}
+
+func TestPollingSaysWhenThePhonesBranchIsBehind(t *testing.T) {
+	a, _, dir := twoInstances(t, map[string]string{"inbox.org": "* TODO Old\n", "todo.org": "* TODO Task\n"})
+	pushMobile(t, dir, "inbox.org", "* TODO Old\n* TODO From phone\n")
+	// Main moves on before the poll.
+	a.cursor = findRow(t, a, "Task")
+	a = setStatus(a, "n")
+	if msg, ok := a.writeAllResult(false); !ok {
+		t.Fatalf(":w = %q", msg)
+	}
+
+	a = poll(a)
+	if got := a.gitStatus(); got != "mobile is behind main — Sync the phone" {
+		t.Errorf("gitStatus = %q", got)
+	}
+
+	// The phone syncs: mobile is rebuilt on the new main, and applied.
+	pushMobile(t, dir, "inbox.org", "* TODO Old\n* TODO From phone\n")
+	a = poll(a)
+	if got := a.gitStatus(); got != "" {
+		t.Errorf("gitStatus after the rebuild = %q, want nothing", got)
+	}
+	findRow(t, a, "From phone")
+}
+
+func TestMobileNoteForUnmanagedChangesGivesTheCommand(t *testing.T) {
+	got := mobileNote(gitstore.FastForwardResult{Unmanaged: []string{"notes.txt"}}, "main")
+	if got != "mobile changes notes.txt — run git merge --ff-only mobile" {
+		t.Errorf("mobileNote = %q", got)
 	}
 }
