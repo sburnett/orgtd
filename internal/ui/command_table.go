@@ -146,6 +146,15 @@ func init() {
 		{names: []string{"sync-calendar"}, run: func(m *Model, _ string) tea.Cmd { return m.startSyncCalendar(false) }},
 		{names: []string{"sync-calendar!"}, run: func(m *Model, _ string) tea.Cmd { return m.startSyncCalendar(true) }},
 		{names: []string{"resolve"}, run: func(m *Model, _ string) tea.Cmd { return m.startResolve() }},
+		{names: []string{"recover"}, takesArg: true, complete: func(_ *Model, partial string) []string {
+			if strings.HasPrefix("drop", partial) {
+				return []string{"drop"}
+			}
+			return nil
+		}, run: func(m *Model, arg string) tea.Cmd {
+			m.recoverOrphans(arg)
+			return nil
+		}},
 		{names: []string{"run"}, takesArg: true, complete: (*Model).completeRunArg, run: func(m *Model, name string) tea.Cmd { return m.startRun(name) }},
 	}
 }

@@ -290,3 +290,95 @@ func TestResolveWithNothingToResolveJustSaves(t *testing.T) {
 		t.Errorf(":resolve = %v, %q", cmd, m.message)
 	}
 }
+
+// crashedInstance leaves behind a dead instance's pending save: b's
+// edits, which conflicted with a's, then b exited. It returns a third
+// instance, c, started afterwards with the orphan found, as main does.
+func crashedInstance(t *testing.T) (a, c Model, dir string) {
+	t.Helper()
+	a, b, dir := twoInstances(t, map[string]string{"todo.org": "* TODO Shared\n* TODO Mine\n"})
+	a.cursor = findRow(t, a, "Shared")
+	a = setStatus(a, "n")
+	a.writeAllResult(false)
+	b.cursor = findRow(t, b, "Shared")
+	b = setStatus(b, "w")
+	b.cursor = findRow(t, b, "Mine")
+	b = setStatus(b, "n")
+	if _, ok := b.writeAllResult(false); ok {
+		t.Fatal("expected a conflict")
+	}
+	b.git.store.Close() // b exits
+
+	ws, _ := workspace.Load(dir)
+	c = New(ws)
+	store, err := c.gitStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	orphans, err := store.Orphans()
+	if err != nil || len(orphans) != 1 {
+		t.Fatalf("Orphans = %v, %v", orphans, err)
+	}
+	c.git.orphans = orphans
+	return a, c, dir
+}
+
+func TestRecoverMergesACrashedInstancesEdits(t *testing.T) {
+	a, c, dir := crashedInstance(t)
+	// a puts Shared back, so b's edits now merge cleanly.
+	a.cursor = findRow(t, a, "Shared")
+	a = setStatus(a, "t")
+	if msg, ok := a.writeAllResult(false); !ok {
+		t.Fatal(msg)
+	}
+	c.reloadFile("todo")
+
+	c.recoverOrphans("")
+	if !strings.Contains(c.message, "Recovered todo.org; Wrote todo.org") {
+		t.Fatalf("message = %q", c.message)
+	}
+	disk, _ := os.ReadFile(filepath.Join(dir, "todo.org"))
+	if string(disk) != "* WAITING Shared\n* NEXT Mine\n" {
+		t.Errorf("disk = %q", disk)
+	}
+	if left, _ := c.git.store.Orphans(); len(left) != 0 || len(c.git.recovering) != 0 {
+		t.Errorf("orphan not dropped after recovering: %v", left)
+	}
+}
+
+func TestRecoverConflictThenForce(t *testing.T) {
+	_, c, dir := crashedInstance(t)
+	c.recoverOrphans("")
+	if !strings.Contains(c.message, "Conflict in todo.org") {
+		t.Fatalf("message = %q", c.message)
+	}
+	if left, _ := c.git.store.Orphans(); len(left) != 1 {
+		t.Errorf("orphan dropped before its edits were saved")
+	}
+	if msg, ok := c.writeAllResult(true); !ok {
+		t.Fatal(msg)
+	}
+	disk, _ := os.ReadFile(filepath.Join(dir, "todo.org"))
+	if string(disk) != "* WAITING Shared\n* NEXT Mine\n" {
+		t.Errorf("disk = %q", disk)
+	}
+	if left, _ := c.git.store.Orphans(); len(left) != 0 {
+		t.Errorf("orphan left after a successful save")
+	}
+}
+
+func TestRecoverDrop(t *testing.T) {
+	_, c, _ := crashedInstance(t)
+	c.recoverOrphans("drop")
+	if !strings.Contains(c.message, "Discarded") {
+		t.Errorf("message = %q", c.message)
+	}
+	if left, _ := c.git.store.Orphans(); len(left) != 0 {
+		t.Errorf("orphan left after :recover drop")
+	}
+	c.recoverOrphans("")
+	if c.message != "Nothing to recover" {
+		t.Errorf("message = %q", c.message)
+	}
+}

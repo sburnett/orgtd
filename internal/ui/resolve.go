@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -134,4 +135,87 @@ func (m Model) finishResolve(msg resolveFinishedMsg) (tea.Model, tea.Cmd) {
 		m.message = saved
 	}
 	return m, nil
+}
+
+// recoverOrphans runs ":recover": load the unsaved edits of crashed orgtd
+// instances found at startup (see gitstore.Store.Orphans) into memory, as
+// if made here, and save them, merging like any save — conflicts
+// included, resolved the usual way. Each orphan's pending ref is dropped
+// once a save gets its edits into the main branch. ":recover drop"
+// discards them instead. A file with unsaved edits of its own here must
+// be saved or reloaded first.
+func (m *Model) recoverOrphans(arg string) {
+	orphans := m.git.orphans
+	if len(orphans) == 0 {
+		m.message = "Nothing to recover"
+		return
+	}
+	store, err := m.gitStore()
+	if err != nil {
+		m.message = err.Error()
+		return
+	}
+	switch arg {
+	case "drop":
+		for _, o := range orphans {
+			if err := store.Drop(o); err != nil {
+				m.message = "Dropping a crashed orgtd's edits: " + err.Error()
+				return
+			}
+		}
+		m.git.orphans = nil
+		m.message = fmt.Sprintf("Discarded unsaved edits from %d crashed orgtd instance(s)", len(orphans))
+		return
+	case "":
+	default:
+		m.message = "Usage: :recover, or :recover drop"
+		return
+	}
+
+	// Oldest first, so a later save of the same file wins.
+	sorted := append([]gitstore.Orphan(nil), orphans...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].When.Before(sorted[j].When) })
+	var edits []gitstore.Edit
+	for _, o := range sorted {
+		oe, err := store.OrphanEdits(o)
+		if err != nil {
+			m.message = "Reading a crashed orgtd's edits: " + err.Error()
+			return
+		}
+		edits = append(edits, oe...)
+	}
+	for _, e := range edits {
+		if f := m.loadedFile(filepath.Join(m.ws.Dir, filepath.FromSlash(e.Path))); f != nil && m.unsaved(f) {
+			m.message = e.Path + " has unsaved edits here — :w or :e! it first, then :recover"
+			return
+		}
+	}
+
+	anchor := m.cursorAnchor()
+	var names []string
+	for _, e := range edits {
+		path := filepath.Join(m.ws.Dir, filepath.FromSlash(e.Path))
+		newFile, err := org.ParseContent(e.Content, path)
+		if err != nil {
+			m.message = fmt.Sprintf("Parsing recovered %s: %v", e.Path, err)
+			return
+		}
+		newFile.Base, newFile.New = e.Base, !e.HasBase
+		if f := m.loadedFile(path); f != nil {
+			m.swapFile(f, newFile)
+		} else {
+			m.ws.Files = append(m.ws.Files, newFile)
+			sort.Slice(m.ws.Files, func(i, j int) bool { return m.ws.Files[i].Path < m.ws.Files[j].Path })
+		}
+		m.git.mustSave[newFile] = true
+		names = append(names, e.Path)
+	}
+	m.git.recovering = orphans
+	m.git.orphans = nil
+	m.recomputeDirty()
+	m.rebuildRows()
+	m.restoreCursor(anchor)
+
+	msg, _ := m.writeAllResult(false)
+	m.message = "Recovered " + strings.Join(names, ", ") + "; " + msg
 }
