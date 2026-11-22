@@ -402,3 +402,16 @@ func TestStatusLineCountsOtherInstances(t *testing.T) {
 		t.Errorf("after b closed, status line = %q", line)
 	}
 }
+
+func TestSaveCommitMessageDescribesTheChange(t *testing.T) {
+	a, _, _ := twoInstances(t, map[string]string{"todo.org": "* TODO First\n* TODO Last\n"})
+	a.cursor = findRow(t, a, "Last")
+	a = setStatus(a, "d")
+	if msg, ok := a.writeAllResult(false); !ok {
+		t.Fatalf(":w = %q", msg)
+	}
+	hist, err := a.git.store.History(1)
+	if err != nil || len(hist) != 1 || hist[0] != `orgtd: todo.org: mark DONE "Last"` {
+		t.Errorf("history = %q, %v", hist, err)
+	}
+}

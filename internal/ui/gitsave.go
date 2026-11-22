@@ -147,11 +147,13 @@ func (m *Model) saveFiles(files []*org.File, forced map[string]bool) (string, bo
 	var edits []gitstore.Edit
 	rendered := map[*org.File]string{}
 	var names []string
+	var diffs []org.FileDiff
 	for _, f := range files {
 		rel := m.relPath(f)
 		content := org.RenderFile(f)
 		rendered[f] = content
 		names = append(names, rel)
+		diffs = append(diffs, org.FileDiff{Path: rel, Old: f.Base, New: []byte(content)})
 		edits = append(edits, gitstore.Edit{
 			Path:    rel,
 			Base:    f.Base,
@@ -160,7 +162,7 @@ func (m *Model) saveFiles(files []*org.File, forced map[string]bool) (string, bo
 			Force:   forced[rel],
 		})
 	}
-	res, err := store.Save(m.git.seen, edits, "orgtd: save "+strings.Join(names, ", "))
+	res, err := store.Save(m.git.seen, edits, org.CommitMessage("orgtd: ", diffs))
 	if err != nil {
 		return "Failed to save: " + err.Error(), false
 	}

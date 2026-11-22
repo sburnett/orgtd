@@ -245,7 +245,7 @@ func TestOutsideEditsAreCommittedFirst(t *testing.T) {
 		t.Fatalf("Save = %+v, %v", res, err)
 	}
 	hist, _ := s.History(3)
-	if hist[0] != "save todo" || !strings.HasPrefix(hist[1], "orgtd: commit outside edits to gone.org, inbox.org, new.org") {
+	if hist[0] != "save todo" || hist[1] != `orgtd: outside edits to gone.org: delete file; inbox.org: add "captured in emacs"; new.org: add "new"` {
 		t.Errorf("history = %q", hist)
 	}
 	if string(res.Files["inbox.org"]) != "* x\n* captured in emacs\n" || string(res.Files["new.org"]) != "* new\n" {

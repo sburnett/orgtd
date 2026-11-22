@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/sburnett/orgtd/internal/merge3"
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // Edit is one file a save writes.
@@ -417,7 +417,11 @@ func (s *Store) commitOutsideLocked(repo *git.Repository) (plumbing.Hash, files,
 	if len(outside) > 0 {
 		tree, err := editTree(repo, mTree, outside)
 		if err == nil {
-			msg := "orgtd: commit outside edits to " + strings.Join(sortedKeys(outside), ", ")
+			var diffs []org.FileDiff
+			for _, p := range sortedKeys(outside) {
+				diffs = append(diffs, org.FileDiff{Path: p, Old: mFiles[p], New: outside[p], Deleted: outside[p] == nil})
+			}
+			msg := org.CommitMessage("orgtd: outside edits to ", diffs)
 			if head, err = commit(repo, tree, m, msg); err == nil {
 				err = s.moveMain(repo, m, head, msg)
 			}

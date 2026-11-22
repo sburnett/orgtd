@@ -594,7 +594,9 @@ not exist, so don't look for them in the code:
 ## 11. Open questions
 
 - Archiving finished items; `DONE` entries currently just hide.
-- Commit messages are `orgtd: save <files>`; generating them from the
-  undo actions (`Mark DONE: ...`) would make history more useful.
+- Commit messages describe entry-level changes found by comparing each
+  file with its Base (`org.CommitMessage`), not the edits that produced
+  them, so they also cover outside edits. A refile between files shows
+  as a remove in one and an add in the other.
 - Unsaved edits are lost in a crash; autosaving them to the pending ref
   would close that gap.

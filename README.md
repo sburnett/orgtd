@@ -80,8 +80,17 @@ or a detached `HEAD`, it opens but won't save until you check out the
 main branch again. No `git` program is needed: orgtd reads and writes
 the repository itself.
 
-Every `:w` is a commit on the main branch (`orgtd: save todo.org`),
-authored with your `user.name` and `user.email` from git's config. Only
+Every `:w` is a commit on the main branch, authored with your
+`user.name` and `user.email` from git's config. Its message says which
+entries changed, compared with the file as last loaded or saved: the one
+change, as in `orgtd: todo.org: mark DONE "Call the dentist"`, or else a
+count of each kind (`orgtd: inbox.org: remove 2; todo.org: add 2, edit
+1`) with every change listed in the body. Entries are matched across the
+two versions by outline path, then by title (a refiled entry), then by
+`:ID:` or `:CREATED:` (a retitled one); an entry that matches nothing was
+added or removed. Only the top of an added, removed or moved subtree is
+listed. A save that changes no entry — only the text before the first
+one, say — is `orgtd: todo.org: update`. Only
 the files orgtd loads take part — the `.org` files in `--dir` and
 `reference/`, minus `outline_ignore_files` — and everything else in the
 repository is left as it is. A file git ignores and doesn't track (a
@@ -112,7 +121,8 @@ same directory (`2 other instances`), when there are any. Like the
 saving itself, it only sees instances on this machine.
 
 Edits made outside orgtd — Emacs, a hand edit, a `:run` script — are
-committed for you (`orgtd: commit outside edits to inbox.org`) at the
+committed for you (`orgtd: outside edits to inbox.org: add "Captured
+in Emacs"`) at the
 next `:w`, `:e!` or `:run`, then merged like any other change. Until then
 they aren't picked up by the 2-second check.
 
