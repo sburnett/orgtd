@@ -154,3 +154,75 @@ func TestSaveRefusedOutsideARepository(t *testing.T) {
 		t.Errorf(":w = %q, %v", msg, ok)
 	}
 }
+
+func poll(m Model) Model {
+	updated, _ := m.Update(gitPollMsg{})
+	return updated.(Model)
+}
+
+func TestPollingReloadsAnotherInstancesSave(t *testing.T) {
+	a, b, _ := twoInstances(t, map[string]string{"todo.org": "* TODO Shared\n* TODO Other\n"})
+	b.cursor = findRow(t, b, "Other")
+
+	if b = poll(b); b.message != "" {
+		t.Errorf("poll with nothing new: message %q", b.message)
+	}
+
+	a.cursor = findRow(t, a, "Shared")
+	a = setStatus(a, "n")
+	a.writeAllResult(false)
+
+	b = poll(b)
+	if got := keywordOf(t, b, "Shared"); got != "NEXT" {
+		t.Errorf("after polling, Shared is %q, want a's NEXT", got)
+	}
+	if !strings.Contains(b.message, "Reloaded todo.org") {
+		t.Errorf("message = %q", b.message)
+	}
+	if h := b.currentHeadline(); h == nil || h.Title != "Other" {
+		t.Errorf("cursor moved off its entry: %+v", h)
+	}
+}
+
+func TestPollingLeavesUnsavedFilesAlone(t *testing.T) {
+	a, b, _ := twoInstances(t, map[string]string{"todo.org": "* TODO First\n* TODO Last\n"})
+	a.cursor = findRow(t, a, "First")
+	a = setStatus(a, "n")
+	a.writeAllResult(false)
+
+	b.cursor = findRow(t, b, "Last")
+	b = setStatus(b, "w")
+	b = poll(b)
+	if got := keywordOf(t, b, "First"); got != "TODO" {
+		t.Errorf("unsaved file reloaded under the user: First is %q", got)
+	}
+	if !strings.Contains(stripANSI(b.statusLine(true)), "main moved — :w merges") {
+		t.Errorf("status line = %q", stripANSI(b.statusLine(true)))
+	}
+	if msg, ok := b.writeAllResult(false); !ok {
+		t.Fatalf(":w = %q", msg)
+	}
+	if got := keywordOf(t, b, "First"); got != "NEXT" || b.gitStatus() != "" {
+		t.Errorf("after :w, First is %q and status %q", got, b.gitStatus())
+	}
+}
+
+func TestPollingWaitsOutInsertMode(t *testing.T) {
+	a, b, _ := twoInstances(t, map[string]string{"todo.org": "* TODO Shared\n"})
+	b.cursor = findRow(t, b, "Shared")
+	b = sendKey(b, "i")
+
+	a.cursor = findRow(t, a, "Shared")
+	a = setStatus(a, "n")
+	a.writeAllResult(false)
+
+	b = poll(b)
+	if !b.inInsertSession() || keywordOf(t, b, "Shared") != "TODO" {
+		t.Fatalf("reloaded during insert mode")
+	}
+	b = sendKey(b, "esc")
+	b = poll(b)
+	if got := keywordOf(t, b, "Shared"); got != "NEXT" {
+		t.Errorf("after leaving insert mode, Shared is %q, want a's NEXT", got)
+	}
+}

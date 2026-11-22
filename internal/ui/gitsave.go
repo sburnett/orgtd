@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/sburnett/orgtd/internal/gitstore"
@@ -408,4 +410,40 @@ func (m *Model) gitStatus() string {
 		return fmt.Sprintf("%s moved — :w merges", branch)
 	}
 	return ""
+}
+
+// pollInterval is how often pollMain checks the main branch.
+const pollInterval = 2 * time.Second
+
+// gitPollMsg asks pollMain to check the main branch.
+type gitPollMsg struct{}
+
+func pollTick() tea.Cmd {
+	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return gitPollMsg{} })
+}
+
+// pollMain runs on every gitPollMsg: if the main branch moved since this
+// instance last caught up with it (another instance saved, or a commit or
+// pull from outside), reload the files it changed (see reloadChanged).
+// Files with unsaved edits aren't reloaded; the status line says the
+// branch moved, and the next :w merges. Edits made outside orgtd and not
+// yet committed aren't picked up until a save or :run commits them.
+func (m Model) pollMain() (tea.Model, tea.Cmd) {
+	next := pollTick()
+	store := m.git.store
+	if store == nil {
+		return m, next
+	}
+	head, err := store.Head()
+	if err != nil || head == m.git.seen {
+		return m, next
+	}
+	snapshot, err := store.Snapshot(head)
+	if err != nil {
+		return m, next
+	}
+	if reloaded, _ := m.reloadChanged(head, snapshot, nil); len(reloaded) > 0 {
+		m.message = "Reloaded " + strings.Join(reloaded, ", ") + " (changed on " + store.MainBranch() + ")"
+	}
+	return m, next
 }

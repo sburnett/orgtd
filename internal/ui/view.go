@@ -234,6 +234,9 @@ func (m *Model) normalStatusLine() string {
 	if m.view == calendarView {
 		line += "  —  " + m.calendarSyncStatus()
 	}
+	if s := m.gitStatus(); s != "" {
+		line += "  —  " + s
+	}
 	return line
 }
 

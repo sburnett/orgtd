@@ -298,12 +298,17 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 }
 
 // Init kicks off automatic calendar syncing (see autoSyncTick), if it's
-// enabled, with an immediate first check.
+// enabled, with an immediate first check, and polling the main branch
+// for other instances' saves (see pollMain).
 func (m Model) Init() tea.Cmd {
-	if !m.autoSyncEnabled() {
-		return nil
+	var cmds []tea.Cmd
+	if m.autoSyncEnabled() {
+		cmds = append(cmds, func() tea.Msg { return autoSyncTickMsg{} })
 	}
-	return func() tea.Msg { return autoSyncTickMsg{} }
+	if m.git.store != nil {
+		cmds = append(cmds, pollTick())
+	}
+	return tea.Batch(cmds...)
 }
 
 // isNamedFile reports whether f is the workspace file whose base name is
@@ -393,6 +398,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case runFinishedMsg:
 		return m.finishRun(msg)
+
+	case gitPollMsg:
+		return m.pollMain()
 
 	case tea.KeyMsg:
 		// In insert mode ctrl-c just leaves it, as in vim (see
