@@ -226,3 +226,67 @@ func TestPollingWaitsOutInsertMode(t *testing.T) {
 		t.Errorf("after leaving insert mode, Shared is %q, want a's NEXT", got)
 	}
 }
+
+// conflicted sets up b with a save that conflicts with a's.
+func conflicted(t *testing.T) (b Model, dir string) {
+	t.Helper()
+	a, b, dir := twoInstances(t, map[string]string{"todo.org": "* TODO Shared\n* TODO Mine\n"})
+	a.cursor = findRow(t, a, "Shared")
+	a = setStatus(a, "n")
+	a.writeAllResult(false)
+	b.cursor = findRow(t, b, "Shared")
+	b = setStatus(b, "w")
+	b.cursor = findRow(t, b, "Mine")
+	b = setStatus(b, "n")
+	if _, ok := b.writeAllResult(false); ok {
+		t.Fatal("expected a conflict")
+	}
+	return b, dir
+}
+
+func TestResolveWithMergeTool(t *testing.T) {
+	b, dir := conflicted(t)
+	b.cfg.MergeTool = "true"
+	if cmd := b.startResolve(); cmd == nil {
+		t.Fatalf(":resolve launched nothing: %q", b.message)
+	}
+	scratch := filepath.Join(b.scratchDir(), "merge-"+b.git.store.ID())
+	p := filepath.Join(scratch, "todo.org")
+	data, err := os.ReadFile(p)
+	if err != nil || !strings.Contains(string(data), "<<<<<<<") || !strings.Contains(string(data), "* NEXT Mine") {
+		t.Fatalf("conflict file = %q, %v", data, err)
+	}
+	conflict := b.git.conflict.files
+
+	// The tool exits with markers left: nothing changes.
+	updated, _ := b.Update(resolveFinishedMsg{dir: scratch, conflict: conflict})
+	b = updated.(Model)
+	if !strings.Contains(b.message, "still has conflict markers") || b.git.conflict == nil {
+		t.Fatalf("message = %q", b.message)
+	}
+
+	// Resolved by hand: saved straight away.
+	os.WriteFile(p, []byte("* DONE Shared\n* NEXT Mine\n"), 0o644)
+	updated, _ = b.Update(resolveFinishedMsg{dir: scratch, conflict: conflict})
+	b = updated.(Model)
+	if !strings.Contains(b.message, "Resolved; Wrote todo.org") {
+		t.Fatalf("message = %q", b.message)
+	}
+	disk, _ := os.ReadFile(filepath.Join(dir, "todo.org"))
+	if string(disk) != "* DONE Shared\n* NEXT Mine\n" {
+		t.Errorf("disk = %q", disk)
+	}
+	if b.git.conflict != nil || len(b.dirty) != 0 || keywordOf(t, b, "Shared") != "DONE" {
+		t.Errorf("after resolving: conflict %v, dirty %v", b.git.conflict, b.dirty)
+	}
+	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+		t.Errorf("scratch folder left behind: %v", err)
+	}
+}
+
+func TestResolveWithNothingToResolveJustSaves(t *testing.T) {
+	m := New(loadFixtureCopy(t))
+	if cmd := m.startResolve(); cmd != nil || m.message != "No changes to write" {
+		t.Errorf(":resolve = %v, %q", cmd, m.message)
+	}
+}

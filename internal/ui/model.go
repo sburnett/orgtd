@@ -402,6 +402,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gitPollMsg:
 		return m.pollMain()
 
+	case resolveFinishedMsg:
+		return m.finishResolve(msg)
+
 	case tea.KeyMsg:
 		// In insert mode ctrl-c just leaves it, as in vim (see
 		// updateInsertMode), and in a closing note it's Esc, too.
