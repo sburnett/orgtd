@@ -7,7 +7,9 @@ agenda view computed from `SCHEDULED`/`DEADLINE` dates and `NEXT` items,
 and a "review" mode for working through an inbox one item at a time.
 
 Every edit is applied in memory immediately; nothing touches disk until
-you `:w`. Files are otherwise your own — orgtd never manages a directory
+you `:w`, which commits it to the git repository the org directory must
+be — so several orgtd instances can run on the same files at once, and
+their saves are merged. Files are otherwise your own — orgtd never manages a directory
 structure or format beyond what's described below, and any editor
 (including real Emacs org-mode) can open the same files.
 
@@ -69,34 +71,83 @@ other subdirectory is not scanned. `reference/` is created by hand (there's
 no setting for its name), and, like the rest of `--dir`, is read once at
 startup — to add a file while orgtd is running, use `:edit` (below).
 
-orgtd takes an exclusive lock on `--dir` for as long as it's running (a
-`.orgtd.lock` file inside it), so a second orgtd instance accidentally
-started against the same directory refuses to run instead of racing the
-first one to overwrite the same files — it exits immediately with an
-error rather than opening. Released automatically when orgtd exits, for
-any reason (including a crash), so there's never a stale lock to clean
-up by hand. This is an OS-level advisory lock, so it's a best-effort
-safety net rather than a hard guarantee — some filesystems (older NFS
-in particular) don't enforce it reliably.
+### Saving and git
 
-### Files changed on disk
+`--dir` must be the root of a git repository (a `.git` directory right
+inside it) with `main_branch` (default `main`) checked out. orgtd refuses
+to start otherwise, and says how to `git init` one. On any other branch,
+or a detached `HEAD`, it opens but won't save until you check out the
+main branch again. No `git` program is needed: orgtd reads and writes
+the repository itself.
 
-orgtd reads each file once, but remembers a hash of what it read (and of
-what it last wrote). Before `:w` writes a file, it compares the file's
-current content to that hash; if something else has rewritten it since —
-typically a `git pull` bringing in upstream commits — the write is
-refused for that file with a message naming it, rather than clobbering
-the upstream change. Content is compared, not modification time, so a
-file that was touched or rewritten with identical bytes isn't a conflict.
-A file deleted from disk counts as changed. Two ways out:
+Every `:w` is a commit on the main branch (`orgtd: save todo.org`),
+authored with your `user.name` and `user.email` from git's config. Only
+the files orgtd loads take part — the `.org` files in `--dir` and
+`reference/`, minus `outline_ignore_files` — and everything else in the
+repository is left as it is. A file git ignores and doesn't track (a
+`calendar.org` cache in `.gitignore`, say) is just written to disk.
+History stays linear: each save's commit has one parent, the branch as it
+was, like a rebase. Pushing and pulling are up to you (a `:run`
+command is a good place for them).
 
-- `:e!` reloads the file from disk, discarding your unsaved edits to it.
-- `:w!` overwrites the disk version with yours.
+#### Running several instances
 
-Only files with unsaved edits are checked: a file you haven't touched is
-never written, so a `git pull` into it is harmless — but orgtd keeps
-showing the old content until you `:e!` it (or restart). `:sync-calendar`
-always rewrites `calendar_file` regardless.
+Any number of orgtd instances can run on the same directory, on one
+machine. Each `:w` merges your edits with whatever reached the main
+branch since you loaded those files: another instance's saves, a `git
+pull`, or edits made in Emacs. The merge is line by line, as git's own
+is, so edits to different entries of the same file merge cleanly; files
+the merge changed are reloaded to show the result.
+
+Every 2 seconds, orgtd checks the main branch. When another instance
+saved, the files it changed are reloaded right away, unless you have
+unsaved edits to them: then the status line says `main moved — :w
+merges`, and your next `:w` merges. Nothing is reloaded while you're in
+insert mode or a prompt; it waits until you're back in normal mode. A
+reloaded file loses its undo history and marks, as with `:e!`; files the
+other instance didn't touch keep theirs.
+
+Edits made outside orgtd — Emacs, a hand edit, a `:run` script — are
+committed for you (`orgtd: commit outside edits to inbox.org`) at the
+next `:w`, `:e!` or `:run`, then merged like any other change. Until then
+they aren't picked up by the 2-second check.
+
+#### Conflicts
+
+When two instances change the same lines, the second `:w` can't merge.
+Nothing is saved: your edits stay unsaved in orgtd, the main branch is
+untouched, and the status line says `Conflict in todo.org — :resolve to
+fix, :w! to keep yours, :e! to take theirs`:
+
+- `:resolve` writes the conflicted files, with the usual `<<<<<<<`,
+  `=======`, `>>>>>>>` markers around each clash, to
+  `<scratch_dir>/merge-<instance>/`, and opens them in `merge_tool`
+  (default: your editor) with the terminal handed over. Edit them into
+  shape and quit. If any markers are left, nothing changes; otherwise
+  the result replaces your version and is saved.
+- `:w!` saves your version of each conflicted file whole, discarding the
+  other side's changes to it. Every other file still merges.
+- `:e!` reloads the file from the main branch, discarding your edits to
+  it.
+
+Keep editing first if you like: the next `:w` or `:resolve` merges again
+from scratch. `:wq` won't quit while a save conflicts.
+
+#### If orgtd crashes
+
+A save first records your edits in the repository, under
+`refs/orgtd/<instance>` (not a branch: `git branch` doesn't list it), and
+deletes that ref once they're on the main branch. If orgtd dies before
+that, or while a save is stuck on a conflict, the next orgtd to start
+says `Recovered unsaved edits from a crashed orgtd`. `:recover` loads
+them and saves them as a normal save, merging and all; `:recover drop`
+discards them. By hand: `git log refs/orgtd/<instance>` shows them, and
+`git update-ref -d refs/orgtd/<instance>` deletes them.
+
+A crash in the middle of writing files can leave a `.git/index.lock`
+behind, which makes the next save (and git itself) refuse, saying so.
+Delete the file, as git suggests; whatever was written is committed at
+the next save. Edits you never saved are lost, as in any editor.
 
 ### Config file
 
@@ -258,18 +309,17 @@ command's own arguments, so `:run sync --dry-run` runs
 `~/bin/org-sync --quiet --dry-run`. `<Tab>` completes the name, and
 `:run` alone lists the configured ones. Each run:
 
-1. Saves every file with unsaved changes, with the same refusals as `:w`
-   (see Files changed on disk, above). If any file can't be saved,
+1. Saves every file with unsaved changes, as `:w` does. If the save
+   doesn't go through — it conflicts, say (see Conflicts, above) —
    nothing is launched, so the program never sees a state that doesn't
    match what orgtd is showing.
 2. Runs the command in `--dir`, handing it the terminal until it exits.
-3. Reloads every file whose content on disk changed, discarding that
+3. Commits whatever the command changed (see Running several
+   instances, above) and reloads every file that changed, discarding that
    file's undo history and marks as `:e!` does. The message line lists
-   what was reloaded, any file that couldn't be (`:e!` to retry), and
-   whether the command exited with an error.
+   what was reloaded and whether the command exited with an error.
 
-Files the command created or removed aren't picked up — `:e <file>`
-opens a new one. `[[commands]]` is machine-local: a committed
+A new file the command created and committed is loaded too. `[[commands]]` is machine-local: a committed
 `.orgtd.toml` can't define commands, since anyone who can push to the
 repo could otherwise make orgtd run anything they like.
 
@@ -1029,10 +1079,12 @@ History doesn't persist between sessions.
 
 | Command | Action |
 |---|---|
-| `:w` / `:write` | Write every file with unsaved changes. Skips any file whose content on disk no longer matches what orgtd last read or wrote — e.g. a `git pull` updated it — so an upstream change is never silently overwritten (see Files changed on disk, below); the other files are still written |
-| `:w!` / `:write!` | Like `:w`, but overwrites files that changed on disk |
-| `:wq` | Write, then quit — or, with more than one window open (see Windows, above), close the current window. Same refusals as `:w` above (a file changed on disk keeps orgtd open) |
-| `:wq!` | Like `:wq`, but overwrites files that changed on disk |
+| `:w` / `:write` | Save every file with unsaved changes: a commit on the main branch, merged with whatever reached it since you loaded them (see Saving and git, above). A save that conflicts saves nothing and says so |
+| `:w!` / `:write!` | Like `:w`, but a file that conflicts is saved as you have it, whole, discarding the other side's changes to it (see Conflicts, above) |
+| `:wq` | Write, then quit — or, with more than one window open (see Windows, above), close the current window. A conflict keeps orgtd open |
+| `:wq!` | Like `:wq`, but saved as `:w!` does |
+| `:resolve` | Save again, and if files still conflict, open them, with conflict markers, in `merge_tool`; once they're resolved, save the result (see Conflicts, above) |
+| `:recover` / `:recover drop` | Save, or discard, the unsaved edits of an orgtd that crashed (see If orgtd crashes, above) |
 | `:q` / `:quit` | Quit (refuses if there are unsaved changes) — or, with more than one window open, close the current window, as vim does; that never loses an edit, since every window shows the same files |
 | `:q!` / `:quit!` | Quit, discarding unsaved changes — or, with more than one window open, close the current window |
 | `:qa` / `:qall` | Quit, whatever windows are open (refuses if there are unsaved changes) |
@@ -1044,14 +1096,14 @@ History doesn't persist between sessions.
 | `:only` / `:on` | Close every window but the current one |
 | `:undo` / `:redo` | Same as `u` / `ctrl-r` |
 | `:agenda` / `:snippets` / `:outline` / `:reference` / `:config` / `:log` / `:help` / `:calendar` / `:meeting-tags` / `:tags` | Switch views |
-| `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is opened — in memory only, like vim: add entries with `o`/`O` on its header row, and nothing (not even `reference/`) is written to disk until `:w` saves them. A new file left unedited is never written. If something else creates the same file before `:w`, the write is refused as for any file changed on disk (`:w!` overwrites it, `:e!` loads it); `:e!` on a still-unwritten new file just empties it again. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
-| `:edit! [file]` / `:e! [file]` | Reload a file from disk, discarding its unsaved changes, undo history and marks — the way out when `:w` refuses because the file changed on disk. `<file>` is named as for `:edit` and must already be loaded; with none, reloads the file under the cursor |
+| `:edit <file>` / `:e <file>` | Open a file, like vim's `:e`: the cursor goes to its header row — in `:reference` for a file in `reference/`, in the outline for any other. `<file>` is relative to `--dir` (`:e notes`, `:e reference/wifi`); `.org` is added if missing, and only `--dir` itself and `reference/` are accepted, since nothing else is ever scanned. A file that already exists is just jumped to — including one created outside orgtd since startup, which is loaded first. Otherwise a new, empty file is opened — in memory only, like vim: add entries with `o`/`O` on its header row, and nothing (not even `reference/`) is written to disk until `:w` saves them. A new file left unedited is never written. If another instance saves the same file first, `:w` merges the two, which usually conflicts (`:w!` keeps yours, `:e!` takes theirs); `:e!` on a still-unsaved new file just empties it again. For the calendar and meeting-tags files, which have no header row in the views that show them, it opens `:calendar`/`:meeting-tags` instead |
+| `:edit! [file]` / `:e! [file]` | Reload a file from the main branch (after committing any edit made to it outside orgtd), discarding its unsaved changes, undo history and marks — e.g. to take the other side of a conflict. `<file>` is named as for `:edit` and must already be loaded; with none, reloads the file under the cursor |
 | `:capture` | Same as `gC`: append a new entry to the end of the inbox file and start typing it in insert mode |
 | `:review` | Toggle the read-only `%` register — see Reviewing the inbox, below. The current view doesn't change. Also turned off by `:clear-registers` |
 | `:next` / `:prev` | Only while `:review` is on: manually step to the next/previous pending (not `DONE`/`CANCELLED`) inbox item |
 | `:format-links` | Find every entry with a bare URL not already an org-mode link, and reformat them all via `format_links_url_formatter` (or `url_formatter`, if that's unset — see above) in the background. Skips `calendar_file` (`calendar.org` by default) — it's rewritten wholesale by `:sync-calendar`, so formatting a bare URL there would just be redone, or lost, on the next sync. Affected entries lock — shown with a `◆` in the gutter and rendered faint/dimmed — uneditable, undeletable, and excluded from bulk operations — until their batch finishes; the rest of the app stays fully usable in the meantime |
 | `:sync-calendar` / `:sync-calendar!` | Sync Google Calendar into `calendar_file` in the background — see Calendar sync, below. The bang variant discards any cached Google sign-in first, forcing the consent flow to run again |
-| `:run <name> [args...]` | Save every file with unsaved changes, run the `[[commands]]` entry called `<name>` (with `args` appended) in `--dir` with the terminal handed over, and reload every file it changed on disk — see Running your own commands, above. `<Tab>` completes `<name>`; `:run` alone lists the configured commands |
+| `:run <name> [args...]` | Save every file with unsaved changes, run the `[[commands]]` entry called `<name>` (with `args` appended) in `--dir` with the terminal handed over, and reload every file it changed — see Running your own commands, above. `<Tab>` completes `<name>`; `:run` alone lists the configured commands |
 | `:delmarks <letters>` / `:delmarks!` | See Marks, above |
 | `:registers` / `:reg` | Toggle showing the registers' contents in the info buffer (off by default; see Registers, above). `%` is shown while `:review` is on either way |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
@@ -1115,7 +1167,8 @@ alone.
 `calendar_file` (see above; `calendar.org` by default), so it's
 automatically excluded from the outline view and shown instead, grouped
 by day, in the `:calendar` view. It never writes anywhere except that
-one file. Run it by hand whenever you want fresh calendar data; orgtd
+one file, saved like any `:w` (a commit, unless git ignores the file),
+except that the synced version always replaces the old one whole. Run it by hand whenever you want fresh calendar data; orgtd
 also syncs on its own, while it's running, whenever that file is more
 than `gcalsync.auto_sync_hours` (default 24) old — checked at startup
 (against the file's modification time on disk, so restarting orgtd
@@ -1270,7 +1323,8 @@ entries (TODO state, title, notes, tags, dates).
   handled as `r` does; title, notes, tags and dates), touching only the
   changed lines of that entry. Everything is
   committed to a `mobile` branch you merge into your main branch
-  yourself (a normal merge or fast-forward).
+  yourself (a normal merge or fast-forward). Running orgtd instances pick
+  the merge up like any other change to the main branch.
 - **Settings:** it reads the keywords, inbox name, agenda window and
   colors from `.orgtd.toml` (above).
 

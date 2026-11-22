@@ -31,8 +31,9 @@ sync Google Calendar events into one of the org files.
 - Arbitrary org syntax (tables, babel, LaTeX...). It is preserved as
   opaque body text but never generated or interpreted.
 - Write access to Google services (the integration is read-only).
-- Syncing the org directory itself between machines, or watching it for
-  external changes (see §6).
+- Syncing the org directory itself between machines (push/pull stay a
+  manual or `:run` job), or watching the working tree for external
+  changes (orgtd polls the main branch instead; see §6).
 
 ## 3. Package map
 
@@ -45,10 +46,12 @@ internal/meetings/      calendar meetings and how entries link to them (pure; ca
 internal/extprog/      editor command building and URL formatter running (user-configured programs)
 internal/execlog/      logged subprocess runner + the timeline :log shows
 internal/orgdate/     pure date logic: typed-date parsing, timestamp/repeater parsing and math
-internal/workspace/   loads a directory of .org files; advisory directory lock
+internal/workspace/   loads a directory of .org files
 internal/agenda/      pure agenda computation: date sections and Next Actions (shared with mobilecore)
 internal/capture/     renders a captured item as org text; raw-byte append (shared by gC and the phone)
 internal/capturequeue/ the phone's pending-capture queue (captures.json) and share-extension import
+internal/merge3/      line-based three-way merge (diff3) with conflict markers; pure
+internal/gitstore/    the desktop's go-git layer: saves as merged commits on main (see §6)
 internal/gitsync/     the phone's go-git layer: clone, fetch, rebuild "mobile", push with lease
 internal/ui/          the Bubble Tea application (nearly all behavior; see §5)
 mobilecore/           gomobile facade for the iOS app (see ios/DESIGN.md)
@@ -63,21 +66,23 @@ Dependency direction (no cycles, keep it this way):
 
 ```
 cmd/orgtd → ui → calendarsync → gcal
+              ↘ gitstore → merge3
               ↘ workspace → org
               ↘ orgdate → org
               ↘ meetings → org
               ↘ extprog → execlog, org
               ↘ execlog
               ↘ org
-cmd/orgtd → config, workspace
+cmd/orgtd → config, workspace, gitstore
 ui → agenda → config, orgdate, workspace
 ui → capture → orgdate, org
 mobilecore → gitsync → capturequeue → capture
            ↘ agenda, config, workspace, org, orgdate
 ```
 
-The desktop never imports `gitsync`, `capturequeue` or `mobilecore`
-(and so never links go-git).
+The desktop never imports `gitsync`, `capturequeue` or `mobilecore`;
+its git layer is `gitstore`. `gitstore` and `merge3` know nothing about
+the UI or the org format: files are bytes named by relative path.
 
 `org` and `gcal` know nothing about the UI. `calendarsync` knows org and
 gcal but not the UI. Only `ui` knows about everything.
@@ -116,10 +121,8 @@ directly inside `dir/reference/` (`ReferenceDir`) — nothing else is
 scanned — sorted by path. `IsReference(f)` tells a reference file by its
 directory; reference files are ordinary `*org.File`s in `Files`, so
 editing, undo, dirty tracking, and `:w` need no special
-casing. `AcquireLock(dir)` takes an OS-level advisory lock
-(`.orgtd.lock`) so two instances can't race to overwrite the same files.
-There is no file watching: the directory is read once at startup, plus
-explicit reloads (see `finishEditFile` and `finishSyncCalendar` in ui).
+casing. There is no file watching: the directory is read once at
+startup; later changes arrive through the git layer (§6).
 `FileOf(h)` and `Locate(h)` find which file, parent and index a headline
 sits at.
 
@@ -157,7 +160,7 @@ Bubble Tea: `Model`, `Update`, `View`.
 
 - **The org tree in `Workspace` is the single in-memory source of truth.**
   Every edit mutates it immediately; nothing touches disk until `:w`
-  (`writeAll` → `org.WriteFile` per dirty file). This is deliberately
+  (`writeAllResult` → `saveFiles` → `gitstore.Save`; see §6). This is deliberately
   *not* the "flush every mutation" model the original design proposed.
 - **Undo** is one global stack of `undoAction`s (`undo.go`). Each action
   knows how to `apply`/`revert` itself, which `file()` it touches, and
@@ -190,11 +193,14 @@ Bubble Tea: `Model`, `Update`, `View`.
   of structural edits relies on the same pointers being re-inserted.
 - **Slow work runs as a `tea.Cmd`** that returns a message handled in
   `Update`: `:sync-calendar` (`syncCalendarMsg`), `:format-links`
-  (`formatLinksMsg`), `:run` (`runFinishedMsg`: save, run a `[[commands]]` entry, reload changed files), and the `$EDITOR`
-  round trip (`editFinishedMsg`, `fileEditFinishedMsg`). While
+  (`formatLinksMsg`), `:run` (`runFinishedMsg`: save, run a `[[commands]]` entry, reload changed files), the `$EDITOR`
+  round trip (`editFinishedMsg`, `fileEditFinishedMsg`), `:resolve`'s
+  merge tool (`resolveFinishedMsg`) and polling the main branch
+  (`gitPollMsg`, every 2 s). While
   `:format-links` is in flight, affected entries are in `m.immutable` and
   every mutating command checks `refuseIfImmutable`/`filterImmutable`.
-- **Not everything is async.** `:w`, scratch-file
+- **Not everything is async.** `:w` (a git commit and merge, through
+  go-git), scratch-file
   writes and the live in-editor URL formatter run synchronously inside
   `Update`. They are fast in practice; if one ever isn't, convert it to a
   `tea.Cmd` following the `:run` pattern.
@@ -231,7 +237,9 @@ including its known weak points, so changes can be made deliberately.
 | `edit_file.go` | `:edit`/`:e`: open, load or create a file in the org directory or `reference/` and focus its header |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch (both run formatters through `internal/extprog`) |
-| `run_command.go`, `run_context.go` | `:run <name> [args...]`: save everything, run the named `[[commands]]` entry, reload files it changed on disk; with `context = true`, the cursor's entry or the visual selection (`commandSelection`) as `ORGTD_*` variables and a JSON file |
+| `gitsave.go` | The Model's side of §6: `gitState`, `:w` (`writeAllResult`/`saveFiles`), reloading what the main branch changed (`reloadChanged`, keeping the cursor via `cursorAnchor`), `:e!` from main (`reloadFromMain`), polling (`pollMain`), the status-line note |
+| `resolve.go` | `:resolve` (conflicts to a scratch folder, `merge_tool`, saving the result) and `:recover` |
+| `run_command.go`, `run_context.go` | `:run <name> [args...]`: save everything, run the named `[[commands]]` entry, commit and reload what it changed; with `context = true`, the cursor's entry or the visual selection (`commandSelection`) as `ORGTD_*` variables and a JSON file |
 | `review.go`, `marks.go`, `jumplist.go` | `:review` target (the `%` register, toggled by `:review`), vim-style marks, ctrl-o/`gi` jump list and view switching |
 | `style.go` | Color/icon resolution, text-width and highlight helpers |
 | `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |
@@ -379,6 +387,75 @@ These are recorded here so contributors don't mistake them for design:
    (`internal/org`) — but the remaining ~30 files still share the
    one `Model`.
 
+## 6. Saving through git
+
+The org directory is the root of a git repository and **git is the
+store**: every `:w` is a commit on the main branch (`main_branch`), and
+several orgtd instances — or orgtd and Emacs, or a `git pull` — are
+reconciled by three-way merges. `internal/gitstore` does it all through
+go-git; `internal/merge3` is the line merge.
+
+**Managed paths.** Only `*.org` directly in the directory or in
+`reference/`, minus `outline_ignore_files` (`Store.IsManaged`), take part.
+Every other path is left as the main branch has it. A managed path git
+ignores and doesn't track is written straight to disk instead of
+committed (a gitignored `calendar.org`).
+
+**Per-file bases.** Each `org.File` keeps `Base`, the bytes it was last
+loaded, reloaded or saved as. A save sends each unsaved file as a
+`gitstore.Edit{Base, Content}`, and the merge for that path is
+`merge3.Merge(Base, Content, main's version)`. Basing each file on what
+*it* was loaded from — not one repo-wide commit — is what lets a file
+loaded from a dirty working tree, or reloaded with `:e!` mid-session,
+merge without false conflicts, and lets `:w!` (`Edit.Force`) and
+`:resolve` (`Base` := main's side of the conflict) reuse the plain save.
+`gitState.seen` is only the commit polling compares against.
+
+**`Store.Save`, in order** (`save.go`):
+1. Commit the edits as a save commit S (on a commit of their bases), and
+   point `refs/orgtd/<instance ID>` at it. From here a crash can't lose
+   them.
+2. Take the merge lock (`.git/orgtd/merge.lock`, a flock), read main (M).
+3. Commit outside edits: managed files where the working tree differs
+   from M (`commitOutsideLocked`, which also repairs stale index
+   entries).
+4. Merge each edit with M's version. Any conflict: stop, returning the
+   marked-up files; the pending ref stays, nothing else changes.
+5. Commit the merged tree with M as its **only** parent (linear history;
+   the message carries an `Orgtd-Save: <S>` trailer).
+6. Create `.git/index.lock` (git's own lock), write the changed files,
+   write the new index into the lock file, move the branch with git's
+   ref-lock protocol (`refs/heads/main.lock`, compare, rename), then
+   rename the index into place. **Files are written before the branch
+   moves**: a crash in between leaves them looking like outside edits
+   with the merged content, which the next save commits, never like a
+   revert of the merge. If the branch moved anyway, the files are put
+   back and the merge retried.
+7. Delete the pending ref, release the merge lock.
+
+`failAt` lets tests "crash" between any two steps (`TestCrashAtEveryStep`).
+
+**After a save** (`saveFiles`), a file whose merge result differs from
+what was rendered is reparsed and swapped in (`swapFile`: loses undo and
+marks, like `:e!`); then `reloadChanged` reloads every other loaded file
+whose content on main differs from its `Base` — unless it has unsaved
+edits (listed in `gitState.behind`, shown on the status line) — and
+loads managed files new on main. `reloadChanged` does nothing unless
+`safeToReload` (normal mode, no chord or count, not in insert mode),
+since a reload invalidates headline pointers; `seen` only advances once
+everything caught up, so polling retries.
+
+**Polling** (`pollMain`) reads the branch every 2 s and, if it moved,
+calls `reloadChanged` with its snapshot. Uncommitted outside edits are
+picked up at the next save, `:e!` or `:run` (`CommitOutsideEdits`).
+
+**Instances and recovery.** An instance ID is `<host>-<pid>-<start
+time>`; `Open` takes a flock on `.git/orgtd/instances/<ID>.lock` for the
+process's life. `Orphans` lists pending refs whose instance lock is free
+(dead), silently deleting any whose S is named by an `Orgtd-Save`
+trailer on main; `:recover` loads `OrphanEdits` into memory and saves
+them normally, dropping the refs once that succeeds.
+
 ## 7. Data conventions (properties and tags)
 
 orgtd stores its own metadata as org properties, so it round-trips
@@ -417,6 +494,13 @@ as `gM`.
   conventional unit tests. `internal/ui`'s
   `TestDesktopCaptureMatchesPhoneRendering` pins `gC`'s output to
   `internal/capture`'s.
+- `internal/merge3` has table tests, randomized checks of the line diff,
+  and a fuzz test of the merge identities.
+- `internal/gitstore` tests build repositories in temp dirs with go-git
+  and, when a `git` binary is installed, check `git fsck` and `git
+  status` agree with what orgtd wrote: concurrent instances, conflicts,
+  outside edits, ignored files, a held `index.lock`, and a crash at
+  every step of a save followed by recovery.
 - `internal/gitsync` and `mobilecore` tests run real git scenarios
   against a bare repository in a temp dir (`file://`, which go-git serves
   by running the `git` binary, so those tests need git installed).
@@ -424,8 +508,10 @@ as `gM`.
   from `testdata/orgdir` and drive it with simulated key presses
   (`sendKey`, `typeKeys`, helpers in `model_test.go`), asserting on
   `m.rows`, tree state, and rendered output. Tests that write to disk
-  first copy the fixtures into a temp dir (`loadFixtureCopy`) — never
-  write to the checked-in fixtures.
+  first copy the fixtures into a temp dir (`loadFixtureCopy`, which also
+  makes it a git repository with `initRepo`, since saving needs one) —
+  never write to the checked-in fixtures. `gitsave_test.go` runs two
+  Models on one repository, as two orgtd processes.
 - There is no golden byte-for-byte round-trip suite (see §3, org).
 - Run everything with `go build ./... && go vet ./... && go test ./...`.
 
@@ -492,12 +578,16 @@ not exist, so don't look for them in the code:
   `CAPTURED_AT` properties, `projects.org` as a special file.** Agenda
   is computed in memory only; the only special files are inbox, calendar
   and meeting-tags (by configurable base name).
-- **File watching / auto-reload of external edits** and
-  **flush-on-every-mutation.**
+- **File watching** and **flush-on-every-mutation.** Other writers'
+  changes arrive through the main branch instead (§6).
+- **An entry-level merge** (matching entries by `:ID:` or outline path,
+  merging their fields separately). Merges are line-based, so two
+  instances appending under the same parent conflict.
 
 ## 11. Open questions
 
 - Archiving finished items; `DONE` entries currently just hide.
-- External edits to a file while orgtd holds unsaved changes to it: the
-  directory lock only prevents a second orgtd, not Emacs. `:w` is
-  last-write-wins.
+- Commit messages are `orgtd: save <files>`; generating them from the
+  undo actions (`Mark DONE: ...`) would make history more useful.
+- Unsaved edits are lost in a crash; autosaving them to the pending ref
+  would close that gap.
