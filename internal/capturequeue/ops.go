@@ -15,7 +15,8 @@ import (
 // keyword, and with Edit its other fields too — waiting to be merged. Like a capture, it lives in a queue and is
 // replayed onto the base branch on every rebuild; unlike a capture, it
 // has to find its entry again, by file, title path and fingerprint (see
-// internal/gitsync), and is dropped if the entry has changed since.
+// internal/gitsync). If the entry has changed since, it's never
+// dropped: it waits for the desktop to merge it.
 type StateOp struct {
 	ID        string    `json:"id"`
 	CreatedAt time.Time `json:"createdAt"` // also the CLOSED/LAST_REPEAT time, so replays are identical

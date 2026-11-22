@@ -423,7 +423,8 @@ merge without false conflicts, and lets `:w!` (`Edit.Force`) and
 4. Merge each edit with M's version. Any conflict: stop, returning the
    marked-up files; the pending ref stays, nothing else changes.
 5. Commit the merged tree with M as its **only** parent (linear history;
-   the message carries an `Orgtd-Save: <S>` trailer).
+   the message carries an `Orgtd-Save: <S>` trailer). Merging the
+   phone's branch (below) is the only two-parent commit orgtd makes.
 6. Create `.git/index.lock` (git's own lock), write the changed files,
    write the new index into the lock file, move the branch with git's
    ref-lock protocol (`refs/heads/main.lock`, compare, rename), then
@@ -447,40 +448,52 @@ since a reload invalidates headline pointers; `seen` only advances once
 everything caught up, so polling retries.
 
 **Polling** (`pollMain`) recounts the other live instances
-(`OtherInstances`, for the status line), fast-forwards to the phone's
+(`OtherInstances`, for the status line), brings in the phone's
 branch (below), and reads the branch every 2 s
 and, if it moved, calls `reloadChanged` with its snapshot. Uncommitted outside edits are
 picked up at the next save, `:e!` or `:run` (`CommitOutsideEdits`).
 
-**The phone's branch** (`Store.FastForward`, `fastforward.go`). The iOS
+**The phone's branch** (`Store.ApplyBranch`, `branch.go`). The iOS
 app (ios/DESIGN.md) rebuilds `mobile` on every Sync as main plus its
-queued changes, replaying each against the entry's fingerprint and
-dropping any whose entry changed, so `mobile` is always main as the
-phone last fetched it plus clean commits. Each poll, under the merge
-lock (`TryLock`: a busy lock just means next poll), if main is a proper
-ancestor of `mobile`, it moves main to `mobile`'s tip with `apply` —
-files, index, then the branch, exactly as a save's step 6 — so no new
-commit is made and the phone's tip lands on main as pushed: the phone
-recognizes merged changes by commit ancestry (`gitsync.DropMerged`), so
-a rebased or squashed copy would make it replay them. It does nothing
-when:
-- main has moved on (not a fast-forward; `Behind`, unless `mobile` is
-  already in main). The phone's next Sync rebuilds `mobile` on the new
-  main. **It never merges**, so it never conflicts.
+queued changes, replaying each against the entry's fingerprint. When
+one no longer applies (its entry changed on main), the phone never
+drops it: it builds `mobile` on the commit its queue was made on
+instead, for the desktop to merge. Each poll, under the merge lock
+(`TryLock`: a busy lock just means next poll):
+- if main is a proper ancestor of `mobile`, it moves main to `mobile`'s
+  tip with `apply` — files, index, then the branch, exactly as a save's
+  step 6 — so no new commit is made;
+- otherwise, unless `mobile` is already in main, it three-way merges
+  (`merge3`, per file) each managed file `mobile` changed since the
+  merge base with main's, and commits the result with main and
+  `mobile`'s tip as parents, then `apply`s it.
+Either way the phone's tip lands on main as pushed: the phone
+recognizes merged changes by commit ancestry (`gitsync.DropMerged`),
+so a rebased or squashed copy would make it replay them, and a real
+merge commit lets git find the right merge base when the phone later
+pushes more on top of a merged tip. It does nothing when:
+- the merge collides (`Conflict`, with each file's marked-up result and
+  main's version). The UI keeps it (`gitState.mobileConflict`) and
+  `:resolve` hands it to the merge tool, then `ResolveBranch` commits
+  the resolution as the merge — merging it with main again, from the
+  main it was resolved against, if main moved meanwhile, and refusing
+  (`ErrBranchMoved`) if the phone pushed again, which the next poll
+  merges afresh.
 - `mobile` changes a path that isn't managed (`Unmanaged`): `apply` only
   writes managed files, so the rest would be left stale on disk.
-- a file `mobile` changes has an uncommitted outside edit that differs
-  from `mobile`'s version (`Blocked`). Outside edits to other files stay
-  on disk as outside edits.
+- a file the move changes has an uncommitted outside edit that differs
+  from the result (`Blocked`). Outside edits to other files stay on
+  disk as outside edits.
 Each reason becomes a status-line note saying what to do (`mobileNote`).
 The outcome for a main/`mobile` pair that depends only on the commits
-(`Behind`, `Unmanaged`) is remembered (`Store.notFF`), so polling
-doesn't walk the history every 2 s. A crash partway leaves
-`mobile`'s content on disk as outside edits equal to `mobile`'s
-version, which the next poll accepts and finishes; if a save gets there
-first, it commits them as outside edits instead, so the phone, not
-seeing its tip on main, replays: its state changes are dropped (their
-entries now differ) but its captures would be appended again.
+(`Conflict`, `Unmanaged`, already merged) is remembered
+(`Store.notFF`), so polling doesn't walk the history every 2 s. A crash
+partway leaves the result on disk as outside edits equal to it, which
+the next poll accepts and finishes; if a save gets there first, it
+commits them as outside edits instead, so the phone, not seeing its tip
+on main, pushes the same changes again, which the next poll merges
+(identical changes on both sides merge cleanly) — though its captures
+would be appended again.
 Only a local `mobile` branch counts: when the phone pushes to another
 server, merging `origin/mobile` stays by hand.
 

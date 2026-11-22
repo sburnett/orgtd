@@ -3,11 +3,13 @@ package gitsync
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/sburnett/orgtd/internal/capture"
@@ -121,24 +123,56 @@ func TestStateChangeLeavesQueueWhenMerged(t *testing.T) {
 	}
 }
 
-func TestStateChangeOnAnEntryEditedOnTheDesktopIsDropped(t *testing.T) {
+func TestStateChangeOnAnEntryEditedOnTheDesktopWaitsForAMerge(t *testing.T) {
 	f := newOpsFixture(t)
 	f.queueOp("work.org", "Write report", "DONE")
-	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1), "renamed")
+	renamed := strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1)
+	f.macCommit("work.org", renamed, "renamed")
 	f.macPush()
 	f.sync()
+	f.assertWaiting(1, "Write report")
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	if !strings.Contains(string(data), "** DONE Write report\n") {
+		t.Errorf("work.org on the phone =\n%s\nwant the phone's change still shown", data)
+	}
+
+	// The desktop merges, resolving the conflict; the phone's next sync
+	// sees its tip on main and empties the queue.
+	tip, _ := f.remoteRef(MobileBranch)
+	f.macMergeWith(tip, "work.org", strings.Replace(renamed, "** TODO Write the report\n", "** DONE Write the report\n   CLOSED: [2026-11-14 Sat 09:30]\n", 1))
+	f.sync()
 	if ops := f.ops(); len(ops) != 0 {
-		t.Errorf("ops = %+v, want the stale one dropped", ops)
+		t.Errorf("ops after the merge = %+v, want none", ops)
 	}
 	s, _ := f.phone.LoadState()
-	if len(s.Dropped) != 1 || s.Dropped[0].Title != "Write report" || s.Dropped[0].To != "DONE" {
-		t.Errorf("dropped = %+v", s.Dropped)
+	if len(s.Waiting) != 0 {
+		t.Errorf("waiting after the merge = %q", s.Waiting)
 	}
-	if err := f.phone.DismissDropped(); err != nil {
-		t.Fatal(err)
+	if _, ok := f.remoteRef(MobileBranch); ok {
+		t.Error("mobile still on the remote with nothing pending")
 	}
-	if s, _ := f.phone.LoadState(); len(s.Dropped) != 0 {
-		t.Error("DismissDropped kept them")
+}
+
+// assertWaiting checks that all n queued state changes were kept, title
+// among those waiting, and that the pushed "mobile" isn't built on main
+// (which has moved on), for the desktop to merge.
+func (f *fixture) assertWaiting(n int, title string) {
+	f.t.Helper()
+	if ops := f.ops(); len(ops) != n {
+		f.t.Errorf("ops = %+v, want all %d kept", ops, n)
+	}
+	s, _ := f.phone.LoadState()
+	if !slices.Contains(s.Waiting, title) || len(s.Dropped) != 0 {
+		f.t.Errorf("waiting = %q, dropped = %+v; want %q waiting", s.Waiting, s.Dropped, title)
+	}
+	main, _ := f.remoteRef("main")
+	mobile, ok := f.remoteRef(MobileBranch)
+	if !ok {
+		f.t.Fatal("mobile not pushed")
+	}
+	f.macFetch()
+	if f.mergeBase(main, mobile) == main {
+		f.t.Errorf("mobile is built on main; want it on the earlier base")
 	}
 }
 
@@ -362,19 +396,13 @@ func TestInsertKeepsBlankLineSpacing(t *testing.T) {
 	}
 }
 
-func TestInsertUnderAParentEditedOnTheDesktopIsDropped(t *testing.T) {
+func TestInsertUnderAParentEditedOnTheDesktopWaitsForAMerge(t *testing.T) {
 	f := newOpsFixture(t)
 	f.queueInsert("work.org", "Write report", "Draft outline", false)
 	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** NEXT Write report", 1), "next")
 	f.macPush()
 	f.sync()
-	if ops := f.ops(); len(ops) != 0 {
-		t.Errorf("ops = %+v, want the stale one dropped", ops)
-	}
-	s, _ := f.phone.LoadState()
-	if len(s.Dropped) != 1 || s.Dropped[0].Title != "Draft outline" || !s.Dropped[0].Added {
-		t.Errorf("dropped = %+v", s.Dropped)
-	}
+	f.assertWaiting(1, "Draft outline")
 }
 
 func TestInsertLeavesQueueWhenMerged(t *testing.T) {
@@ -471,14 +499,6 @@ func TestMoveChangesOnlyStarsOrMovesTheSubtree(t *testing.T) {
 func TestMovingAParentMovesItsSubtree(t *testing.T) {
 	f := newOpsFixture(t)
 	f.queueMove("work.org", "Other   heading", 1)
-	f.queueMove("work.org", "Project", 1) // under nothing: there's no previous sibling
-	if err := f.phone.Rebuild(); err != nil {
-		t.Fatal(err)
-	}
-	s, _ := f.phone.LoadState()
-	if len(s.Dropped) != 1 || s.Dropped[0].Title != "Project" || s.Dropped[0].Move != 1 {
-		t.Errorf("dropped = %+v", s.Dropped)
-	}
 	f.queueMove("work.org", "Other   heading", -1) // back out, after Project's subtree
 	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
 	if string(data) != workOrg {
@@ -486,18 +506,35 @@ func TestMovingAParentMovesItsSubtree(t *testing.T) {
 	}
 }
 
-func TestDemoteUnderAChangedSiblingIsDropped(t *testing.T) {
+// A change that applies nowhere (the app refuses to queue one; see
+// mobilecore.ShiftEntry) is kept, with an error, rather than dropped.
+func TestAChangeThatAppliesNowhereIsKeptWithAnError(t *testing.T) {
+	f := newOpsFixture(t)
+	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
+	of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+	op := NewStateOp("work.org", of.Headlines[0], "", opTime) // "Project": no previous sibling to go under
+	op.Move = &capturequeue.EntryMove{Delta: 1}
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, op); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err == nil || !strings.Contains(err.Error(), "nothing was dropped") {
+		t.Errorf("Rebuild = %v, want an error", err)
+	}
+	if ops := f.ops(); len(ops) != 1 {
+		t.Errorf("ops = %+v, want it kept", ops)
+	}
+}
+
+func TestDemoteUnderAChangedSiblingWaitsForAMerge(t *testing.T) {
 	f := newOpsFixture(t)
 	f.queueMove("work.org", "Water plants", 1)
 	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1), "renamed")
 	f.macPush()
 	f.sync()
-	if ops := f.ops(); len(ops) != 0 {
-		t.Errorf("ops = %+v, want the move dropped", ops)
-	}
+	f.assertWaiting(1, "Water plants")
 	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
-	if !strings.Contains(string(data), "\n** TODO Water plants\n") {
-		t.Errorf("work.org =\n%s", data)
+	if !strings.Contains(string(data), "\n*** TODO Water plants\n") {
+		t.Errorf("work.org =\n%s\nwant the phone's demote still shown", data)
 	}
 }
 
@@ -585,23 +622,13 @@ func TestDeleteRemovesOnlyTheSubtree(t *testing.T) {
 	}
 }
 
-func TestDeleteOfAParentWhoseChildChangedIsDropped(t *testing.T) {
+func TestDeleteOfAParentWhoseChildChangedWaitsForAMerge(t *testing.T) {
 	f := newOpsFixture(t)
 	f.queueDelete("work.org", "Project")
 	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Water plants", "** NEXT Water plants", 1), "child changed")
 	f.macPush()
 	f.sync()
-	if ops := f.ops(); len(ops) != 0 {
-		t.Errorf("ops = %+v, want the delete dropped", ops)
-	}
-	s, _ := f.phone.LoadState()
-	if len(s.Dropped) != 1 || s.Dropped[0].Title != "Project" || !s.Dropped[0].Deleted {
-		t.Errorf("dropped = %+v", s.Dropped)
-	}
-	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
-	if !strings.Contains(string(data), "* Project") {
-		t.Errorf("work.org =\n%s", data)
-	}
+	f.assertWaiting(1, "Project")
 }
 
 // queueReorder queues and replays moving title (in file) right before
@@ -686,19 +713,13 @@ func TestReorderMovesTheSubtreeAmongItsSiblings(t *testing.T) {
 	}
 }
 
-func TestReorderNextToAChangedSiblingIsDropped(t *testing.T) {
+func TestReorderNextToAChangedSiblingWaitsForAMerge(t *testing.T) {
 	f := newOpsFixture(t)
 	f.queueReorder("work.org", "Water plants", "Write report", false)
 	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1), "renamed")
 	f.macPush()
 	f.sync()
-	if ops := f.ops(); len(ops) != 0 {
-		t.Errorf("ops = %+v, want the move dropped", ops)
-	}
-	s, _ := f.phone.LoadState()
-	if len(s.Dropped) != 1 || !s.Dropped[0].Reordered {
-		t.Errorf("dropped = %+v", s.Dropped)
-	}
+	f.assertWaiting(1, "Water plants")
 }
 
 func TestReorderKeepsBlankLineSpacingEven(t *testing.T) {
@@ -723,7 +744,7 @@ func TestReorderKeepsBlankLineSpacingEven(t *testing.T) {
 	}
 }
 
-func TestFileMoveIsDroppedIfItsAnchorChanged(t *testing.T) {
+func TestFileMoveWaitsForAMergeIfItsAnchorChanged(t *testing.T) {
 	f := newOpsFixture(t)
 	f.macCommit("other.org", "* First\n* Second\n", "other")
 	f.macPush()
@@ -752,12 +773,7 @@ func TestFileMoveIsDroppedIfItsAnchorChanged(t *testing.T) {
 	f.macCommit("other.org", "* First\n* Second, renamed\n", "renamed")
 	f.macPush()
 	f.sync()
-	if ops := f.ops(); len(ops) != 0 {
-		t.Errorf("ops = %+v, want the move dropped", ops)
-	}
-	if got, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org")); !strings.Contains(string(got), "*   Other   heading") {
-		t.Errorf("work.org lost the entry when its move was dropped:\n%s", got)
-	}
+	f.assertWaiting(1, "Other   heading")
 }
 
 func TestPasteSubtreeIntoAnEmptyFileAddsNoBlankLines(t *testing.T) {
@@ -813,4 +829,64 @@ func TestClosingNoteIsLoggedAtTheTopOfTheBody(t *testing.T) {
 			t.Errorf("a note was logged without a close:\n%s", got)
 		}
 	})
+}
+
+func TestChangesMadeWhileWaitingStillGoOut(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueOp("work.org", "Write report", "DONE")
+	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1), "renamed")
+	f.macPush()
+	f.sync()
+	f.queueOp("work.org", "Water plants", "NEXT")
+	f.sync()
+	f.assertWaiting(2, "Write report")
+	if s, _ := f.phone.LoadState(); len(s.Waiting) != 1 {
+		t.Errorf("waiting = %q, want only the one that conflicts", s.Waiting)
+	}
+	mobile, _ := f.remoteRef(MobileBranch)
+	if got := f.fileAt(f.mac, mobile, "work.org"); !strings.Contains(got, "** NEXT Water plants") || !strings.Contains(got, "** DONE Write report") {
+		t.Errorf("work.org on mobile =\n%s", got)
+	}
+}
+
+// A change made on top of one the desktop has since merged goes on the
+// merged tip when it waits, since that's what it was made on.
+func TestWaitingBuildsOnTheLastMergedTip(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueOp("work.org", "Write report", "NEXT")
+	f.sync()
+	p, _ := f.remoteRef(MobileBranch)
+	f.macMergeWith(p, "work.org", f.fileAtRemote(p, "work.org"))
+	merged := f.fileAtRemote(p, "work.org")
+	f.macCommit("work.org", strings.Replace(merged, "** NEXT Write report", "** NEXT Write the report", 1), "renamed")
+	f.macPush()
+	f.queueOp("work.org", "Write report", "DONE") // made before fetching the rename
+	f.sync()
+	f.assertWaiting(1, "Write report")
+	if s, _ := f.phone.LoadState(); s.Base != p.String() {
+		t.Errorf("base = %s, want the merged tip %s", s.Base, p)
+	}
+}
+
+func TestWaitingWorksForStateWithoutABase(t *testing.T) {
+	f := newOpsFixture(t)
+	f.queueOp("work.org", "Write report", "DONE")
+	f.sync()
+	// An older version didn't record the base.
+	s, _ := f.phone.LoadState()
+	s.Base = ""
+	if err := f.phone.saveState(s); err != nil {
+		t.Fatal(err)
+	}
+	f.macCommit("work.org", strings.Replace(workOrg, "** TODO Write report", "** TODO Write the report", 1), "renamed")
+	f.macPush()
+	f.sync()
+	f.assertWaiting(1, "Write report")
+}
+
+// fileAtRemote is file's content at commit, fetched to the mac.
+func (f *fixture) fileAtRemote(commit plumbing.Hash, file string) string {
+	f.t.Helper()
+	f.macFetch()
+	return f.fileAt(f.mac, commit, file)
 }

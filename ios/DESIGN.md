@@ -23,8 +23,9 @@ The phone's writes are **appending new top-level entries to
 §10), committed to a dedicated `mobile` git branch that the user merges
 into `main` by hand on the Mac. The phone never merges and never
 resolves a conflict. (As built, the phone also edits, adds, moves and
-deletes entries, and desktop orgtd fast-forwards `main` to `mobile`
-itself; see §10.)
+deletes entries, and desktop orgtd fast-forwards or merges `mobile`
+into `main` itself, with the user resolving any conflict there; see
+§10.)
 
 ## 2. Decisions
 
@@ -34,7 +35,7 @@ itself; see §10.)
 | File access | The org directory is a git repo; the app keeps its own clone |
 | Git host / auth | Any git server reachable over SSH (originally GitHub; changed so the org files needn't be hosted by a third party — a self-hosted server, typically reached over Tailscale). An ed25519 key generated on the device and stored in the Keychain; the user adds it to the server account's `authorized_keys`, restricted to `git-shell`. The server's host key is shown at setup for the user to verify by fingerprint, then pinned |
 | Phone writes | Appends to `inbox_file` (default `inbox.org`), and TODO-keyword changes to existing entries (§10). No other edits, deletes, or IDs added to existing entries |
-| Branch | All phone changes live on `mobile`. The user merges `mobile` → `main` on the Mac with a normal merge or fast-forward (never squash/cherry-pick) — as built, desktop orgtd fast-forwards it automatically (§10) |
+| Branch | All phone changes live on `mobile`. The user merges `mobile` → `main` on the Mac with a normal merge or fast-forward (never squash/cherry-pick) — as built, desktop orgtd fast-forwards or merges it automatically (§10) |
 | Commit / push | Each capture is committed automatically; pushing only happens on an explicit **Sync** |
 | Branch upkeep | On Sync, `mobile` is rebuilt as `origin/main` + the still-unmerged captures and force-pushed (with lease) |
 | Fetch | On launch, on returning to foreground, and on Sync. Fetch is read-only and can't conflict |
@@ -149,10 +150,12 @@ Properties:
 - `origin/mobile` always differs from `origin/main` only by lines
   appended to the end of `inbox_file` — as planned. As built, it also
   holds the queued state changes, edits, additions, moves and deletes,
-  each replayed onto the new `origin/main` after the captures and
-  dropped if its entry changed (§10). Either way, `origin/mobile` is
-  always `origin/main` plus commits that apply cleanly, so merging it
-  is a fast-forward unless `main` moved after the phone's last Sync.
+  each replayed onto the new `origin/main` after the captures. If one
+  no longer applies (its entry changed), `mobile` is built instead on
+  the commit the queue was made on, for the desktop to merge (§10);
+  nothing is dropped. Otherwise `origin/mobile` is `origin/main` plus
+  commits that apply cleanly, so merging it is a fast-forward unless
+  `main` moved after the phone's last Sync.
 - If the user merged an *older* pushed tip (fetched before a later
   Sync), step 2 still recognizes exactly the captures that tip held.
 - A lease failure (someone else moved `origin/mobile`) aborts the push and
@@ -190,7 +193,8 @@ The rendering must match what desktop `gC` produces (see
 - Merge `mobile` into `main` normally (gitui / jjui / git). Concurrent
   appends to the inbox on both sides are an ordinary merge conflict,
   resolved by keeping both. As built, a running desktop orgtd does this
-  itself when `mobile` is a fast-forward (§10). (The original plan recommended
+  itself, fast-forwarding or merging, and asks the user to `:resolve`
+  a conflict (§10). (The original plan recommended
   `merge=union` for the inbox; that was dropped once the phone could
   edit existing lines, which a union merge would duplicate.)
 
@@ -408,7 +412,7 @@ README/DESIGN.md current (per repo convention).
 - Widgets, Control Center / Action button, Siri / Shortcuts capture.
 - iPad layout and hardware-keyboard (vim-style) navigation.
 - Desktop orgtd auto-merging `mobile` during `:run`. (Built differently:
-  orgtd fast-forwards to it while polling; see §10.)
+  orgtd fast-forwards or merges it while polling; see §10.)
 
 ## 10. As built: departures from the plan
 
@@ -508,8 +512,10 @@ README/DESIGN.md current (per repo convention).
     LAST_REPEAT. The diff is one or two lines, and the rest of the file
     is untouched byte for byte.
   - **Stale changes.** A change whose entry no longer matches (renamed,
-    moved, edited or already changed on the desktop) is dropped, not
-    guessed at, and reported once (`State.Dropped`, `DismissDropped`).
+    moved, edited or already changed on the desktop) isn't guessed at:
+    it waits for the desktop to merge it (see "Nothing is dropped",
+    below). An earlier version dropped it and reported it once
+    (`State.Dropped`, `DismissDropped`, still shown for those).
   - **merge=union guard.** Not recommended anywhere, but a repository
     might already set it: changes are refused in any file
     `.gitattributes` gives `merge=union`, which would duplicate the
@@ -554,8 +560,8 @@ README/DESIGN.md current (per repo convention).
     before the new entry is blank, the entry gets a trailing blank line
     too, so blank-line spacing stays even.
   - **Stale parents.** If the parent (or sibling) no longer matches
-    (renamed, edited or removed on the desktop), the addition is dropped and reported
-    like any other change (`DroppedOp.Added`).
+    (renamed, edited or removed on the desktop), the addition waits for
+    the desktop to merge it like any other change.
   - **IDs.** Entry IDs are index paths, so an added entry renumbers
     its later siblings. `AddEntry` and `AddEntryBeside` return the new
     entry's ID, and the Outline renumbers the expanded rows it holds in
@@ -579,9 +585,10 @@ README/DESIGN.md current (per repo convention).
     siblings, which stay children of the parent. Planning, drawer and
     body indentation is left as written: org reads it either way, and
     rewriting it would touch every line of the subtree.
-  - **Stale moves.** A move is dropped like other changes if the entry
-    changed, and a demote also if the previous sibling isn't the one it
-    was made against, so it never lands under a different entry.
+  - **Stale moves.** A move waits for the desktop like other changes if
+    the entry changed, and a demote also if the previous sibling isn't
+    the one it was made against, so it never lands under a different
+    entry.
   - **IDs.** `ShiftEntry` returns the entry's new ID, and the Outline
     carries its expanded and open rows over to their new IDs
     (`Renumbering`, which also handles additions), expanding the new
@@ -615,8 +622,8 @@ README/DESIGN.md current (per repo convention).
   - **Queue.** Another queued change: a `StateOp` with `Delete` set.
     Besides the entry's own fingerprint, it records one of the whole
     subtree (`gitsync.SubtreeFingerprint`). A child changed on the
-    desktop since then drops the delete, so the phone never deletes an
-    edit it hasn't seen.
+    desktop since then leaves the delete for the desktop to merge, so
+    the phone never deletes an edit it hasn't seen.
   - **Minimal diff.** The replay removes exactly the subtree's lines.
   - The merge=union guard applies: a union merge would bring the deleted
     lines back.
@@ -640,8 +647,8 @@ README/DESIGN.md current (per repo convention).
     sibling's title and fingerprint, and whether the entry goes before
     it or after its subtree (`mobilecore.MoveEntry`). It's named by ID,
     not index, since the Outline may hide closed siblings. A reorder
-    whose anchor changed on the desktop is dropped
-    (`DroppedOp.Reordered`).
+    whose anchor changed on the desktop waits for the desktop to merge
+    it.
   - **Minimal diff.** The subtree's lines are cut and put back
     (`reorder`). Blank lines separating it from its neighbours go with
     it — the ones after it, or, for a file's last entry, which has none
@@ -680,10 +687,10 @@ README/DESIGN.md current (per repo convention).
     (`mobilecore.MoveEntryToFile`); with no `Anchor`, it goes at the end
     of the file. The replay (`applyFileMove`) cuts the subtree from one
     file and pastes it into the other, blank lines handled as for a
-    reorder, and the commit stages both. It's dropped like a reorder if
+    reorder, and the commit stages both. It waits like a reorder if
     the entry or the anchor changed. Captures moved out of the inbox
-    stay correct: they're dropped from the queue by commit ancestry,
-    not by finding their text in the inbox.
+    stay correct: they leave the queue by commit ancestry, not by
+    finding their text in the inbox.
   - **IDs.** The entry's own expanded rows are carried to its new ID
     by prefix; the rest is a removal in one file and an insertion in
     the other (`Renumbering`).
@@ -729,18 +736,31 @@ README/DESIGN.md current (per repo convention).
   it (`prependBody`), using the op's own time like CLOSED. A note on a
   change that doesn't close is ignored. Closing through the edit form's
   keyword picker doesn't ask.
-- **Desktop fast-forwards `mobile`.** When the phone pushes into the
+- **Desktop applies `mobile`.** When the phone pushes into the
   org directory itself (a local `mobile` branch, not `origin/mobile`),
   each running desktop orgtd, polling every 2 s, moves `main` to
   `mobile`'s tip when that's a fast-forward, writing the files as a
-  save does (`gitstore.Store.FastForward`; ../DESIGN.md §6). No commit
-  is made, so the phone's tip is on `main` exactly as pushed, and
-  `DropMerged` sees it at the next Sync. It never merges: if `main`
-  moved after the phone's last Sync, it waits for the next Sync to
-  rebuild `mobile` on the new `main`. So no one ever resolves a
-  conflict over the phone's changes: the phone drops a change whose
-  entry changed, and the desktop only fast-forwards. It also waits
-  while a file `mobile` changes has uncommitted edits on disk. Whenever
-  it waits, the desktop status line says why and what to do (usually
-  "Sync the phone"). With a
+  save does, and otherwise merges `mobile` into `main` with a
+  two-parent commit (`gitstore.Store.ApplyBranch`; ../DESIGN.md §6).
+  Either way the phone's tip is on `main` as pushed, and `DropMerged`
+  sees it at the next Sync. A merge that collides waits for the user,
+  whose status line says `phone changes conflict in todo.org —
+  :resolve`; `:resolve` opens the merge tool and commits the result
+  (`ResolveBranch`). It also waits while a file the move changes has
+  uncommitted edits on disk, and the status line says so. With a
   separate server, merging `origin/mobile` is still by hand.
+- **Nothing is dropped.** A queued change whose entry changed on `main`
+  used to be dropped at the next rebuild, losing what the user typed.
+  Now `Rebuild` first builds `mobile` on `origin/main`. If a change
+  doesn't apply there, it builds the whole queue instead on
+  `State.Base`, the commit the queue was made on, where everything
+  applies, and lists those changes in `State.Waiting`. The app shows a
+  banner ("Waiting for your computer to merge…") and its own version
+  until then. `mobile` isn't a fast-forward then, so the desktop merges
+  it, line by line, and the user resolves any real conflict there.
+  `State.Base` is `origin/main` after every clean build. When a pushed
+  tip built on it is merged, it moves to that tip, since the rest of
+  the queue was made on top of it. If the queue doesn't apply on
+  `State.Base` either, Sync fails with an error and keeps every change
+  queued rather than drop one. A state file from before `State.Base`
+  existed takes it as where local `mobile` left `origin/main`.

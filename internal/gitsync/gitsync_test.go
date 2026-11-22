@@ -114,6 +114,25 @@ func (f *fixture) macMerge(tip plumbing.Hash) {
 	f.macPush()
 }
 
+// macMergeWith merges commit tip into the mac's main with file's
+// content taken as given (the user's resolution), as desktop orgtd's
+// merge does: a commit with both parents.
+func (f *fixture) macMergeWith(tip plumbing.Hash, file, content string) {
+	f.t.Helper()
+	f.macFetch()
+	head, _ := f.mac.Head()
+	wt, _ := f.mac.Worktree()
+	if err := wt.Reset(&git.ResetOptions{Commit: head.Hash(), Mode: git.HardReset}); err != nil {
+		f.t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(f.macDir, file), []byte(content), 0o644)
+	wt.Add(file)
+	if _, err := wt.Commit("orgtd: merge mobile", &git.CommitOptions{Author: macSig, Committer: macSig, Parents: []plumbing.Hash{head.Hash(), tip}}); err != nil {
+		f.t.Fatal(err)
+	}
+	f.macPush()
+}
+
 func (f *fixture) mergeBase(a, b plumbing.Hash) plumbing.Hash {
 	ca, _ := f.mac.CommitObject(a)
 	cb, _ := f.mac.CommitObject(b)

@@ -1,13 +1,14 @@
 // Package gitsync is the iOS app's git layer (see ios/DESIGN.md §4): it
 // clones the org repository, fetches, rebuilds the local "mobile" branch
 // as origin's base branch plus the still-pending captures, and pushes it
-// with a lease. The phone never merges or resolves a conflict: "mobile"
-// only ever differs from the base branch by the queued captures and
-// state changes, replayed onto it, each state change dropped if its
-// entry changed since (see Rebuild). So it's always a fast-forward of the
-// base branch as last fetched; desktop orgtd fast-forwards to it when
-// the phone pushes into the org directory itself
-// (gitstore.Store.FastForward), and otherwise the user merges it.
+// with a lease. The phone never merges or resolves a conflict, and never
+// drops a queued change: "mobile" is the base branch plus the queued
+// captures and state changes, replayed onto it — or, when a state
+// change's entry changed on the base branch since, the commit the queue
+// was made on plus the queue (see Rebuild), for the desktop to merge.
+// Desktop orgtd fast-forwards or merges it when the phone pushes into
+// the org directory itself (gitstore.Store.ApplyBranch), with the user
+// resolving any conflict there; otherwise the user merges it.
 //
 // The capture queue (internal/capturequeue) is the source of truth; the
 // branch is derived from it on every refresh. Rebuilt commits take their
@@ -21,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
@@ -63,7 +65,8 @@ type Author struct{ Name, Email string }
 // their queues.
 type PushedTip struct {
 	Tip        string   `json:"tip"`
-	CaptureIDs []string `json:"captureIds"` // capture and state-change IDs (one namespace)
+	CaptureIDs []string `json:"captureIds"`     // capture and state-change IDs (one namespace)
+	Base       string   `json:"base,omitempty"` // the commit Tip was built on (State.Base then)
 }
 
 // State is sync-state.json.
@@ -76,8 +79,18 @@ type State struct {
 	LastPush    time.Time   `json:"lastPush,omitzero"`
 	LastError   string      `json:"lastError,omitempty"`
 	LastErrorAt time.Time   `json:"lastErrorAt,omitzero"`
+	// Base is the commit local "mobile" was last built on: origin's
+	// base branch, when every queued change applied to it, or else the
+	// earlier commit they were made on (see Rebuild).
+	Base string `json:"base,omitempty"`
+	// Waiting is the titles of queued changes that don't apply to
+	// origin's base branch as last fetched, because their entries changed
+	// there too: "mobile" is built on Base instead, for the desktop to
+	// merge (see Rebuild). Empty when it's built on the base branch.
+	Waiting []string `json:"waiting,omitempty"`
 	// Dropped are state changes a rebuild could no longer apply, until
-	// the app has shown them (DismissDropped).
+	// the app has shown them (DismissDropped). Only an older version
+	// dropped changes; it's kept so those still get shown.
 	Dropped []DroppedOp `json:"dropped,omitempty"`
 }
 
@@ -284,6 +297,11 @@ func (r *Repo) DropMerged() ([]string, error) {
 		}
 		if merged {
 			removed = append(removed, t.CaptureIDs...)
+			if t.Base != "" && t.Base == s.Base {
+				// The rest of the queue was made on top of T's changes,
+				// which T is exactly: Base plus them.
+				s.Base = t.Tip
+			}
 			continue
 		}
 		stillQueued := false
@@ -310,9 +328,16 @@ func (r *Repo) DropMerged() ([]string, error) {
 // branch and commits each pending capture on top of it, oldest first, by
 // appending it to the inbox file (§4.3 steps 3–4), then each queued
 // state change, oldest first. Captures go first so a state change made
-// to a still-pending capture finds it. A state change whose entry has
-// changed since is dropped from its queue and recorded in State.Dropped.
-// It needs no network.
+// to a still-pending capture finds it. It needs no network.
+//
+// A state change whose entry changed on the base branch since it was
+// made no longer applies there. Rebuild never drops one: it builds
+// "mobile" instead on State.Base, the commit the queue was made on, and
+// lists those changes in State.Waiting. "mobile" then isn't a
+// fast-forward of the base branch, and the desktop merges it (with the
+// user resolving any conflict); once that merge is fetched, the changes
+// leave the queue as merged (DropMerged). If the queue doesn't apply to
+// Base either, Rebuild returns an error and keeps every change queued.
 func (r *Repo) Rebuild() error {
 	repo, s, err := r.open()
 	if err != nil {
@@ -322,71 +347,129 @@ func (r *Repo) Rebuild() error {
 	if err != nil {
 		return fmt.Errorf("gitsync: no origin/%s: %w", s.BaseBranch, err)
 	}
-	mobile := plumbing.NewBranchReferenceName(MobileBranch)
-	if err := repo.Storer.SetReference(plumbing.NewHashReference(mobile, baseRef.Hash())); err != nil {
-		return err
+	main := baseRef.Hash()
+	if s.Base == "" {
+		s.Base = r.priorBase(repo, main).String()
 	}
-	if err := repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, mobile)); err != nil {
-		return err
-	}
-	wt, err := repo.Worktree()
+	waiting, err := r.buildOn(repo, main)
 	if err != nil {
 		return err
 	}
-	if err := wt.Reset(&git.ResetOptions{Commit: baseRef.Hash(), Mode: git.HardReset}); err != nil {
-		return fmt.Errorf("gitsync: resetting to origin/%s: %w", s.BaseBranch, err)
+	if len(waiting) == 0 {
+		s.Base, s.Waiting = main.String(), nil
+		return r.saveState(s)
+	}
+	if s.Base == main.String() {
+		return fmt.Errorf("gitsync: %s no longer applies; nothing was dropped", strings.Join(quoted(waiting), ", "))
+	}
+	if still, err := r.buildOn(repo, plumbing.NewHash(s.Base)); err != nil {
+		return err
+	} else if len(still) > 0 {
+		return fmt.Errorf("gitsync: %s no longer applies; nothing was dropped", strings.Join(quoted(still), ", "))
+	}
+	s.Waiting = waiting
+	return r.saveState(s)
+}
+
+// priorBase is what an older version's "mobile" was built on, which
+// didn't record it: where local "mobile" left origin's base branch, or
+// main itself if there's no "mobile".
+func (r *Repo) priorBase(repo *git.Repository, main plumbing.Hash) plumbing.Hash {
+	local, err := repo.Reference(plumbing.NewBranchReferenceName(MobileBranch), true)
+	if err != nil {
+		return main
+	}
+	a, err := repo.CommitObject(local.Hash())
+	if err != nil {
+		return main
+	}
+	b, err := repo.CommitObject(main)
+	if err != nil {
+		return main
+	}
+	bases, err := a.MergeBase(b)
+	if err != nil || len(bases) == 0 {
+		return main
+	}
+	return bases[0].Hash
+}
+
+func quoted(titles []string) []string {
+	out := make([]string, len(titles))
+	for i, t := range titles {
+		out[i] = fmt.Sprintf("%q", t)
+	}
+	return out
+}
+
+// buildOn resets local "mobile" and the working tree to base and commits
+// the queue on top (see Rebuild). It returns the titles of the state
+// changes that didn't apply there, having skipped them.
+func (r *Repo) buildOn(repo *git.Repository, base plumbing.Hash) ([]string, error) {
+	mobile := plumbing.NewBranchReferenceName(MobileBranch)
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(mobile, base)); err != nil {
+		return nil, err
+	}
+	if err := repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, mobile)); err != nil {
+		return nil, err
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		return nil, err
+	}
+	if err := wt.Reset(&git.ResetOptions{Commit: base, Mode: git.HardReset}); err != nil {
+		return nil, fmt.Errorf("gitsync: resetting to %s: %w", base, err)
 	}
 
 	queue, err := capturequeue.Load(r.QueuePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	inbox, err := InboxFile(r.Dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, c := range queue {
 		text, err := capture.Render(c)
 		if err != nil {
-			return fmt.Errorf("gitsync: capture %q: %w", c.Title, err)
+			return nil, fmt.Errorf("gitsync: capture %q: %w", c.Title, err)
 		}
 		if err := capture.AppendEntry(filepath.Join(r.Dir, inbox), text); err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := wt.Add(inbox); err != nil {
-			return fmt.Errorf("gitsync: staging %s: %w", inbox, err)
+			return nil, fmt.Errorf("gitsync: staging %s: %w", inbox, err)
 		}
 		sig := &object.Signature{Name: r.Author.Name, Email: r.Author.Email, When: c.CreatedAt}
 		if _, err := wt.Commit("Capture: "+c.Title, &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
-			return fmt.Errorf("gitsync: committing capture %q: %w", c.Title, err)
+			return nil, fmt.Errorf("gitsync: committing capture %q: %w", c.Title, err)
 		}
 	}
 	return r.replayOps(wt)
 }
 
-// replayOps applies and commits each queued state change (see Rebuild).
-func (r *Repo) replayOps(wt *git.Worktree) error {
+// replayOps applies and commits each queued state change (see Rebuild),
+// returning the titles of those whose entry changed, which it skips.
+func (r *Repo) replayOps(wt *git.Worktree) ([]string, error) {
 	ops, err := r.loadOps()
 	if err != nil || len(ops) == 0 {
-		return err
+		return nil, err
 	}
-	var dropped []DroppedOp
-	var droppedIDs []string
+	var skipped []string
 	for _, op := range ops {
 		if err := applyOp(r.Dir, op); err != nil {
 			if !errors.Is(err, ErrEntryChanged) {
-				return fmt.Errorf("gitsync: setting %q to %s: %w", op.Title(), op.To, err)
+				return nil, fmt.Errorf("gitsync: setting %q to %s: %w", op.Title(), op.To, err)
 			}
-			dropped = append(dropped, DroppedOp{Title: op.Title(), From: op.From, To: op.To, Added: op.Insert != nil, Move: moveDelta(op), Reordered: op.Move != nil && op.Move.Delta == 0, Deleted: op.Delete != nil, Reason: err.Error(), At: r.now()})
-			droppedIDs = append(droppedIDs, op.ID)
+			skipped = append(skipped, op.NewTitle())
 			continue
 		}
 		if _, err := wt.Add(op.File); err != nil {
-			return fmt.Errorf("gitsync: staging %s: %w", op.File, err)
+			return nil, fmt.Errorf("gitsync: staging %s: %w", op.File, err)
 		}
 		if op.Move != nil && op.Move.ToFile != "" && op.Move.ToFile != op.File {
 			if _, err := wt.Add(op.Move.ToFile); err != nil {
-				return fmt.Errorf("gitsync: staging %s: %w", op.Move.ToFile, err)
+				return nil, fmt.Errorf("gitsync: staging %s: %w", op.Move.ToFile, err)
 			}
 		}
 		sig := &object.Signature{Name: r.Author.Name, Email: r.Author.Email, When: op.CreatedAt}
@@ -413,21 +496,10 @@ func (r *Repo) replayOps(wt *git.Worktree) error {
 			}
 		}
 		if _, err := wt.Commit(msg, &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
-			return fmt.Errorf("gitsync: committing state change %q: %w", op.Title(), err)
+			return nil, fmt.Errorf("gitsync: committing state change %q: %w", op.Title(), err)
 		}
 	}
-	if len(dropped) == 0 {
-		return nil
-	}
-	if _, err := capturequeue.RemoveOps(r.OpsPath, droppedIDs); err != nil {
-		return err
-	}
-	s, err := r.LoadState()
-	if err != nil {
-		return err
-	}
-	s.Dropped = append(s.Dropped, dropped...)
-	return r.saveState(s)
+	return skipped, nil
 }
 
 func moveDelta(op capturequeue.StateOp) int {
@@ -533,7 +605,7 @@ func (r *Repo) Publish() error {
 	if err != nil {
 		return err
 	}
-	tip := PushedTip{Tip: local.Hash().String(), CaptureIDs: ids}
+	tip := PushedTip{Tip: local.Hash().String(), CaptureIDs: ids, Base: s.Base}
 	if n := len(s.PushedTips); n == 0 || s.PushedTips[n-1].Tip != tip.Tip {
 		s.PushedTips = append(s.PushedTips, tip)
 	}

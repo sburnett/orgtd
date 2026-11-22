@@ -157,7 +157,12 @@ struct StatusResult: Codable {
     var dateColor: String
     var configErrors: [String]
     var pendingStates: Int
+    /// Titles of queued changes whose entries changed on the computer
+    /// too: they wait for the computer to merge them, rather than being
+    /// dropped.
+    var waiting: [String]
+    /// Changes an older version dropped; nothing is dropped any more.
     var dropped: [DroppedChange]
 
-    static let empty = StatusResult(cloned: false, repoURL: "", baseBranch: "", hostKey: HostKeyInfo(host: "", key: "", fingerprint: ""), inboxFile: "inbox.org", lastFetch: "", lastPush: "", lastError: "", lastErrorAt: "", pending: 0, unpushed: 0, keywords: [], tagColor: "", dateColor: "", configErrors: [], pendingStates: 0, dropped: [])
+    static let empty = StatusResult(cloned: false, repoURL: "", baseBranch: "", hostKey: HostKeyInfo(host: "", key: "", fingerprint: ""), inboxFile: "inbox.org", lastFetch: "", lastPush: "", lastError: "", lastErrorAt: "", pending: 0, unpushed: 0, keywords: [], tagColor: "", dateColor: "", configErrors: [], pendingStates: 0, waiting: [], dropped: [])
 }

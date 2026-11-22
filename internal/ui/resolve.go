@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,29 +25,44 @@ type resolveFinishedMsg struct {
 	err      error
 	dir      string                       // the scratch folder holding the conflicted files
 	conflict map[string]gitstore.Conflict // what was handed to the tool, by path
+
+	// branch is the phone's branch's merge being resolved, when that's
+	// what was handed to the tool rather than a save's conflict.
+	branch *gitstore.BranchConflict
 }
 
 // startResolve runs ":resolve": save again (merging from scratch, so
 // edits made since the conflict count), and if files still conflict,
 // write them — conflict markers and all — to a scratch folder and run the
 // merge tool (merge_tool, else the editor) on them, with the terminal
-// handed over. finishResolve takes it from there.
+// handed over. With no save conflict, it does the same for the phone's
+// branch's merge with the main branch, if that collided (see pollMain).
+// finishResolve takes it from there.
 func (m *Model) startResolve() tea.Cmd {
 	msg, ok := m.writeAllResult(false)
-	if ok || m.git.conflict == nil {
-		m.message = msg
-		return nil
+	switch {
+	case !ok && m.git.conflict != nil:
+		return m.launchMergeTool(m.git.conflict.files, nil)
+	case ok && m.git.mobileConflict != nil:
+		return m.launchMergeTool(m.git.mobileConflict.Files, m.git.mobileConflict)
 	}
+	m.message = msg
+	return nil
+}
+
+// launchMergeTool writes conflict's files to a scratch folder and runs
+// the merge tool on them; branch is the phone's merge they're from, if
+// they aren't a save's.
+func (m *Model) launchMergeTool(conflict map[string]gitstore.Conflict, branch *gitstore.BranchConflict) tea.Cmd {
 	store, err := m.gitStore()
 	if err != nil {
 		m.message = err.Error()
 		return nil
 	}
-	conflict := m.git.conflict.files
 	dir := filepath.Join(m.scratchDir(), "merge-"+store.ID())
 	os.RemoveAll(dir)
 	var paths []string
-	for _, rel := range m.git.conflict.paths() {
+	for _, rel := range sortedKeys(conflict) {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			m.message = "Can't write conflicts: " + err.Error()
@@ -62,7 +78,7 @@ func (m *Model) startResolve() tea.Cmd {
 	cmd := exec.Command(fields[0], append(fields[1:], paths...)...)
 	cmd.Dir = dir
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return resolveFinishedMsg{cmd: cmd, err: err, dir: dir, conflict: conflict}
+		return resolveFinishedMsg{cmd: cmd, err: err, dir: dir, conflict: conflict, branch: branch}
 	})
 }
 
@@ -104,6 +120,9 @@ func (m Model) finishResolve(msg resolveFinishedMsg) (tea.Model, tea.Cmd) {
 	if len(unresolved) > 0 {
 		m.message = strings.Join(unresolved, ", ") + " still has conflict markers — nothing changed; :resolve to try again"
 		return m, nil
+	}
+	if msg.branch != nil {
+		return m.finishBranchResolve(msg.branch, resolved, msg.dir)
 	}
 
 	anchor := m.cursorAnchor()
@@ -218,4 +237,43 @@ func (m *Model) recoverOrphans(arg string) {
 
 	msg, _ := m.writeAllResult(false)
 	m.message = "Recovered " + strings.Join(names, ", ") + "; " + msg
+}
+
+// finishBranchResolve commits the resolution of the phone's branch's
+// merge (see gitstore.ResolveBranch) and reloads the files it changed.
+func (m Model) finishBranchResolve(c *gitstore.BranchConflict, resolved map[string][]byte, dir string) (tea.Model, tea.Cmd) {
+	store, err := m.gitStore()
+	if err != nil {
+		m.message = err.Error()
+		return m, nil
+	}
+	res, err := store.ResolveBranch(c, resolved)
+	switch {
+	case errors.Is(err, gitstore.ErrBranchMoved):
+		m.git.mobileConflict, m.git.mobile = nil, ""
+		m.message = "The phone synced again since — its changes are merged afresh; :resolve again if they still conflict"
+		return m, nil
+	case err != nil:
+		m.message = "Merging " + mobileBranch + ": " + err.Error()
+		return m, nil
+	}
+	m.noteMobile(res)
+	switch {
+	case res.Conflict != nil:
+		m.message = store.MainBranch() + " changed the same lines again since — :resolve to try again"
+		return m, nil
+	case !res.Moved:
+		if res.Blocked == nil && res.Unmanaged == nil {
+			m.message = "Already merged"
+			os.RemoveAll(dir)
+		}
+		return m, nil
+	}
+	os.RemoveAll(dir)
+	reloaded, _ := m.reloadChanged(res.Head, res.Files, nil)
+	m.message = "Resolved; merged changes from " + mobileBranch + " into " + strings.Join(res.Changed, ", ")
+	if len(reloaded) > 0 {
+		m.message += "; reloaded " + strings.Join(reloaded, ", ")
+	}
+	return m, nil
 }

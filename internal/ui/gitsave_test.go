@@ -429,7 +429,13 @@ func TestSaveCommitMessageDescribesTheChange(t *testing.T) {
 // pushMobile commits content for the top-level file name on top of the
 // main branch and points the "mobile" branch at it, as the iOS app's
 // push does.
-func pushMobile(t *testing.T, dir, name, content string) {
+func pushMobile(t *testing.T, dir, name, content string) plumbing.Hash {
+	t.Helper()
+	return pushMobileOn(t, dir, mainHead(t, dir), name, content)
+}
+
+// mainHead is where the main branch is.
+func mainHead(t *testing.T, dir string) plumbing.Hash {
 	t.Helper()
 	repo, err := git.PlainOpen(dir)
 	if err != nil {
@@ -439,7 +445,18 @@ func pushMobile(t *testing.T, dir, name, content string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parent, err := repo.CommitObject(main.Hash())
+	return main.Hash()
+}
+
+// pushMobileOn is pushMobile on top of commit on rather than the main
+// branch: the phone's changes made before main moved on.
+func pushMobileOn(t *testing.T, dir string, on plumbing.Hash, name, content string) plumbing.Hash {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := repo.CommitObject(on)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,6 +504,7 @@ func pushMobile(t *testing.T, dir, name, content string) {
 	if err := repo.Storer.SetReference(ref); err != nil {
 		t.Fatal(err)
 	}
+	return ref.Hash()
 }
 
 func TestMobileBranchMatchesThePhones(t *testing.T) {
@@ -516,12 +534,12 @@ func TestPollingShowsWhatBlocksThePhonesBranch(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "inbox.org"), []byte("* TODO Old\n* TODO From emacs\n"), 0o644)
 
 	a = poll(a)
-	if got := a.gitStatus(); got != "mobile waits on outside edits to inbox.org — :w, then Sync the phone" {
+	if got := a.gitStatus(); got != "mobile waits on outside edits to inbox.org — :w" {
 		t.Errorf("gitStatus = %q", got)
 	}
 }
 
-func TestPollingSaysWhenThePhonesBranchIsBehind(t *testing.T) {
+func TestPollingMergesThePhonesBranchWhenMainMovedOn(t *testing.T) {
 	a, _, dir := twoInstances(t, map[string]string{"inbox.org": "* TODO Old\n", "todo.org": "* TODO Task\n"})
 	pushMobile(t, dir, "inbox.org", "* TODO Old\n* TODO From phone\n")
 	// Main moves on before the poll.
@@ -532,22 +550,95 @@ func TestPollingSaysWhenThePhonesBranchIsBehind(t *testing.T) {
 	}
 
 	a = poll(a)
-	if got := a.gitStatus(); got != "mobile is behind main — Sync the phone" {
-		t.Errorf("gitStatus = %q", got)
+	if !strings.Contains(a.message, "Merged changes from mobile into inbox.org") {
+		t.Errorf("message = %q", a.message)
 	}
-
-	// The phone syncs: mobile is rebuilt on the new main, and applied.
-	pushMobile(t, dir, "inbox.org", "* TODO Old\n* TODO From phone\n")
-	a = poll(a)
 	if got := a.gitStatus(); got != "" {
-		t.Errorf("gitStatus after the rebuild = %q, want nothing", got)
+		t.Errorf("gitStatus = %q, want nothing", got)
 	}
 	findRow(t, a, "From phone")
+	if keywordOf(t, a, "Task") != "NEXT" {
+		t.Errorf("the desktop's save was lost")
+	}
+}
+
+// phoneConflict sets up a phone change and a desktop save to the same
+// line, and polls a, which finds the conflict.
+func phoneConflict(t *testing.T) (a Model, dir string) {
+	t.Helper()
+	a, _, dir = twoInstances(t, map[string]string{"todo.org": "* TODO Shared\n* TODO Other\n", "inbox.org": "* TODO Old\n"})
+	base := mainHead(t, dir)
+	a.cursor = findRow(t, a, "Shared")
+	a = setStatus(a, "n")
+	if msg, ok := a.writeAllResult(false); !ok {
+		t.Fatalf(":w = %q", msg)
+	}
+	pushMobileOn(t, dir, base, "todo.org", "* DONE Shared\n* TODO Other\n")
+	a = poll(a)
+	if got := a.gitStatus(); got != "phone changes conflict in todo.org — :resolve" {
+		t.Fatalf("gitStatus = %q", got)
+	}
+	return a, dir
+}
+
+func TestPollingReportsAConflictWithThePhonesBranch(t *testing.T) {
+	a, dir := phoneConflict(t)
+	disk, _ := os.ReadFile(filepath.Join(dir, "todo.org"))
+	if string(disk) != "* NEXT Shared\n* TODO Other\n" {
+		t.Errorf("disk = %q, want it untouched", disk)
+	}
+	if keywordOf(t, a, "Shared") != "NEXT" {
+		t.Errorf("Shared changed in memory")
+	}
+}
+
+func TestResolveThePhonesBranchWithMergeTool(t *testing.T) {
+	a, dir := phoneConflict(t)
+	a.cfg.MergeTool = "true"
+	if cmd := a.startResolve(); cmd == nil {
+		t.Fatalf(":resolve launched nothing: %q", a.message)
+	}
+	scratch := filepath.Join(a.scratchDir(), "merge-"+a.git.store.ID())
+	p := filepath.Join(scratch, "todo.org")
+	data, err := os.ReadFile(p)
+	if err != nil || !strings.Contains(string(data), "<<<<<<< mobile") || !strings.Contains(string(data), "* DONE Shared") {
+		t.Fatalf("conflict file = %q, %v", data, err)
+	}
+	c := a.git.mobileConflict
+
+	// The tool exits with markers left: nothing changes.
+	updated, _ := a.Update(resolveFinishedMsg{dir: scratch, conflict: c.Files, branch: c})
+	a = updated.(Model)
+	if !strings.Contains(a.message, "still has conflict markers") || a.git.mobileConflict == nil {
+		t.Fatalf("message = %q", a.message)
+	}
+
+	// Resolved by hand: merged straight away.
+	os.WriteFile(p, []byte("* DONE Shared\n* TODO Other\n"), 0o644)
+	updated, _ = a.Update(resolveFinishedMsg{dir: scratch, conflict: c.Files, branch: c})
+	a = updated.(Model)
+	if !strings.Contains(a.message, "Resolved; merged changes from mobile into todo.org") {
+		t.Fatalf("message = %q", a.message)
+	}
+	disk, _ := os.ReadFile(filepath.Join(dir, "todo.org"))
+	if string(disk) != "* DONE Shared\n* TODO Other\n" {
+		t.Errorf("disk = %q", disk)
+	}
+	if a.git.mobileConflict != nil || a.gitStatus() != "" || keywordOf(t, a, "Shared") != "DONE" {
+		t.Errorf("after resolving: conflict %v, status %q", a.git.mobileConflict, a.gitStatus())
+	}
+	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+		t.Errorf("scratch folder left behind: %v", err)
+	}
+	a = poll(a)
+	if a.gitStatus() != "" {
+		t.Errorf("gitStatus after the next poll = %q", a.gitStatus())
+	}
 }
 
 func TestMobileNoteForUnmanagedChangesGivesTheCommand(t *testing.T) {
-	got := mobileNote(gitstore.FastForwardResult{Unmanaged: []string{"notes.txt"}}, "main")
-	if got != "mobile changes notes.txt — run git merge --ff-only mobile" {
+	got := mobileNote(gitstore.BranchResult{Unmanaged: []string{"notes.txt"}})
+	if got != "mobile changes notes.txt — run git merge mobile" {
 		t.Errorf("mobileNote = %q", got)
 	}
 }

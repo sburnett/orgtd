@@ -614,8 +614,8 @@ func (l *loaded) isOutlineFile(f *org.File) bool {
 // does: a done state stamps CLOSED, and completing a repeating item
 // advances its dates instead. The change is queued and committed on
 // local "mobile" at once (no network), and replayed on every rebuild
-// until it's merged — or dropped, if the entry changes on the desktop
-// first (see Status's dropped list). Refused for reference material,
+// until it's merged — by the desktop, if the entry changes there first
+// (see Status's waiting list). Refused for reference material,
 // for a keyword that isn't configured, and for a file .gitattributes
 // gives merge=union (a union merge would keep both versions of the
 // edited line). A non-blank note is logged as a closing note if the
@@ -676,8 +676,8 @@ type entryForm struct {
 // the fields that differ from the entry are changed, so an untouched
 // date keeps its repeater and time as written; a changed one keeps its
 // repeater. Like SetState, the edit is queued, committed locally at once,
-// replayed on every rebuild, and dropped if the entry changes on the
-// desktop first. A still-pending capture is edited with
+// replayed on every rebuild, and left for the desktop to merge if the
+// entry changes there first. A still-pending capture is edited with
 // UpdatePendingCapture instead.
 func EditEntry(groupDir, entryID, editJSON string, nowUnix int64, authorName, authorEmail string) error {
 	mu.Lock()
@@ -754,8 +754,8 @@ func EditEntry(groupDir, entryID, editJSON string, nowUnix int64, authorName, au
 // DTO's ID), or among the file's top-level entries when parentID is "".
 // It is written as a capture is (with CREATED), at its parent's level
 // plus one. Like SetState, the addition is queued, committed locally at
-// once, replayed on every rebuild, and dropped if the parent changes on
-// the desktop first. Returns the new entry's ID.
+// once, replayed on every rebuild, and left for the desktop to merge if
+// the parent changes there first. Returns the new entry's ID.
 func AddEntry(groupDir, file, parentID string, last bool, captureJSON string, nowUnix int64, authorName, authorEmail string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -816,8 +816,8 @@ func AddEntry(groupDir, file, parentID string, last bool, captureJSON string, no
 // DeleteEntry deletes the entry entryID (an entry DTO's ID) with
 // everything under it, as desktop "dd" does. Like SetState, the delete
 // is queued, committed locally at once, replayed on every rebuild, and
-// dropped if the entry or anything under it changes on the desktop
-// first. A still-pending capture is deleted with DeletePendingCapture
+// left for the desktop to merge if the entry or anything under it
+// changes there first. A still-pending capture is deleted with DeletePendingCapture
 // instead.
 func DeleteEntry(groupDir, entryID string, nowUnix int64, authorName, authorEmail string) error {
 	mu.Lock()
@@ -847,8 +847,9 @@ func DeleteEntry(groupDir, entryID string, nowUnix int64, authorName, authorEmai
 // subtree, one level deeper (delta 1: the last child of its previous
 // sibling) or shallower (delta -1: the next sibling of its parent), as
 // desktop ">>"/"<<" do. Like SetState, the move is queued, committed
-// locally at once, replayed on every rebuild, and dropped if the entry
-// (or, for a demote, its previous sibling) changes on the desktop first.
+// locally at once, replayed on every rebuild, and left for the desktop
+// to merge if the entry (or, for a demote, its previous sibling) changes
+// there first.
 // Returns the entry's new ID.
 func ShiftEntry(groupDir, entryID string, delta int, nowUnix int64, authorName, authorEmail string) (string, error) {
 	mu.Lock()
@@ -911,8 +912,8 @@ func ShiftEntry(groupDir, entryID string, delta int, nowUnix int64, authorName, 
 // with after, right after that sibling's subtree. It's named by ID, not
 // position, because the outline may be hiding closed siblings. Like
 // ShiftEntry, the move is queued, committed locally at once, replayed on
-// every rebuild, and dropped if the entry or the sibling changes on the
-// desktop first. Returns the entry's new ID.
+// every rebuild, and left for the desktop to merge if the entry or the
+// sibling changes there first. Returns the entry's new ID.
 func MoveEntry(groupDir, entryID, anchorID string, after bool, nowUnix int64, authorName, authorEmail string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -964,8 +965,8 @@ func MoveEntry(groupDir, entryID, anchorID string, after bool, nowUnix int64, au
 // file, destFile (relative to the repository root): right before the
 // top-level entry anchorID there or, with after, right after its
 // subtree — or, with anchorID "", at the end of the file. Like
-// MoveEntry, it's queued and dropped if the entry or the anchor changes
-// on the desktop first. Returns the entry's new ID.
+// MoveEntry, it's queued, and left for the desktop to merge if the entry
+// or the anchor changes there first. Returns the entry's new ID.
 func MoveEntryToFile(groupDir, entryID, destFile, anchorID string, after bool, nowUnix int64, authorName, authorEmail string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -1029,8 +1030,8 @@ func MoveEntryToFile(groupDir, entryID, destFile, anchorID string, after bool, n
 // AddEntryBeside adds a new entry, from the capture form in captureJSON
 // (as AddEntry takes it), right before the entry entryID or, with after,
 // right after its subtree, at its level — as desktop "O"/"o" place one.
-// Like AddEntry, it's queued and dropped if that entry changes on the
-// desktop first. Returns the new entry's ID.
+// Like AddEntry, it's queued, and left for the desktop to merge if that
+// entry changes there first. Returns the new entry's ID.
 func AddEntryBeside(groupDir, entryID string, after bool, captureJSON string, nowUnix int64, authorName, authorEmail string) (string, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -1322,6 +1323,7 @@ func Status(groupDir string) (string, error) {
 		return "", err
 	}
 	res.PendingStates = len(ops)
+	res.Waiting = append([]string{}, s.Waiting...)
 	res.Dropped = []droppedJSON{}
 	for _, d := range s.Dropped {
 		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Added: d.Added, Move: d.Move, Reordered: d.Reordered, Deleted: d.Deleted, Reason: d.Reason})

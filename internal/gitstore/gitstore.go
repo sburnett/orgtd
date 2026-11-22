@@ -40,10 +40,10 @@ type Store struct {
 	instanceLock *flock.Flock
 	mergeLock    *flock.Flock
 
-	// notFF is the last main/branch pair FastForward found it can't
-	// fast-forward, and why, so polling doesn't walk the history again
-	// until either moves.
-	notFF ffPair
+	// notFF is the last main/branch pair ApplyBranch found it can't
+	// move main for, and why (Unmanaged, a Conflict, already merged), so
+	// polling doesn't walk the history again until either moves.
+	notFF branchPair
 
 	// failAt, if set, is called at each step of a save (see Save); an
 	// error it returns makes Save stop right there, skipping all cleanup,

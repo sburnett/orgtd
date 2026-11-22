@@ -24,6 +24,22 @@ var fixtureNow = time.Date(2026, 10, 7, 10, 0, 0, 0, time.Local).Unix()
 func setup(t *testing.T) (groupDir, remote string) {
 	t.Helper()
 	root := t.TempDir()
+	src := fixtureRepo(t, root)
+	remote = filepath.Join(root, "remote.git")
+	if _, err := git.PlainClone(remote, true, &git.CloneOptions{URL: src}); err != nil {
+		t.Fatal(err)
+	}
+	groupDir = filepath.Join(root, "group")
+	if err := Clone(groupDir, remote, nil, ""); err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+	return groupDir, remote
+}
+
+// fixtureRepo commits testdata/orgdir's org files to a new repository
+// under root, with main checked out, and returns its directory.
+func fixtureRepo(t *testing.T, root string) string {
+	t.Helper()
 	src := filepath.Join(root, "src")
 	repo, err := git.PlainInitWithOptions(src, &git.PlainInitOptions{InitOptions: git.InitOptions{DefaultBranch: plumbing.Main}})
 	if err != nil {
@@ -61,15 +77,7 @@ func setup(t *testing.T) (groupDir, remote string) {
 	if _, err := wt.Commit("fixture", &git.CommitOptions{Author: sig, Committer: sig}); err != nil {
 		t.Fatal(err)
 	}
-	remote = filepath.Join(root, "remote.git")
-	if _, err := git.PlainClone(remote, true, &git.CloneOptions{URL: src}); err != nil {
-		t.Fatal(err)
-	}
-	groupDir = filepath.Join(root, "group")
-	if err := Clone(groupDir, remote, nil, ""); err != nil {
-		t.Fatalf("Clone: %v", err)
-	}
-	return groupDir, remote
+	return src
 }
 
 // decode returns a function that unmarshals a (json, error) result.

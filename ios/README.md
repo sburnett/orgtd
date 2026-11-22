@@ -147,9 +147,10 @@ either.
     and ends with a **New entry** row, for adding an entry there
     (below). To add an entry's first child, add a sibling below it and
     indent that.
-  - The entry shows a clock until it's merged, and a move is dropped
-    (and you're told) if the entry, or the sibling you dropped it next
-    to, changed on your computer before you merged.
+  - The entry shows a clock until it's merged. If the entry, or the
+    sibling you dropped it next to, changed on your computer before
+    you merged, the move waits for your computer to merge it (see On
+    your computer, below).
 - **Adding entries:** while arranging (above), tap a **New entry** row
   at the start or end of a list. A file with no entries showing always
   has one. A form opens right where the entry will
@@ -164,9 +165,9 @@ either.
     `o`/`O` gives it. It commits locally and needs no network.
   - The new entry shows a clock until it's merged, and you can edit,
     move or delete it meanwhile.
-  - Like an edit, an addition is dropped (and you're told) if the entry
-    you inserted it next to or under changed on your computer before
-    you merged.
+  - Like an edit, an addition waits for your computer to merge it if
+    the entry you inserted it next to or under changed there before you
+    merged.
   - Reference files take new entries too, without a keyword.
 - **Indenting and outdenting:** while arranging, swipe an entry right to
   move it one level deeper, as desktop `>>` does: it becomes the last
@@ -175,17 +176,18 @@ either.
   after the parent's other children. Its subtree moves with it.
   - Only the stars of the moved headlines change (and, for an outdent,
     where the subtree sits); other lines keep their indentation.
-  - The entry shows a clock until it's merged, and the move is dropped
-    (and you're told) if the entry, or for an indent the entry above
-    it, changed on your computer before you merged.
+  - The entry shows a clock until it's merged. If the entry, or for an
+    indent the entry above it, changed on your computer before you
+    merged, the move waits for your computer to merge it.
 - **Deleting an entry:** open its edit form (above), tap the trash can
   beside **Cancel**, then confirm. Like desktop `dd`, this deletes everything under it too; the
   confirmation says how many entries that is.
   - The entry disappears at once, and is removed from the file when you
     merge.
-  - The delete is dropped (and you're told) if the entry, or anything
-    under it, changed on your computer before you merged, so the phone
-    never deletes something you edited there and haven't seen.
+  - If the entry, or anything under it, changed on your computer before
+    you merged, the delete waits for your computer to merge it, so the
+    phone never deletes something you edited there and haven't seen
+    without your say.
 - **Share sheet:** share a link or text to orgtd to capture it into the
   inbox with the same fields. Until it's merged it shows a clock;
   editing it edits the capture, and deleting it takes it out of the
@@ -256,8 +258,8 @@ either.
     under it (or under a `State "DONE" from ...` line for a repeating
     item). Leave it empty for none; Cancel leaves the state unchanged.
   - If you change the same entry on your computer before merging, the
-    phone's change is dropped rather than guessed at, and the app tells
-    you so.
+    phone's change isn't guessed at or dropped: it waits for your
+    computer to merge it, and the app says so.
   - Reference material has no state.
   - The phone won't change states in a file whose `.gitattributes`
     entry sets `merge=union`, since a union merge would duplicate the
@@ -271,21 +273,21 @@ either.
   - A date you don't touch stays exactly as written, repeater and time
     included. A date you change keeps its repeater, as rescheduling in
     org-mode does.
-  - Like state changes, an edit is dropped (and you're told) if the
-    entry changed on your computer before you merged.
+  - Like state changes, an edit waits for your computer to merge it if
+    the entry changed there before you merged.
   - A capture that isn't merged yet is edited as a capture.
 
 ## On your computer
 
 If the phone pushes into your org directory itself (its repo URL is
 that directory, over SSH), there's nothing to do: a running desktop
-orgtd fast-forwards your main branch to `mobile` within a couple of
-seconds of a Sync, and says so. If you've changed the main branch since
-the phone's last Sync, it waits for the next one, which rebuilds
-`mobile` on top of your changes, and the status line says `mobile is
-behind main — Sync the phone`. It also waits while a file the phone
-changed has edits on disk that aren't committed yet, and says which;
-`:w` commits them, then Sync the phone again.
+orgtd brings `mobile` into your main branch within a couple of
+seconds of a Sync, and says so: a fast-forward, or, if you've changed
+the main branch since the phone's last Sync, a merge. If you and the
+phone changed the same lines, the status line says `phone changes
+conflict in todo.org — :resolve`, and `:resolve` opens them in your
+merge tool. It also waits while a file the phone changed has edits on
+disk that aren't committed yet, and says which; `:w` commits them.
 
 Otherwise (the phone pushes to a separate server), fetch from the
 server and merge `origin/mobile` into your main branch with a normal
@@ -296,12 +298,14 @@ merged captures by commit ancestry. After it's merged, the phone's next
 Sync drops those captures and state changes from its queues. Once
 nothing is pending, it deletes the `mobile` branch.
 
-A state change or edit to an entry you've also changed on your
-computer is dropped by the phone (it tells you), never left as a
-conflict. Merging by hand after the main branch moved can still
-conflict, for example captures added to the end of the inbox on both
-sides at once; resolve those when merging, or Sync the phone first so
-`mobile` is a fast-forward again.
+The phone never drops a change. A state change or edit to an entry
+you've also changed on your computer stays on the phone, shown as
+waiting for your computer, and `mobile` stays on the main branch it was
+made against, so the merge happens on your computer, where you resolve
+any conflict. The phone shows its own version of those entries until
+then. Merging by hand can conflict the same way, and also when
+captures were added to the end of the inbox on both sides at once;
+resolve those when merging.
 
 Settings that should apply to the phone too (keywords and their colors,
 `inbox_file`, `agenda_window_days`, `hide_closed_after_hours`,

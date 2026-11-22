@@ -48,10 +48,14 @@ type gitState struct {
 	// Shown on the status line.
 	others int
 
-	// mobile is why pollMain couldn't fast-forward to the phone's branch
-	// on its last try (see gitstore.FastForward), as the status line
-	// says it; empty if it could, or had nothing to do.
+	// mobile is why pollMain couldn't bring in the phone's branch on its
+	// last try (see gitstore.ApplyBranch), as the status line says it;
+	// empty if it could, or had nothing to do.
 	mobile string
+
+	// mobileConflict is the phone's branch's merge with the main branch
+	// that collided, as of the last pollMain, for :resolve; nil if none.
+	mobileConflict *gitstore.BranchConflict
 
 	// orphans are dead instances' unsaved edits found at startup (see
 	// :recover); recovering are the ones :recover has loaded into memory,
@@ -442,24 +446,38 @@ func (m *Model) instancesStatus() string {
 
 // mobileBranch is the branch the iOS app pushes its changes to
 // (gitsync.MobileBranch; the desktop doesn't import gitsync), which
-// pollMain fast-forwards the main branch to.
+// pollMain brings into the main branch.
 const mobileBranch = "mobile"
 
 // mobileNote is the status line's note on why the phone's branch
-// wasn't fast-forwarded to, and what to do about it; empty if it was, or
-// there was nothing to do.
-func mobileNote(ff gitstore.FastForwardResult, main string) string {
+// wasn't brought in, and what to do about it; empty if it was, or there
+// was nothing to do.
+func mobileNote(res gitstore.BranchResult) string {
 	switch {
-	case len(ff.Blocked) > 0:
-		return mobileBranch + " waits on outside edits to " + strings.Join(ff.Blocked, ", ") + " — :w, then Sync the phone"
-	case ff.Behind:
-		return mobileBranch + " is behind " + main + " — Sync the phone"
-	case len(ff.Unmanaged) > 0:
-		// Still a fast-forward as far as git is concerned (Unmanaged is
-		// only reported when it is), just not one orgtd will write.
-		return mobileBranch + " changes " + strings.Join(ff.Unmanaged, ", ") + " — run git merge --ff-only " + mobileBranch
+	case res.Conflict != nil:
+		return "phone changes conflict in " + strings.Join(sortedKeys(res.Conflict.Files), ", ") + " — :resolve"
+	case len(res.Blocked) > 0:
+		return mobileBranch + " waits on outside edits to " + strings.Join(res.Blocked, ", ") + " — :w"
+	case len(res.Unmanaged) > 0:
+		return mobileBranch + " changes " + strings.Join(res.Unmanaged, ", ") + " — run git merge " + mobileBranch
 	}
 	return ""
+}
+
+// noteMobile records res, from ApplyBranch or ResolveBranch, for the
+// status line and :resolve.
+func (m *Model) noteMobile(res gitstore.BranchResult) {
+	m.git.mobile = mobileNote(res)
+	m.git.mobileConflict = res.Conflict
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pollInterval is how often pollMain checks the main branch.
@@ -473,9 +491,9 @@ func pollTick() tea.Cmd {
 }
 
 // pollMain runs on every gitPollMsg: it recounts the other instances
-// running on the org directory (see instancesStatus), fast-forwards the
-// main branch to the iOS app's branch if it can (see
-// gitstore.FastForward), and if the main branch moved since this
+// running on the org directory (see instancesStatus), brings the iOS
+// app's branch into the main branch — a fast-forward, or a merge — if it
+// can (see gitstore.ApplyBranch), and if the main branch moved since this
 // instance last caught up with it (another instance saved, the phone's
 // changes came in, or a commit or pull from outside), reload the files
 // it changed (see reloadChanged).
@@ -493,8 +511,8 @@ func (m Model) pollMain() (tea.Model, tea.Cmd) {
 	}
 	// Errors (HEAD on another branch, a git command holding the index)
 	// just mean trying again next time.
-	ff, _ := store.FastForward(mobileBranch)
-	m.git.mobile = mobileNote(ff, store.MainBranch())
+	ff, _ := store.ApplyBranch(mobileBranch)
+	m.noteMobile(ff)
 	head, err := store.Head()
 	if err != nil || head == m.git.seen {
 		return m, next
@@ -505,6 +523,8 @@ func (m Model) pollMain() (tea.Model, tea.Cmd) {
 	}
 	reloaded, _ := m.reloadChanged(head, snapshot, nil)
 	switch {
+	case ff.Merged:
+		m.message = "Merged changes from " + mobileBranch + " into " + strings.Join(ff.Changed, ", ")
 	case ff.Moved:
 		m.message = "Applied changes from " + mobileBranch + " to " + strings.Join(ff.Changed, ", ")
 	case len(reloaded) > 0:

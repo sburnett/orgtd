@@ -118,8 +118,13 @@ type statusResult struct {
 	// PendingStates counts state changes not yet merged (Pending counts
 	// captures); Unpushed counts both.
 	PendingStates int `json:"pendingStates"`
-	// Dropped are state changes that could no longer be applied (their
-	// entry changed on the desktop first); show them, then DismissDropped.
+	// Waiting is the titles of queued changes whose entries changed on
+	// the desktop too: they wait for the desktop to merge them (and the
+	// user to resolve any conflict) rather than being dropped.
+	Waiting []string `json:"waiting"`
+	// Dropped are state changes an older version dropped because their
+	// entry changed on the desktop first; show them, then DismissDropped.
+	// Nothing is dropped any more.
 	Dropped []droppedJSON `json:"dropped"`
 }
 

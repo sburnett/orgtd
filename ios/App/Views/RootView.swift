@@ -55,8 +55,8 @@ struct MainTabs: View {
         Binding(get: { model.actionError != nil }, set: { if !$0 { model.actionError = nil } })
     }
 
-    /// State changes dropped because their entry changed on the desktop
-    /// before they were merged.
+    /// State changes an older version dropped because their entry
+    /// changed on the desktop before they were merged.
     private var droppedAlert: Binding<Bool> {
         Binding(get: { !model.status.dropped.isEmpty }, set: { _ in })
     }
@@ -81,6 +81,11 @@ struct MainTabs: View {
     private func tab<Content: View>(sync: Bool = true, @ViewBuilder _ content: () -> Content) -> some View {
         NavigationStack {
             content()
+                .safeAreaInset(edge: .top) {
+                    if !model.status.waiting.isEmpty {
+                        WaitingBanner(titles: model.status.waiting)
+                    }
+                }
                 .safeAreaInset(edge: .bottom, alignment: .trailing) {
                     if !keyboardShown {
                         CaptureButton { showCapture = true }
@@ -166,3 +171,25 @@ private struct UnpushedBadge: View {
     }
 }
 
+
+/// Says which of the phone's changes wait for the computer to merge them:
+/// their entries changed there too, so the phone shows its own version
+/// until the computer merges (and, if they collide, the user resolves
+/// them there). Nothing is dropped.
+struct WaitingBanner: View {
+    let titles: [String]
+
+    var body: some View {
+        Label {
+            Text("Waiting for your computer to merge the phone's changes to \(titles.map { "“\($0)”" }.joined(separator: ", ")). They changed there too, so open orgtd there; it may ask you to :resolve.")
+                .font(.footnote)
+        } icon: {
+            Image(systemName: "arrow.triangle.merge")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.yellow.opacity(0.2))
+        .accessibilityElement(children: .combine)
+    }
+}

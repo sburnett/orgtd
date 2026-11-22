@@ -230,8 +230,9 @@ func emptyTree(repo *git.Repository) (plumbing.Hash, error) {
 }
 
 // commit stores a commit of tree (zero: empty) with the given parent
-// (zero: none) and message, authored now by the user's git identity.
-func commit(repo *git.Repository, tree, parent plumbing.Hash, msg string) (plumbing.Hash, error) {
+// (zero: none), then any more (a merge's), and message, authored now by
+// the user's git identity.
+func commit(repo *git.Repository, tree, parent plumbing.Hash, msg string, more ...plumbing.Hash) (plumbing.Hash, error) {
 	if tree.IsZero() {
 		var err error
 		if tree, err = emptyTree(repo); err != nil {
@@ -248,6 +249,7 @@ func commit(repo *git.Repository, tree, parent plumbing.Hash, msg string) (plumb
 	if !parent.IsZero() {
 		c.ParentHashes = []plumbing.Hash{parent}
 	}
+	c.ParentHashes = append(c.ParentHashes, more...)
 	obj := repo.Storer.NewEncodedObject()
 	if err := c.Encode(obj); err != nil {
 		return plumbing.ZeroHash, err

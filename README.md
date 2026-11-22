@@ -96,7 +96,8 @@ the files orgtd loads take part — the `.org` files in `--dir` and
 repository is left as it is. A file git ignores and doesn't track (a
 `calendar.org` cache in `.gitignore`, say) is just written to disk.
 History stays linear: each save's commit has one parent, the branch as it
-was, like a rebase. Pushing and pulling are up to you (a `:run`
+was, like a rebase. The one exception is merging the iOS companion's
+branch, below. Pushing and pulling are up to you (a `:run`
 command is a good place for them).
 
 #### Running several instances
@@ -121,25 +122,33 @@ same directory (`2 other instances`), when there are any. Like the
 saving itself, it only sees instances on this machine.
 
 The same check brings in the iOS companion's changes (see iOS companion,
-below), when the phone pushes them straight into the org directory: if
-there's a `mobile` branch that's your main branch plus new commits,
-orgtd fast-forwards the main branch to it and says so (`Applied changes
-from mobile to inbox.org`), then reloads the files as for another
-instance's save. It never merges. When it has to wait, the status line
-says why and what to do:
+below), when the phone pushes them straight into the org directory, to
+a `mobile` branch. If that's your main branch plus new commits, orgtd
+fast-forwards the main branch to it and says so (`Applied changes from
+mobile to inbox.org`). If the main branch has moved on since (you saved
+after the phone last synced, or you changed an entry the phone changed
+too), orgtd merges `mobile` into it, line by line as a save merges, and
+commits the result with both as parents (`Merged changes from mobile
+into todo.org`). Either way it then reloads the files as for another
+instance's save. When it can't, the status line says why and what to
+do:
 
-- `mobile is behind main — Sync the phone`: the main branch moved on
-  (you saved) since the phone last synced. The phone's next Sync
-  rebuilds `mobile` on top of it, and orgtd applies it.
-- `mobile waits on outside edits to inbox.org — :w, then Sync the
-  phone`: a file the phone changed has edits on disk that aren't
-  committed yet. `:w` commits them, which moves the main branch on, so
-  the phone needs to Sync again.
-- `mobile changes notes.txt — run git merge --ff-only mobile`: `mobile`
-  changes something other than the files orgtd loads, which orgtd
-  won't write. It's still a fast-forward, so running that in the org
-  directory finishes the job, and orgtd picks up the result. The phone
-  never does this.
+- `phone changes conflict in todo.org — :resolve`: you and the phone
+  changed the same lines. Nothing changes until you resolve it:
+  `:resolve` opens the conflicted files in `merge_tool`, with the
+  phone's side marked `mobile` and yours `main`, as for a save's
+  conflict (see Conflicts, below), and commits the merge once no
+  markers are left. To discard the phone's change, keep the `main`
+  side; it stays in the history either way, as the merge's second
+  parent. Until then the phone keeps its change and shows it as
+  waiting.
+- `mobile waits on outside edits to inbox.org — :w`: a file the phone
+  changed has edits on disk that aren't committed yet. `:w` commits
+  them, and the next check merges.
+- `mobile changes notes.txt — run git merge mobile`: `mobile` changes
+  something other than the files orgtd loads, which orgtd won't write.
+  Running that in the org directory finishes the job, and orgtd picks
+  up the result. The phone never does this.
 
 The note goes away once `mobile` is applied, or merged by hand.
 
@@ -169,6 +178,12 @@ fix, :w! to keep yours, :e! to take theirs`:
 
 Keep editing first if you like: the next `:w` or `:resolve` merges again
 from scratch. `:wq` won't quit while a save conflicts.
+
+`:resolve` also resolves a conflict between the iOS companion's
+`mobile` branch and the main branch (see Running several instances,
+above), once any save conflict of your own is out of the way. `:w!`
+and `:e!` don't apply to it: your unsaved edits aren't involved, so
+choose a side in the merge tool instead.
 
 #### If orgtd crashes
 
@@ -1360,14 +1375,17 @@ entries (TODO state, title, notes, tags, dates).
   handled as `r` does; title, notes, tags and dates), touching only the
   changed lines of that entry. Everything is
   committed to a `mobile` branch, rebuilt on every Sync as your main
-  branch plus the phone's changes. A phone change whose entry you've
-  changed on your computer since is dropped, and the phone says so, so
-  the phone never has a conflict to resolve. When the phone pushes into
-  the org directory itself, a running orgtd fast-forwards the main
-  branch to `mobile` within a couple of seconds (see Running several
-  instances, above). Otherwise, merge `mobile` into your main branch
-  yourself (a normal merge or fast-forward), and running orgtd
-  instances pick the merge up like any other change to the main branch.
+  branch plus the phone's changes. A phone change is never dropped: if
+  you've changed its entry on your computer since, `mobile` stays on
+  the main branch the phone last applied its changes to, the phone says
+  the change is waiting for your computer, and the merge happens there,
+  where you resolve any conflict. When the phone pushes into
+  the org directory itself, a running orgtd fast-forwards or merges the
+  main branch to `mobile` within a couple of seconds (see Running
+  several instances, above). Otherwise, merge `mobile` into your main
+  branch yourself (a normal merge or fast-forward, never a squash or
+  rebase), and running orgtd instances pick the merge up like any other
+  change to the main branch.
 - **Settings:** it reads the keywords, inbox name, agenda window and
   colors from `.orgtd.toml` (above).
 
