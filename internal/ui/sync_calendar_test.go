@@ -21,6 +21,7 @@ import (
 func syncFixture(t *testing.T, files ...*org.File) *workspace.Workspace {
 	t.Helper()
 	dir := t.TempDir()
+	initRepo(t, dir)
 	for _, f := range files {
 		f.Path = filepath.Join(dir, filepath.Base(f.Path))
 	}

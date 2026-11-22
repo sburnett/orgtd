@@ -41,7 +41,7 @@ func (s Sources) Of(key string) string { return s[key] }
 // it's machine-specific: the repo file arrives via git pull, so anyone
 // who can push to the repo (or the server hosting it) could otherwise
 // make orgtd run any command they like as you.
-var machineLocalKeys = []string{"org_dir", "editor", "commands", "url_formatter", "format_links_url_formatter", "scratch_dir", "debug", "gcalsync"}
+var machineLocalKeys = []string{"org_dir", "editor", "merge_tool", "commands", "url_formatter", "format_links_url_formatter", "scratch_dir", "debug", "gcalsync"}
 
 // LoadRepo reads dir's RepoFileName, the shared, committed config layer
 // (see README's "Config file"). A missing file is not an error and

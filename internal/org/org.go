@@ -171,8 +171,8 @@ func (h *Headline) TrimmedBody() []string {
 // File is a parsed org file.
 type File struct {
 	Path      string
-	DiskHash  string   // hash of the file's bytes as last read from or written to disk; "" if never (see ChangedOnDisk)
-	New       bool     // created in memory (":edit" of a missing file) and not yet written; Path doesn't exist on disk (see ChangedOnDisk)
+	Base      []byte   // the file's content as orgtd last loaded or saved it: the base of a save's three-way merge; nil if never (see ParseFile)
+	New       bool     // created in memory (":edit" of a missing file) and not yet saved, so it has no Base
 	Preamble  []string // lines before the first headline (e.g. #+TITLE:)
 	Headlines []*Headline
 }
@@ -201,8 +201,27 @@ func ParseFile(path string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	f.DiskHash = hashContent(data)
+	f.Base = nonNil(data)
 	return f, nil
+}
+
+// ParseContent parses data, the content of the org file at path, and
+// records it as the file's Base, as ParseFile does for a file read from
+// disk.
+func ParseContent(data []byte, path string) (*File, error) {
+	f, err := Parse(bytes.NewReader(data), path)
+	if err != nil {
+		return nil, err
+	}
+	f.Base = nonNil(data)
+	return f, nil
+}
+
+func nonNil(b []byte) []byte {
+	if b == nil {
+		return []byte{}
+	}
+	return b
 }
 
 // Parse reads an org file from r. path is stored on the result and used

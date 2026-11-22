@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -205,59 +204,9 @@ func (m Model) runCommand() (tea.Model, tea.Cmd) {
 	return m, run
 }
 
-// writeAll writes every file with unwritten in-memory changes to disk,
+// writeAll saves every file with unsaved changes (see writeAllResult),
 // returning a status-line summary.
 func (m *Model) writeAll() string {
 	msg, _ := m.writeAllResult(false)
 	return msg
-}
-
-// writeAllResult is writeAll but also reports whether every write
-// succeeded (false if any file failed), so callers like :wq can decide
-// whether it's safe to proceed.
-//
-// Unless force is set (":w!"), a file whose content on disk no longer
-// matches what orgtd last read or wrote (see org.ChangedOnDisk — e.g. a
-// `git pull` rewrote it) is skipped rather than overwritten, and reported
-// as a failure; the other dirty files are still written.
-func (m *Model) writeAllResult(force bool) (string, bool) {
-	var written, failed, changed []string
-	for _, f := range m.ws.Files {
-		if !m.dirty[f] {
-			continue
-		}
-		if !force {
-			stale, err := org.ChangedOnDisk(f)
-			if err != nil {
-				failed = append(failed, fmt.Sprintf("%s (%v)", filepath.Base(f.Path), err))
-				continue
-			}
-			if stale {
-				changed = append(changed, filepath.Base(f.Path))
-				continue
-			}
-		}
-		if err := org.WriteFile(f); err != nil {
-			failed = append(failed, fmt.Sprintf("%s (%v)", filepath.Base(f.Path), err))
-			continue
-		}
-		m.savedPos[f] = m.appliedCountForFile(f)
-		written = append(written, filepath.Base(f.Path))
-	}
-	m.recomputeDirty()
-
-	switch {
-	case len(failed) > 0:
-		return "Failed to write " + strings.Join(failed, ", "), false
-	case len(changed) > 0:
-		msg := strings.Join(changed, ", ") + " changed on disk — :w! to overwrite it, or :e! to reload it and discard your edits"
-		if len(written) > 0 {
-			msg = "Wrote " + strings.Join(written, ", ") + "; " + msg
-		}
-		return msg, false
-	case len(written) == 0:
-		return "No changes to write", true
-	default:
-		return "Wrote " + strings.Join(written, ", "), true
-	}
 }

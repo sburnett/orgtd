@@ -13,6 +13,7 @@ import (
 
 	"github.com/sburnett/orgtd/internal/calendarsync"
 	"github.com/sburnett/orgtd/internal/execlog"
+	"github.com/sburnett/orgtd/internal/gitstore"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -200,7 +201,8 @@ func (m Model) finishSyncCalendar(msg syncCalendarMsg) (tea.Model, tea.Cmd) {
 		return fail(fmt.Sprintf("Calendar sync failed: %v", msg.err))
 	}
 
-	if err := org.WriteFile(msg.result.File); err != nil {
+	saved, err := m.saveCalendar(msg.result.File)
+	if err != nil {
 		return fail(fmt.Sprintf("Calendar sync: writing %s: %v", filepath.Base(msg.result.File.Path), err))
 	}
 	m.lastCalendarSync = m.now().Round(0)
@@ -222,6 +224,33 @@ func (m Model) finishSyncCalendar(msg syncCalendarMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.rebuildRows()
+	// Pick up anything else that reached the branch with this save.
+	m.reloadChanged(saved.Head, saved.Files, map[*org.File]bool{msg.result.File: true})
 	report(fmt.Sprintf("Synced %d event(s) from %d calendar(s) to %s", msg.result.EventCount, msg.result.CalendarCount, m.cfg.CalendarFile))
 	return m, nil
+}
+
+// saveCalendar saves a freshly synced calendar file, whole, through the
+// store — a commit like any save if git tracks it, else just written to
+// disk (a calendar cache is often gitignored). It's a regenerated cache,
+// so it replaces whatever the main branch has rather than merging.
+func (m *Model) saveCalendar(f *org.File) (gitstore.Result, error) {
+	store, err := m.gitStore()
+	if err != nil {
+		return gitstore.Result{}, err
+	}
+	rel := m.relPath(f)
+	edit := gitstore.Edit{Path: rel, Content: []byte(org.RenderFile(f)), Force: true}
+	if old := m.loadedFile(f.Path); old != nil && !old.New {
+		edit.Base, edit.HasBase = old.Base, true
+	}
+	res, err := store.Save(m.git.seen, []gitstore.Edit{edit}, "orgtd: sync "+rel)
+	if err != nil {
+		return gitstore.Result{}, err
+	}
+	f.Base, f.New = res.Written[rel], false
+	if old := m.loadedFile(f.Path); old != nil {
+		delete(m.git.mustSave, old)
+	}
+	return res, nil
 }

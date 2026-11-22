@@ -255,7 +255,7 @@ func TestNewFileCreatedOnDiskMeanwhileIsNotClobbered(t *testing.T) {
 	if err := os.WriteFile(path, []byte("* Theirs\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if msg, ok := m.writeAllResult(false); ok || !strings.Contains(msg, "notes.org changed on disk") {
+	if msg, ok := m.writeAllResult(false); ok || !strings.Contains(msg, "Conflict in notes.org") {
 		t.Errorf(":w = %q, %v; want refused", msg, ok)
 	}
 	if data, _ := os.ReadFile(path); string(data) != "* Theirs\n" {

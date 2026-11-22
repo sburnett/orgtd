@@ -3,7 +3,10 @@ package ui
 import (
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
+
 	"github.com/sburnett/orgtd/internal/config"
+	"github.com/sburnett/orgtd/internal/gitstore"
 )
 
 // Option customizes a Model at construction time. See New.
@@ -21,6 +24,22 @@ func WithConfig(cfg config.Config) Option {
 		m.cfg = cfg
 		m.hideClosedEnabled = true
 	}
+}
+
+// WithStore saves files through store (see internal/gitstore), whose
+// main branch was at head when the workspace was loaded. Without it, the
+// Model opens a store over the workspace directory the first time it
+// needs one.
+func WithStore(store *gitstore.Store, head plumbing.Hash) Option {
+	return func(m *Model) {
+		m.git.store, m.git.seen, m.git.tried = store, head, true
+	}
+}
+
+// WithOrphans hands the Model a dead instance's unsaved edits found at
+// startup (see gitstore.Store.Orphans), for :recover.
+func WithOrphans(orphans []gitstore.Orphan) Option {
+	return func(m *Model) { m.git.orphans = orphans }
 }
 
 // WithConfigSources records which layer (flag, env, the user's config

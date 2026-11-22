@@ -77,6 +77,14 @@
 # still be shown again at any time with :toggleclosed. Default: 24.
 # hide_closed_after_hours = 24
 
+# The git branch every save commits to. org_dir must be the root of a git
+# repository with this branch checked out. Default: main.
+# main_branch = "main"
+
+# Command :resolve runs on files a save couldn't merge, with their paths
+# appended; it should edit them in place and exit. Default: the editor.
+# merge_tool = "emacsclient -t"
+
 # Log debug info (every URL formatter attempt/failure, etc.) to a
 # debug.log file next to this config file. Off by default.
 # debug = true

@@ -157,6 +157,14 @@ func (m *Model) appendConfigRows(dst *[]row) {
 	from("outline_ignore_files")
 	line("Scratch directory: %s", m.scratchDir())
 	from("scratch_dir")
+	line("Main branch: %s", m.cfg.MainBranch)
+	from("main_branch")
+	if m.cfg.MergeTool == "" {
+		line("Merge tool: %s (same as editor)", editor)
+	} else {
+		line("Merge tool: %s", m.cfg.MergeTool)
+	}
+	from("merge_tool")
 	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
 	from("hide_closed_after_hours")
 	if len(m.cfg.Commands) == 0 {

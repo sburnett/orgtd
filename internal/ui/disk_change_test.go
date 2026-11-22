@@ -11,7 +11,7 @@ import (
 
 // diskChangeFixture loads a one-file workspace, makes an unsaved edit
 // (TODO -> NEXT), then rewrites the file on disk behind orgtd's back, as
-// a `git pull` would.
+// another editor would, on the same line: a conflict.
 func diskChangeFixture(t *testing.T) (Model, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -19,6 +19,7 @@ func diskChangeFixture(t *testing.T) (Model, string) {
 	if err := os.WriteFile(path, []byte("* TODO Old title\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	initRepo(t, dir)
 	ws, err := workspace.Load(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +42,7 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-func TestWriteRefusesFileChangedOnDisk(t *testing.T) {
+func TestWriteConflictsWithFileChangedOnDisk(t *testing.T) {
 	m, path := diskChangeFixture(t)
 
 	msg, ok := m.writeAllResult(false)
@@ -49,8 +50,8 @@ func TestWriteRefusesFileChangedOnDisk(t *testing.T) {
 	if ok {
 		t.Errorf("ok = true, want the write refused")
 	}
-	if !strings.Contains(msg, "changed on disk") || !strings.Contains(msg, ":w!") {
-		t.Errorf("message = %q, want it to explain and mention :w!", msg)
+	if !strings.Contains(msg, "Conflict in todo.org") || !strings.Contains(msg, ":w!") || !strings.Contains(msg, ":resolve") {
+		t.Errorf("message = %q, want it to explain and mention :w! and :resolve", msg)
 	}
 	if got := readFile(t, path); got != "* TODO Upstream title\n" {
 		t.Errorf("disk = %q, want the upstream change left alone", got)
@@ -92,7 +93,7 @@ func TestWriteAllowedWhenContentUnchangedOnDisk(t *testing.T) {
 func TestWriteQuitStaysOpenOnConflict(t *testing.T) {
 	m, _ := diskChangeFixture(t)
 	if cmd := m.writeAndQuit(false); cmd != nil {
-		t.Errorf(":wq quit despite a file changed on disk")
+		t.Errorf(":wq quit despite a conflict")
 	}
 	if cmd := m.writeAndQuit(true); cmd == nil {
 		t.Errorf(":wq! didn't quit")

@@ -68,6 +68,15 @@ type Config struct {
 	// built-in default of 24.
 	HideClosedAfterHours int `toml:"hide_closed_after_hours"`
 
+	// MainBranch is the git branch every save commits to (see
+	// internal/gitstore). The org directory's HEAD must be on it for
+	// saving to work. Empty falls back to the built-in default, main.
+	MainBranch string `toml:"main_branch"`
+
+	// MergeTool is the command :resolve runs on files a save couldn't
+	// merge, with their paths appended. Empty means Editor.
+	MergeTool string `toml:"merge_tool"`
+
 	// URLFormatterPrefixes are extra bare-URL prefixes recognized beyond
 	// the built-in http:// and https://, e.g. "bit.ly/" for a shortlink
 	// service or "go/" for an internal go-link convention — text
@@ -573,6 +582,7 @@ func Default() Config {
 		MeetingTagsFile:      "meeting-tags.org",
 		ScratchDir:           "scratch",
 		HideClosedAfterHours: 24,
+		MainBranch:           "main",
 		Keywords:             DefaultKeywords(),
 		Gcalsync: GcalsyncConfig{
 			CalendarIDs:    []string{"primary"},
@@ -611,6 +621,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.HideClosedAfterHours <= 0 {
 		c.HideClosedAfterHours = d.HideClosedAfterHours
+	}
+	if c.MainBranch == "" {
+		c.MainBranch = d.MainBranch
 	}
 	if len(c.Keywords) == 0 {
 		c.Keywords = d.Keywords

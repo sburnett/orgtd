@@ -70,10 +70,9 @@ func (m *Model) editFile(arg string) {
 	}
 }
 
-// reloadFile runs ":e!": re-read a file from disk, throwing away its
-// in-memory state — unsaved edits, undo history, marks — for when it
-// changed underneath orgtd (a `git pull`, another editor) and ":w" refused
-// to overwrite it. arg names the file the way ":edit" does; empty means
+// reloadFile runs ":e!": reload a file from the main branch (see
+// reloadFromMain), throwing away its in-memory state — unsaved edits,
+// undo history, marks — e.g. to take the branch's side of a conflict. arg names the file the way ":edit" does; empty means
 // the file under the cursor.
 func (m *Model) reloadFile(arg string) {
 	var f *org.File
@@ -99,21 +98,15 @@ func (m *Model) reloadFile(arg string) {
 		m.message = name + " has entries being formatted by :format-links; can't reload it yet"
 		return
 	}
-	newFile, err := org.ParseFile(f.Path)
-	if f.New && errors.Is(err, fs.ErrNotExist) {
-		// Never written, and still not on disk: "reloading" it means
-		// going back to the empty file :edit started with.
-		newFile, err = &org.File{Path: f.Path, New: true}, nil
-	}
+	newFile, err := m.reloadFromMain(f)
 	if err != nil {
 		m.message = fmt.Sprintf("Could not reload %s: %v", name, err)
 		return
 	}
-	m.swapFile(f, newFile)
 	m.rebuildRows()
 	m.focusFile(newFile)
 	m.recomputeDirty()
-	m.message = "Reloaded " + name + " from disk"
+	m.message = "Reloaded " + name + " from " + m.cfg.MainBranch
 }
 
 // swapFile replaces the loaded file old with newFile (freshly parsed from

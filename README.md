@@ -46,6 +46,8 @@ orgtd --dir ~/org
 | `--outline-ignore-files` | `outline_ignore_files` | *(none)* | Files orgtd never loads, so their entries appear nowhere — globs (`*`, `?`, as in a shell) matched against each file's base name, in `--dir` and `reference/` alike, e.g. `archive*.org`; comma-separated on the flag, a TOML array in the config file. `:edit` refuses them too. A malformed glob stops orgtd at startup |
 | `--scratch-dir` | `scratch_dir` | `scratch` | Directory every `$EDITOR` buffer is written to and kept in (see Editing, below). A leading `~` is expanded, and a relative path is relative to `--dir`, so it can live outside the org directory, e.g. `~/.local/state/orgtd/scratch`. Created when first needed |
 | `--hide-closed-after-hours` | `hide_closed_after_hours` | `24` | How many hours after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggleclosed` shows everything again, and toggles back |
+| `--main-branch` | `main_branch` | `main` | The git branch every save commits to. `--dir` must be the root of a git repository with this branch checked out — see Saving and git, below |
+| `--merge-tool` | `merge_tool` | *(same as `editor`)* | Command `:resolve` runs on files a save couldn't merge, with their paths appended — see Conflicts, below |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched by `ctrl-g` (see Editing, below) and for whole-file edits |
 | `--debug` | `debug` | *(off)* | Log debug info (see Debug log, below) to `debug.log` next to the config file |
 | `--config` | — | `$XDG_CONFIG_HOME/orgtd/config.toml` (or `~/.config/orgtd/config.toml`) | Path to the config file below |

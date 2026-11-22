@@ -24,6 +24,9 @@ import (
 type Model struct {
 	ws *workspace.Workspace
 
+	// git is the repository files are saved to (see gitsave.go).
+	git *gitState
+
 	collapsed      map[*org.Headline]bool
 	dirty          map[*org.File]bool     // derived from undoStack/savedPos; see recomputeDirty
 	dirtyHeadlines map[*org.Headline]bool // derived from undoStack/savedPos; see recomputeDirty
@@ -275,6 +278,7 @@ func (m *Model) minute() string {
 func New(ws *workspace.Workspace, opts ...Option) Model {
 	m := Model{
 		ws:             ws,
+		git:            newGitState(),
 		collapsed:      make(map[*org.Headline]bool),
 		dirty:          make(map[*org.File]bool),
 		dirtyHeadlines: make(map[*org.Headline]bool),

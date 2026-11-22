@@ -18,7 +18,7 @@ import (
 // leaves whatever the config file said).
 type flagValues struct {
 	dir, urlFormatter, inboxFile, calendarFile, meetingTagsFile, editor string
-	formatLinksURLFormatter, scratchDir                                 string
+	formatLinksURLFormatter, scratchDir, mainBranch, mergeTool          string
 	urlFormatterPrefixes                                                string // comma-separated; see splitList
 	outlineIgnoreFiles                                                  string // comma-separated; see splitList
 	agendaDays                                                          int
@@ -45,6 +45,8 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.outlineIgnoreFiles, "outline-ignore-files", "", "comma-separated globs of base file names orgtd never loads, e.g. \"archive*.org,old.org\" (default: the config file's outline_ignore_files, else none)")
 	fs.StringVar(&f.scratchDir, "scratch-dir", "", "directory editor buffers are written to and kept in; a leading ~ is expanded, and a relative path is relative to the org directory (default: the config file's scratch_dir, else scratch)")
 	fs.IntVar(&f.hideClosedAfterHours, "hide-closed-after-hours", 0, "how many hours after an item's CLOSED timestamp it's hidden from the outline view; :toggleclosed shows everything again (default: the config file's hide_closed_after_hours, else 24)")
+	fs.StringVar(&f.mainBranch, "main-branch", "", "git branch every save commits to; the org directory must have it checked out (default: the config file's main_branch, else main)")
+	fs.StringVar(&f.mergeTool, "merge-tool", "", "command :resolve runs on files a save couldn't merge, with their paths appended (default: the config file's merge_tool, else the editor)")
 	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
 	fs.BoolVar(&f.debug, "debug", false, "log debug info (URL formatter attempts/failures, etc.) to debug.log next to the config file; off by default (default: the config file's debug, else off)")
 	fs.StringVar(&f.configPath, "config", "", "path to the TOML config file (default: "+config.DefaultPath()+")")
@@ -126,6 +128,8 @@ func resolveLayers(f flagValues, orgtdDirEnv string, user, repo *config.Config) 
 	set("outline-ignore-files", "outline_ignore_files", func() { out.OutlineIgnoreFiles = splitList(f.outlineIgnoreFiles) })
 	set("scratch-dir", "scratch_dir", func() { out.ScratchDir = f.scratchDir })
 	set("hide-closed-after-hours", "hide_closed_after_hours", func() { out.HideClosedAfterHours = f.hideClosedAfterHours })
+	set("main-branch", "main_branch", func() { out.MainBranch = f.mainBranch })
+	set("merge-tool", "merge_tool", func() { out.MergeTool = f.mergeTool })
 	set("editor", "editor", func() { out.Editor = f.editor })
 	set("debug", "debug", func() { out.Debug = f.debug })
 
@@ -160,6 +164,8 @@ func sameKey(a, b config.Config, key string) bool {
 		return a.ScratchDir == b.ScratchDir
 	case "hide_closed_after_hours":
 		return a.HideClosedAfterHours == b.HideClosedAfterHours
+	case "main_branch":
+		return a.MainBranch == b.MainBranch
 	}
 	return true
 }

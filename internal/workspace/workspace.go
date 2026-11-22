@@ -1,8 +1,7 @@
-// Package workspace loads a directory of org files into memory, and
-// provides the advisory lock that keeps two orgtd instances from racing
-// over the same directory (see AcquireLock). It does not watch the
-// directory for changes or write files itself: the UI mutates the loaded
-// trees and saves them with org.WriteFile on :w. See DESIGN.md §3.
+// Package workspace loads a directory of org files into memory. It does
+// not watch the directory for changes or write files itself: the UI
+// mutates the loaded trees and saves them through internal/gitstore on
+// :w. See DESIGN.md §3.
 package workspace
 
 import (

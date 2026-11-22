@@ -1,10 +1,11 @@
 // Command orgtd is a terminal GTD workflow tool backed by org-mode files.
 // This package is wiring only: it resolves flags, $ORGTD_DIR and the config
-// file into one config.Config (see settings.go), takes the directory lock,
-// loads the workspace, and hands everything to internal/ui. See DESIGN.md §3.
+// file into one config.Config (see settings.go), opens the org
+// directory's git repository (internal/gitstore), loads the workspace, and hands everything to internal/ui. See DESIGN.md §3.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 
 	orgtd "github.com/sburnett/orgtd"
 	"github.com/sburnett/orgtd/internal/config"
+	"github.com/sburnett/orgtd/internal/gitstore"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/ui"
 	"github.com/sburnett/orgtd/internal/workspace"
@@ -72,22 +74,36 @@ func main() {
 		log.SetOutput(io.Discard)
 	}
 
-	// Acquired before Load so two instances pointed at the same
-	// directory can't both load it into memory and race each other to
-	// :w the same files — see workspace.AcquireLock. Released
-	// automatically by the OS on exit either way, crash included, so
-	// there's no cleanup to defer for correctness; the explicit Release
-	// just gives it up a little sooner than process exit would.
-	lock, ok, err := workspace.AcquireLock(cfg.OrgDir)
+	// The org directory is a git repository, and every save is a commit
+	// merged with whatever other instances (or other editors) saved
+	// meanwhile — see internal/gitstore. Opening takes this instance's
+	// lock, which the OS drops when the process exits, however it exits.
+	store, err := gitstore.Open(cfg.OrgDir, cfg.MainBranch, cfg.OutlineIgnoreFiles)
+	if errors.Is(err, gitstore.ErrNotRepo) {
+		fmt.Fprintf(os.Stderr, "orgtd: %s must be the root of a git repository, since orgtd saves by committing to it.\nTo start one: git -C %s init -b %s\n", cfg.OrgDir, cfg.OrgDir, cfg.MainBranch)
+		os.Exit(1)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)
 	}
-	if !ok {
-		fmt.Fprintf(os.Stderr, "orgtd: another orgtd instance already has %s open\n", cfg.OrgDir)
+	defer store.Close()
+	if err := store.CheckBranch(); err != nil {
+		warnings = append(warnings, "Saving is off: "+err.Error())
+	}
+	// Read before loading the files, so they're at least as new as it.
+	head, err := store.Head()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)
 	}
-	defer lock.Release()
+	orphans, err := store.Orphans()
+	if err != nil {
+		warnings = append(warnings, "Checking for a crashed orgtd's edits: "+err.Error())
+	}
+	if len(orphans) > 0 {
+		warnings = append(warnings, "Recovered unsaved edits from a crashed orgtd — :recover to save them, :recover drop to discard")
+	}
 
 	var active, done []string
 	for _, k := range cfg.Keywords {
@@ -105,7 +121,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(ui.New(ws, ui.WithConfig(cfg), ui.WithConfigSources(sources), ui.WithStartupMessage(strings.Join(warnings, "; ")), ui.WithReadme(orgtd.Readme)), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(ws, ui.WithConfig(cfg), ui.WithConfigSources(sources), ui.WithStore(store, head), ui.WithOrphans(orphans), ui.WithStartupMessage(strings.Join(warnings, "; ")), ui.WithReadme(orgtd.Readme)), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)

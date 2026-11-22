@@ -34,7 +34,7 @@ func RenderFile(f *File) string {
 func HeadlineLines(f *File) map[*Headline]int {
 	lines := map[*Headline]int{}
 	content, _ := renderFile(f, lines)
-	if f.DiskHash == "" || hashContent([]byte(content)) == f.DiskHash {
+	if f.Base == nil || content == string(f.Base) {
 		return lines
 	}
 	for h := range lines {

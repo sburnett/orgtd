@@ -92,6 +92,7 @@ func loadFixtureCopy(t *testing.T) *workspace.Workspace {
 		}
 	}
 
+	initRepo(t, dst)
 	ws, err := workspace.Load(dst)
 	if err != nil {
 		t.Fatalf("workspace.Load: %v", err)

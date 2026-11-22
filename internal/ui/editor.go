@@ -151,24 +151,19 @@ func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	newFile, err := org.ParseFile(msg.target.Path)
-	if msg.target.New && errors.Is(err, fs.ErrNotExist) {
-		// A new file the editor quit without writing: nothing changed.
-		return m, nil
+	if msg.target.New {
+		if _, err := os.Stat(msg.target.Path); errors.Is(err, fs.ErrNotExist) {
+			// A new file the editor quit without writing: nothing changed.
+			return m, nil
+		}
 	}
+	// The editor wrote the file itself; commit that like any outside
+	// edit, so other instances see it, and load it as committed.
+	newFile, err := m.reloadFromMain(msg.target)
 	if err != nil {
 		m.message = fmt.Sprintf("Could not reload %s: %v", filepath.Base(msg.target.Path), err)
 		return m, nil
 	}
-
-	for i, f := range m.ws.Files {
-		if f == msg.target {
-			m.ws.Files[i] = newFile
-			break
-		}
-	}
-	m.dropUndoFor(msg.target)
-	m.clearRefsForFile(msg.target)
 	m.rebuildRows()
 	m.focusFile(newFile)
 	m.recomputeDirty()

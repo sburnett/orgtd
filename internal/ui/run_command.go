@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,7 +11,6 @@ import (
 	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/execlog"
 	"github.com/sburnett/orgtd/internal/extprog"
-	"github.com/sburnett/orgtd/internal/org"
 )
 
 // runFinishedMsg reports that the program launched by startRun has exited.
@@ -128,38 +126,25 @@ func (m *Model) prepareRun(line string) (name string, cmd *exec.Cmd, contextFile
 	return name, cmd, contextFile, true
 }
 
-// finishRun reloads every file whose content on disk no longer matches
-// what orgtd last wrote (nothing is dirty at this point — startRun just
-// saved everything), discarding each one's undo history and marks as
-// :e! does. The cursor stays where it was (clamped, if the rows shrank).
+// finishRun commits whatever the command changed (see
+// gitstore.CommitOutsideEdits — a sync script's pull moves the branch
+// itself, a hand edit leaves files changed on disk) and reloads every
+// file that changed, discarding each one's undo history and marks as :e!
+// does. The cursor stays on the same entry if it's still there.
 func (m Model) finishRun(msg runFinishedMsg) (tea.Model, tea.Cmd) {
 	execlog.LogCompleted(m.execLog, msg.cmd, msg.err)
 	if msg.contextFile != "" {
 		os.Remove(msg.contextFile)
 	}
 
-	var reloaded, failed []string
-	for _, f := range append([]*org.File(nil), m.ws.Files...) {
-		changed, err := org.ChangedOnDisk(f)
-		if err == nil && !changed {
-			continue
-		}
-		name := filepath.Base(f.Path)
-		if m.dirty[f] {
-			failed = append(failed, name+" (edited while "+msg.name+" was running)")
-			continue
-		}
-		if m.fileHasImmutableHeadline(f) {
-			failed = append(failed, name+" (being formatted by :format-links)")
-			continue
-		}
-		newFile, err := org.ParseFile(f.Path)
-		if err != nil {
-			failed = append(failed, fmt.Sprintf("%s (%v)", name, err))
-			continue
-		}
-		m.swapFile(f, newFile)
-		reloaded = append(reloaded, name)
+	var reloaded, behind []string
+	var syncErr error
+	if store, err := m.gitStore(); err != nil {
+		syncErr = err
+	} else if res, err := store.CommitOutsideEdits(); err != nil {
+		syncErr = err
+	} else {
+		reloaded, behind = m.reloadChanged(res.Head, res.Files, nil)
 	}
 	m.rebuildRows()
 	m.recomputeDirty()
@@ -169,10 +154,13 @@ func (m Model) finishRun(msg runFinishedMsg) (tea.Model, tea.Cmd) {
 		parts = append(parts, fmt.Sprintf("%s exited with an error: %v", msg.name, msg.err))
 	}
 	if len(reloaded) > 0 {
-		parts = append(parts, "Reloaded "+strings.Join(reloaded, ", ")+" from disk")
+		parts = append(parts, "Reloaded "+strings.Join(reloaded, ", "))
 	}
-	if len(failed) > 0 {
-		parts = append(parts, "Could not reload "+strings.Join(failed, ", ")+" — :e! to retry")
+	if len(behind) > 0 {
+		parts = append(parts, strings.Join(behind, ", ")+" changed while "+msg.name+" was running — :w merges")
+	}
+	if syncErr != nil {
+		parts = append(parts, "Could not pick up changes: "+syncErr.Error())
 	}
 	m.message = strings.Join(parts, "; ")
 	return m, nil

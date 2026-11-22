@@ -654,7 +654,7 @@ func (m *Model) recomputeDirty() {
 		applied[a.file()]++
 	}
 	for _, f := range m.ws.Files {
-		if applied[f] != m.savedPos[f] {
+		if applied[f] != m.savedPos[f] || m.git.mustSave[f] {
 			m.dirty[f] = true
 		}
 	}

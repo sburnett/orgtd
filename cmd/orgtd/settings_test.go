@@ -53,6 +53,8 @@ func TestResolveConfigKeepsEverythingTheConfigFileSets(t *testing.T) {
 		OutlineIgnoreFiles:      []string{"archive*.org"},
 		ScratchDir:              "~/scratch",
 		HideClosedAfterHours:    48,
+		MainBranch:              "trunk",
+		MergeTool:               "meld",
 		Editor:                  "emacsclient -t",
 		Debug:                   true,
 		Gcalsync: config.GcalsyncConfig{

@@ -67,9 +67,9 @@ func TestRunRefusesWhenSaveFails(t *testing.T) {
 	cmd := m.startRun("vcs")
 
 	if cmd != nil {
-		t.Errorf("startRun launched despite a file changed on disk")
+		t.Errorf("startRun launched despite a conflict")
 	}
-	if !strings.Contains(m.message, "changed on disk") {
+	if !strings.Contains(m.message, "Conflict in todo.org") {
 		t.Errorf("message = %q, want the save refusal", m.message)
 	}
 	if got := readFile(t, path); got != "* TODO Upstream title\n" {
@@ -83,6 +83,7 @@ func TestRunSavesBeforeLaunching(t *testing.T) {
 	if err := os.WriteFile(path, []byte("* TODO Old title\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	initRepo(t, dir)
 	ws, err := workspace.Load(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +110,7 @@ func TestRunReloadsFilesChangedOnDisk(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	initRepo(t, dir)
 	ws, err := workspace.Load(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +167,7 @@ func contextFixture(t *testing.T, withContext bool) (Model, string) {
 	if err := os.WriteFile(dir+"/work.org", []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	initRepo(t, dir)
 	ws, err := workspace.Load(dir)
 	if err != nil {
 		t.Fatal(err)
