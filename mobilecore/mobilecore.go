@@ -313,13 +313,18 @@ func Capture(groupDir, captureJSON, authorName, authorEmail string) (string, err
 }
 
 // UpdatePendingCapture replaces a still-pending capture (matched by ID)
-// and rebuilds. Its createdAt is kept if the update leaves it out.
+// that hasn't been sent yet (see isSent), and rebuilds. Its createdAt is kept if the update leaves it out.
 func UpdatePendingCapture(groupDir, captureJSON, authorName, authorEmail string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	c, err := decodeCapture(groupDir, captureJSON)
 	if err != nil {
 		return err
+	}
+	if sent, err := isSent(groupDir, c.ID); err != nil {
+		return err
+	} else if sent {
+		return errSent
 	}
 	if c.CreatedAt.IsZero() {
 		if old, ok := findCapture(groupDir, c.ID); ok {
@@ -332,10 +337,19 @@ func UpdatePendingCapture(groupDir, captureJSON, authorName, authorEmail string)
 	return rebuild(groupDir, authorName, authorEmail)
 }
 
-// DeletePendingCapture drops a still-pending capture and rebuilds.
+// errSent refuses a queue edit of a capture already sent (see isSent).
+var errSent = errors.New("mobilecore: that capture was already sent to your computer; refresh and edit the entry instead")
+
+// DeletePendingCapture drops a still-pending capture that hasn't been
+// sent yet (see isSent), and rebuilds.
 func DeletePendingCapture(groupDir, id, authorName, authorEmail string) error {
 	mu.Lock()
 	defer mu.Unlock()
+	if sent, err := isSent(groupDir, id); err != nil {
+		return err
+	} else if sent {
+		return errSent
+	}
 	if err := capturequeue.Delete(queuePath(groupDir), id); err != nil {
 		return err
 	}
@@ -375,6 +389,39 @@ func toJSON(v any) (string, error) {
 	return string(data), err
 }
 
+// sentIDs is the queued captures and state changes the phone has sent:
+// those in what it last left origin/mobile at. Until the desktop merges
+// them they stay queued, but they're on the server.
+func sentIDs(s gitsync.State) map[string]bool {
+	sent := map[string]bool{}
+	for _, t := range s.PushedTips {
+		if t.Tip == s.LastPushed {
+			for _, id := range t.CaptureIDs {
+				sent[id] = true
+			}
+		}
+	}
+	return sent
+}
+
+// syncState is sync-state.json.
+func syncState(groupDir string) (gitsync.State, error) {
+	r := &gitsync.Repo{Dir: repoDir(groupDir), QueuePath: queuePath(groupDir), OpsPath: opsPath(groupDir), StatePath: statePath(groupDir)}
+	return r.LoadState()
+}
+
+// isSent reports whether the queued capture id has been sent. A sent
+// capture is no longer edited or deleted in the queue: the desktop may
+// already have merged it as sent, and the phone would then drop the
+// queue item, edit and all. It's changed like any other entry instead.
+func isSent(groupDir, id string) (bool, error) {
+	s, err := syncState(groupDir)
+	if err != nil {
+		return false, err
+	}
+	return sentIDs(s)[id], nil
+}
+
 // loaded is the working tree as the read views see it.
 type loaded struct {
 	cfg      config.Config
@@ -389,6 +436,12 @@ type loaded struct {
 	// captures maps the entry ID of each still-pending capture to its
 	// queue ID (see markCaptures).
 	captures map[string]string
+	// sent holds the queue IDs the phone has sent (sentIDs).
+	sent map[string]bool
+	// unsent holds the changedKey of every entry with a queued change
+	// not sent yet, or waiting for the desktop to merge it (see
+	// gitsync.State.Waiting).
+	unsent map[string]bool
 }
 
 func changedKey(file string, path []string) string {
@@ -422,10 +475,24 @@ func load(groupDir string) (*loaded, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &loaded{cfg: cfg, warnings: warnings, ws: ws, changed: map[string]bool{}, added: map[string]bool{}, captures: map[string]string{}}
+	l := &loaded{cfg: cfg, warnings: warnings, ws: ws, changed: map[string]bool{}, added: map[string]bool{}, captures: map[string]string{}, unsent: map[string]bool{}}
 	ops, err := capturequeue.LoadOps(opsPath(groupDir))
 	if err != nil {
 		return nil, err
+	}
+	st, err := syncState(groupDir)
+	if err != nil {
+		return nil, err
+	}
+	l.sent = sentIDs(st)
+	waiting := map[string]bool{}
+	for _, t := range st.Waiting {
+		waiting[t] = true
+	}
+	mark := func(key string, o capturequeue.StateOp) {
+		if !l.sent[o.ID] || waiting[o.NewTitle()] {
+			l.unsent[key] = true
+		}
 	}
 	if err := l.markCaptures(groupDir); err != nil {
 		return nil, err
@@ -436,7 +503,9 @@ func load(groupDir string) (*loaded, error) {
 			if o.Insert.Beside && len(parent) > 0 {
 				parent = parent[:len(parent)-1]
 			}
-			l.added[changedKey(o.File, append(append([]string{}, parent...), o.NewTitle()))] = true
+			key := changedKey(o.File, append(append([]string{}, parent...), o.NewTitle()))
+			l.added[key] = true
+			mark(key, o)
 			continue
 		}
 		if o.Move != nil {
@@ -444,7 +513,9 @@ func load(groupDir string) (*loaded, error) {
 			if o.Move.ToFile != "" {
 				file = o.Move.ToFile
 			}
-			l.changed[changedKey(file, o.Move.To)] = true
+			key := changedKey(file, o.Move.To)
+			l.changed[key] = true
+			mark(key, o)
 			continue
 		}
 		if o.Delete != nil {
@@ -454,7 +525,9 @@ func load(groupDir string) (*loaded, error) {
 			continue
 		}
 		path := append(append([]string{}, o.Path[:len(o.Path)-1]...), o.NewTitle())
-		l.changed[changedKey(o.File, path)] = true
+		key := changedKey(o.File, path)
+		l.changed[key] = true
+		mark(key, o)
 	}
 	return l, nil
 }
@@ -534,11 +607,15 @@ func (l *loaded) toEntry(f *org.File, h *org.Headline, idx []int, withChildren b
 		DeadlineInput:  dateInput(h.Deadline),
 	}
 	if id, ok := l.captures[e.ID]; ok {
-		e.Pending, e.CaptureID = true, id
+		e.Pending = true
+		if !l.sent[id] {
+			e.CaptureID, e.Unsent = id, true
+		}
 	}
 	key := changedKey(e.File, gitsync.TitlePath(h))
 	e.PendingNew = l.added[key]
 	e.PendingState = l.changed[key] || e.PendingNew
+	e.Unsent = e.Unsent || l.unsent[key]
 	org.Walk(h.Children, func(*org.Headline) { e.Descendants++ })
 	e.Properties = []property{}
 	for _, k := range h.PropertyOrder {
@@ -1328,14 +1405,7 @@ func Status(groupDir string) (string, error) {
 	for _, d := range s.Dropped {
 		res.Dropped = append(res.Dropped, droppedJSON{Title: d.Title, From: d.From, To: d.To, Added: d.Added, Move: d.Move, Reordered: d.Reordered, Deleted: d.Deleted, Reason: d.Reason})
 	}
-	pushed := map[string]bool{}
-	for _, t := range s.PushedTips {
-		if t.Tip == s.LastPushed {
-			for _, id := range t.CaptureIDs {
-				pushed[id] = true
-			}
-		}
-	}
+	pushed := sentIDs(s)
 	for _, c := range queue {
 		if !pushed[c.ID] {
 			res.Unpushed++
@@ -1346,6 +1416,7 @@ func Status(groupDir string) (string, error) {
 			res.Unpushed++
 		}
 	}
+	res.Sent = len(queue) + len(ops) - res.Unpushed
 
 	cfg := config.Default()
 	if res.Cloned {

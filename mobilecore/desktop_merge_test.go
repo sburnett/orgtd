@@ -148,3 +148,102 @@ func TestConflictingPhoneChangeIsResolvedOnTheDesktop(t *testing.T) {
 		t.Errorf("entry on the phone = %+v", after)
 	}
 }
+
+// The clock means "the phone still has something to do": once a change
+// is sent, it goes, though the change stays queued until it's merged.
+func TestSentChangesNeedNothingMoreFromThePhone(t *testing.T) {
+	g, _, store := setupDesktop(t)
+	if _, err := Capture(g, `{"title":"Call the plumber","createdAt":"2026-11-14T09:12:00-08:00"}`, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	vet := findEntry(t, g, vetTitle)
+	if err := SetState(g, vet.ID, "DONE", "", fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	in := inboxEntries(t, g)
+	if c := in[len(in)-1]; !c.Unsent || c.CaptureID == "" {
+		t.Errorf("capture before Sync = %+v, want unsent and editable in the queue", c)
+	}
+	if e := findEntry(t, g, vetTitle); !e.Unsent {
+		t.Errorf("state change before Sync = %+v, want unsent", e)
+	}
+
+	st := phoneSync(t, g)
+	if st.Sent != 2 || st.Unpushed != 0 || st.Pending != 1 || st.PendingStates != 1 {
+		t.Errorf("status after Sync = %+v, want both sent and still queued", st)
+	}
+	in = inboxEntries(t, g)
+	if c := in[len(in)-1]; c.Unsent || !c.Pending || c.CaptureID != "" {
+		t.Errorf("capture after Sync = %+v, want sent: pending, no clock, no capture ID", c)
+	}
+	if e := findEntry(t, g, vetTitle); e.Unsent || !e.PendingState {
+		t.Errorf("state change after Sync = %+v, want sent: pending, no clock", e)
+	}
+
+	// The desktop applies it; the phone's next fetch clears the queue.
+	if res, err := store.ApplyBranch("mobile"); err != nil || !res.Moved {
+		t.Fatalf("desktop ApplyBranch = %+v, %v", res, err)
+	}
+	if err := Refresh(g, nil, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	if st := decode[statusResult](t)(Status(g)); st.Pending != 0 || st.PendingStates != 0 || st.Sent != 0 {
+		t.Errorf("status after the desktop applied it = %+v, want nothing queued", st)
+	}
+}
+
+// A sent capture is edited as an entry, not in the queue: the desktop
+// may have merged it as sent before the phone fetches, and the phone
+// would then drop the queue item, edit and all.
+func TestEditingASentCaptureIsNotLost(t *testing.T) {
+	g, desktop, store := setupDesktop(t)
+	id, err := Capture(g, `{"title":"Call the plumber","createdAt":"2026-11-14T09:12:00-08:00"}`, "P", "p@x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	phoneSync(t, g)
+	if res, err := store.ApplyBranch("mobile"); err != nil || !res.Moved {
+		t.Fatalf("desktop ApplyBranch = %+v, %v", res, err)
+	}
+	// The phone hasn't fetched the merge yet.
+	if err := UpdatePendingCapture(g, `{"id":"`+id+`","title":"Edited in the queue"}`, "P", "p@x"); err == nil {
+		t.Error("UpdatePendingCapture of a sent capture accepted")
+	}
+	if err := DeletePendingCapture(g, id, "P", "p@x"); err == nil {
+		t.Error("DeletePendingCapture of a sent capture accepted")
+	}
+	in := inboxEntries(t, g)
+	c := in[len(in)-1]
+	form := formFor(c)
+	form["title"] = "Call the plumber about the leak"
+	if err := EditEntry(g, c.ID, editJSON(t, form), fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	phoneSync(t, g)
+	if _, err := store.ApplyBranch("mobile"); err != nil {
+		t.Fatal(err)
+	}
+	if st := phoneSync(t, g); st.Pending != 0 || st.PendingStates != 0 {
+		t.Errorf("status at the end = %+v, want nothing queued", st)
+	}
+	if inbox := readFile(t, desktop, "inbox.org"); !strings.Contains(inbox, "* Call the plumber about the leak\n") || strings.Contains(inbox, "* Call the plumber\n") {
+		t.Errorf("desktop inbox.org =\n%s\nwant the edited title only", inbox)
+	}
+}
+
+// A change waiting for the desktop to merge it keeps its clock: it was
+// sent, but on the old base, and the banner names it.
+func TestWaitingChangesKeepTheirClock(t *testing.T) {
+	g, desktop, store := setupDesktop(t)
+	e := findEntry(t, g, vetTitle)
+	if err := SetState(g, e.ID, "DONE", "", fixtureNow, "P", "p@x"); err != nil {
+		t.Fatal(err)
+	}
+	desktopEdit(t, store, desktop, "personal.org", "** NEXT "+vetTitle+"\n", "** TODO "+vetTitle+"\n")
+	if st := phoneSync(t, g); len(st.Waiting) != 1 || st.Unpushed != 0 {
+		t.Fatalf("status = %+v, want the change sent and waiting", st)
+	}
+	if after := findEntry(t, g, vetTitle); !after.Unsent {
+		t.Errorf("waiting entry = %+v, want the clock kept", after)
+	}
+}

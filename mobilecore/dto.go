@@ -43,6 +43,13 @@ type entry struct {
 	// PendingNew is set (with PendingState) on an entry added on the
 	// phone (AddEntry) and not merged yet.
 	PendingNew bool `json:"pendingNew,omitempty"`
+	// Unsent is set on an entry with a phone change (any of the above)
+	// that hasn't been sent to the server yet, or that waits for the
+	// desktop to merge it (statusResult.Waiting): what the app's clock
+	// shows. A sent change stays Pending until it's merged, but needs
+	// nothing more from the phone. A sent capture has no CaptureID: it's
+	// edited like any other entry.
+	Unsent bool `json:"unsent,omitempty"`
 }
 
 // property is one property drawer line.
@@ -118,6 +125,9 @@ type statusResult struct {
 	// PendingStates counts state changes not yet merged (Pending counts
 	// captures); Unpushed counts both.
 	PendingStates int `json:"pendingStates"`
+	// Sent counts queued captures and state changes already sent to the
+	// server, waiting for the desktop to merge them.
+	Sent int `json:"sent"`
 	// Waiting is the titles of queued changes whose entries changed on
 	// the desktop too: they wait for the desktop to merge them (and the
 	// user to resolve any conflict) rather than being dropped.

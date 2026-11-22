@@ -61,7 +61,7 @@ struct CompactEntryRow: View {
                         .accessibilityLabel("Deadline \(OrgDate.display(entry.deadlineInput ?? due))")
                         .layoutValue(key: HeadlineRole.self, value: .trail)
                 }
-                if entry.isPending || entry.hasPendingState {
+                if entry.isUnsent {
                     Image(systemName: "clock.badge")
                         .font(.caption)
                         .foregroundStyle(.orange)
@@ -389,14 +389,9 @@ struct InlineEntryDetails: View {
                     .font(.footnote)
                     .foregroundStyle(model.tagColor)
             }
-            if entry.isPending {
-                SwiftUI.Label("Captured on this phone; not merged yet", systemImage: "clock")
-                    .font(.footnote).foregroundStyle(.secondary)
-            } else if entry.isNew {
-                SwiftUI.Label("Added on this phone; not merged yet", systemImage: "clock")
-                    .font(.footnote).foregroundStyle(.secondary)
-            } else if entry.hasPendingState {
-                SwiftUI.Label("Changed on this phone; not merged yet", systemImage: "clock")
+            if let what = entry.isPending ? "Captured" : entry.isNew ? "Added" : entry.hasPendingState ? "Changed" : nil {
+                SwiftUI.Label(what + " on this phone; " + (entry.isUnsent ? "not sent yet" : "sent, not merged yet"),
+                              systemImage: entry.isUnsent ? "clock" : "checkmark.circle")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if !entry.properties.isEmpty {

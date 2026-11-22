@@ -147,7 +147,8 @@ either.
     and ends with a **New entry** row, for adding an entry there
     (below). To add an entry's first child, add a sibling below it and
     indent that.
-  - The entry shows a clock until it's merged. If the entry, or the
+  - The entry shows a clock until it's sent (see Pending changes,
+    below). If the entry, or the
     sibling you dropped it next to, changed on your computer before
     you merged, the move waits for your computer to merge it (see On
     your computer, below).
@@ -163,7 +164,7 @@ either.
   way desktop `gd` accepts (`3d`, `2w`, `next tue`).
   - Saving adds the entry there, with a CREATED stamp as desktop
     `o`/`O` gives it. It commits locally and needs no network.
-  - The new entry shows a clock until it's merged, and you can edit,
+  - The new entry shows a clock until it's sent, and you can edit,
     move or delete it meanwhile.
   - Like an edit, an addition waits for your computer to merge it if
     the entry you inserted it next to or under changed there before you
@@ -176,7 +177,7 @@ either.
   after the parent's other children. Its subtree moves with it.
   - Only the stars of the moved headlines change (and, for an outdent,
     where the subtree sits); other lines keep their indentation.
-  - The entry shows a clock until it's merged. If the entry, or for an
+  - The entry shows a clock until it's sent. If the entry, or for an
     indent the entry above it, changed on your computer before you
     merged, the move waits for your computer to merge it.
 - **Deleting an entry:** open its edit form (above), tap the trash can
@@ -188,10 +189,20 @@ either.
     you merged, the delete waits for your computer to merge it, so the
     phone never deletes something you edited there and haven't seen
     without your say.
+- **Pending changes:** the clock on an entry means the phone still has
+  something to do with it: the change isn't sent to the server yet, or
+  it waits for your computer to merge it (the banner at the top names
+  those). Once a Sync sends it, the clock goes, though the phone keeps
+  the change until your computer has merged it; the entry's details say
+  "sent, not merged yet", and Settings counts them. A capture that's
+  been sent is no longer edited in the phone's queue: editing or
+  deleting it goes out as a change to that entry, so an edit made after
+  your computer merged the capture isn't lost.
 - **Share sheet:** share a link or text to orgtd to capture it into the
-  inbox with the same fields. Until it's merged it shows a clock;
+  inbox with the same fields. Until it's sent it shows a clock;
   editing it edits the capture, and deleting it takes it out of the
-  phone's queue for good.
+  phone's queue for good. Once it's sent, it's edited and deleted like
+  any other entry.
 - The app fetches on launch, when it returns to the foreground, and on
   pull-to-refresh. Fetching never pushes.
 - **Away from the server** (no network, or out of range of a server on
@@ -251,7 +262,7 @@ either.
   have a state menu. This works as desktop `r` does: a done state stamps
   `CLOSED`, leaving one clears it, and completing a repeating item
   advances its dates and sets `LAST_REPEAT` instead. Changed entries
-  show a clock until they're merged.
+  show a clock until they're sent.
   - Closing an entry (a done state for one that isn't done) first asks
     for an optional closing note, as desktop `r` does: it's logged at the
     top of the entry's body, `- CLOSING NOTE [time] \\` with the note

@@ -25,6 +25,7 @@ struct Entry: Codable, Identifiable, Hashable {
     var captureId: String?
     var pendingState: Bool?
     var pendingNew: Bool?
+    var unsent: Bool?
     var scheduledInput: String?
     var deadlineInput: String?
 
@@ -33,6 +34,11 @@ struct Entry: Codable, Identifiable, Hashable {
     var hasPendingState: Bool { pendingState ?? false }
     /// It was added on this phone (in the outline) and isn't merged yet.
     var isNew: Bool { pendingNew ?? false }
+    /// A change on this phone (any of the above) still needs the phone:
+    /// it isn't sent yet, or waits for the computer to merge it. A sent
+    /// change stays pending until it's merged, but this is what the
+    /// clock shows.
+    var isUnsent: Bool { unsent ?? false }
     /// Reference material has no TODO state.
     var isReference: Bool { file.hasPrefix("reference/") }
 
@@ -157,6 +163,8 @@ struct StatusResult: Codable {
     var dateColor: String
     var configErrors: [String]
     var pendingStates: Int
+    /// Captures and changes sent to the server, not merged yet.
+    var sent: Int
     /// Titles of queued changes whose entries changed on the computer
     /// too: they wait for the computer to merge them, rather than being
     /// dropped.
@@ -164,5 +172,5 @@ struct StatusResult: Codable {
     /// Changes an older version dropped; nothing is dropped any more.
     var dropped: [DroppedChange]
 
-    static let empty = StatusResult(cloned: false, repoURL: "", baseBranch: "", hostKey: HostKeyInfo(host: "", key: "", fingerprint: ""), inboxFile: "inbox.org", lastFetch: "", lastPush: "", lastError: "", lastErrorAt: "", pending: 0, unpushed: 0, keywords: [], tagColor: "", dateColor: "", configErrors: [], pendingStates: 0, waiting: [], dropped: [])
+    static let empty = StatusResult(cloned: false, repoURL: "", baseBranch: "", hostKey: HostKeyInfo(host: "", key: "", fingerprint: ""), inboxFile: "inbox.org", lastFetch: "", lastPush: "", lastError: "", lastErrorAt: "", pending: 0, unpushed: 0, keywords: [], tagColor: "", dateColor: "", configErrors: [], pendingStates: 0, sent: 0, waiting: [], dropped: [])
 }

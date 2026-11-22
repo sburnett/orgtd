@@ -15,6 +15,7 @@ struct SettingsView: View {
                 LabeledContent("Last push", value: format(model.status.lastPush))
                 LabeledContent("Pending captures", value: "\(model.status.pending)")
                 LabeledContent("Not yet pushed", value: "\(model.status.unpushed)")
+                LabeledContent("Sent, not merged yet", value: "\(model.status.sent)")
                 if let error = model.lastError ?? (model.status.lastError.isEmpty ? nil : model.status.lastError) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Last error").font(.caption).foregroundStyle(.secondary)
