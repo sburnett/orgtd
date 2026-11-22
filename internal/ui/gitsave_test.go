@@ -382,3 +382,23 @@ func TestRecoverDrop(t *testing.T) {
 		t.Errorf("message = %q", c.message)
 	}
 }
+
+func TestStatusLineCountsOtherInstances(t *testing.T) {
+	a, b, _ := twoInstances(t, map[string]string{"todo.org": "* TODO First\n"})
+	poll := func(m Model) Model {
+		t.Helper()
+		next, _ := m.pollMain()
+		return next.(Model)
+	}
+
+	a = poll(a)
+	if line := stripANSI(a.normalStatusLine()); !strings.Contains(line, "1 other instance") {
+		t.Errorf("with b open, status line = %q", line)
+	}
+
+	b.git.store.Close()
+	a = poll(a)
+	if line := stripANSI(a.normalStatusLine()); strings.Contains(line, "other instance") {
+		t.Errorf("after b closed, status line = %q", line)
+	}
+}

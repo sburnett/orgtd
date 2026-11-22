@@ -445,8 +445,9 @@ loads managed files new on main. `reloadChanged` does nothing unless
 since a reload invalidates headline pointers; `seen` only advances once
 everything caught up, so polling retries.
 
-**Polling** (`pollMain`) reads the branch every 2 s and, if it moved,
-calls `reloadChanged` with its snapshot. Uncommitted outside edits are
+**Polling** (`pollMain`) recounts the other live instances
+(`OtherInstances`, for the status line) and reads the branch every 2 s
+and, if it moved, calls `reloadChanged` with its snapshot. Uncommitted outside edits are
 picked up at the next save, `:e!` or `:run` (`CommitOutsideEdits`).
 
 **Instances and recovery.** An instance ID is `<host>-<pid>-<start
@@ -455,6 +456,12 @@ process's life. `Orphans` lists pending refs whose instance lock is free
 (dead), silently deleting any whose S is named by an `Orgtd-Save`
 trailer on main; `:recover` loads `OrphanEdits` into memory and saves
 them normally, dropping the refs once that succeeds.
+`OtherInstances` counts the lock files it can't test-lock; unlike
+`Orphans` it never removes a file (nor creates one): it runs every 2 s,
+and removing a file in the gap between `Open` creating it and locking it
+would leave that new instance with a lock nobody can see, so `Orphans`
+would take its in-flight save for a crash. Since a test-lock can also
+land in that gap, `Open` retries its `TryLock` briefly before failing.
 
 ## 7. Data conventions (properties and tags)
 

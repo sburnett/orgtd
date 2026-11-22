@@ -83,8 +83,8 @@ func Open(dir, mainBranch string, ignore []string) (*Store, error) {
 		return nil, err
 	}
 	s.instanceLock = flock.New(s.instanceLockPath(s.id))
-	if ok, err := s.instanceLock.TryLock(); err != nil || !ok {
-		return nil, fmt.Errorf("taking instance lock: %v", err)
+	if err := takeInstanceLock(s.instanceLock); err != nil {
+		return nil, err
 	}
 	s.mergeLock = flock.New(filepath.Join(gitDir, "orgtd", "merge.lock"))
 	return s, nil
@@ -135,6 +135,69 @@ func newInstanceID() string {
 }
 
 var instanceCount atomic.Int64
+
+// takeInstanceLock takes a new instance's lock, retrying briefly: the ID
+// is unique to this run, so the lock can only be busy because another
+// instance is test-locking it at that moment (see OtherInstances and
+// Orphans), which lasts no longer than a system call or two.
+func takeInstanceLock(fl *flock.Flock) error {
+	for try := 0; ; try++ {
+		ok, err := fl.TryLock()
+		if err != nil {
+			return fmt.Errorf("taking instance lock: %v", err)
+		}
+		if ok {
+			return nil
+		}
+		if try == instanceLockTries-1 {
+			return fmt.Errorf("taking instance lock: %s is locked", fl.Path())
+		}
+		time.Sleep(instanceLockRetry)
+	}
+}
+
+const (
+	instanceLockTries = 50
+	instanceLockRetry = 10 * time.Millisecond
+)
+
+// OtherInstances counts the other orgtd instances running on this
+// repository (on this machine: the instance locks are flock(2) locks),
+// by test-locking each lock file in .git/orgtd/instances. A lock it can't
+// take belongs to a live instance.
+//
+// Unlike Orphans, it never removes a lock file, even a crashed
+// instance's: it can run while another instance is starting up, between
+// that instance's Open creating its lock file and locking it, and
+// removing the file then would leave the new instance holding a lock no
+// one else can see (Orphans would then take it for dead). Nor does it
+// create one: a file that vanishes between listing and locking (an
+// instance closing) is skipped, not recreated.
+func (s *Store) OtherInstances() (int, error) {
+	dir := filepath.Join(s.gitDir, "orgtd", "instances")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range entries {
+		id, ok := strings.CutSuffix(e.Name(), ".lock")
+		if !ok || id == s.id || !e.Type().IsRegular() {
+			continue
+		}
+		fl := flock.New(filepath.Join(dir, e.Name()), flock.SetFlag(os.O_RDONLY))
+		locked, err := fl.TryLock()
+		if err != nil {
+			continue // gone since ReadDir: that instance closed
+		}
+		if locked {
+			fl.Unlock()
+		} else {
+			n++
+		}
+	}
+	return n, nil
+}
 
 func (s *Store) instanceLockPath(id string) string {
 	return filepath.Join(s.gitDir, "orgtd", "instances", id+".lock")

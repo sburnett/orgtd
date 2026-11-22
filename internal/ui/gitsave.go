@@ -43,6 +43,11 @@ type gitState struct {
 	// Shown on the status line.
 	behind []string
 
+	// others is how many other orgtd instances are running on this org
+	// directory, as of the last pollMain (see gitstore.OtherInstances).
+	// Shown on the status line.
+	others int
+
 	// orphans are dead instances' unsaved edits found at startup (see
 	// :recover); recovering are the ones :recover has loaded into memory,
 	// to drop once a save gets them into the main branch.
@@ -80,6 +85,7 @@ func (m *Model) gitStore() (*gitstore.Store, error) {
 	g.store, g.openErr = gitstore.Open(m.ws.Dir, m.cfg.MainBranch, m.cfg.OutlineIgnoreFiles)
 	if g.openErr == nil {
 		g.seen, g.openErr = g.store.Head()
+		g.others, _ = g.store.OtherInstances()
 	}
 	if g.openErr != nil {
 		g.store = nil
@@ -412,6 +418,19 @@ func (m *Model) gitStatus() string {
 	return ""
 }
 
+// instancesStatus is the status line's note about other orgtd instances
+// running on the same org directory, if there are any.
+func (m *Model) instancesStatus() string {
+	switch n := m.git.others; n {
+	case 0:
+		return ""
+	case 1:
+		return "1 other instance"
+	default:
+		return fmt.Sprintf("%d other instances", n)
+	}
+}
+
 // pollInterval is how often pollMain checks the main branch.
 const pollInterval = 2 * time.Second
 
@@ -422,7 +441,9 @@ func pollTick() tea.Cmd {
 	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return gitPollMsg{} })
 }
 
-// pollMain runs on every gitPollMsg: if the main branch moved since this
+// pollMain runs on every gitPollMsg: it recounts the other instances
+// running on the org directory (see instancesStatus), and if the main
+// branch moved since this
 // instance last caught up with it (another instance saved, or a commit or
 // pull from outside), reload the files it changed (see reloadChanged).
 // Files with unsaved edits aren't reloaded; the status line says the
@@ -433,6 +454,9 @@ func (m Model) pollMain() (tea.Model, tea.Cmd) {
 	store := m.git.store
 	if store == nil {
 		return m, next
+	}
+	if n, err := store.OtherInstances(); err == nil {
+		m.git.others = n
 	}
 	head, err := store.Head()
 	if err != nil || head == m.git.seen {

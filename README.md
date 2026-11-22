@@ -107,6 +107,10 @@ insert mode or a prompt; it waits until you're back in normal mode. A
 reloaded file loses its undo history and marks, as with `:e!`; files the
 other instance didn't touch keep theirs.
 
+The status line also says how many other instances are running on the
+same directory (`2 other instances`), when there are any. Like the
+saving itself, it only sees instances on this machine.
+
 Edits made outside orgtd — Emacs, a hand edit, a `:run` script — are
 committed for you (`orgtd: commit outside edits to inbox.org`) at the
 next `:w`, `:e!` or `:run`, then merged like any other change. Until then

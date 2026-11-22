@@ -220,7 +220,9 @@ func (m *Model) busyIndicator() string {
 }
 
 // normalStatusLine returns the single line for the default (mode-less)
-// status area: "dir — item N/M". Links and calendar-meeting detail for
+// status area: "dir — item N/M", then any other instances running on
+// the org directory and the repository's state (see instancesStatus and
+// gitStatus). Links and calendar-meeting detail for
 // the current entry no longer live here — they're always in the info
 // buffer above (see infoBufferLines), one section per kind rather than
 // squeezed onto this line only when there's room for them.
@@ -233,6 +235,9 @@ func (m *Model) normalStatusLine() string {
 	line := fmt.Sprintf(" %s  —  item %d/%d", place, pos, total)
 	if m.view == calendarView {
 		line += "  —  " + m.calendarSyncStatus()
+	}
+	if s := m.instancesStatus(); s != "" {
+		line += "  —  " + s
 	}
 	if s := m.gitStatus(); s != "" {
 		line += "  —  " + s

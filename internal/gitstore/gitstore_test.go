@@ -8,9 +8,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/gofrs/flock"
 )
 
 // newRepo makes an empty repository on branch main in a temp dir, with
@@ -538,5 +540,69 @@ func TestCloseRemovesInstanceLockFile(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Join(dir, ".git", "orgtd", "instances"))
 	if len(entries) != 0 {
 		t.Errorf("instances/ holds %d files after Close", len(entries))
+	}
+}
+
+func TestOtherInstances(t *testing.T) {
+	dir := newRepo(t, map[string]string{"todo.org": "* a\n"})
+	count := func(s *Store) int {
+		t.Helper()
+		n, err := s.OtherInstances()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	a := open(t, dir)
+	if n := count(a); n != 0 {
+		t.Errorf("alone: OtherInstances = %d, want 0", n)
+	}
+	b, c := open(t, dir), open(t, dir)
+	for _, s := range []*Store{a, b, c} {
+		if n := count(s); n != 2 {
+			t.Errorf("%s: OtherInstances = %d, want 2", s.ID(), n)
+		}
+	}
+	// Another repository's instances don't count.
+	open(t, newRepo(t, nil))
+	if n := count(a); n != 2 {
+		t.Errorf("with another repo open: OtherInstances = %d, want 2", n)
+	}
+
+	b.Close()
+	if n := count(a); n != 1 {
+		t.Errorf("after b closed: OtherInstances = %d, want 1", n)
+	}
+
+	// A crashed instance's leftover file isn't counted, and isn't removed
+	// either (see OtherInstances): that's left to Orphans.
+	stale := a.instanceLockPath("crashed-1-1")
+	if err := os.WriteFile(stale, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(a); n != 1 {
+		t.Errorf("with a stale lock file: OtherInstances = %d, want 1", n)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Errorf("stale lock file: %v, want it left alone", err)
+	}
+}
+
+// TestOpenWaitsOutATestLock checks that Open retries when its new lock
+// file is briefly test-locked by another instance (OtherInstances or
+// Orphans) instead of failing.
+func TestOpenWaitsOutATestLock(t *testing.T) {
+	dir := newRepo(t, map[string]string{"todo.org": "* a\n"})
+	a := open(t, dir)
+	fl := flock.New(a.instanceLockPath("starting"))
+	if ok, err := fl.TryLock(); err != nil || !ok {
+		t.Fatalf("TryLock = %v, %v", ok, err)
+	}
+	go func() {
+		time.Sleep(3 * instanceLockRetry)
+		fl.Unlock()
+	}()
+	if err := takeInstanceLock(flock.New(a.instanceLockPath("starting"))); err != nil {
+		t.Fatalf("takeInstanceLock = %v, want it to wait out the test lock", err)
 	}
 }
