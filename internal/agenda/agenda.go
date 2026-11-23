@@ -38,20 +38,11 @@ type Entry struct {
 	Missed   int       // occurrences elapsed since Date without completion; only meaningful when Date is Overdue
 }
 
-// Keywords returns cfg's configured keywords, or the built-in set if
-// none are configured.
-func Keywords(cfg config.Config) []config.KeywordConfig {
-	if len(cfg.Keywords) == 0 {
-		return config.DefaultKeywords()
-	}
-	return cfg.Keywords
-}
-
 // KeywordRole returns the configured agenda role of keyword ("",
 // config.AgendaNext or config.AgendaSkip) — "" if it isn't a configured
 // keyword.
 func KeywordRole(cfg config.Config, keyword string) string {
-	for _, k := range Keywords(cfg) {
+	for _, k := range cfg.EffectiveKeywords() {
 		if k.Name == keyword {
 			return k.Agenda
 		}
@@ -69,6 +60,7 @@ func KeywordRole(cfg config.Config, keyword string) string {
 // in file/tree order, DEADLINE before SCHEDULED for the same headline.
 func Entries(ws *workspace.Workspace, cfg config.Config, today time.Time) []Entry {
 	var entries []Entry
+	kw := cfg.OrgKeywords()
 	horizon := today.AddDate(0, 0, cfg.AgendaWindowDays)
 	consider := func(ts *org.Timestamp, label string, h *org.Headline) {
 		date, missed, ok := orgdate.ParseTimestampDate(ts, today)
@@ -82,7 +74,7 @@ func Entries(ws *workspace.Workspace, cfg config.Config, today time.Time) []Entr
 			continue
 		}
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			if org.IsDoneKeyword(h.Keyword) || KeywordRole(cfg, h.Keyword) == config.AgendaSkip {
+			if kw.IsDone(h.Keyword) || KeywordRole(cfg, h.Keyword) == config.AgendaSkip {
 				return
 			}
 			consider(h.Deadline, "Deadline", h)

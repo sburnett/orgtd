@@ -216,10 +216,10 @@ func AdvanceRepeating(ts *org.Timestamp, now time.Time) (next *org.Timestamp, ok
 // completing a repeating item records that instead and leaves the keyword
 // alone. Going by h's state means a CLOSED stamp left on an item that's
 // since been reopened by hand doesn't count. ok is false if h has neither,
-// or the stamp can't be read.
-func CompletedTime(h *org.Headline) (time.Time, bool) {
+// or the stamp can't be read. kw says which keywords are done states.
+func CompletedTime(h *org.Headline, kw org.Keywords) (time.Time, bool) {
 	var raw string
-	if !org.IsDoneKeyword(h.Keyword) {
+	if !kw.IsDone(h.Keyword) {
 		raw = strings.Trim(h.Properties["LAST_REPEAT"], "[]")
 	} else if h.Closed != nil {
 		raw = h.Closed.Raw

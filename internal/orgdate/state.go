@@ -36,10 +36,10 @@ func Stamp(now time.Time) string { return now.Format("2006-01-02 Mon 15:04") }
 //   - Otherwise entering a done state stamps CLOSED, and leaving one
 //     clears it.
 //
-// h is not modified.
-func ChangeState(h *org.Headline, keyword string, now time.Time) StateChange {
+// kw says which keywords are done states. h is not modified.
+func ChangeState(h *org.Headline, keyword string, now time.Time, kw org.Keywords) StateChange {
 	sc := StateChange{Keyword: keyword, Closed: h.Closed, Scheduled: h.Scheduled, Deadline: h.Deadline}
-	closing := org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword)
+	closing := kw.IsDone(keyword) && !kw.IsDone(h.Keyword)
 	if closing {
 		newScheduled, schedOK := AdvanceRepeating(h.Scheduled, now)
 		newDeadline, deadOK := AdvanceRepeating(h.Deadline, now)
@@ -53,7 +53,7 @@ func ChangeState(h *org.Headline, keyword string, now time.Time) StateChange {
 		sc.Closed = &org.Timestamp{Raw: Stamp(now)}
 		return sc
 	}
-	if !org.IsDoneKeyword(keyword) && org.IsDoneKeyword(h.Keyword) {
+	if !kw.IsDone(keyword) && kw.IsDone(h.Keyword) {
 		sc.Closed = nil
 	}
 	return sc

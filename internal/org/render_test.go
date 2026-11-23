@@ -13,7 +13,7 @@ func TestRenderHeadlineRoundTrips(t *testing.T) {
 
 	rendered := RenderHeadline(project)
 
-	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org")
+	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("re-parsing rendered headline: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRenderHeadlinePreservesFields(t *testing.T) {
 	task := f.Headlines[0].Children[0] // NEXT ... with SCHEDULED, properties, body
 
 	rendered := RenderHeadline(task)
-	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org")
+	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("re-parsing rendered headline: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRenderHeadlineWithTags(t *testing.T) {
 	task := f.Headlines[0].Children[1] // WAITING ... :blocked:review:
 
 	rendered := RenderHeadline(task)
-	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org")
+	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("re-parsing rendered headline: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestRenderFileRoundTrips(t *testing.T) {
 	f := mustParse(t)
 
 	rendered := RenderFile(f)
-	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org")
+	reparsed, err := Parse(strings.NewReader(rendered), "rendered.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("re-parsing rendered file: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestHeadlineLinesFollowsRenderingOnceWritten(t *testing.T) {
 	if err := os.WriteFile(path, []byte("#+TITLE: x\n* One\nbody\n** Two\n* Three\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := ParseFile(path)
+	f, err := ParseFile(path, DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestHeadlineLinesUsesSourceLinesForAnUnwrittenFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, err := ParseFile(path)
+	f, err := ParseFile(path, DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestRenderFileKeepsUnmodifiedEntriesVerbatim(t *testing.T) {
 			// Surround the entry with others, nested under it too, so
 			// line ranges between entries are exercised.
 			content := "#+TITLE: x\n\n" + src + "** child\n   text\n* other\n"
-			f, err := ParseContent([]byte(content), "t.org")
+			f, err := ParseContent([]byte(content), "t.org", DefaultKeywords())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -249,7 +249,7 @@ func TestRenderFileRerendersOnlyEditedEntries(t *testing.T) {
 	content := "* TODO a\n  SCHEDULED: <2026-11-22 Sun> note\n" +
 		"* b\n  :PROPERTIES:\n  :foo-bar: 1\n  :END:\n" +
 		"** c\n  body first\n  :PROPERTIES:\n  :ID: 1\n  :END:\n"
-	f, err := ParseContent([]byte(content), "t.org")
+	f, err := ParseContent([]byte(content), "t.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestRenderFileRerendersOnlyEditedEntries(t *testing.T) {
 
 func TestCloneKeepsSourceText(t *testing.T) {
 	content := "* a\n  :PROPERTIES:\n  :X: 1\n  :X: 2\n  :END:\n"
-	f, err := ParseContent([]byte(content), "t.org")
+	f, err := ParseContent([]byte(content), "t.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestCloneKeepsSourceText(t *testing.T) {
 }
 
 func TestDrawerKeysWithDashAndPlus(t *testing.T) {
-	f, err := ParseContent([]byte("* a\n  :PROPERTIES:\n  :foo-bar: 1\n  :tags+: x\n  :END:\n"), "t.org")
+	f, err := ParseContent([]byte("* a\n  :PROPERTIES:\n  :foo-bar: 1\n  :tags+: x\n  :END:\n"), "t.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestDrawerKeysWithDashAndPlus(t *testing.T) {
 }
 
 func TestDeletingTheLastPropertyRemovesTheDrawer(t *testing.T) {
-	f, err := ParseContent([]byte("* a\n  :PROPERTIES:\n  :X: 1\n  :END:\n  body\n"), "t.org")
+	f, err := ParseContent([]byte("* a\n  :PROPERTIES:\n  :X: 1\n  :END:\n  body\n"), "t.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,12 +310,12 @@ func TestDeletingTheLastPropertyRemovesTheDrawer(t *testing.T) {
 
 	// Unless the body starts with a planning-like line, which an empty
 	// drawer keeps in the body.
-	f, err = ParseContent([]byte("* a\n  :PROPERTIES:\n  :X: 1\n  :END:\n  SCHEDULED: <2026-11-22 Sun>\n"), "t.org")
+	f, err = ParseContent([]byte("* a\n  :PROPERTIES:\n  :X: 1\n  :END:\n  SCHEDULED: <2026-11-22 Sun>\n"), "t.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.Headlines[0].DeleteProperty("X")
-	re, err := Parse(strings.NewReader(RenderFile(f)), "t.org")
+	re, err := Parse(strings.NewReader(RenderFile(f)), "t.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

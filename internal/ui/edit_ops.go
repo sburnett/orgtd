@@ -104,8 +104,8 @@ func (m *Model) deleteHeadlineSet(headlines []*org.Headline) {
 // undo step the same way applyStatus handles a single one. A non-blank
 // note is logged if h is completing, and ignored otherwise.
 func (m *Model) buildStatusChangeAction(h *org.Headline, keyword, note string) undoAction {
-	closing := org.IsDoneKeyword(keyword) && !org.IsDoneKeyword(h.Keyword)
-	sc := orgdate.ChangeState(h, keyword, m.now()) // shared with the phone (mobilecore)
+	closing := m.kw.IsDone(keyword) && !m.kw.IsDone(h.Keyword)
+	sc := orgdate.ChangeState(h, keyword, m.now(), m.kw) // shared with the phone (mobilecore)
 	if sc.Repeat {
 		return m.withClosingNote(m.repeatAdvanceAction(h, sc), h, orgdate.StateNoteHeading(keyword, h.Keyword), note)
 	}

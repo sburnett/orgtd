@@ -24,7 +24,13 @@ func ts(t time.Time) string {
 // depending on (or polluting) the shared testdata/minimal fixture.
 func agendaFixture(t *testing.T, orgText string) *workspace.Workspace {
 	t.Helper()
-	f, err := org.Parse(strings.NewReader(orgText), "agenda.org")
+	return keywordsFixture(t, orgText, org.DefaultKeywords())
+}
+
+// keywordsFixture is agendaFixture with orgText parsed with kw.
+func keywordsFixture(t *testing.T, orgText string, kw org.Keywords) *workspace.Workspace {
+	t.Helper()
+	f, err := org.Parse(strings.NewReader(orgText), "agenda.org", kw)
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
@@ -985,22 +991,7 @@ func TestDemoteUnfoldsFoldedNewParent(t *testing.T) {
 }
 
 func TestCustomKeywordsDriveParsingPickerAndAgenda(t *testing.T) {
-	org.SetKeywords([]string{"TRIAGE", "LATER", "GO"}, []string{"SHIPPED"})
-	t.Cleanup(func() { org.SetKeywords(org.ActiveKeywords, org.DoneKeywords) })
-
 	now := orgdate.TruncateToDate(time.Now())
-	ws := agendaFixture(t, fmt.Sprintf(`* TRIAGE Sort it
-  DEADLINE: <%[1]s>
-* LATER Park it
-  DEADLINE: <%[1]s>
-* SHIPPED Done it
-  DEADLINE: <%[1]s>
-* GO Do it
-`, ts(now)))
-	if got := ws.Files[0].Headlines[0].Keyword; got != "TRIAGE" {
-		t.Fatalf("keyword = %q, want TRIAGE", got)
-	}
-
 	cfg := config.Default()
 	cfg.Keywords = []config.KeywordConfig{
 		{Name: "TRIAGE", Shortcut: "t", Color: "#ff0000"},
@@ -1008,6 +999,18 @@ func TestCustomKeywordsDriveParsingPickerAndAgenda(t *testing.T) {
 		{Name: "GO", Shortcut: "g", Agenda: config.AgendaNext},
 		{Name: "SHIPPED", Shortcut: "x", Done: true},
 	}
+	ws := keywordsFixture(t, fmt.Sprintf(`* TRIAGE Sort it
+  DEADLINE: <%[1]s>
+* LATER Park it
+  DEADLINE: <%[1]s>
+* SHIPPED Done it
+  DEADLINE: <%[1]s>
+* GO Do it
+`, ts(now)), cfg.OrgKeywords())
+	if got := ws.Files[0].Headlines[0].Keyword; got != "TRIAGE" {
+		t.Fatalf("keyword = %q, want TRIAGE", got)
+	}
+
 	m := New(ws, WithConfig(cfg))
 
 	if got := m.filteredStatusCandidates("x"); len(got) != 1 || got[0].keyword != "SHIPPED" {

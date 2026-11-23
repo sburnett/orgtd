@@ -52,16 +52,17 @@ func ClosingNoteLines(heading, note string, level int, at time.Time) []string {
 // ClosingNote returns the text of the note logged for h's latest
 // completion (see CompletedTime), or "" if it has none. A note older than
 // that completion belongs to an earlier one, and is skipped: a repeating
-// item keeps every note, and a reopened item keeps its old one.
-func ClosingNote(h *org.Headline) string {
-	completed, ok := CompletedTime(h)
+// item keeps every note, and a reopened item keeps its old one. kw says
+// which keywords are done states.
+func ClosingNote(h *org.Headline, kw org.Keywords) string {
+	completed, ok := CompletedTime(h, kw)
 	if !ok {
 		return ""
 	}
 	lines := h.TrimmedBody()
 	for i, line := range lines {
 		m := closingNoteRe.FindStringSubmatch(line)
-		if m == nil || (m[2] != "" && !org.IsDoneKeyword(m[2])) {
+		if m == nil || (m[2] != "" && !kw.IsDone(m[2])) {
 			continue
 		}
 		if at, _, err := ParseFlexible(m[3]); err != nil || at.Before(completed) {

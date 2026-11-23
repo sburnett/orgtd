@@ -66,7 +66,7 @@ func TestClosingNoteIsLoggedLikeOrgMode(t *testing.T) {
 func TestClosingNoteSurvivesReload(t *testing.T) {
 	m, h := closingNoteModel(t, "* TODO Task\n")
 	closeWithNote(m, "Sent it")
-	f, err := org.Parse(strings.NewReader(org.RenderEntry(h)), "x.org")
+	f, err := org.Parse(strings.NewReader(org.RenderEntry(h)), "x.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

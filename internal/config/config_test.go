@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 func TestLoadMissingFileReturnsZeroValueNoError(t *testing.T) {
@@ -353,5 +355,19 @@ func TestLoadRejectsRemovedVCSEditor(t *testing.T) {
 	_, err := Load(writeConfig(t, "vcs_editor = \"gitui\"\n"))
 	if err == nil || !strings.Contains(err.Error(), "[[commands]]") {
 		t.Errorf("Load(vcs_editor) = %v, want an error pointing at [[commands]]", err)
+	}
+}
+
+// TestOrgKeywordsSplitsActiveAndDone checks the keyword set handed to the
+// org parser: an unconfigured Config gives the same set as
+// org.DefaultKeywords (the two packages each list the built-in set), and
+// configured keywords replace it, split by Done.
+func TestOrgKeywordsSplitsActiveAndDone(t *testing.T) {
+	if got, want := (Config{}).OrgKeywords(), org.DefaultKeywords(); !reflect.DeepEqual(got, want) {
+		t.Errorf("unconfigured OrgKeywords = %+v, want org.DefaultKeywords %+v", got, want)
+	}
+	c := Config{Keywords: []KeywordConfig{{Name: "TRIAGE"}, {Name: "SHIPPED", Done: true}}}
+	if got, want := c.OrgKeywords(), org.NewKeywords([]string{"TRIAGE"}, []string{"SHIPPED"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("OrgKeywords = %+v, want %+v", got, want)
 	}
 }

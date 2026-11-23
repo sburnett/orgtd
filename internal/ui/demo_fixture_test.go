@@ -20,7 +20,7 @@ var demoNow = time.Date(2026, 10, 6, 10, 0, 0, 0, time.Local)
 // testdata/minimal instead.
 func loadDemo(t *testing.T) *workspace.Workspace {
 	t.Helper()
-	ws, err := workspace.Load("../../testdata/orgdir")
+	ws, err := workspace.Load("../../testdata/orgdir", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("workspace.Load: %v", err)
 	}

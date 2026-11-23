@@ -269,7 +269,7 @@ func TestBuildFileRoundTripsThroughRender(t *testing.T) {
 		{ID: "abc123", CalendarID: "primary", Summary: "Standup", Start: mustParse(t, "2026-09-10T09:00:00-07:00"), End: mustParse(t, "2026-09-10T09:15:00-07:00")},
 	}
 	rendered := org.RenderFile(BuildFile("/tmp/calendar.org", events, nil, nil))
-	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org")
+	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("Parse(rendered): %v", err)
 	}
@@ -417,7 +417,7 @@ func TestBuildHeadlineSanitizesInvalidTagCharactersInAttendeeTags(t *testing.T) 
 	// through render+parse rather than silently failing to be recognized
 	// as a tag at all (see tagsRe in internal/org).
 	rendered := org.RenderFile(&org.File{Path: "/tmp/calendar.org", Headlines: []*org.Headline{h}})
-	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org")
+	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("Parse(rendered): %v", err)
 	}
@@ -556,7 +556,7 @@ func TestBuildFileKeepsInviteFieldsFromAddingStructure(t *testing.T) {
 	if strings.Contains(rendered, "\r") {
 		t.Errorf("rendered file contains a carriage return:\n%q", rendered)
 	}
-	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org")
+	parsed, err := org.Parse(strings.NewReader(rendered), "/tmp/calendar.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("Parse(rendered): %v", err)
 	}

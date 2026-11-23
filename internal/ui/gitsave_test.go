@@ -16,6 +16,7 @@ import (
 	"github.com/sburnett/orgtd/internal/gitstore"
 	"github.com/sburnett/orgtd/internal/gitsync"
 
+	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -31,7 +32,7 @@ func twoInstances(t *testing.T, files map[string]string) (a, b Model, dir string
 	}
 	initRepo(t, dir)
 	load := func() Model {
-		ws, err := workspace.Load(dir)
+		ws, err := workspace.Load(dir, org.DefaultKeywords())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +156,7 @@ func TestReloadTakesTheirsAfterConflict(t *testing.T) {
 func TestSaveRefusedOutsideARepository(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "todo.org"), []byte("* TODO x\n"), 0o644)
-	ws, _ := workspace.Load(dir)
+	ws, _ := workspace.Load(dir, org.DefaultKeywords())
 	m := New(ws)
 	m.cursor = findRow(t, m, "x")
 	m = setStatus(m, "n")
@@ -362,7 +363,7 @@ func crashedInstance(t *testing.T) (a, c Model, dir string) {
 	}
 	b.git.store.Close() // b exits
 
-	ws, _ := workspace.Load(dir)
+	ws, _ := workspace.Load(dir, org.DefaultKeywords())
 	c = New(ws)
 	store, err := c.gitStore()
 	if err != nil {

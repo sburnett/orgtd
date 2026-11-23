@@ -41,7 +41,7 @@ func runDirtyProperty(t *testing.T, seed int64, steps int) {
 	check := func() {
 		t.Helper()
 		for _, f := range m.ws.Files {
-			disk, err := org.ParseFile(f.Path)
+			disk, err := org.ParseFile(f.Path, org.DefaultKeywords())
 			if err != nil {
 				t.Fatalf("ParseFile(%s): %v", f.Path, err)
 			}

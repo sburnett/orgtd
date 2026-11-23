@@ -18,7 +18,6 @@ import (
 	orgtd "github.com/sburnett/orgtd"
 	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/gitstore"
-	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/ui"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -78,7 +77,8 @@ func main() {
 	// merged with whatever other instances (or other editors) saved
 	// meanwhile — see internal/gitstore. Opening takes this instance's
 	// lock, which the OS drops when the process exits, however it exits.
-	store, err := gitstore.Open(cfg.OrgDir, cfg.MainBranch, cfg.OutlineIgnoreFiles)
+	kw := cfg.OrgKeywords()
+	store, err := gitstore.Open(cfg.OrgDir, cfg.MainBranch, cfg.OutlineIgnoreFiles, kw)
 	if errors.Is(err, gitstore.ErrNotRepo) {
 		fmt.Fprintf(os.Stderr, "orgtd: %s must be the root of a git repository, since orgtd saves by committing to it.\nTo start one: git -C %s init -b %s\n", cfg.OrgDir, cfg.OrgDir, cfg.MainBranch)
 		os.Exit(1)
@@ -105,17 +105,7 @@ func main() {
 		warnings = append(warnings, "Recovered unsaved edits from a crashed orgtd — :recover to save them, :recover drop to discard")
 	}
 
-	var active, done []string
-	for _, k := range cfg.Keywords {
-		if k.Done {
-			done = append(done, k.Name)
-		} else {
-			active = append(active, k.Name)
-		}
-	}
-	org.SetKeywords(active, done)
-
-	ws, err := workspace.Load(cfg.OrgDir, cfg.OutlineIgnoreFiles...)
+	ws, err := workspace.Load(cfg.OrgDir, kw, cfg.OutlineIgnoreFiles...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orgtd: %v\n", err)
 		os.Exit(1)

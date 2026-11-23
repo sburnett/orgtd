@@ -84,7 +84,7 @@ func TestLoadIncludesReferenceSubdirectoryOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ws, err := Load(dir)
+	ws, err := Load(dir, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestLoadWorksWithoutAReferenceDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.org"), []byte("* hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ws, err := Load(dir)
+	ws, err := Load(dir, org.DefaultKeywords())
 	if err != nil || len(ws.Files) != 1 {
 		t.Fatalf("Load = %v files, err %v; want 1 file, nil", len(ws.Files), err)
 	}
@@ -125,7 +125,7 @@ func TestLoadSkipsIgnoredFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ws, err := Load(dir, "archive*.org", "old.org")
+	ws, err := Load(dir, org.DefaultKeywords(), "archive*.org", "old.org")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestLoadSkipsIgnoredFiles(t *testing.T) {
 }
 
 func TestLoadRejectsMalformedIgnorePattern(t *testing.T) {
-	if _, err := Load(t.TempDir(), "["); err == nil {
+	if _, err := Load(t.TempDir(), org.DefaultKeywords(), "["); err == nil {
 		t.Error("Load with a malformed pattern = nil error, want one")
 	}
 }

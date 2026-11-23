@@ -163,7 +163,7 @@ func (m *Model) loadedFile(path string) *org.File {
 // memory — nothing is written, not even its directory, until ":w" saves
 // an edit to it (see org.File.New). created reports which.
 func (m *Model) addFile(path string) (f *org.File, created bool, err error) {
-	f, err = org.ParseFile(path)
+	f, err = org.ParseFile(path, m.kw)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		f, created = &org.File{Path: path, New: true}, true

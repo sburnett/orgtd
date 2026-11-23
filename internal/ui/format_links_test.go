@@ -90,11 +90,11 @@ func TestCollectFormatLinksTargetsOrdersMultipleURLsInOneField(t *testing.T) {
 // pasted into an event's description) would just be redone, or lost,
 // on the next sync.
 func TestCollectFormatLinksTargetsSkipsCalendarFile(t *testing.T) {
-	calEvent, err := org.Parse(strings.NewReader("* Standup https://example.com/meet\n"), "calendar.org")
+	calEvent, err := org.Parse(strings.NewReader("* Standup https://example.com/meet\n"), "calendar.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
-	other, err := org.Parse(strings.NewReader("* TODO url https://example.com/a\n"), "projects.org")
+	other, err := org.Parse(strings.NewReader("* TODO url https://example.com/a\n"), "projects.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
@@ -497,11 +497,11 @@ func TestFinishFormatLinksOnFailureUnlocksWithoutChangingContent(t *testing.T) {
 }
 
 func TestFinishFormatLinksIsOneUndoStepPerFile(t *testing.T) {
-	fileA, err := org.Parse(strings.NewReader("* TODO A https://example.com/a\n"), "a.org")
+	fileA, err := org.Parse(strings.NewReader("* TODO A https://example.com/a\n"), "a.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
-	fileB, err := org.Parse(strings.NewReader("* TODO B https://example.com/b\n"), "b.org")
+	fileB, err := org.Parse(strings.NewReader("* TODO B https://example.com/b\n"), "b.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}

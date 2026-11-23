@@ -50,7 +50,7 @@ func TestRenderRoundTripsThroughParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := org.Parse(strings.NewReader(text), "inbox.org")
+	f, err := org.Parse(strings.NewReader(text), "inbox.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestRenderWithKeyword(t *testing.T) {
 	if !strings.HasPrefix(got, "* TODO Call the plumber   :home:\n") {
 		t.Errorf("Render = %q", got)
 	}
-	f, _ := org.Parse(strings.NewReader(got), "inbox.org")
+	f, _ := org.Parse(strings.NewReader(got), "inbox.org", org.DefaultKeywords())
 	if h := f.Headlines[0]; h.Keyword != "TODO" || h.Title != "Call the plumber" {
 		t.Errorf("parsed keyword/title = %q/%q", h.Keyword, h.Title)
 	}

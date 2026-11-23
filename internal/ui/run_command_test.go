@@ -11,6 +11,7 @@ import (
 
 	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/gitstore"
+	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -87,7 +88,7 @@ func TestRunSavesBeforeLaunching(t *testing.T) {
 		t.Fatal(err)
 	}
 	initRepo(t, dir)
-	ws, err := workspace.Load(dir)
+	ws, err := workspace.Load(dir, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestRunReloadsFilesChangedOnDisk(t *testing.T) {
 		}
 	}
 	initRepo(t, dir)
-	ws, err := workspace.Load(dir)
+	ws, err := workspace.Load(dir, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +178,7 @@ func contextFixture(t *testing.T, withContext bool) (Model, string) {
 		t.Fatal(err)
 	}
 	initRepo(t, dir)
-	ws, err := workspace.Load(dir)
+	ws, err := workspace.Load(dir, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +295,7 @@ func commitOutside(t *testing.T, dir, name, content string) {
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s, err := gitstore.Open(dir, "main", nil)
+	s, err := gitstore.Open(dir, "main", nil, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +368,7 @@ func TestRunContextFollowsTargetMergedBySave(t *testing.T) {
 func TestRunContextFollowsTargetReloadedBySave(t *testing.T) {
 	m, dir := contextFixture(t, true)
 	commitOutside(t, dir, "other.org", "* TODO Elsewhere\n")
-	ws, err := workspace.Load(dir)
+	ws, err := workspace.Load(dir, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

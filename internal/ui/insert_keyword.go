@@ -186,7 +186,7 @@ func (m *Model) removeInsertKeyword() {
 // closing note, right in the entry (see beginNote).
 func (m *Model) chooseInsertKeyword(c statusCandidate) {
 	kw, _ := m.insertKeyword()
-	if org.IsDoneKeyword(c.keyword) && !org.IsDoneKeyword(kw) {
+	if m.kw.IsDone(c.keyword) && !m.kw.IsDone(kw) {
 		m.beginNote(c.keyword)
 		if m.ins.statusOnly && m.ins.note != nil {
 			m.ins.note.direct = true
@@ -264,7 +264,7 @@ func (m *Model) setInsertKeyword(keyword, note string) {
 // headline, as applyEditedEntry would on Esc; nil if it can't.
 func (m *Model) parsedInsertEntry() *org.Headline {
 	text := org.IndentEntry(m.ins.buf.String(), m.ins.target.Level)
-	f, err := org.Parse(strings.NewReader(text), "")
+	f, err := org.Parse(strings.NewReader(text), "", m.kw)
 	if err != nil || len(f.Headlines) == 0 {
 		return nil
 	}

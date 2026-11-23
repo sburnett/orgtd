@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -41,7 +42,7 @@ func loadDemoCopy(t *testing.T) *workspace.Workspace {
 			}
 		}
 	}
-	ws, err := workspace.Load(dst)
+	ws, err := workspace.Load(dst, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

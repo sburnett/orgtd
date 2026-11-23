@@ -35,6 +35,7 @@ import (
 	"github.com/sburnett/orgtd/internal/capture"
 	"github.com/sburnett/orgtd/internal/capturequeue"
 	"github.com/sburnett/orgtd/internal/config"
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // MobileBranch is the branch every phone change lives on.
@@ -455,9 +456,13 @@ func (r *Repo) replayOps(wt *git.Worktree) ([]string, error) {
 	if err != nil || len(ops) == 0 {
 		return nil, err
 	}
+	kw, err := repoKeywords(r.Dir)
+	if err != nil {
+		return nil, err
+	}
 	var skipped []string
 	for _, op := range ops {
-		if err := applyOp(r.Dir, op); err != nil {
+		if err := applyOp(r.Dir, op, kw); err != nil {
 			if !errors.Is(err, ErrEntryChanged) {
 				return nil, fmt.Errorf("gitsync: setting %q to %s: %w", op.Title(), op.To, err)
 			}
@@ -520,6 +525,17 @@ func InboxFile(dir string) (string, error) {
 		return cfg.InboxFile, nil
 	}
 	return config.Default().InboxFile, nil
+}
+
+// repoKeywords is the keyword set for the checkout in dir: the committed
+// .orgtd.toml's keywords, else the built-in set — what the phone's
+// views (see mobilecore) parse the same checkout with.
+func repoKeywords(dir string) (org.Keywords, error) {
+	cfg, _, err := config.LoadRepo(dir)
+	if err != nil {
+		return org.Keywords{}, err
+	}
+	return cfg.OrgKeywords(), nil
 }
 
 // Publish makes origin/mobile match local "mobile" (§4.3 steps 5–6):

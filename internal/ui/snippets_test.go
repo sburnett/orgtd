@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sburnett/orgtd/internal/config"
-	"github.com/sburnett/orgtd/internal/org"
 )
 
 // snippetsNow is a fixed clock: a Saturday afternoon.
@@ -113,19 +112,17 @@ func TestSnippetsListsNestedEntriesIndividually(t *testing.T) {
 }
 
 func TestSnippetsSkipKeyword(t *testing.T) {
-	org.SetKeywords([]string{"TODO"}, []string{"DONE", "ARCHIVED"})
-	t.Cleanup(func() { org.SetKeywords(org.ActiveKeywords, org.DoneKeywords) })
-	ws := agendaFixture(t, `* ARCHIVED Filed away
-  CLOSED: [2026-10-30 Fri 09:00]
-* DONE Finished
-  CLOSED: [2026-10-30 Fri 09:00]
-`)
 	cfg := config.Default()
 	cfg.Keywords = []config.KeywordConfig{
 		{Name: "TODO", Shortcut: "t"},
 		{Name: "DONE", Shortcut: "d", Done: true},
 		{Name: "ARCHIVED", Shortcut: "a", Done: true, Snippets: config.SnippetsSkip},
 	}
+	ws := keywordsFixture(t, `* ARCHIVED Filed away
+  CLOSED: [2026-10-30 Fri 09:00]
+* DONE Finished
+  CLOSED: [2026-10-30 Fri 09:00]
+`, cfg.OrgKeywords())
 	m := New(ws, WithConfig(cfg), WithClock(snippetsClock))
 	m.switchToView(snippetsView)
 	want := []string{"2026-10-30 Fri", "  Finished"}

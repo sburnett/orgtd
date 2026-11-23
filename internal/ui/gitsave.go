@@ -91,7 +91,7 @@ func (m *Model) gitStore() (*gitstore.Store, error) {
 		return g.store, g.openErr
 	}
 	g.tried = true
-	g.store, g.openErr = gitstore.Open(m.ws.Dir, m.cfg.MainBranch, m.cfg.OutlineIgnoreFiles)
+	g.store, g.openErr = gitstore.Open(m.ws.Dir, m.cfg.MainBranch, m.cfg.OutlineIgnoreFiles, m.kw)
 	if g.openErr == nil {
 		g.seen, g.openErr = g.store.Head()
 		g.others, _ = g.store.OtherInstances()
@@ -171,7 +171,7 @@ func (m *Model) saveFiles(files []*org.File, forced map[string]bool) (string, bo
 			Force:   forced[rel],
 		})
 	}
-	res, err := store.Save(m.git.seen, edits, org.CommitMessage("orgtd: ", diffs))
+	res, err := store.Save(m.git.seen, edits, org.CommitMessage("orgtd: ", diffs, m.kw))
 	if err != nil {
 		return "Failed to save: " + err.Error(), false
 	}
@@ -201,7 +201,7 @@ func (m *Model) saveFiles(files []*org.File, forced map[string]bool) (string, bo
 			continue
 		}
 		// The merge brought in another instance's changes: show them.
-		newFile, err := org.ParseContent(written, f.Path)
+		newFile, err := org.ParseContent(written, f.Path, m.kw)
 		if err != nil {
 			m.markSaved(f)
 			continue
@@ -263,7 +263,7 @@ func (m *Model) reloadChanged(head plumbing.Hash, snapshot map[string][]byte, sk
 			caughtUp = false
 			continue
 		}
-		newFile, err := org.ParseContent(content, f.Path)
+		newFile, err := org.ParseContent(content, f.Path, m.kw)
 		if err != nil {
 			caughtUp = false
 			continue
@@ -276,7 +276,7 @@ func (m *Model) reloadChanged(head plumbing.Hash, snapshot map[string][]byte, sk
 		if loaded[rel] || !m.loadable(rel) {
 			continue
 		}
-		f, err := org.ParseContent(content, filepath.Join(m.ws.Dir, filepath.FromSlash(rel)))
+		f, err := org.ParseContent(content, filepath.Join(m.ws.Dir, filepath.FromSlash(rel)), m.kw)
 		if err != nil {
 			continue
 		}
@@ -426,9 +426,9 @@ func (m *Model) reloadFromMain(f *org.File) (*org.File, error) {
 	rel := m.relPath(f)
 	var newFile *org.File
 	if content, ok := res.Files[rel]; ok {
-		newFile, err = org.ParseContent(content, f.Path)
+		newFile, err = org.ParseContent(content, f.Path, m.kw)
 	} else {
-		newFile, err = org.ParseFile(f.Path)
+		newFile, err = org.ParseFile(f.Path, m.kw)
 		if f.New && err != nil {
 			newFile, err = &org.File{Path: f.Path, New: true}, nil
 		}

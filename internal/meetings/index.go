@@ -55,7 +55,8 @@ var kinds = [...]Kind{OneOff, Recurring}
 // tagsFile is the meeting-tags file recording durable per-meeting tags, or
 // nil if there isn't one yet; it should also be among files if loaded —
 // its records are excluded from linking and read for their tags here.
-func Build(files []*org.File, tagsFile *org.File) *Index {
+// kw says which keywords are done states: a done entry links to nothing.
+func Build(files []*org.File, tagsFile *org.File, kw org.Keywords) *Index {
 	ix := &Index{
 		byKey:           make(map[Key][]int),
 		tags:            make(map[Key]map[string]bool),
@@ -160,7 +161,7 @@ func Build(files []*org.File, tagsFile *org.File) *Index {
 	// meeting. At most once per meeting; an entry can link to several.
 	for _, f := range files {
 		org.Walk(f.Headlines, func(h *org.Headline) {
-			if org.IsDoneKeyword(h.Keyword) {
+			if kw.IsDone(h.Keyword) {
 				return
 			}
 			var hit map[Key]bool

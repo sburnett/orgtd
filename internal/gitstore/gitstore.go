@@ -23,6 +23,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/gofrs/flock"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // ErrNotRepo is returned by Open when the directory isn't the root of a
@@ -39,6 +41,7 @@ type Store struct {
 	mainBranch string
 	id         string // this instance's ID; see newInstanceID
 	ignore     []string
+	keywords   org.Keywords // for parsing files to describe commits
 
 	instanceLock *flock.Flock
 	mergeLock    *flock.Flock
@@ -70,12 +73,14 @@ type Store struct {
 // Open checks that dir is the root of a git repository, and takes this
 // instance's lock (held until Close or process exit; see Orphans).
 // mainBranch is the branch saves go to. ignore holds the
-// outline_ignore_files globs: matching files are never managed.
+// outline_ignore_files globs: matching files are never managed. kw is
+// the keyword set commit messages parse files with (see
+// org.CommitMessage).
 //
 // Open succeeds whatever branch HEAD is on; Save refuses unless it's
 // mainBranch (see CheckBranch), since a save moves mainBranch and
 // updates the working tree.
-func Open(dir, mainBranch string, ignore []string) (*Store, error) {
+func Open(dir, mainBranch string, ignore []string, kw org.Keywords) (*Store, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -99,6 +104,7 @@ func Open(dir, mainBranch string, ignore []string) (*Store, error) {
 		mainBranch: mainBranch,
 		id:         newInstanceID(),
 		ignore:     ignore,
+		keywords:   kw,
 	}
 	if err := os.MkdirAll(filepath.Join(gitDir, "orgtd", "instances"), 0o755); err != nil {
 		return nil, err

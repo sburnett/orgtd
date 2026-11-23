@@ -18,7 +18,13 @@ func cfg14() config.Config { return config.Default() }
 
 func agendaFixture(t *testing.T, orgText string) *workspace.Workspace {
 	t.Helper()
-	f, err := org.Parse(strings.NewReader(orgText), "agenda.org")
+	return keywordsFixture(t, orgText, org.DefaultKeywords())
+}
+
+// keywordsFixture is agendaFixture with orgText parsed with kw.
+func keywordsFixture(t *testing.T, orgText string, kw org.Keywords) *workspace.Workspace {
+	t.Helper()
+	f, err := org.Parse(strings.NewReader(orgText), "agenda.org", kw)
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
@@ -141,18 +147,7 @@ func TestAgendaEntriesExcludesUnparseableDate(t *testing.T) {
 }
 
 func TestCustomKeywordsDriveAgenda(t *testing.T) {
-	org.SetKeywords([]string{"TRIAGE", "LATER", "GO"}, []string{"SHIPPED"})
-	t.Cleanup(func() { org.SetKeywords(org.ActiveKeywords, org.DoneKeywords) })
-
 	now := orgdate.TruncateToDate(time.Now())
-	ws := agendaFixture(t, fmt.Sprintf(`* TRIAGE Sort it
-  DEADLINE: <%[1]s>
-* LATER Park it
-  DEADLINE: <%[1]s>
-* SHIPPED Done it
-  DEADLINE: <%[1]s>
-* GO Do it
-`, ts(now)))
 	cfg := config.Default()
 	cfg.Keywords = []config.KeywordConfig{
 		{Name: "TRIAGE", Shortcut: "t"},
@@ -160,6 +155,14 @@ func TestCustomKeywordsDriveAgenda(t *testing.T) {
 		{Name: "GO", Shortcut: "g", Agenda: config.AgendaNext},
 		{Name: "SHIPPED", Shortcut: "x", Done: true},
 	}
+	ws := keywordsFixture(t, fmt.Sprintf(`* TRIAGE Sort it
+  DEADLINE: <%[1]s>
+* LATER Park it
+  DEADLINE: <%[1]s>
+* SHIPPED Done it
+  DEADLINE: <%[1]s>
+* GO Do it
+`, ts(now)), cfg.OrgKeywords())
 	if entries := Entries(ws, cfg, now); len(entries) != 1 || entries[0].Headline.Title != "Sort it" {
 		t.Errorf("Entries = %+v, want only TRIAGE", entries)
 	}

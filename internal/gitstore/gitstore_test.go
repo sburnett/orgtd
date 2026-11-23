@@ -13,6 +13,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/gofrs/flock"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // newRepo makes an empty repository on branch main in a temp dir, with
@@ -40,7 +42,7 @@ func newRepo(t *testing.T, initial map[string]string) string {
 
 func open(t *testing.T, dir string) *Store {
 	t.Helper()
-	s, err := Open(dir, "main", nil)
+	s, err := Open(dir, "main", nil, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +110,7 @@ func gitCheck(t *testing.T, dir string) {
 }
 
 func TestOpenRefusesNonRepository(t *testing.T) {
-	_, err := Open(t.TempDir(), "main", nil)
+	_, err := Open(t.TempDir(), "main", nil, org.DefaultKeywords())
 	if !errors.Is(err, ErrNotRepo) {
 		t.Errorf("Open = %v, want ErrNotRepo", err)
 	}
@@ -322,7 +324,7 @@ func TestIgnoredFilesAreWrittenNotCommitted(t *testing.T) {
 
 func TestOutlineIgnoreFilesAreNotManaged(t *testing.T) {
 	dir := newRepo(t, nil)
-	s, err := Open(dir, "main", []string{"archive*.org"})
+	s, err := Open(dir, "main", []string{"archive*.org"}, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +525,7 @@ func TestConcurrentSaves(t *testing.T) {
 
 func TestCloseRemovesInstanceLockFile(t *testing.T) {
 	dir := newRepo(t, nil)
-	s, err := Open(dir, "main", nil)
+	s, err := Open(dir, "main", nil, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

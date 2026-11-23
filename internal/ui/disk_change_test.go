@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -20,7 +21,7 @@ func diskChangeFixture(t *testing.T) (Model, string) {
 		t.Fatal(err)
 	}
 	initRepo(t, dir)
-	ws, err := workspace.Load(dir)
+	ws, err := workspace.Load(dir, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -233,7 +233,7 @@ func (m Model) renderKeywordAndTitle(h *org.Headline, bg lipgloss.TerminalColor)
 	}
 
 	base := lipgloss.NewStyle()
-	if org.IsDoneKeyword(h.Keyword) {
+	if m.kw.IsDone(h.Keyword) {
 		base = m.doneTitleStyle()
 	}
 	base = m.fadeIfImmutable(base, h).Background(bg)

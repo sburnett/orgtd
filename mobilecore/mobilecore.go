@@ -425,6 +425,7 @@ func isSent(groupDir, id string) (bool, error) {
 // loaded is the working tree as the read views see it.
 type loaded struct {
 	cfg      config.Config
+	kw       org.Keywords // cfg.OrgKeywords(), what ws was parsed with
 	warnings []string
 	ws       *workspace.Workspace
 	// changed holds file + "\x00" + title path of every entry with a
@@ -448,8 +449,8 @@ func changedKey(file string, path []string) string {
 	return file + "\x00" + strings.Join(path, "\x00")
 }
 
-// load reads the repo-level config, applies its keywords, and loads the
-// workspace from the working tree.
+// load reads the repo-level config and loads the workspace from the
+// working tree, parsed with the config's keywords.
 func load(groupDir string) (*loaded, error) {
 	dir := repoDir(groupDir)
 	if _, err := os.Stat(dir); err != nil {
@@ -462,20 +463,12 @@ func load(groupDir string) (*loaded, error) {
 	cfg := config.Default()
 	config.Overlay(&cfg, repoCfg, config.LayerRepo, nil)
 	cfg.ApplyDefaults()
-	var active, done []string
-	for _, k := range cfg.Keywords {
-		if k.Done {
-			done = append(done, k.Name)
-		} else {
-			active = append(active, k.Name)
-		}
-	}
-	org.SetKeywords(active, done)
-	ws, err := workspace.Load(dir, cfg.OutlineIgnoreFiles...)
+	kw := cfg.OrgKeywords()
+	ws, err := workspace.Load(dir, kw, cfg.OutlineIgnoreFiles...)
 	if err != nil {
 		return nil, err
 	}
-	l := &loaded{cfg: cfg, warnings: warnings, ws: ws, changed: map[string]bool{}, added: map[string]bool{}, captures: map[string]string{}, unsent: map[string]bool{}}
+	l := &loaded{cfg: cfg, kw: kw, warnings: warnings, ws: ws, changed: map[string]bool{}, added: map[string]bool{}, captures: map[string]string{}, unsent: map[string]bool{}}
 	ops, err := capturequeue.LoadOps(opsPath(groupDir))
 	if err != nil {
 		return nil, err
@@ -594,7 +587,7 @@ func (l *loaded) toEntry(f *org.File, h *org.Headline, idx []int, withChildren b
 		Ancestors: ancestors,
 		Level:     h.Level,
 		Keyword:   h.Keyword,
-		Done:      org.IsDoneKeyword(h.Keyword),
+		Done:      l.kw.IsDone(h.Keyword),
 		Priority:  h.Priority,
 		Title:     h.Title,
 		Tags:      append([]string{}, h.Tags...),

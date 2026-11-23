@@ -28,7 +28,7 @@ func (m *Model) advanceReviewTarget() {
 		return
 	}
 	for _, h := range f.Headlines {
-		if !org.IsDoneKeyword(h.Keyword) {
+		if !m.kw.IsDone(h.Keyword) {
 			m.reviewTarget = h
 			return
 		}
@@ -42,7 +42,7 @@ func (m *Model) advanceReviewTarget() {
 // waiting to be filed away. A no-op if review is off, nothing's
 // pinned, or the target is still active.
 func (m *Model) advanceReviewTargetIfDone() {
-	if m.reviewActive && m.reviewTarget != nil && org.IsDoneKeyword(m.reviewTarget.Keyword) {
+	if m.reviewActive && m.reviewTarget != nil && m.kw.IsDone(m.reviewTarget.Keyword) {
 		m.advanceReviewTarget()
 	}
 }
@@ -74,7 +74,7 @@ func (m *Model) reviewStep(delta int) {
 		return
 	}
 	for i := idx + delta; i >= 0 && i < len(f.Headlines); i += delta {
-		if !org.IsDoneKeyword(f.Headlines[i].Keyword) {
+		if !m.kw.IsDone(f.Headlines[i].Keyword) {
 			m.reviewTarget = f.Headlines[i]
 			return
 		}

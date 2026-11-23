@@ -159,7 +159,7 @@ func TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	initRepo(t, dir)
-	f, err := org.ParseFile(path)
+	f, err := org.ParseFile(path, org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline(t *testing.T) {
 		t.Fatalf("message = %q, want it to confirm the write", m.message)
 	}
 
-	reparsed, err := org.ParseFile(path)
+	reparsed, err := org.ParseFile(path, org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("ParseFile after :w: %v", err)
 	}

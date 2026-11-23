@@ -13,7 +13,7 @@ var t0 = time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 
 func parse(t *testing.T, name, text string) *org.File {
 	t.Helper()
-	f, err := org.Parse(strings.NewReader(text), name)
+	f, err := org.Parse(strings.NewReader(text), name, org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestCandidatesDedupesSeriesAndPicksRelevantOccurrence(t *testing.T) {
 			event("s-3", "series", "Standup (tomorrow)", t0.Add(24*time.Hour), t0.Add(25*time.Hour), "recurring")+
 			event("solo", "", "Kickoff", t0.Add(2*time.Hour), t0.Add(3*time.Hour)))
 	cal.Headlines[1].Properties["GCAL_SELF_RESPONSE_STATUS"] = "accepted"
-	ix := Build([]*org.File{cal}, nil)
+	ix := Build([]*org.File{cal}, nil, org.DefaultKeywords())
 
 	got := ix.Candidates(t0)
 	if len(got) != 2 {
@@ -147,7 +147,7 @@ func TestCandidatesDedupesSeriesAndPicksRelevantOccurrence(t *testing.T) {
 
 func TestCandidatesSkipsOccurrencesWithoutAStart(t *testing.T) {
 	f := parse(t, "c.org", "* Broken\n  :PROPERTIES:\n  :GCAL_EVENT_ID: x\n  :END:\n")
-	if got := Build([]*org.File{f}, nil).Candidates(t0); len(got) != 0 {
+	if got := Build([]*org.File{f}, nil, org.DefaultKeywords()).Candidates(t0); len(got) != 0 {
 		t.Errorf("Candidates = %+v, want none", got)
 	}
 }
@@ -166,7 +166,7 @@ func TestLinkedItemsExplicitAndTagLinks(t *testing.T) {
 * TODO Unrelated :@bob:
 * DONE Finished :@alice:
 `)
-	ix := Build([]*org.File{cal, work}, nil)
+	ix := Build([]*org.File{cal, work}, nil, org.DefaultKeywords())
 	got := titles(ix.LinkedItems(OneOff, "kick"))
 	want := []string{"Attached explicitly", "Tag matched", "Both ways"}
 	if !eq(got, want) {
@@ -180,7 +180,7 @@ func TestLinkedItemsExplicitAndTagLinks(t *testing.T) {
 func TestSeriesTagNeverLinks(t *testing.T) {
 	cal := parse(t, "calendar.org", event("o1", "series", "Standup", t0, t0.Add(time.Hour), "recurring"))
 	work := parse(t, "work.org", "* TODO Tagged recurring :recurring:\n")
-	ix := Build([]*org.File{cal, work}, nil)
+	ix := Build([]*org.File{cal, work}, nil, org.DefaultKeywords())
 	if got := ix.LinkedItems(Recurring, "series"); len(got) != 0 {
 		t.Errorf("LinkedItems = %v, want none: the recurring system tag never counts", titles(got))
 	}
@@ -193,7 +193,7 @@ func TestCalendarEventsAreNotTagLinkedToEachOther(t *testing.T) {
 	cal := parse(t, "calendar.org",
 		event("a", "", "Meeting A", t0, t0.Add(time.Hour), "@alice")+
 			event("b", "", "Meeting B", t0.Add(2*time.Hour), t0.Add(3*time.Hour), "@alice"))
-	ix := Build([]*org.File{cal}, nil)
+	ix := Build([]*org.File{cal}, nil, org.DefaultKeywords())
 	if got := ix.LinkedItems(OneOff, "a"); len(got) != 0 {
 		t.Errorf("LinkedItems = %v, want none: a synced event isn't linkable by tag", titles(got))
 	}
@@ -210,7 +210,7 @@ func TestMeetingTagsRecordTagsLinkButRecordItselfDoesNot(t *testing.T) {
   :END:
 `)
 	work := parse(t, "work.org", "* TODO For carol :@carol:\n")
-	ix := Build([]*org.File{cal, tags, work}, tags)
+	ix := Build([]*org.File{cal, tags, work}, tags, org.DefaultKeywords())
 
 	if got := titles(ix.LinkedItems(OneOff, "kick")); !eq(got, []string{"For carol"}) {
 		t.Errorf("LinkedItems = %v, want just the ordinary entry (the tag record itself excluded)", got)
@@ -225,7 +225,7 @@ func TestMeetingTagsRecordTagsLinkButRecordItselfDoesNot(t *testing.T) {
 		t.Error("TagRecord(unknown) != nil")
 	}
 	// Without the tags file, the recorded tag is gone.
-	if Build([]*org.File{cal, work}, nil).LinkedItems(OneOff, "kick") != nil {
+	if Build([]*org.File{cal, work}, nil, org.DefaultKeywords()).LinkedItems(OneOff, "kick") != nil {
 		t.Error("with no tags file, nothing should link")
 	}
 }
@@ -236,7 +236,7 @@ func TestTagLinkedReturnsSharedTagMeetingsChronologically(t *testing.T) {
 			event("early", "", "Early", t0.Add(time.Hour), t0.Add(2*time.Hour), "@alice", "@bob")+
 			event("none", "", "Other", t0, t0.Add(time.Hour), "@zed"))
 	work := parse(t, "work.org", "* TODO Needs alice :@alice:\n* TODO Untagged\n* TODO Series only :recurring:\n")
-	ix := Build([]*org.File{cal, work}, nil)
+	ix := Build([]*org.File{cal, work}, nil, org.DefaultKeywords())
 
 	got := ix.TagLinked(work.Headlines[0], t0)
 	if len(got) != 2 || got[0].Title != "Early" || got[1].Title != "Late" {
@@ -257,7 +257,7 @@ func TestEventLookups(t *testing.T) {
 	cal := parse(t, "calendar.org",
 		event("a", "series", "Standup", t0, t0.Add(time.Hour))+
 			event("b", "series", "Standup", t0.Add(24*time.Hour), t0.Add(25*time.Hour)))
-	ix := Build([]*org.File{cal}, nil)
+	ix := Build([]*org.File{cal}, nil, org.DefaultKeywords())
 
 	title, url, when, hasWhen, ok := ix.EventByProperty("GCAL_RECURRING_EVENT_ID", "series")
 	if !ok || title != "Standup" || url != "https://cal/a" || !hasWhen || !when.Equal(t0) {
@@ -280,7 +280,7 @@ func TestEventsForSortsChronologically(t *testing.T) {
 			event("a", "series", "Sooner", t0, t0.Add(time.Hour))+
 			event("solo", "", "Solo", t0.Add(time.Hour), t0.Add(2*time.Hour))+
 			event("x", "", "Unwanted", t0, t0.Add(time.Hour)))
-	ix := Build([]*org.File{cal}, nil)
+	ix := Build([]*org.File{cal}, nil, org.DefaultKeywords())
 	got := titles(ix.EventsFor([]string{"series"}, []string{"solo"}))
 	if want := []string{"Sooner", "Solo", "Later"}; !eq(got, want) {
 		t.Errorf("EventsFor = %v, want %v", got, want)

@@ -33,8 +33,9 @@ type Workspace struct {
 // Neither scan is recursive: any other subdirectory, including the UI's
 // scratch/ buffer directory, is never scanned. A file whose base name
 // matches one of the ignore globs (see Ignored) is skipped without being
-// read; a malformed glob is an error.
-func Load(dir string, ignore ...string) (*Workspace, error) {
+// read; a malformed glob is an error. Files are parsed with kw's
+// keywords.
+func Load(dir string, kw org.Keywords, ignore ...string) (*Workspace, error) {
 	for _, pattern := range ignore {
 		if _, err := filepath.Match(pattern, ""); err != nil {
 			return nil, fmt.Errorf("workspace: ignore pattern %q: %w", pattern, err)
@@ -53,7 +54,7 @@ func Load(dir string, ignore ...string) (*Workspace, error) {
 
 	ws := &Workspace{Dir: dir}
 	for _, p := range paths {
-		f, err := org.ParseFile(p)
+		f, err := org.ParseFile(p, kw)
 		if err != nil {
 			return nil, err
 		}

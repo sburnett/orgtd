@@ -131,7 +131,7 @@ func (m Model) finishResolve(msg resolveFinishedMsg) (tea.Model, tea.Cmd) {
 		if f == nil {
 			continue
 		}
-		newFile, err := org.ParseContent(data, f.Path)
+		newFile, err := org.ParseContent(data, f.Path, m.kw)
 		if err != nil {
 			m.message = fmt.Sprintf("Parsing resolved %s: %v", rel, err)
 			return m, nil
@@ -214,7 +214,7 @@ func (m *Model) recoverOrphans(arg string) {
 	var names []string
 	for _, e := range edits {
 		path := filepath.Join(m.ws.Dir, filepath.FromSlash(e.Path))
-		newFile, err := org.ParseContent(e.Content, path)
+		newFile, err := org.ParseContent(e.Content, path, m.kw)
 		if err != nil {
 			m.message = fmt.Sprintf("Parsing recovered %s: %v", e.Path, err)
 			return

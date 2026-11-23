@@ -14,7 +14,7 @@ import (
 //   - C
 func treeFixture(t *testing.T) *File {
 	t.Helper()
-	f, err := Parse(strings.NewReader("* A\n** A1\n** A2\n* B\n* C\n"), "t.org")
+	f, err := Parse(strings.NewReader("* A\n** A1\n** A2\n* B\n* C\n"), "t.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

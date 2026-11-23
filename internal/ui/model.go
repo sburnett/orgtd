@@ -212,6 +212,11 @@ type Model struct {
 	// Config, i.e. nothing set. Not modified after construction; runtime
 	// state that starts from a setting (hideClosedEnabled) is kept apart.
 	cfg config.Config
+	// kw is cfg's keyword set, as the org parser takes it (see
+	// config.Config.OrgKeywords): what every file is parsed with and what
+	// says which states are done. Built by New, after the options; the
+	// zero value of a Model built without New recognizes no keywords.
+	kw org.Keywords
 	// cfgSources says which config layer each setting came from (see
 	// WithConfigSources), for :config; nil when unknown (tests).
 	cfgSources config.Sources
@@ -291,6 +296,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 	for _, opt := range opts {
 		opt(&m)
 	}
+	m.kw = m.cfg.OrgKeywords()
 	m.bareURLRe = extprog.BareURLRegexp(m.cfg.URLFormatterPrefixes)
 	m.seedLastCalendarSync()
 	m.rebuildRows()

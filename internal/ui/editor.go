@@ -472,7 +472,7 @@ func (m *Model) applyEditedEntry(text string, target *org.Headline, insert *inse
 	}
 	text = m.formatURLs(org.IndentEntry(text, target.Level))
 
-	file, err := org.Parse(strings.NewReader(text), "")
+	file, err := org.Parse(strings.NewReader(text), "", m.kw)
 	if err != nil {
 		m.message = fmt.Sprintf("Could not parse edited entry: %v", err)
 		if insert != nil {

@@ -175,10 +175,7 @@ func (m Model) keywordColor(k config.KeywordConfig) string {
 // keywords returns the configured TODO keywords, or the built-in set if
 // none were configured.
 func (m Model) keywords() []config.KeywordConfig {
-	if len(m.cfg.Keywords) == 0 {
-		return config.DefaultKeywords()
-	}
-	return m.cfg.Keywords
+	return m.cfg.EffectiveKeywords()
 }
 
 // keywordConfig looks up the configured keyword named name.

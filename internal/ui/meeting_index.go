@@ -31,10 +31,10 @@ type meetingCache struct {
 // invalidates it; don't hold one across such a change.
 func (m *Model) meetingIndex() *meetings.Index {
 	if m.meetings == nil {
-		return meetings.Build(m.ws.Files, m.findMeetingTagsFile())
+		return meetings.Build(m.ws.Files, m.findMeetingTagsFile(), m.kw)
 	}
 	if m.meetings.idx == nil {
-		m.meetings.idx = meetings.Build(m.ws.Files, m.findMeetingTagsFile())
+		m.meetings.idx = meetings.Build(m.ws.Files, m.findMeetingTagsFile(), m.kw)
 		m.meetings.builds++
 	}
 	return m.meetings.idx

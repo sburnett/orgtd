@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sburnett/orgtd/internal/gitstore"
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // The phone pushes straight into the desktop's org directory, where
@@ -27,7 +28,7 @@ func setupDesktop(t *testing.T) (groupDir, desktop string, store *gitstore.Store
 	if err := Clone(groupDir, desktop, nil, ""); err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
-	store, err := gitstore.Open(desktop, "main", nil)
+	store, err := gitstore.Open(desktop, "main", nil, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

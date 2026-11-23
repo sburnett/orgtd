@@ -368,7 +368,7 @@ func (s *Store) moveTo(repo *git.Repository, branch string, m, tip plumbing.Hash
 		}
 		msg = "orgtd: merge " + branch
 		if len(diffs) > 0 {
-			msg = org.CommitMessage(msg+": ", diffs)
+			msg = org.CommitMessage(msg+": ", diffs, s.keywords)
 		}
 		if r, err = commit(repo, tree, m, msg, tip); err != nil {
 			return BranchResult{}, err

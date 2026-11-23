@@ -31,7 +31,7 @@ func (m *Model) snippetEntries(start time.Time) []snippetEntry {
 			if m.keywordSnippets(h.Keyword) == config.SnippetsSkip {
 				return
 			}
-			if at, ok := orgdate.CompletedTime(h); ok && !at.Before(start) {
+			if at, ok := orgdate.CompletedTime(h, m.kw); ok && !at.Before(start) {
 				entries = append(entries, snippetEntry{h: h, at: at})
 			}
 		})
@@ -62,7 +62,7 @@ func (m *Model) appendSnippetsRows(dst *[]row) {
 // its row in snippetsView — what wrapping and j/k already do for body
 // text, and searchable the same way (see row.bodySearch).
 func (m *Model) appendClosingNote(dst *[]row, h *org.Headline) {
-	note := orgdate.ClosingNote(h)
+	note := orgdate.ClosingNote(h, m.kw)
 	if note == "" {
 		return
 	}

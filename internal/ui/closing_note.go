@@ -15,7 +15,7 @@ import (
 // closing note before applying. Moving between two done states completes
 // nothing, and an entry locked by :format-links won't be changed at all.
 func (m *Model) closesAny(keyword string) bool {
-	if !org.IsDoneKeyword(keyword) {
+	if !m.kw.IsDone(keyword) {
 		return false
 	}
 	targets := m.selectModeTargets
@@ -27,7 +27,7 @@ func (m *Model) closesAny(keyword string) bool {
 		targets = []*org.Headline{h}
 	}
 	for _, h := range targets {
-		if !m.immutable[h] && !org.IsDoneKeyword(h.Keyword) {
+		if !m.immutable[h] && !m.kw.IsDone(h.Keyword) {
 			return true
 		}
 	}
@@ -96,7 +96,7 @@ func (m Model) bulkNoteTargets() map[*org.Headline]bool {
 	}
 	out := map[*org.Headline]bool{}
 	for _, h := range m.selectModeTargets {
-		if !m.immutable[h] && !org.IsDoneKeyword(h.Keyword) {
+		if !m.immutable[h] && !m.kw.IsDone(h.Keyword) {
 			out[h] = true
 		}
 	}
@@ -128,7 +128,7 @@ func (m Model) bulkNoteLines(r row) []string {
 	h := r.headline
 	bg := m.insertBg()
 	heading := orgdate.ClosingNoteHeading
-	if orgdate.ChangeState(h, m.closingNoteKeyword, m.now()).Repeat {
+	if orgdate.ChangeState(h, m.closingNoteKeyword, m.now(), m.kw).Repeat {
 		heading = orgdate.StateNoteHeading(m.closingNoteKeyword, h.Keyword)
 	}
 	lines := orgdate.ClosingNoteLines(heading, "", 0, m.now())

@@ -19,39 +19,43 @@ import (
 	"strings"
 )
 
-// ActiveKeywords are the default TODO-class states that represent
-// unfinished work. See SetKeywords to replace them.
-var ActiveKeywords = []string{"TODO", "NEXT", "WAITING", "SOMEDAY"}
-
-// DoneKeywords are the default TODO-class states that represent finished
-// work.
-var DoneKeywords = []string{"DONE", "CANCELLED"}
-
-var (
-	keywordSet = map[string]bool{}
-	doneSet    = map[string]bool{}
-)
-
-func init() { SetKeywords(ActiveKeywords, DoneKeywords) }
-
-// SetKeywords replaces the recognized TODO keywords. It's process-global
-// and not synchronized, so call it once at startup, before parsing any
-// file.
-func SetKeywords(active, done []string) {
-	keywordSet = make(map[string]bool)
-	doneSet = make(map[string]bool)
-	for _, k := range active {
-		keywordSet[k] = true
-	}
-	for _, k := range done {
-		keywordSet[k] = true
-		doneSet[k] = true
-	}
+// Keywords is the set of TODO keywords a parse recognizes, each either
+// active (unfinished work, like TODO) or done (finished, like DONE). The
+// zero value recognizes none; see DefaultKeywords for the built-in set.
+// A Keywords is never modified after it's built, so it's safe to share.
+type Keywords struct {
+	done map[string]bool // every keyword, mapped to whether it's a done state
 }
 
-// IsDoneKeyword reports whether keyword is one of the "done" states.
-func IsDoneKeyword(keyword string) bool {
-	return doneSet[keyword]
+// NewKeywords returns the keyword set made of active and done. A name in
+// both counts as done.
+func NewKeywords(active, done []string) Keywords {
+	k := Keywords{done: make(map[string]bool, len(active)+len(done))}
+	for _, name := range active {
+		k.done[name] = false
+	}
+	for _, name := range done {
+		k.done[name] = true
+	}
+	return k
+}
+
+// DefaultKeywords returns the built-in keyword set: TODO, NEXT, WAITING
+// and SOMEDAY (active), DONE and CANCELLED (done). It matches
+// config.DefaultKeywords.
+func DefaultKeywords() Keywords {
+	return NewKeywords([]string{"TODO", "NEXT", "WAITING", "SOMEDAY"}, []string{"DONE", "CANCELLED"})
+}
+
+// IsKeyword reports whether name is one of k's keywords.
+func (k Keywords) IsKeyword(name string) bool {
+	_, ok := k.done[name]
+	return ok
+}
+
+// IsDone reports whether name is one of k's done keywords.
+func (k Keywords) IsDone(name string) bool {
+	return k.done[name]
 }
 
 // Timestamp is a parsed org timestamp, e.g. "<2026-09-10 Thu>" or
@@ -76,7 +80,7 @@ func (t *Timestamp) String() string {
 // Headline is one node in an org outline tree.
 type Headline struct {
 	Level    int
-	Keyword  string // "", or one of the configured keywords (see SetKeywords)
+	Keyword  string // "", or one of the Keywords the file was parsed with
 	Priority string // e.g. "A", "" if none
 	Title    string // headline text, keyword/priority/tags stripped
 	Tags     []string
@@ -199,13 +203,14 @@ var (
 	planningRe = regexp.MustCompile(`(SCHEDULED|DEADLINE|CLOSED):\s*([<\[][^>\]]+[>\]])`)
 )
 
-// ParseFile reads and parses the org file at path.
-func ParseFile(path string) (*File, error) {
+// ParseFile reads and parses the org file at path, recognizing kw's
+// keywords.
+func ParseFile(path string, kw Keywords) (*File, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	f, err := Parse(bytes.NewReader(data), path)
+	f, err := Parse(bytes.NewReader(data), path, kw)
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +221,8 @@ func ParseFile(path string) (*File, error) {
 // ParseContent parses data, the content of the org file at path, and
 // records it as the file's Base, as ParseFile does for a file read from
 // disk.
-func ParseContent(data []byte, path string) (*File, error) {
-	f, err := Parse(bytes.NewReader(data), path)
+func ParseContent(data []byte, path string, kw Keywords) (*File, error) {
+	f, err := Parse(bytes.NewReader(data), path, kw)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +238,9 @@ func nonNil(b []byte) []byte {
 }
 
 // Parse reads an org file from r. path is stored on the result and used
-// only for display/identification.
-func Parse(r io.Reader, path string) (*File, error) {
+// only for display/identification. A headline's first word is its
+// Keyword only if it's one of kw's.
+func Parse(r io.Reader, path string, kw Keywords) (*File, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -270,7 +276,7 @@ func Parse(r io.Reader, path string) (*File, error) {
 
 		if m := headlineRe.FindStringSubmatch(line); m != nil {
 			level := len(m[1])
-			h := parseHeadlineLine(m[2])
+			h := parseHeadlineLine(m[2], kw)
 			h.Level = level
 			h.SrcStart = lineNo
 			if last != nil {
@@ -366,7 +372,7 @@ func Parse(r io.Reader, path string) (*File, error) {
 
 // parseHeadlineLine parses everything after the leading stars: optional
 // TODO keyword, optional priority cookie, title, optional trailing tags.
-func parseHeadlineLine(rest string) *Headline {
+func parseHeadlineLine(rest string, kw Keywords) *Headline {
 	h := &Headline{}
 
 	rest = strings.TrimSpace(rest)
@@ -387,7 +393,7 @@ func parseHeadlineLine(rest string) *Headline {
 	}
 
 	fields := strings.SplitN(rest, " ", 2)
-	if len(fields) > 0 && keywordSet[fields[0]] {
+	if len(fields) > 0 && kw.IsKeyword(fields[0]) {
 		h.Keyword = fields[0]
 		if len(fields) > 1 {
 			rest = strings.TrimSpace(fields[1])

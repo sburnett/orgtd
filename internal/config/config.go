@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // Config is the config file's contents, and also the shape of orgtd's
@@ -210,6 +212,29 @@ func DefaultKeywords() []KeywordConfig {
 		{Name: "DONE", Shortcut: "d", Done: true},
 		{Name: "CANCELLED", Shortcut: "c", Done: true, Snippets: SnippetsSkip},
 	}
+}
+
+// EffectiveKeywords returns c's configured keywords, or the built-in set
+// (see DefaultKeywords) if none are configured.
+func (c Config) EffectiveKeywords() []KeywordConfig {
+	if len(c.Keywords) == 0 {
+		return DefaultKeywords()
+	}
+	return c.Keywords
+}
+
+// OrgKeywords returns c's keywords (see EffectiveKeywords) as the set
+// the org parser recognizes, split into active and done ones.
+func (c Config) OrgKeywords() org.Keywords {
+	var active, done []string
+	for _, k := range c.EffectiveKeywords() {
+		if k.Done {
+			done = append(done, k.Name)
+		} else {
+			active = append(active, k.Name)
+		}
+	}
+	return org.NewKeywords(active, done)
 }
 
 // CheckFileNames reports an error if inbox_file, calendar_file or

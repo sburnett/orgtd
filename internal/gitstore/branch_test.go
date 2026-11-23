@@ -11,6 +11,8 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // branchFrom commits changes (nil content: delete) on top of parent and
@@ -409,7 +411,7 @@ func TestApplyBranchLeavesUnmanagedChangesAlone(t *testing.T) {
 
 func TestApplyBranchRefusesOtherBranch(t *testing.T) {
 	dir := newRepo(t, map[string]string{"inbox.org": "* a\n"})
-	s, err := Open(dir, "trunk", nil)
+	s, err := Open(dir, "trunk", nil, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

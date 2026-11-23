@@ -7,6 +7,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/sburnett/orgtd/internal/gitstore"
+	"github.com/sburnett/orgtd/internal/org"
 )
 
 // initRepo makes dir the root of a git repository on branch main, with
@@ -19,7 +20,7 @@ func initRepo(t *testing.T, dir string) {
 	}); err != nil && err != git.ErrRepositoryAlreadyExists {
 		t.Fatal(err)
 	}
-	s, err := gitstore.Open(dir, "main", nil)
+	s, err := gitstore.Open(dir, "main", nil, org.DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}

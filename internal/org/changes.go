@@ -62,13 +62,14 @@ func truncateTitle(s string) string {
 // then by title alone (an entry refiled under a new parent), then by an
 // :ID: or :CREATED: property (an entry whose title was edited). An entry
 // that matches nothing was added or removed. A version that doesn't
-// parse (a line too long to read) gives no changes.
-func DiffEntries(old, new []byte) []EntryChange {
-	oldF, err := Parse(bytes.NewReader(old), "")
+// parse (a line too long to read) gives no changes. kw is the keyword
+// set both versions are parsed with.
+func DiffEntries(old, new []byte, kw Keywords) []EntryChange {
+	oldF, err := Parse(bytes.NewReader(old), "", kw)
 	if err != nil {
 		return nil
 	}
-	newF, err := Parse(bytes.NewReader(new), "")
+	newF, err := Parse(bytes.NewReader(new), "", kw)
 	if err != nil {
 		return nil
 	}
@@ -258,8 +259,9 @@ const maxBodyChanges = 40
 // prefix followed by each file's summary — its one change, e.g.
 // `todo.org: mark DONE "Title"`, or a count of each kind, e.g.
 // `inbox.org: add 2, edit 1` — and, when there's more than one change,
-// a body listing them all, file by file.
-func CommitMessage(prefix string, files []FileDiff) string {
+// a body listing them all, file by file. kw is the keyword set the files
+// are parsed with.
+func CommitMessage(prefix string, files []FileDiff, kw Keywords) string {
 	var summaries []string
 	var body strings.Builder
 	total, listed := 0, 0
@@ -268,7 +270,7 @@ func CommitMessage(prefix string, files []FileDiff) string {
 			summaries = append(summaries, f.Path+": delete file")
 			continue
 		}
-		changes := DiffEntries(f.Old, f.New)
+		changes := DiffEntries(f.Old, f.New, kw)
 		total += len(changes)
 		summaries = append(summaries, f.Path+": "+summarize(changes))
 		if len(changes) == 0 {

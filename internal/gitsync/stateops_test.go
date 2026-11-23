@@ -53,7 +53,7 @@ func (f *fixture) queueOp(file, title, keyword string) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	of, _ := org.Parse(strings.NewReader(string(data)), file, org.DefaultKeywords())
 	var h *org.Headline
 	org.Walk(of.Headlines, func(x *org.Headline) {
 		if x.Title == title {
@@ -200,8 +200,8 @@ func TestUnionMerged(t *testing.T) {
 
 func TestKeywordOnlyChangeKeepsThePlanningLineAsWritten(t *testing.T) {
 	own := []string{"** TODO Odd", "   DEADLINE:    <2026-11-20 Fri>", "   body"}
-	f, _ := org.Parse(strings.NewReader(strings.Join(own, "\n")+"\n"), "x.org")
-	got, _ := patchEntry(own, f.Headlines[0], capturequeue.StateOp{From: "TODO", To: "NEXT", CreatedAt: opTime})
+	f, _ := org.Parse(strings.NewReader(strings.Join(own, "\n")+"\n"), "x.org", org.DefaultKeywords())
+	got, _ := patchEntry(own, f.Headlines[0], capturequeue.StateOp{From: "TODO", To: "NEXT", CreatedAt: opTime}, org.DefaultKeywords())
 	want := []string{"** NEXT Odd", "   DEADLINE:    <2026-11-20 Fri>", "   body"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("patched = %q", got)
@@ -233,7 +233,7 @@ func (f *fixture) queueEdit(file, title string, edit capturequeue.EntryEdit, key
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	of, _ := org.Parse(strings.NewReader(string(data)), file, org.DefaultKeywords())
 	var h *org.Headline
 	org.Walk(of.Headlines, func(x *org.Headline) {
 		if x.Title == title {
@@ -325,7 +325,7 @@ func (f *fixture) queueInsert(file, parent, title string, last bool) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	of, _ := org.Parse(strings.NewReader(string(data)), file, org.DefaultKeywords())
 	var p *org.Headline
 	if parent != "" {
 		org.Walk(of.Headlines, func(x *org.Headline) {
@@ -431,7 +431,7 @@ func (f *fixture) queueMove(file, title string, delta int) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	of, _ := org.Parse(strings.NewReader(string(data)), file, org.DefaultKeywords())
 	var h *org.Headline
 	org.Walk(of.Headlines, func(x *org.Headline) {
 		if x.Title == title {
@@ -511,7 +511,7 @@ func TestMovingAParentMovesItsSubtree(t *testing.T) {
 func TestAChangeThatAppliesNowhereIsKeptWithAnError(t *testing.T) {
 	f := newOpsFixture(t)
 	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
-	of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+	of, _ := org.Parse(strings.NewReader(string(data)), "work.org", org.DefaultKeywords())
 	op := NewStateOp("work.org", of.Headlines[0], "", opTime) // "Project": no previous sibling to go under
 	op.Move = &capturequeue.EntryMove{Delta: 1}
 	if _, err := capturequeue.AddOp(f.phone.OpsPath, op); err != nil {
@@ -557,7 +557,7 @@ func TestInsertBesideASibling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newOpsFixture(t)
 			data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
-			of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+			of, _ := org.Parse(strings.NewReader(string(data)), "work.org", org.DefaultKeywords())
 			var s *org.Headline
 			org.Walk(of.Headlines, func(x *org.Headline) {
 				if x.Title == tc.sibling {
@@ -587,7 +587,7 @@ func TestInsertBesideASibling(t *testing.T) {
 func (f *fixture) queueDelete(file, title string) {
 	f.t.Helper()
 	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, file))
-	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	of, _ := org.Parse(strings.NewReader(string(data)), file, org.DefaultKeywords())
 	var h *org.Headline
 	org.Walk(of.Headlines, func(x *org.Headline) {
 		if x.Title == title {
@@ -639,7 +639,7 @@ func (f *fixture) queueReorder(file, title, anchor string, after bool) {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	of, _ := org.Parse(strings.NewReader(string(data)), file)
+	of, _ := org.Parse(strings.NewReader(string(data)), file, org.DefaultKeywords())
 	var h, a *org.Headline
 	org.Walk(of.Headlines, func(x *org.Headline) {
 		switch x.Title {
@@ -750,9 +750,9 @@ func TestFileMoveWaitsForAMergeIfItsAnchorChanged(t *testing.T) {
 	f.macPush()
 	f.sync()
 	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
-	of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+	of, _ := org.Parse(strings.NewReader(string(data)), "work.org", org.DefaultKeywords())
 	odata, _ := os.ReadFile(filepath.Join(f.phone.Dir, "other.org"))
-	oo, _ := org.Parse(strings.NewReader(string(odata)), "other.org")
+	oo, _ := org.Parse(strings.NewReader(string(odata)), "other.org", org.DefaultKeywords())
 	h, second := of.Headlines[1], oo.Headlines[1] // "Other   heading", "Second"
 	op := NewStateOp("work.org", h, h.Keyword, opTime)
 	op.Move = &capturequeue.EntryMove{To: []string{h.Title}, ToFile: "other.org", Anchor: second.Title, AnchorFingerprint: Fingerprint(second)}
@@ -787,7 +787,7 @@ func TestPasteSubtreeIntoAnEmptyFileAddsNoBlankLines(t *testing.T) {
 func (f *fixture) queueClose(title, keyword, note string) string {
 	f.t.Helper()
 	data, _ := os.ReadFile(filepath.Join(f.phone.Dir, "work.org"))
-	of, _ := org.Parse(strings.NewReader(string(data)), "work.org")
+	of, _ := org.Parse(strings.NewReader(string(data)), "work.org", org.DefaultKeywords())
 	var h *org.Headline
 	org.Walk(of.Headlines, func(x *org.Headline) {
 		if x.Title == title {
@@ -889,4 +889,45 @@ func (f *fixture) fileAtRemote(commit plumbing.Hash, file string) string {
 	f.t.Helper()
 	f.macFetch()
 	return f.fileAt(f.mac, commit, file)
+}
+
+// TestReplayUsesTheRepoConfigsKeywords checks that a replayed state
+// change parses the checkout with the keywords its committed .orgtd.toml
+// configures, not the built-in set: the entry is found by its custom
+// keyword, and completing it stamps CLOSED because SHIPPED is a done
+// state there.
+func TestReplayUsesTheRepoConfigsKeywords(t *testing.T) {
+	f := newFixture(t)
+	f.macCommit(".orgtd.toml", `[[keywords]]
+name = "TRIAGE"
+
+[[keywords]]
+name = "SHIPPED"
+done = true
+`, "config")
+	f.macCommit("work.org", "* TRIAGE Sort it\n", "work")
+	f.macPush()
+	f.phone.OpsPath = filepath.Join(filepath.Dir(f.phone.QueuePath), "state-ops.json")
+	if err := f.phone.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+
+	kw := org.NewKeywords([]string{"TRIAGE"}, []string{"SHIPPED"})
+	of, err := org.Parse(strings.NewReader("* TRIAGE Sort it\n"), "work.org", kw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := capturequeue.AddOp(f.phone.OpsPath, NewStateOp("work.org", of.Headlines[0], "SHIPPED", opTime)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.phone.Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	f.sync()
+	f.macFetch()
+	mobile, _ := f.remoteRef(MobileBranch)
+	want := "* SHIPPED Sort it\n  CLOSED: [2026-11-14 Sat 09:30]\n"
+	if got := f.fileAt(f.mac, mobile, "work.org"); got != want {
+		t.Errorf("work.org on mobile = %q, want %q", got, want)
+	}
 }

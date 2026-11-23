@@ -84,8 +84,9 @@ func findEntry(f *org.File, op capturequeue.StateOp) (*org.Headline, error) {
 // only the entry's own lines of the raw file so the diff is just that
 // entry: its headline line, plus CLOSED, or the repeater dates and
 // LAST_REPEAT for a repeating item (orgdate.ChangeState, as desktop "r").
-// Times come from op.CreatedAt, so replays are identical.
-func applyOp(dir string, op capturequeue.StateOp) error {
+// Times come from op.CreatedAt, so replays are identical. Files are
+// parsed with kw, the checkout's keyword set (see repoKeywords).
+func applyOp(dir string, op capturequeue.StateOp, kw org.Keywords) error {
 	p := filepath.Join(dir, filepath.FromSlash(op.File))
 	data, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
@@ -94,7 +95,7 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if err != nil {
 		return err
 	}
-	f, err := org.Parse(bytes.NewReader(data), p)
+	f, err := org.Parse(bytes.NewReader(data), p, kw)
 	if err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 		return ErrEntryChanged
 	}
 	if op.Move != nil && op.Move.ToFile != "" && op.Move.ToFile != op.File {
-		return applyFileMove(dir, p, data, h, op)
+		return applyFileMove(dir, p, data, h, op, kw)
 	}
 	if op.Move != nil {
 		return applyMove(p, data, f, h, op)
@@ -134,7 +135,7 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if h.SrcEnd > len(lines) || h.SrcStart >= h.SrcEnd {
 		return fmt.Errorf("gitsync: %s: entry %q out of range", op.File, op.Title())
 	}
-	own, err := patchEntry(lines[h.SrcStart:h.SrcEnd], h, op)
+	own, err := patchEntry(lines[h.SrcStart:h.SrcEnd], h, op, kw)
 	if err != nil {
 		return err
 	}
@@ -356,8 +357,8 @@ func pasteSubtree(lines []string, at int, body []string, gap int) []string {
 // another file, op.Move.ToFile (under dir): right before or after the
 // subtree of op.Move.Anchor there, or, with no anchor, at its end. Only
 // the subtree's lines move: org levels are the same at the top of any
-// file. Both files are written.
-func applyFileMove(dir, p string, data []byte, h *org.Headline, op capturequeue.StateOp) error {
+// file. Both files are written. The other file is parsed with kw.
+func applyFileMove(dir, p string, data []byte, h *org.Headline, op capturequeue.StateOp, kw org.Keywords) error {
 	if h.Parent != nil {
 		return ErrEntryChanged
 	}
@@ -369,7 +370,7 @@ func applyFileMove(dir, p string, data []byte, h *org.Headline, op capturequeue.
 	if err != nil {
 		return err
 	}
-	df, err := org.Parse(bytes.NewReader(ddata), dp)
+	df, err := org.Parse(bytes.NewReader(ddata), dp, kw)
 	if err != nil {
 		return err
 	}
@@ -413,17 +414,17 @@ func applyFileMove(dir, p string, data []byte, h *org.Headline, op capturequeue.
 // title, tags), the planning line (added or removed as needed), the
 // LAST_REPEAT property when completing a repeating item, and the body
 // when an edit changes it. Every other line — the property drawer above
-// all — is kept byte for byte.
-func patchEntry(own []string, h *org.Headline, op capturequeue.StateOp) ([]string, error) {
+// all — is kept byte for byte. kw says which keywords are done states.
+func patchEntry(own []string, h *org.Headline, op capturequeue.StateOp, kw org.Keywords) ([]string, error) {
 	hadPlanning := h.Scheduled != nil || h.Deadline != nil || h.Closed != nil
 	oldPlanning := org.PlanningLine(h)
 	oldHead, _, _ := strings.Cut(org.RenderEntry(h), "\n")
 	indent := strings.Repeat(" ", h.Level+1)
 	bodyIndent := commonIndent(h.TrimmedBody(), indent)
 
-	closing := org.IsDoneKeyword(op.To) && !org.IsDoneKeyword(h.Keyword)
+	closing := kw.IsDone(op.To) && !kw.IsDone(h.Keyword)
 	noteHeading := orgdate.ClosingNoteHeading
-	sc := orgdate.ChangeState(h, op.To, op.CreatedAt)
+	sc := orgdate.ChangeState(h, op.To, op.CreatedAt, kw)
 	if sc.Repeat {
 		noteHeading = orgdate.StateNoteHeading(op.To, h.Keyword)
 	}

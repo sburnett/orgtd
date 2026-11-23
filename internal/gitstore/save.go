@@ -429,7 +429,7 @@ func (s *Store) commitOutsideLocked(repo *git.Repository) (plumbing.Hash, files,
 			for _, p := range sortedKeys(outside) {
 				diffs = append(diffs, org.FileDiff{Path: p, Old: mFiles[p], New: outside[p], Deleted: outside[p] == nil})
 			}
-			msg := org.CommitMessage("orgtd: outside edits to ", diffs)
+			msg := org.CommitMessage("orgtd: outside edits to ", diffs, s.keywords)
 			if head, err = commit(repo, tree, m, msg); err == nil {
 				err = s.moveMain(repo, m, head, msg)
 			}

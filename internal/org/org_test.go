@@ -1,6 +1,7 @@
 package org
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -25,7 +26,7 @@ const sample = `#+TITLE: Projects
 
 func mustParse(t *testing.T) *File {
 	t.Helper()
-	f, err := Parse(strings.NewReader(sample), "test.org")
+	f, err := Parse(strings.NewReader(sample), "test.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestParseKeywordAndScheduled(t *testing.T) {
 }
 
 func TestParseScheduledAndDeadlineOnSameLine(t *testing.T) {
-	f, err := Parse(strings.NewReader("* NEXT Both dates\n  SCHEDULED: <2026-09-10 Thu> DEADLINE: <2026-09-12 Sat>\n"), "test.org")
+	f, err := Parse(strings.NewReader("* NEXT Both dates\n  SCHEDULED: <2026-09-10 Thu> DEADLINE: <2026-09-12 Sat>\n"), "test.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestParseScheduledAndDeadlineOnSameLine(t *testing.T) {
 }
 
 func TestParseScheduledWithRepeaterCookie(t *testing.T) {
-	f, err := Parse(strings.NewReader("* TODO Weekly standup\n  SCHEDULED: <2026-08-10 Mon +1w>\n"), "test.org")
+	f, err := Parse(strings.NewReader("* TODO Weekly standup\n  SCHEDULED: <2026-08-10 Mon +1w>\n"), "test.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestParseScheduledWithRepeaterCookie(t *testing.T) {
 }
 
 func TestPlanningLineMustStartTheLine(t *testing.T) {
-	f, err := Parse(strings.NewReader("* TODO Talk to Bob\n  A note about the DEADLINE: shift, not an actual planning line.\n"), "test.org")
+	f, err := Parse(strings.NewReader("* TODO Talk to Bob\n  A note about the DEADLINE: shift, not an actual planning line.\n"), "test.org", DefaultKeywords())
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestWalk(t *testing.T) {
 
 func TestParseRecordsEachEntrysOwnLines(t *testing.T) {
 	text := "#+TITLE: x\n* A\n  body a\n** B\n   SCHEDULED: <2026-11-14 Sat>\n\n* C\n"
-	f, err := Parse(strings.NewReader(text), "x.org")
+	f, err := Parse(strings.NewReader(text), "x.org", DefaultKeywords())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,5 +269,28 @@ func TestParseRecordsEachEntrysOwnLines(t *testing.T) {
 		if tc.h.SrcStart != tc.start || tc.h.SrcEnd != tc.end {
 			t.Errorf("%s: lines [%d,%d), want [%d,%d)", tc.h.Title, tc.h.SrcStart, tc.h.SrcEnd, tc.start, tc.end)
 		}
+	}
+}
+
+func TestParseRecognizesOnlyTheGivenKeywords(t *testing.T) {
+	text := "* TRIAGE Sort it\n* TODO Plain\n* SHIPPED Gone\n"
+	kw := NewKeywords([]string{"TRIAGE"}, []string{"SHIPPED"})
+	f, err := Parse(strings.NewReader(text), "x.org", kw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got [][2]string
+	for _, h := range f.Headlines {
+		got = append(got, [2]string{h.Keyword, h.Title})
+	}
+	want := [][2]string{{"TRIAGE", "Sort it"}, {"", "TODO Plain"}, {"SHIPPED", "Gone"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("keyword, title = %q, want %q", got, want)
+	}
+	if !kw.IsDone("SHIPPED") || kw.IsDone("TRIAGE") || kw.IsDone("DONE") {
+		t.Errorf("IsDone: SHIPPED=%v TRIAGE=%v DONE=%v, want only SHIPPED", kw.IsDone("SHIPPED"), kw.IsDone("TRIAGE"), kw.IsDone("DONE"))
+	}
+	if (Keywords{}).IsKeyword("TODO") {
+		t.Error("the zero Keywords recognizes TODO, want none")
 	}
 }

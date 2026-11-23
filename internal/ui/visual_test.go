@@ -243,11 +243,11 @@ func TestVisualModeEscFromStatusPickerAppliesNoChange(t *testing.T) {
 }
 
 func TestVisualModeDeleteAcrossFilesUsesOneBatchPerFile(t *testing.T) {
-	fileA, err := org.Parse(strings.NewReader("* TODO A1\n"), "a.org")
+	fileA, err := org.Parse(strings.NewReader("* TODO A1\n"), "a.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
-	fileB, err := org.Parse(strings.NewReader("* TODO B1\n"), "b.org")
+	fileB, err := org.Parse(strings.NewReader("* TODO B1\n"), "b.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestVisualModeDeleteAcrossFilesUsesOneBatchPerFile(t *testing.T) {
 // re-pins the very entry that's about to be removed instead of skipping
 // past it.
 func TestVisualModeDeleteInReviewViewAdvancesReviewTarget(t *testing.T) {
-	inbox, err := org.Parse(strings.NewReader("* A\n* B\n* C\n"), "inbox.org")
+	inbox, err := org.Parse(strings.NewReader("* A\n* B\n* C\n"), "inbox.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}

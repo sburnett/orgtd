@@ -33,7 +33,7 @@ func TestDiffEntries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got []string
-			for _, c := range DiffEntries([]byte(tt.old), []byte(tt.new)) {
+			for _, c := range DiffEntries([]byte(tt.old), []byte(tt.new), DefaultKeywords()) {
 				got = append(got, c.String())
 			}
 			if !reflect.DeepEqual(got, tt.want) {
@@ -44,7 +44,7 @@ func TestDiffEntries(t *testing.T) {
 }
 
 func TestCommitMessage(t *testing.T) {
-	one := CommitMessage("orgtd: ", []FileDiff{{Path: "todo.org", Old: []byte("* TODO a\n"), New: []byte("* DONE a\n")}})
+	one := CommitMessage("orgtd: ", []FileDiff{{Path: "todo.org", Old: []byte("* TODO a\n"), New: []byte("* DONE a\n")}}, DefaultKeywords())
 	if one != `orgtd: todo.org: mark DONE "a"` {
 		t.Errorf("one change = %q", one)
 	}
@@ -52,7 +52,8 @@ func TestCommitMessage(t *testing.T) {
 	many := CommitMessage("orgtd: ", []FileDiff{
 		{Path: "inbox.org", Old: []byte("* x\n* y\n"), New: []byte("* y\n")},
 		{Path: "todo.org", Old: []byte("* TODO a\n* b\n"), New: []byte("* DONE a\n* b\n  note\n* x\n* z\n")},
-	})
+	}, DefaultKeywords())
+
 	want := `orgtd: inbox.org: remove "x"; todo.org: mark 1, add 2, edit 1
 
 inbox.org:
@@ -68,12 +69,12 @@ todo.org:
 		t.Errorf("many changes =\n%s\nwant\n%s", many, want)
 	}
 
-	if got := CommitMessage("orgtd: ", []FileDiff{{Path: "a.org", Old: []byte("x\n* a\n"), New: []byte("y\n* a\n")}}); got != "orgtd: a.org: update" {
+	if got := CommitMessage("orgtd: ", []FileDiff{{Path: "a.org", Old: []byte("x\n* a\n"), New: []byte("y\n* a\n")}}, DefaultKeywords()); got != "orgtd: a.org: update" {
 		t.Errorf("no entry changes = %q", got)
 	}
 
 	long := strings.Repeat("word ", 30)
-	got := CommitMessage("orgtd: ", []FileDiff{{Path: "a.org", New: []byte("* " + long + "\n")}})
+	got := CommitMessage("orgtd: ", []FileDiff{{Path: "a.org", New: []byte("* " + long + "\n")}}, DefaultKeywords())
 	if !strings.HasSuffix(got, `…"`) || len(got) > 100 {
 		t.Errorf("long title = %q", got)
 	}
@@ -82,7 +83,7 @@ todo.org:
 	for i := 0; i < maxBodyChanges+5; i++ {
 		big.WriteString("* e" + strings.Repeat("x", i) + "\n")
 	}
-	got = CommitMessage("orgtd: ", []FileDiff{{Path: "a.org", New: []byte(big.String())}})
+	got = CommitMessage("orgtd: ", []FileDiff{{Path: "a.org", New: []byte(big.String())}}, DefaultKeywords())
 	if !strings.HasSuffix(got, "… and 5 more\n") {
 		t.Errorf("capped body ends %q", got[len(got)-40:])
 	}

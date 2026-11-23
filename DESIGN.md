@@ -107,7 +107,7 @@ gcal but not the UI. Only `ui` knows about everything.
   `SetOrDeleteProperty`/`RestoreProperty`, `TrimmedBody`, `ParseLinks`,
   and `DedentEntry`/`IndentEntry` (the editor buffer's bullet-free form)
   live here too. Nothing in `org` knows about the UI, undo, or a workspace.
-- TODO keywords default to `ActiveKeywords`/`DoneKeywords`; `SetKeywords` (process-global, called once at startup from the resolved config) replaces them.
+- TODO keywords are an `org.Keywords` value (active and done names), passed to every `Parse`/`ParseFile`/`ParseContent` and to whatever asks whether a state is done (`Keywords.IsDone`). There's no package-level keyword state: callers build the set from the resolved config with `config.Config.OrgKeywords` (the desktop once in `cmd/orgtd` and `ui.New`, the phone from the checkout's `.orgtd.toml` in `mobilecore` and in `gitsync`'s replay of queued changes); `org.DefaultKeywords` is the built-in set.
 
 **Unedited entries round-trip byte-exactly; edited ones are regenerated.**
 Body text and preamble are stored as raw lines. `Parse` also keeps each

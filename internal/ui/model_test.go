@@ -94,7 +94,7 @@ func loadFixtureCopy(t *testing.T) *workspace.Workspace {
 	}
 
 	initRepo(t, dst)
-	ws, err := workspace.Load(dst)
+	ws, err := workspace.Load(dst, org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("workspace.Load: %v", err)
 	}
@@ -1519,7 +1519,7 @@ func TestCommandWriteWritesDirtyFilesToDisk(t *testing.T) {
 		t.Errorf("dirty files after :w = %d, want 0", len(m.dirty))
 	}
 
-	reparsed, err := org.ParseFile(filePath)
+	reparsed, err := org.ParseFile(filePath, org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("ParseFile after :w: %v", err)
 	}

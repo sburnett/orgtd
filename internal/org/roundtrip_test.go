@@ -38,7 +38,7 @@ func TestGoldenRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			f, err := ParseContent(data, path)
+			f, err := ParseContent(data, path, DefaultKeywords())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -62,7 +62,7 @@ func TestGoldenRoundTrip(t *testing.T) {
 				t.Errorf("regenerated RenderFile differs from %s\n%s", golden, lineDiff(string(want), regen))
 			}
 
-			re, err := Parse(strings.NewReader(regen), path)
+			re, err := Parse(strings.NewReader(regen), path, DefaultKeywords())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,7 +90,7 @@ func FuzzParseRender(f *testing.F) {
 	f.Add("*")
 	f.Add("* a\r")
 	f.Fuzz(func(t *testing.T, x string) {
-		file, err := ParseContent([]byte(x), "fuzz.org")
+		file, err := ParseContent([]byte(x), "fuzz.org", DefaultKeywords())
 		if err != nil {
 			t.Skip() // a line over the scanner's 1MB limit
 		}
@@ -104,7 +104,7 @@ func FuzzParseRender(f *testing.F) {
 		}
 		fields := dumpFile(file)
 		regen := regenerate(file)
-		re, err := Parse(strings.NewReader(regen), "fuzz.org")
+		re, err := Parse(strings.NewReader(regen), "fuzz.org", DefaultKeywords())
 		if err != nil {
 			t.Skip()
 		}

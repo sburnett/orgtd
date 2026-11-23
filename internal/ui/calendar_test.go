@@ -525,7 +525,7 @@ func TestCalendarLinkedItemRowTruncatesLongParentTitleInPlaceTag(t *testing.T) {
 	now := time.Now()
 	event := calendarEventHeadline("abc123", now, now.Add(time.Hour))
 	orgText := fmt.Sprintf("* Project %s\n** Follow up on budget\n", strings.Repeat("a very long parent title ", 10))
-	f, err := org.Parse(strings.NewReader(orgText), "projects.org")
+	f, err := org.Parse(strings.NewReader(orgText), "projects.org", org.DefaultKeywords())
 	if err != nil {
 		t.Fatalf("org.Parse: %v", err)
 	}
