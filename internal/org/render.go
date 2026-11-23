@@ -110,7 +110,13 @@ func writeHeadlineFields(b *strings.Builder, h *Headline) {
 		b.WriteByte(' ')
 	}
 	if h.Priority != "" {
-		b.WriteString("[#" + h.Priority + "] ")
+		b.WriteString("[#" + h.Priority + "]")
+		// A title that is itself tag-shaped (as in "[#A]:x:") goes
+		// straight after the cookie, as it was parsed: after a space it
+		// would parse as tags.
+		if !tagsRe.MatchString(" " + h.Title) {
+			b.WriteByte(' ')
+		}
 	}
 	b.WriteString(h.Title)
 	if len(h.Tags) > 0 {
@@ -120,11 +126,17 @@ func writeHeadlineFields(b *strings.Builder, h *Headline) {
 
 	indent := strings.Repeat(" ", h.Level+1)
 
-	if planning := PlanningLine(h); planning != "" {
+	planning := PlanningLine(h)
+	if planning != "" {
 		b.WriteString(indent + planning + "\n")
 	}
 
-	if len(h.PropertyOrder) > 0 {
+	// A body whose first line looks like planning keeps an empty drawer
+	// in front of it (as it must have had, to parse as body), or it
+	// would come back as the entry's planning. Otherwise an empty drawer
+	// is left out, so removing the last property removes the drawer.
+	needDrawer := planning == "" && len(h.Body) > 0 && applyPlanningLine(&Headline{}, h.Body[0])
+	if len(h.PropertyOrder) > 0 || needDrawer {
 		b.WriteString(indent + ":PROPERTIES:\n")
 		for _, k := range h.PropertyOrder {
 			b.WriteString(indent + ":" + k + ": " + h.Properties[k] + "\n")

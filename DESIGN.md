@@ -584,8 +584,7 @@ as `gM`.
   -update` and review the diff) and keeps every parsed field.
   `FuzzParseRender` checks the same two properties on any input, seeded
   from the corpus; run it with `go test ./internal/org -run '^$' -fuzz
-  FuzzParseRender`. Inputs regeneration is known to change the meaning
-  of (`knownRegenLoss`, examples in `known-loss.org`) are skipped.
+  FuzzParseRender`.
 - Run everything with `go build ./... && go vet ./... && go test ./...`.
 
 ## 9. Recipes for common changes

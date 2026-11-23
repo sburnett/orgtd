@@ -334,3 +334,29 @@ func TestDrawerKeysWithDashAndPlus(t *testing.T) {
 		t.Errorf("properties = %v, body = %q", h.Properties, h.Body)
 	}
 }
+
+func TestDeletingTheLastPropertyRemovesTheDrawer(t *testing.T) {
+	f, err := ParseContent([]byte("* a\n  :PROPERTIES:\n  :X: 1\n  :END:\n  body\n"), "t.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Headlines[0].DeleteProperty("X")
+	if got, want := RenderFile(f), "* a\n  body\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+
+	// Unless the body starts with a planning-like line, which an empty
+	// drawer keeps in the body.
+	f, err = ParseContent([]byte("* a\n  :PROPERTIES:\n  :X: 1\n  :END:\n  SCHEDULED: <2026-11-22 Sun>\n"), "t.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Headlines[0].DeleteProperty("X")
+	re, err := Parse(strings.NewReader(RenderFile(f)), "t.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := re.Headlines[0]; h.Scheduled != nil || len(h.Body) != 1 {
+		t.Errorf("planning-like body line became planning: scheduled=%v body=%q", h.Scheduled, h.Body)
+	}
+}

@@ -372,9 +372,18 @@ func parseHeadlineLine(rest string) *Headline {
 	rest = strings.TrimSpace(rest)
 
 	if m := tagsRe.FindStringSubmatch(rest); m != nil {
-		tagStr := strings.Trim(m[1], ":")
-		h.Tags = strings.Split(tagStr, ":")
-		rest = rest[:len(rest)-len(m[0])]
+		// Empty tags (":a::b:") are skipped, as org-mode does. A group
+		// of nothing but colons (":::") stays in the title: there's no
+		// tag to write back in its place, and without it a tag-shaped
+		// word before it would become a tag.
+		for _, tag := range strings.Split(m[1], ":") {
+			if tag != "" {
+				h.Tags = append(h.Tags, tag)
+			}
+		}
+		if len(h.Tags) > 0 {
+			rest = rest[:len(rest)-len(m[0])]
+		}
 	}
 
 	fields := strings.SplitN(rest, " ", 2)

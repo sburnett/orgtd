@@ -15,6 +15,11 @@
 * WAITING [#a] lowercase priority
 * Title with a [[https://example.com][link]] and *bold*
 * Ünïcödé títle 🚀   :émoji:
+* TODO [#A]:looks:like:tags:
+* [#B]:also:   :real:
+* Empty tag :::
+* Tag-shaped word before empty tags :x: :::
+* Empty tags in between   :a:b:
 * Parent
 *** Skipped a level
 ** Back to two

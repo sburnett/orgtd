@@ -23,6 +23,11 @@
   :ID: 2
   :END:
   just text
+* Empty drawer
+* Empty drawer, then a planning-like body line
+  :PROPERTIES:
+  :END:
+  SCHEDULED: <2026-11-22 Sun>
 * Lowercase drawer markers
   :properties:
   :ID: 3

@@ -21,8 +21,7 @@ var update = flag.Bool("update", false, "rewrite testdata/roundtrip/*.org.regen 
 //   - Regenerated, as if every entry had been edited, RenderFile's output
 //     must match the checked-in <name>.org.regen (rewrite them with
 //     go test ./internal/org -run TestGoldenRoundTrip -update, and review
-//     the diff), and must parse back to the same fields as the original
-//     — except in known-loss.org, whose entries all hit knownRegenLoss.
+//     the diff), and must parse back to the same fields as the original.
 //
 // The .org files are also FuzzParseRender's seed corpus.
 func TestGoldenRoundTrip(t *testing.T) {
@@ -63,9 +62,6 @@ func TestGoldenRoundTrip(t *testing.T) {
 				t.Errorf("regenerated RenderFile differs from %s\n%s", golden, lineDiff(string(want), regen))
 			}
 
-			if filepath.Base(path) == "known-loss.org" {
-				return
-			}
 			re, err := Parse(strings.NewReader(regen), path)
 			if err != nil {
 				t.Fatal(err)
@@ -79,8 +75,7 @@ func TestGoldenRoundTrip(t *testing.T) {
 
 // FuzzParseRender checks, for any input, the two round-trip properties
 // TestGoldenRoundTrip checks for its corpus: an unedited file renders
-// back verbatim, and regenerating every entry keeps every parsed field
-// (skipping inputs that hit knownRegenLoss).
+// back verbatim, and regenerating every entry keeps every parsed field.
 func FuzzParseRender(f *testing.F) {
 	paths, _ := filepath.Glob(filepath.Join("testdata", "roundtrip", "*.org"))
 	for _, path := range paths {
@@ -102,10 +97,9 @@ func FuzzParseRender(f *testing.F) {
 		if got, want := RenderFile(file), wantVerbatim(x); got != want {
 			t.Fatalf("unedited RenderFile changed %q\n%s", x, lineDiff(want, got))
 		}
-		if knownRegenLoss(file) || wantVerbatim(wantVerbatim(x)) != wantVerbatim(x) {
-			// The second case is a line ending in "\r\r": RenderFile
-			// writes it back ending in "\r", which the next Parse drops
-			// as half of a CRLF.
+		if wantVerbatim(wantVerbatim(x)) != wantVerbatim(x) {
+			// A line ending in "\r\r": RenderFile writes it back ending
+			// in "\r", which the next Parse drops as half of a CRLF.
 			t.Skip()
 		}
 		fields := dumpFile(file)
@@ -134,32 +128,6 @@ func wantVerbatim(x string) string {
 		x = rest
 	}
 	return b.String()
-}
-
-// knownRegenLoss reports whether f has an entry that regenerating
-// (rendering from its fields, as for an edited entry) is known to change
-// the meaning of, so FuzzParseRender looks past it. Each case is in
-// testdata/roundtrip/known-loss.org; fixing one means deleting its
-// clause here, and its entries from that file.
-func knownRegenLoss(f *File) bool {
-	lossy := false
-	Walk(f.Headlines, func(h *Headline) {
-		switch {
-		// An empty property drawer isn't written back. A body line after
-		// it that looks like planning becomes the entry's planning.
-		case h.Properties != nil && len(h.PropertyOrder) == 0:
-			lossy = true
-		// A title that is itself tag-shaped ("* TODO [#A]:x:") is
-		// written back after a space, and so parses as tags.
-		case len(h.Tags) == 0 && tagsRe.MatchString(" "+h.Title):
-			lossy = true
-		// ":::" parses as one empty tag, which is written back as "::",
-		// which isn't a tag.
-		case len(h.Tags) == 1 && h.Tags[0] == "":
-			lossy = true
-		}
-	})
-	return lossy
 }
 
 // regenerate renders f as if every entry in it had been edited: from its
