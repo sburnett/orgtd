@@ -8,7 +8,7 @@ package mobilecore
 type entry struct {
 	// ID locates the entry: "<file path relative to the org dir>:<index
 	// path>", e.g. "work.org:0.2" is the third child of the file's first
-	// top-level headline. Stable until the file changes.
+	// top-level headline. Stable until the file changes. See entryID.
 	ID        string   `json:"id"`
 	File      string   `json:"file"`      // path relative to the org dir, e.g. "work.org" or "reference/wifi.org"
 	Ancestors []string `json:"ancestors"` // titles from the top-level headline down to the parent

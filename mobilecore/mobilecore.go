@@ -27,7 +27,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -552,7 +551,7 @@ func (l *loaded) markCaptures(groupDir string) error {
 				h := f.Headlines[i]
 				if !claimed[i] && h.Title == title && h.Properties["CREATED"] == stamp {
 					claimed[i] = true
-					l.captures[rel+":"+strconv.Itoa(i)] = c.ID
+					l.captures[topLevelID(rel, i).String()] = c.ID
 					break
 				}
 			}
@@ -573,16 +572,12 @@ func (l *loaded) rel(f *org.File) string {
 // children when withChildren is set. keep filters children (nil keeps
 // all).
 func (l *loaded) toEntry(f *org.File, h *org.Headline, idx []int, withChildren bool, keep func(*org.Headline) bool) entry {
-	var parts []string
-	for _, i := range idx {
-		parts = append(parts, strconv.Itoa(i))
-	}
 	ancestors := []string{}
 	for p := h.Parent; p != nil; p = p.Parent {
 		ancestors = append([]string{p.Title}, ancestors...)
 	}
 	e := entry{
-		ID:        l.rel(f) + ":" + strings.Join(parts, "."),
+		ID:        entryID{file: l.rel(f), path: idx}.String(),
 		File:      l.rel(f),
 		Ancestors: ancestors,
 		Level:     h.Level,
@@ -698,7 +693,7 @@ func SetState(groupDir, entryID, keyword, note string, nowUnix int64, authorName
 	if err != nil {
 		return err
 	}
-	f, h, err := l.lookup(entryID)
+	_, f, h, err := l.lookup(entryID)
 	if err != nil {
 		return err
 	}
@@ -763,7 +758,7 @@ func EditEntry(groupDir, entryID, editJSON string, nowUnix int64, authorName, au
 	if err != nil {
 		return err
 	}
-	f, h, err := l.lookup(entryID)
+	_, f, h, err := l.lookup(entryID)
 	if err != nil {
 		return err
 	}
@@ -843,8 +838,9 @@ func AddEntry(groupDir, file, parentID string, last bool, captureJSON string, no
 	}
 	var f *org.File
 	var parent *org.Headline
+	var pid entryID
 	if parentID != "" {
-		if f, parent, err = l.lookup(parentID); err != nil {
+		if pid, f, parent, err = l.lookup(parentID); err != nil {
 			return "", err
 		}
 	} else {
@@ -868,19 +864,18 @@ func AddEntry(groupDir, file, parentID string, last bool, captureJSON string, no
 	if ref && c.Keyword != "" {
 		return "", errors.New("mobilecore: reference material has no TODO state")
 	}
-	siblings, prefix := f.Headlines, rel+":"
+	siblings, newID := f.Headlines, topLevelID(rel, 0)
 	if parent != nil {
-		siblings, prefix = parent.Children, parentID+"."
+		siblings, newID = parent.Children, pid.child(0)
 	}
-	index := 0
 	if last {
-		index = len(siblings)
+		newID = newID.sibling(len(siblings))
 	}
 	op := gitsync.NewInsertOp(rel, parent, last, c)
 	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
 		return "", err
 	}
-	return prefix + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
+	return newID.String(), rebuild(groupDir, authorName, authorEmail)
 }
 
 // DeleteEntry deletes the entry entryID (an entry DTO's ID) with
@@ -896,7 +891,7 @@ func DeleteEntry(groupDir, entryID string, nowUnix int64, authorName, authorEmai
 	if err != nil {
 		return err
 	}
-	f, h, err := l.lookup(entryID)
+	_, f, h, err := l.lookup(entryID)
 	if err != nil {
 		return err
 	}
@@ -931,7 +926,7 @@ func ShiftEntry(groupDir, entryID string, delta int, nowUnix int64, authorName, 
 	if err != nil {
 		return "", err
 	}
-	f, h, err := l.lookup(entryID)
+	id, f, h, err := l.lookup(entryID)
 	if err != nil {
 		return "", err
 	}
@@ -942,10 +937,7 @@ func ShiftEntry(groupDir, entryID string, delta int, nowUnix int64, authorName, 
 	if gitsync.UnionMerged(repoDir(groupDir), rel) {
 		return "", fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate moved entries; remove that line (on your computer) to move entries there from the phone", rel)
 	}
-	// The ID is "<file>:<i>.<j>...": its parent's ID, and its index.
-	dot := strings.LastIndexAny(entryID, ":.")
-	parentPrefix := entryID[:dot+1]
-	index, _ := strconv.Atoi(entryID[dot+1:])
+	index := id.index()
 	path := gitsync.TitlePath(h)
 	var to []string
 	var newID string
@@ -958,16 +950,14 @@ func ShiftEntry(groupDir, entryID string, delta int, nowUnix int64, authorName, 
 			prev = h.Parent.Children[index-1]
 		}
 		to = append(append(append([]string{}, path[:len(path)-1]...), prev.Title), h.Title)
-		newID = parentPrefix + strconv.Itoa(index-1) + "." + strconv.Itoa(len(prev.Children))
+		newID = id.sibling(index - 1).child(len(prev.Children)).String()
 	} else {
 		if h.Parent == nil {
 			return "", errors.New("mobilecore: this entry is already at the top level")
 		}
 		to = append(append([]string{}, path[:len(path)-2]...), h.Title)
-		parentID := entryID[:dot]
-		pdot := strings.LastIndexAny(parentID, ":.")
-		parentIndex, _ := strconv.Atoi(parentID[pdot+1:])
-		newID = parentID[:pdot+1] + strconv.Itoa(parentIndex+1)
+		parent, _ := id.parent()
+		newID = parent.sibling(parent.index() + 1).String()
 	}
 	op := gitsync.NewStateOp(rel, h, h.Keyword, now(nowUnix))
 	op.Move = &capturequeue.EntryMove{Delta: delta, To: to}
@@ -991,17 +981,15 @@ func MoveEntry(groupDir, entryID, anchorID string, after bool, nowUnix int64, au
 	if err != nil {
 		return "", err
 	}
-	f, h, err := l.lookup(entryID)
+	id, f, h, err := l.lookup(entryID)
 	if err != nil {
 		return "", err
 	}
-	_, anchor, err := l.lookup(anchorID)
+	aid, _, anchor, err := l.lookup(anchorID)
 	if err != nil {
 		return "", err
 	}
-	dot := strings.LastIndexAny(entryID, ":.")
-	adot := strings.LastIndexAny(anchorID, ":.")
-	if entryID[:dot+1] != anchorID[:adot+1] || anchor == h {
+	if !id.isSiblingOf(aid) || anchor == h {
 		return "", errors.New("mobilecore: entries can only move among their siblings")
 	}
 	rel := l.rel(f)
@@ -1011,8 +999,7 @@ func MoveEntry(groupDir, entryID, anchorID string, after bool, nowUnix int64, au
 	if gitsync.UnionMerged(repoDir(groupDir), rel) {
 		return "", fmt.Errorf("%s has merge=union in .gitattributes, which would duplicate moved entries; remove that line (on your computer) to move entries there from the phone", rel)
 	}
-	index, _ := strconv.Atoi(entryID[dot+1:])
-	newIndex, _ := strconv.Atoi(anchorID[adot+1:])
+	index, newIndex := id.index(), aid.index()
 	if after {
 		newIndex++
 	}
@@ -1020,14 +1007,14 @@ func MoveEntry(groupDir, entryID, anchorID string, after bool, nowUnix int64, au
 		newIndex--
 	}
 	if newIndex == index {
-		return entryID, nil
+		return id.String(), nil
 	}
 	op := gitsync.NewStateOp(rel, h, h.Keyword, now(nowUnix))
 	op.Move = &capturequeue.EntryMove{Delta: 0, To: gitsync.TitlePath(h), Anchor: anchor.Title, AnchorFingerprint: gitsync.Fingerprint(anchor), After: after}
 	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
 		return "", err
 	}
-	return entryID[:dot+1] + strconv.Itoa(newIndex), rebuild(groupDir, authorName, authorEmail)
+	return id.sibling(newIndex).String(), rebuild(groupDir, authorName, authorEmail)
 }
 
 // MoveEntryToFile moves the top-level entry entryID (an entry DTO's ID),
@@ -1044,7 +1031,7 @@ func MoveEntryToFile(groupDir, entryID, destFile, anchorID string, after bool, n
 	if err != nil {
 		return "", err
 	}
-	f, h, err := l.lookup(entryID)
+	_, f, h, err := l.lookup(entryID)
 	if err != nil {
 		return "", err
 	}
@@ -1075,7 +1062,7 @@ func MoveEntryToFile(groupDir, entryID, destFile, anchorID string, after bool, n
 	move := &capturequeue.EntryMove{To: []string{h.Title}, ToFile: destFile, After: after}
 	index := len(df.Headlines)
 	if anchorID != "" {
-		af, anchor, err := l.lookup(anchorID)
+		aid, af, anchor, err := l.lookup(anchorID)
 		if err != nil {
 			return "", err
 		}
@@ -1083,8 +1070,7 @@ func MoveEntryToFile(groupDir, entryID, destFile, anchorID string, after bool, n
 			return "", errors.New("mobilecore: an entry moved to another file goes next to one of its top-level entries")
 		}
 		move.Anchor, move.AnchorFingerprint = anchor.Title, gitsync.Fingerprint(anchor)
-		dot := strings.LastIndexAny(anchorID, ":.")
-		index, _ = strconv.Atoi(anchorID[dot+1:])
+		index = aid.index()
 		if after {
 			index++
 		}
@@ -1094,7 +1080,7 @@ func MoveEntryToFile(groupDir, entryID, destFile, anchorID string, after bool, n
 	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
 		return "", err
 	}
-	return destFile + ":" + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
+	return topLevelID(destFile, index).String(), rebuild(groupDir, authorName, authorEmail)
 }
 
 // AddEntryBeside adds a new entry, from the capture form in captureJSON
@@ -1117,7 +1103,7 @@ func AddEntryBeside(groupDir, entryID string, after bool, captureJSON string, no
 	if err != nil {
 		return "", err
 	}
-	f, h, err := l.lookup(entryID)
+	id, f, h, err := l.lookup(entryID)
 	if err != nil {
 		return "", err
 	}
@@ -1129,8 +1115,7 @@ func AddEntryBeside(groupDir, entryID string, after bool, captureJSON string, no
 	if ref && c.Keyword != "" {
 		return "", errors.New("mobilecore: reference material has no TODO state")
 	}
-	dot := strings.LastIndexAny(entryID, ":.")
-	index, _ := strconv.Atoi(entryID[dot+1:])
+	index := id.index()
 	if after {
 		index++
 	}
@@ -1138,7 +1123,7 @@ func AddEntryBeside(groupDir, entryID string, after bool, captureJSON string, no
 	if _, err := capturequeue.AddOp(opsPath(groupDir), op); err != nil {
 		return "", err
 	}
-	return entryID[:dot+1] + strconv.Itoa(index), rebuild(groupDir, authorName, authorEmail)
+	return id.sibling(index).String(), rebuild(groupDir, authorName, authorEmail)
 }
 
 // dateInputRe picks the date and optional time out of a timestamp's
@@ -1182,29 +1167,28 @@ func sameTags(a, b []string) bool {
 	return strings.Join(clean, ":") == strings.Join(b, ":")
 }
 
-// lookup resolves an entry ID ("<file>:<i>.<j>...", see entry.ID).
-func (l *loaded) lookup(id string) (*org.File, *org.Headline, error) {
-	file, idx, ok := strings.Cut(id, ":")
-	if !ok {
-		return nil, nil, fmt.Errorf("mobilecore: bad entry id %q", id)
+// lookup parses an entry DTO's ID (see entryID) and resolves it.
+func (l *loaded) lookup(s string) (entryID, *org.File, *org.Headline, error) {
+	id, err := parseEntryID(s)
+	if err != nil {
+		return entryID{}, nil, nil, err
 	}
 	for _, f := range l.ws.Files {
-		if l.rel(f) != file {
+		if l.rel(f) != id.file {
 			continue
 		}
 		list := f.Headlines
 		var h *org.Headline
-		for _, part := range strings.Split(idx, ".") {
-			i, err := strconv.Atoi(part)
-			if err != nil || i < 0 || i >= len(list) {
-				return nil, nil, fmt.Errorf("mobilecore: no entry %q (the outline changed; refresh)", id)
+		for _, i := range id.path {
+			if i >= len(list) {
+				return entryID{}, nil, nil, fmt.Errorf("mobilecore: no entry %q (the outline changed; refresh)", s)
 			}
 			h = list[i]
 			list = h.Children
 		}
-		return f, h, nil
+		return id, f, h, nil
 	}
-	return nil, nil, fmt.Errorf("mobilecore: no file %q", file)
+	return entryID{}, nil, nil, fmt.Errorf("mobilecore: no file %q", id.file)
 }
 
 // DismissDropped forgets the state changes Status reported as dropped,
