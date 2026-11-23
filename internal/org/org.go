@@ -3,10 +3,10 @@
 // lines (SCHEDULED/DEADLINE/CLOSED), property drawers, and body text.
 //
 // Parse builds an in-memory tree; RenderFile/RenderHeadline/RenderEntry
-// serialize it and WriteFile writes it atomically. Round-tripping is
-// format-preserving rather than byte-exact (see RenderFile): body text and
-// file preamble pass through untouched, while headline, planning and
-// property lines are regenerated from their parsed fields. See DESIGN.md §3.
+// serialize it and WriteFile writes it atomically. RenderFile reproduces
+// the preamble, body text and every unedited entry byte-for-byte, and
+// regenerates an edited entry's headline, planning and property lines
+// from its parsed fields. See DESIGN.md §3.
 package org
 
 import (
@@ -100,6 +100,14 @@ type Headline struct {
 	// changes). They describe the text as parsed and are not maintained
 	// by later edits.
 	SrcStart, SrcEnd int
+
+	// src is h's own text exactly as parsed (lines SrcStart:SrcEnd), and
+	// srcFields what writeHeadlineFields rendered for it at the time.
+	// While h still renders to srcFields nothing has edited it, so
+	// RenderFile writes src instead, keeping whatever regenerating it
+	// would lose: text after a planning timestamp, timestamp ranges,
+	// duplicate properties, a drawer after body text, spacing.
+	src, srcFields string
 }
 
 // SetProperty sets key to value in h's property drawer, appending key to
@@ -181,7 +189,7 @@ var (
 	headlineRe = regexp.MustCompile(`^(\*+)\s+(.*)$`)
 	tagsRe     = regexp.MustCompile(`\s+(:[[:alnum:]_@%#+:]+:)\s*$`)
 	priorityRe = regexp.MustCompile(`^\[#([A-Z])\]\s*`)
-	drawerKV   = regexp.MustCompile(`^\s*:([A-Za-z0-9_]+):\s*(.*)$`)
+	drawerKV   = regexp.MustCompile(`^\s*:([^\s:]+):\s*(.*)$`)
 	tsRe       = regexp.MustCompile(`([<\[])([^>\]]+)([>\]])`)
 	// No leading ^ anchor: applyPlanningLine matches this against the
 	// whole (already-identified) planning line via FindAllStringSubmatch
@@ -252,11 +260,13 @@ func Parse(r io.Reader, path string) (*File, error) {
 		inDrawer         bool
 		lineNo           = -1
 		last             *Headline // the most recent headline, whose own text runs until the next one
+		lines            []string
 	)
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineNo++
+		lines = append(lines, line)
 
 		if m := headlineRe.FindStringSubmatch(line); m != nil {
 			level := len(m[1])
@@ -339,6 +349,17 @@ func Parse(r io.Reader, path string) (*File, error) {
 	if last != nil {
 		last.SrcEnd = lineNo + 1
 	}
+	Walk(file.Headlines, func(h *Headline) {
+		var b strings.Builder
+		for _, line := range lines[h.SrcStart:h.SrcEnd] {
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+		h.src = b.String()
+		b.Reset()
+		writeHeadlineFields(&b, h)
+		h.srcFields = b.String()
+	})
 
 	return file, nil
 }

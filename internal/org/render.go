@@ -13,13 +13,12 @@ func RenderHeadline(h *Headline) string {
 }
 
 // RenderFile serializes an entire file (preamble plus every top-level
-// headline and its subtree) back into org-mode text. Like RenderHeadline,
-// this isn't a byte-for-byte round trip of the original file: headline
-// lines, planning lines, and property drawers are regenerated from their
-// parsed fields, so they may come out cosmetically different even when
-// unchanged (spacing, drawer key order within a line, and so on). Body
-// text, unrecognized content, and the file preamble are stored as raw
-// lines and do round-trip exactly.
+// headline and its subtree) back into org-mode text. The preamble, body
+// text and every headline nothing has changed since it was parsed come
+// out byte-for-byte as they were read (see Headline.src). A changed
+// headline's own headline, planning and drawer lines are regenerated
+// from its fields, as in RenderHeadline, so they may come out
+// cosmetically different and lose what the parser doesn't model.
 func RenderFile(f *File) string {
 	s, _ := renderFile(f, nil)
 	return s
@@ -58,7 +57,7 @@ func renderFile(f *File, lines map[*Headline]int) (string, map[*Headline]int) {
 			lines[h] = n + 1
 		}
 		before := b.Len()
-		writeHeadlineFields(&b, h)
+		writeOwnText(&b, h)
 		n += strings.Count(b.String()[before:], "\n")
 		for _, c := range h.Children {
 			walk(c)
@@ -81,6 +80,19 @@ func RenderEntry(h *Headline) string {
 	var b strings.Builder
 	writeHeadlineFields(&b, h)
 	return b.String()
+}
+
+// writeOwnText writes h's own text as it was parsed, if nothing has
+// changed it since (see Headline.src), or else regenerated from its
+// fields.
+func writeOwnText(b *strings.Builder, h *Headline) {
+	var r strings.Builder
+	writeHeadlineFields(&r, h)
+	if text := r.String(); h.src == "" || text != h.srcFields {
+		b.WriteString(text)
+		return
+	}
+	b.WriteString(h.src)
 }
 
 func writeHeadline(b *strings.Builder, h *Headline) {

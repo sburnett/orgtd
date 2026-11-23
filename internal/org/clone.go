@@ -13,6 +13,8 @@ func CloneHeadline(h *Headline) *Headline {
 		Scheduled: h.Scheduled,
 		Deadline:  h.Deadline,
 		Closed:    h.Closed,
+		src:       h.src,
+		srcFields: h.srcFields,
 	}
 	if h.Tags != nil {
 		clone.Tags = append([]string(nil), h.Tags...)

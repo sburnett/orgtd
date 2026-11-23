@@ -1234,12 +1234,14 @@ since it never really closes, e.g. `- State "DONE"       from "TODO"
 [2026-10-31 Sat 14:05] \\`. With no note, nothing is added to the body
 either way.
 
-Round-tripping is format-*preserving* rather than byte-exact: body text
-and file preamble pass through untouched, but a headline, planning, or
-property line orgtd re-serializes after any edit is regenerated from its
-parsed fields, so incidental formatting (exact alignment, spacing) on a
-*changed* line can shift slightly. Everything else in the file is left
-alone.
+Saving leaves every entry you didn't change byte-for-byte as it was,
+along with the file preamble. An entry you did change has its headline,
+planning, and property lines regenerated from what orgtd parsed (body
+text is always kept as is). So on that entry alone, incidental
+formatting (alignment, spacing) can shift, a property drawer placed
+after body text moves up to the top, and anything orgtd doesn't model is
+dropped: text after a planning timestamp, the second half of a
+`<a>--<b>` range, and all but the last of a repeated property.
 
 ## Calendar sync (`:sync-calendar`)
 

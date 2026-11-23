@@ -109,11 +109,19 @@ gcal but not the UI. Only `ui` knows about everything.
   live here too. Nothing in `org` knows about the UI, undo, or a workspace.
 - TODO keywords default to `ActiveKeywords`/`DoneKeywords`; `SetKeywords` (process-global, called once at startup from the resolved config) replaces them.
 
-**Round-tripping is format-*preserving*, not byte-exact.** Body text and
-preamble are stored as raw lines and survive untouched. Headline lines,
-planning lines and property drawers are regenerated from parsed fields,
-so incidental spacing on a changed line may shift. (The original design
-wanted byte-exact output via raw spans; that was not built.)
+**Unedited entries round-trip byte-exactly; edited ones are regenerated.**
+Body text and preamble are stored as raw lines. `Parse` also keeps each
+headline's own source text (`src`) and what `writeHeadlineFields`
+rendered for it then (`srcFields`); `RenderFile` writes `src` whenever
+the headline still renders to `srcFields`. This tells whether an entry is
+unedited without tracking every place that edits one. Anything that
+changes the rendering (keyword, level, tags, planning, properties, body,
+even a `Timestamp` edited in place through a shared pointer) makes the
+entry regenerate from its fields, which loses what the parser doesn't
+model (text after a planning timestamp, `<a>--<b>` ranges, duplicate
+properties, a drawer placed after body text, spacing). `CloneHeadline`
+copies both fields. `RenderHeadline`/`RenderEntry` always regenerate,
+since they feed edit buffers and `gitsync`'s entry hashes.
 
 ### internal/workspace
 
@@ -566,7 +574,10 @@ as `gM`.
   makes it a git repository with `initRepo`, since saving needs one) —
   never write to the checked-in fixtures. `gitsave_test.go` runs two
   Models on one repository, as two orgtd processes.
-- There is no golden byte-for-byte round-trip suite (see §3, org).
+- Byte-exact round-tripping of unedited entries is covered by
+  `TestRenderFileKeepsUnmodifiedEntriesVerbatim` (`internal/org/render_test.go`),
+  one case per construct regeneration would lose; there is no golden
+  suite over real files.
 - Run everything with `go build ./... && go vet ./... && go test ./...`.
 
 ## 9. Recipes for common changes

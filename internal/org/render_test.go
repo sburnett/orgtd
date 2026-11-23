@@ -232,9 +232,8 @@ func TestHeadlineLinesFollowsRenderingOnceWritten(t *testing.T) {
 func TestHeadlineLinesUsesSourceLinesForAnUnwrittenFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.org")
-	// Extra spaces before the tags render differently, so the disk
-	// content isn't what rendering produces; the parsed positions are
-	// what's on disk.
+	// An unsaved edit makes rendering differ from the disk content;
+	// the parsed positions are what's on disk.
 	content := "* One          :tag:\n   SCHEDULED: <2026-11-24 Tue>\n\n\nbody\n* Two\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -243,6 +242,7 @@ func TestHeadlineLinesUsesSourceLinesForAnUnwrittenFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.Headlines[0].Body = append([]string{"new line"}, f.Headlines[0].Body...)
 	if RenderFile(f) == content {
 		t.Fatal("fixture renders identically; it doesn't exercise the source-line fallback")
 	}
@@ -250,5 +250,87 @@ func TestHeadlineLinesUsesSourceLinesForAnUnwrittenFile(t *testing.T) {
 	lines := HeadlineLines(f)
 	if lines[f.Headlines[0]] != 1 || lines[f.Headlines[1]] != 6 {
 		t.Errorf("lines = %d, %d; want 1, 6", lines[f.Headlines[0]], lines[f.Headlines[1]])
+	}
+}
+
+// lossyEntries are entries whose regenerated form differs from their
+// source: everything here must survive a save untouched when nobody
+// edited it.
+var lossyEntries = map[string]string{
+	"planning trailing text": "* TODO a\n  SCHEDULED: <2026-11-22 Sun> some note\n",
+	"timestamp range":        "* TODO a\n  SCHEDULED: <2026-11-22 Sun>--<2026-11-24 Tue>\n",
+	"duplicate property":     "* a\n  :PROPERTIES:\n  :X: 1\n  :X: 2\n  :END:\n",
+	"dash and plus keys":     "* a\n  :PROPERTIES:\n  :foo-bar: 1\n  :tags+: x\n  :END:\n",
+	"late drawer":            "* a\n  body first\n  :PROPERTIES:\n  :ID: 1\n  :END:\n",
+	"odd spacing":            "*  TODO   a :t:\n\t:PROPERTIES:\n\t:ID:   1\n\t:END:\n",
+}
+
+func TestRenderFileKeepsUnmodifiedEntriesVerbatim(t *testing.T) {
+	for name, src := range lossyEntries {
+		t.Run(name, func(t *testing.T) {
+			// Surround the entry with others, nested under it too, so
+			// line ranges between entries are exercised.
+			content := "#+TITLE: x\n\n" + src + "** child\n   text\n* other\n"
+			f, err := ParseContent([]byte(content), "t.org")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := RenderFile(f); got != content {
+				t.Errorf("RenderFile changed an unmodified file\ngot:\n%s\nwant:\n%s", got, content)
+			}
+		})
+	}
+}
+
+func TestRenderFileRerendersOnlyEditedEntries(t *testing.T) {
+	content := "* TODO a\n  SCHEDULED: <2026-11-22 Sun> note\n" +
+		"* b\n  :PROPERTIES:\n  :foo-bar: 1\n  :END:\n" +
+		"** c\n  body first\n  :PROPERTIES:\n  :ID: 1\n  :END:\n"
+	f, err := ParseContent([]byte(content), "t.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Headlines[0].Keyword = "DONE"
+	got := RenderFile(f)
+	want := "* DONE a\n  SCHEDULED: <2026-11-22 Sun>\n" +
+		"* b\n  :PROPERTIES:\n  :foo-bar: 1\n  :END:\n" +
+		"** c\n  body first\n  :PROPERTIES:\n  :ID: 1\n  :END:\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	// A level change counts as an edit, and so does any field change
+	// made through a shared pointer (here a Timestamp edited in place).
+	f.Headlines[1].Children[0].Level = 3
+	f.Headlines[0].Scheduled.Raw = "2026-11-23 Mon"
+	got = RenderFile(f)
+	if !strings.Contains(got, "*** c\n    :PROPERTIES:\n    :ID: 1\n    :END:\n  body first\n") {
+		t.Errorf("demoted entry not re-rendered:\n%s", got)
+	}
+	if !strings.Contains(got, "SCHEDULED: <2026-11-23 Mon>\n") {
+		t.Errorf("in-place timestamp edit lost:\n%s", got)
+	}
+}
+
+func TestCloneKeepsSourceText(t *testing.T) {
+	content := "* a\n  :PROPERTIES:\n  :X: 1\n  :X: 2\n  :END:\n"
+	f, err := ParseContent([]byte(content), "t.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Headlines[0] = CloneHeadline(f.Headlines[0])
+	if got := RenderFile(f); got != content {
+		t.Errorf("got:\n%s\nwant:\n%s", got, content)
+	}
+}
+
+func TestDrawerKeysWithDashAndPlus(t *testing.T) {
+	f, err := ParseContent([]byte("* a\n  :PROPERTIES:\n  :foo-bar: 1\n  :tags+: x\n  :END:\n"), "t.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := f.Headlines[0]
+	if h.Properties["foo-bar"] != "1" || h.Properties["tags+"] != "x" || len(h.Body) != 0 {
+		t.Errorf("properties = %v, body = %q", h.Properties, h.Body)
 	}
 }
