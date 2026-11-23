@@ -185,6 +185,7 @@ func (m *Model) clearRefsForFile(f *org.File) {
 	})
 	delete(m.dirty, f)
 	delete(m.savedPos, f)
+	delete(m.savedFork, f)
 }
 
 // editorCommand returns the external editor to launch: m.cfg.Editor

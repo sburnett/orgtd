@@ -33,7 +33,8 @@ type Model struct {
 
 	undoStack []undoAction // undoStack[:undoPos] applied, undoStack[undoPos:] available to redo
 	undoPos   int
-	savedPos  map[*org.File]int // per-file count of applied actions at that file's last successful write
+	savedPos  map[*org.File]int             // per-file count of applied actions at that file's last successful write
+	savedFork map[*org.File][]*org.Headline // files whose last write is on discarded history; see pushApplied
 
 	// window is the active window's own state — its view, rows, cursor
 	// and scroll position, and jump list — embedded so that code reading
@@ -283,6 +284,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		dirty:          make(map[*org.File]bool),
 		dirtyHeadlines: make(map[*org.Headline]bool),
 		savedPos:       make(map[*org.File]int),
+		savedFork:      make(map[*org.File][]*org.Headline),
 		immutable:      make(map[*org.Headline]bool),
 		execLog:        &execlog.Log{},
 		meetings:       &meetingCache{},

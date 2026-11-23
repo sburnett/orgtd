@@ -192,18 +192,18 @@ func (m *Model) saveFiles(files []*org.File, forced map[string]bool) (string, bo
 		if !ok {
 			// Deleted on the main branch, and unchanged here: it stays
 			// deleted, and there's nothing of ours to keep.
-			m.savedPos[f] = m.appliedCountForFile(f)
+			m.markSaved(f)
 			continue
 		}
 		if string(written) == rendered[f] {
 			f.Base, f.New = written, false
-			m.savedPos[f] = m.appliedCountForFile(f)
+			m.markSaved(f)
 			continue
 		}
 		// The merge brought in another instance's changes: show them.
 		newFile, err := org.ParseContent(written, f.Path)
 		if err != nil {
-			m.savedPos[f] = m.appliedCountForFile(f)
+			m.markSaved(f)
 			continue
 		}
 		m.swapFile(f, newFile)

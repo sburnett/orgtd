@@ -256,3 +256,77 @@ func TestCommandUndoRedoAliases(t *testing.T) {
 		t.Errorf(":redo did not re-apply the change, keyword = %q", h.Keyword)
 	}
 }
+
+// saveAll runs :w, as the user would.
+func saveAll(m Model) Model {
+	m = sendKey(m, ":")
+	m = typeKeys(m, "w")
+	return sendKey(m, "enter")
+}
+
+// TestNewEditAfterUndoPastSavePointStaysDirty covers branching history
+// past a save point: save, undo, then a different edit. The file now
+// has as many applied actions as it did at the save, but not the same
+// ones, so it must still read as unsaved — and stay unsaved even after
+// undoing the new edit, since what's on disk is now unreachable by
+// undo/redo.
+func TestNewEditAfterUndoPastSavePointStaysDirty(t *testing.T) {
+	ws := loadFixtureCopy(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+	f := m.ws.Files[0]
+
+	m = setStatus(m, "n") // TODO -> NEXT
+	m = saveAll(m)        // disk: NEXT
+	m = sendKey(m, "u")   // memory: TODO
+	m = setStatus(m, "w") // memory: WAITING, a new branch
+
+	if !m.dirty[f] {
+		t.Errorf("expected the file to be dirty after a new edit replaced the saved state")
+	}
+	if !m.dirtyHeadlines[h] {
+		t.Errorf("expected the item to be dirty after a new edit replaced the saved state")
+	}
+
+	m = sendKey(m, "u") // memory: TODO, disk still NEXT
+	if !m.dirty[f] {
+		t.Errorf("expected the file to stay dirty after undoing the new edit (disk has NEXT, memory TODO)")
+	}
+	if !m.dirtyHeadlines[h] {
+		t.Errorf("expected the item to stay dirty after undoing the new edit")
+	}
+
+	m = sendKey(m, "ctrl+r") // WAITING again
+	if msg, _ := m.writeAllResult(false); msg == "No changes to write" {
+		t.Fatalf(":w found nothing to write after the save point was branched away from")
+	}
+	if m.dirty[f] || m.dirtyHeadlines[h] {
+		t.Errorf("expected a clean state after saving the new branch")
+	}
+}
+
+// TestInsertAfterUndoPastSavePointStaysDirty is the same as
+// TestNewEditAfterUndoPastSavePointStaysDirty, with the new branch
+// started by an o/O insert, which pushes its undo step on its own.
+func TestInsertAfterUndoPastSavePointStaysDirty(t *testing.T) {
+	ws := loadFixtureCopy(t)
+	m := New(ws)
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	h := m.currentHeadline()
+	f := m.ws.Files[0]
+
+	m = setStatus(m, "n") // TODO -> NEXT
+	m = saveAll(m)
+	m = sendKey(m, "u")
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	m = sendKey(m, "o")
+	m = finishInsertWith(t, m, "TODO Buy dog treats\n")
+
+	if !m.dirty[f] {
+		t.Errorf("expected the file to be dirty after an insert replaced the saved state")
+	}
+	if !m.dirtyHeadlines[h] {
+		t.Errorf("expected the undone item to be dirty (it differs from disk)")
+	}
+}
