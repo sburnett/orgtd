@@ -246,7 +246,7 @@ including its known weak points, so changes can be made deliberately.
 | `edit_file.go` | `:edit`/`:e`: open, load or create a file in the org directory or `reference/` and focus its header |
 | `capture.go` | Inserting entries (`o`/`O`/`gC`/`gX`) and calendar-view capture |
 | `urlformat.go`, `format_links.go` | Live URL formatting while editing; the `:format-links` batch (both run formatters through `internal/extprog`) |
-| `gitsave.go` | The Model's side of §6: `gitState`, `:w` (`writeAllResult`/`saveFiles`), reloading what the main branch changed (`reloadChanged`, keeping the cursor via `cursorAnchor`), `:e!` from main (`reloadFromMain`), polling (`pollMain`), the status-line note |
+| `gitsave.go` | The Model's side of §6: `gitState`, `:w` (`writeAllResult`/`saveFiles`), reloading what the main branch changed (`reloadChanged`, keeping the cursor via `cursorAnchor`), `:e!` from main (`reloadFromMain`), polling (`startPoll`/`pollCmd`/`finishPoll`), the status-line note |
 | `resolve.go` | `:resolve` (conflicts to a scratch folder, `merge_tool`, saving the result) and `:recover` |
 | `run_command.go`, `run_context.go` | `:run <name> [args...]`: save everything, run the named `[[commands]]` entry, commit and reload what it changed; with `context = true`, the cursor's entry or the visual selection (`commandSelection`) as `ORGTD_*` variables and a JSON file |
 | `review.go`, `marks.go`, `jumplist.go` | `:review` target (the `%` register, toggled by `:review`), vim-style marks, ctrl-o/`gi` jump list and view switching |
@@ -424,7 +424,8 @@ merge without false conflicts, and lets `:w!` (`Edit.Force`) and
 1. Commit the edits as a save commit S (on a commit of their bases), and
    point `refs/orgtd/<instance ID>` at it. From here a crash can't lose
    them.
-2. Take the merge lock (`.git/orgtd/merge.lock`, a flock), read main (M).
+2. Take the merge lock (`.git/orgtd/merge.lock`, a flock, plus a
+   mutex: the flock only excludes other processes), read main (M).
 3. Commit outside edits: managed files where the working tree differs
    from M (`commitOutsideLocked`, which also repairs stale index
    entries).
@@ -455,10 +456,16 @@ loads managed files new on main. `reloadChanged` does nothing unless
 since a reload invalidates headline pointers; `seen` only advances once
 everything caught up, so polling retries.
 
-**Polling** (`pollMain`) recounts the other live instances
+**Polling** (`pollCmd`) recounts the other live instances
 (`OtherInstances`, for the status line), brings in the phone's
-branch (below), and reads the branch every 2 s
-and, if it moved, calls `reloadChanged` with its snapshot. Uncommitted outside edits are
+branch (below), and reads the branch every 2 s, all off the UI
+goroutine: it touches only the `Store`, whose methods are safe to call
+concurrently. `finishPoll` then, if the branch moved, calls
+`reloadChanged` with its snapshot, unless `Store.Moves` changed since
+the poll read it: a save made meanwhile is newer, and reloading the
+poll's snapshot would roll its files back. The next poll is scheduled
+only once a result arrives, so polls never overlap, and `Store.Close`
+waits for one that's mid-merge. Uncommitted outside edits are
 picked up at the next save, `:e!` or `:run` (`CommitOutsideEdits`).
 
 **The phone's branch** (`Store.ApplyBranch`, `branch.go`). The iOS

@@ -36,7 +36,7 @@ type resolveFinishedMsg struct {
 // write them — conflict markers and all — to a scratch folder and run the
 // merge tool (merge_tool, else the editor) on them, with the terminal
 // handed over. With no save conflict, it does the same for the phone's
-// branch's merge with the main branch, if that collided (see pollMain).
+// branch's merge with the main branch, if that collided (see finishPoll).
 // finishResolve takes it from there.
 func (m *Model) startResolve() tea.Cmd {
 	msg, ok := m.writeAllResult(false)

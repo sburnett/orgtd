@@ -27,7 +27,7 @@ type gitState struct {
 
 	// seen is the main branch commit whose files this instance has fully
 	// caught up with: saved onto, or reloaded from. Polling (see
-	// pollMain) compares the branch against it.
+	// startPoll) compares the branch against it.
 	seen plumbing.Hash
 
 	// mustSave holds files with nothing to undo that still need saving:
@@ -44,17 +44,17 @@ type gitState struct {
 	behind []string
 
 	// others is how many other orgtd instances are running on this org
-	// directory, as of the last pollMain (see gitstore.OtherInstances).
+	// directory, as of the last poll (see gitstore.OtherInstances).
 	// Shown on the status line.
 	others int
 
-	// mobile is why pollMain couldn't bring in the phone's branch on its
+	// mobile is why polling couldn't bring in the phone's branch on its
 	// last try (see gitstore.ApplyBranch), as the status line says it;
 	// empty if it could, or had nothing to do.
 	mobile string
 
 	// mobileConflict is the phone's branch's merge with the main branch
-	// that collided, as of the last pollMain, for :resolve; nil if none.
+	// that collided, as of the last poll, for :resolve; nil if none.
 	mobileConflict *gitstore.BranchConflict
 
 	// orphans are dead instances' unsaved edits found at startup (see
@@ -492,7 +492,7 @@ func (m *Model) instancesStatus() string {
 
 // mobileBranch is the branch the iOS app pushes its changes to
 // (gitsync.MobileBranch; the desktop doesn't import gitsync), which
-// pollMain brings into the main branch.
+// polling brings into the main branch.
 const mobileBranch = "mobile"
 
 // mobileNote is the status line's note on why the phone's branch
@@ -526,53 +526,101 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// pollInterval is how often pollMain checks the main branch.
+// pollInterval is how often startPoll checks the main branch.
 const pollInterval = 2 * time.Second
 
-// gitPollMsg asks pollMain to check the main branch.
+// gitPollMsg asks for a poll of the main branch (see startPoll).
 type gitPollMsg struct{}
 
 func pollTick() tea.Cmd {
 	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return gitPollMsg{} })
 }
 
-// pollMain runs on every gitPollMsg: it recounts the other instances
+// gitPolledMsg is what a poll found (see pollCmd), for finishPoll.
+type gitPolledMsg struct {
+	others   int // other instances running, if othersOK
+	othersOK bool
+	branch   gitstore.BranchResult // bringing in the phone's branch
+
+	// moves is the store's Moves just before head was read: if it's
+	// changed by the time the result arrives, this instance moved the
+	// main branch since, and head and snapshot may be older than what
+	// it now has.
+	moves uint64
+
+	// head is the main branch commit and snapshot its managed files;
+	// snapshot is nil if head was the commit the poll was asked to
+	// compare against, or reading failed.
+	head     plumbing.Hash
+	snapshot map[string][]byte
+}
+
+// startPoll runs on every gitPollMsg, starting a poll (see pollCmd) on
+// a goroutine of its own, so the UI doesn't wait on the repository.
+// finishPoll schedules the next one once it's done, so polls never
+// overlap.
+func (m Model) startPoll() (tea.Model, tea.Cmd) {
+	if m.git.store == nil {
+		return m, nil
+	}
+	return m, pollCmd(m.git.store, m.git.seen)
+}
+
+// pollCmd does a poll's git work: it recounts the other instances
 // running on the org directory (see instancesStatus), brings the iOS
 // app's branch into the main branch — a fast-forward, or a merge — if it
-// can (see gitstore.ApplyBranch), and if the main branch moved since this
-// instance last caught up with it (another instance saved, the phone's
-// changes came in, or a commit or pull from outside), reload the files
-// it changed (see reloadChanged).
+// can (see gitstore.ApplyBranch), and reads the main branch's files if
+// it's no longer at seen (another instance saved, the phone's changes
+// came in, or a commit or pull from outside). It runs off the UI
+// goroutine, so it touches nothing but store.
+func pollCmd(store *gitstore.Store, seen plumbing.Hash) tea.Cmd {
+	return func() tea.Msg {
+		var r gitPolledMsg
+		var err error
+		r.others, err = store.OtherInstances()
+		r.othersOK = err == nil
+		// Errors (HEAD on another branch, a git command holding the
+		// index) just mean trying again next time.
+		r.branch, _ = store.ApplyBranch(mobileBranch)
+		r.moves = store.Moves()
+		head, err := store.Head()
+		if err != nil || head == seen {
+			return r
+		}
+		if r.snapshot, err = store.Snapshot(head); err == nil {
+			r.head = head
+		}
+		return r
+	}
+}
+
+// finishPoll takes in a poll's results (see pollCmd): the status line's
+// notes, and reloading the files the main branch changed (see
+// reloadChanged) unless this instance has moved the branch itself since
+// the poll read it — a save made meanwhile already loaded what it
+// merged, and the next poll picks up anything else.
 // Files with unsaved edits aren't reloaded; the status line says the
 // branch moved, and the next :w merges. Edits made outside orgtd and not
 // yet committed aren't picked up until a save or :run commits them.
-func (m Model) pollMain() (tea.Model, tea.Cmd) {
+func (m Model) finishPoll(r gitPolledMsg) (tea.Model, tea.Cmd) {
 	next := pollTick()
 	store := m.git.store
 	if store == nil {
-		return m, next
+		return m, nil
 	}
-	if n, err := store.OtherInstances(); err == nil {
-		m.git.others = n
+	if r.othersOK {
+		m.git.others = r.others
 	}
-	// Errors (HEAD on another branch, a git command holding the index)
-	// just mean trying again next time.
-	ff, _ := store.ApplyBranch(mobileBranch)
-	m.noteMobile(ff)
-	head, err := store.Head()
-	if err != nil || head == m.git.seen {
-		return m, next
+	m.noteMobile(r.branch)
+	var reloaded []string
+	if r.snapshot != nil && r.head != m.git.seen && store.Moves() == r.moves {
+		reloaded, _ = m.reloadChanged(r.head, r.snapshot, nil)
 	}
-	snapshot, err := store.Snapshot(head)
-	if err != nil {
-		return m, next
-	}
-	reloaded, _ := m.reloadChanged(head, snapshot, nil)
 	switch {
-	case ff.Merged:
-		m.message = "Merged changes from " + mobileBranch + " into " + strings.Join(ff.Changed, ", ")
-	case ff.Moved:
-		m.message = "Applied changes from " + mobileBranch + " to " + strings.Join(ff.Changed, ", ")
+	case r.branch.Merged:
+		m.message = "Merged changes from " + mobileBranch + " into " + strings.Join(r.branch.Changed, ", ")
+	case r.branch.Moved:
+		m.message = "Applied changes from " + mobileBranch + " to " + strings.Join(r.branch.Changed, ", ")
 	case len(reloaded) > 0:
 		m.message = "Reloaded " + strings.Join(reloaded, ", ") + " (changed on " + store.MainBranch() + ")"
 	}

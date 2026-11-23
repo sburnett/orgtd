@@ -301,7 +301,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 
 // Init kicks off automatic calendar syncing (see autoSyncTick), if it's
 // enabled, with an immediate first check, and polling the main branch
-// for other instances' saves (see pollMain).
+// for other instances' saves (see startPoll).
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.autoSyncEnabled() {
@@ -402,7 +402,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finishRun(msg)
 
 	case gitPollMsg:
-		return m.pollMain()
+		return m.startPoll()
+
+	case gitPolledMsg:
+		return m.finishPoll(msg)
 
 	case resolveFinishedMsg:
 		return m.finishResolve(msg)

@@ -165,9 +165,52 @@ func TestSaveRefusedOutsideARepository(t *testing.T) {
 	}
 }
 
+// poll runs one poll to completion: the gitPollMsg, the git work its
+// command does (on a goroutine, in the program), and the result.
 func poll(m Model) Model {
-	updated, _ := m.Update(gitPollMsg{})
+	updated, cmd := m.Update(gitPollMsg{})
+	m = updated.(Model)
+	if cmd == nil {
+		return m
+	}
+	updated, _ = m.Update(cmd())
 	return updated.(Model)
+}
+
+func TestPollResultOlderThanASaveIsDropped(t *testing.T) {
+	a, b, _ := twoInstances(t, map[string]string{"todo.org": "* TODO Shared\n* TODO Other\n"})
+	a.cursor = findRow(t, a, "Shared")
+	a = setStatus(a, "n")
+	if msg, ok := a.writeAllResult(false); !ok {
+		t.Fatalf("a :w = %q", msg)
+	}
+
+	// b's poll reads the branch with a's save on it, but b saves before
+	// the result arrives.
+	updated, cmd := b.Update(gitPollMsg{})
+	b = updated.(Model)
+	polled := cmd()
+	b.cursor = findRow(t, b, "Other")
+	b = setStatus(b, "w")
+	if msg, ok := b.writeAllResult(false); !ok {
+		t.Fatalf("b :w = %q", msg)
+	}
+	b.message = ""
+
+	updated, next := b.Update(polled)
+	b = updated.(Model)
+	if got := keywordOf(t, b, "Other"); got != "WAITING" {
+		t.Errorf("stale poll reloaded over b's save: Other is %q", got)
+	}
+	if got := keywordOf(t, b, "Shared"); got != "NEXT" {
+		t.Errorf("Shared is %q, want a's NEXT (merged by b's save)", got)
+	}
+	if b.message != "" {
+		t.Errorf("message = %q", b.message)
+	}
+	if next == nil {
+		t.Error("no next poll scheduled")
+	}
 }
 
 func TestPollingReloadsAnotherInstancesSave(t *testing.T) {
@@ -395,12 +438,6 @@ func TestRecoverDrop(t *testing.T) {
 
 func TestStatusLineCountsOtherInstances(t *testing.T) {
 	a, b, _ := twoInstances(t, map[string]string{"todo.org": "* TODO First\n"})
-	poll := func(m Model) Model {
-		t.Helper()
-		next, _ := m.pollMain()
-		return next.(Model)
-	}
-
 	a = poll(a)
 	if line := stripANSI(a.normalStatusLine()); !strings.Contains(line, "1 other instance") {
 		t.Errorf("with b open, status line = %q", line)
