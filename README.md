@@ -269,6 +269,8 @@ lock_icon     = "◆"    # locked by an in-flight :format-links batch
 lock_color    = "#ffaf00"
 meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag
 meeting_color = "#00afff"
+claude_icon   = "✻"    # not a gutter marker: the tag shown on an entry with a Claude session (see Passing context to a command)
+claude_color  = "#d7875f"
 
 # Customizes the rest of the built-in color scheme, beyond the gutter
 # markers above. Every key here is optional and independent, and falls
@@ -450,7 +452,12 @@ directory named by a `:PROJECT_DIR:` property on the entry or its
 nearest ancestor that has one (else the org directory), so setting one
 on a project heading covers every task under it. It saves the session's
 ID in a `:CLAUDE_SESSION:` property on the entry, so running it there
-again resumes that conversation, with the entry's notes refreshed.
+again resumes that conversation, with the entry's notes refreshed. An
+entry with one shows a `✻` among its tags (`:work:✻:`), in its own
+color (`claude_icon`/`claude_color` under `[icons]`, above), and is
+listed under `✻` in `:tags`. It's generated from the property, not
+stored as a tag, so insert mode doesn't show it and tag completion
+doesn't offer it; deleting the property removes it.
 Anything after the name goes to `claude`, e.g. `:run claude --model
 opus`:
 
@@ -593,7 +600,9 @@ logging is on.
   `meeting_tags_file` excluded, same as the outline view above — a synced
   calendar event's own attendee/`recurring` tags, and a meeting-tags.org
   record's own tag, aren't outline entries to catalog here), grouped
-  under one flush-left header row per tag, tags listed alphabetically.
+  under one flush-left header row per tag, tags listed alphabetically —
+  `✻` last, listing every entry with a Claude session (see Passing
+  context to a command, above).
   Within each tag, entries are ordered by `CREATED` (oldest first) rather
   than by file/tree position — the same ordering `:calendar` uses for the
   items nested under each meeting (see above) — so where something's

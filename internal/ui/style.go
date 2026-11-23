@@ -413,8 +413,12 @@ const maxTagsSuffixWidth = 40
 // (see the package doc comment above the style vars, near fileStyle) —
 // dirty's blue matches its "Changed" highlight, mark/review share its
 // magenta Identifier/Question color, lock takes its orange Type/Warning
-// color, and meeting takes its blue Statement/Directory color.
+// color, and meeting takes its blue Statement/Directory color. The
+// Claude tag (see displayTags) is the exception: "✻" in Claude's own
+// orange, as Claude Code draws it.
 const (
+	defaultClaudeIcon   = "✻"
+	defaultClaudeColor  = "#d7875f"
 	defaultDirtyIcon    = "+"
 	defaultDirtyColor   = "#0087d7"
 	defaultMarkColor    = "#ff87ff"

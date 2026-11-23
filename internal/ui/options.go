@@ -261,6 +261,20 @@ func WithMeetingIcon(icon, color string) Option {
 	}
 }
 
+// WithClaudeIcon sets the character and color of the tag generated on an
+// entry with a CLAUDE_SESSION property (default: "✻", color "#d7875f").
+// An empty icon or color leaves that half at its default.
+func WithClaudeIcon(icon, color string) Option {
+	return func(m *Model) {
+		if icon != "" {
+			m.cfg.Icons.ClaudeIcon = icon
+		}
+		if color != "" {
+			m.cfg.Icons.ClaudeColor = color
+		}
+	}
+}
+
 // WithClock replaces the real clock with now, for everything
 // time-dependent in the UI (see Model.now) — what lets a test run at a
 // fixed moment instead of building every fixture relative to the real one.

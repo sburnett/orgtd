@@ -418,6 +418,13 @@ type IconsConfig struct {
 	// a calendar meeting via "gM" (default: "▣", a blue).
 	MeetingIcon  string `toml:"meeting_icon"`
 	MeetingColor string `toml:"meeting_color"`
+
+	// ClaudeIcon/ClaudeColor style the tag generated on an entry with a
+	// CLAUDE_SESSION property (see scripts/claude_entry.py) — shown with
+	// the entry's tags rather than in the gutter (default: "✻", Claude's
+	// orange).
+	ClaudeIcon  string `toml:"claude_icon"`
+	ClaudeColor string `toml:"claude_color"`
 }
 
 // ColorsConfig is the "[colors]" section of the config file: the rest of

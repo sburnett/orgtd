@@ -168,6 +168,8 @@
 # lock_color    = "208"
 # meeting_icon  = "▣"    # linked to a calendar meeting, via "gM" or a shared tag
 # meeting_color = "39"
+# claude_icon   = "✻"    # not a gutter marker: the tag on an entry with a CLAUDE_SESSION property
+# claude_color  = "173"
 
 # The TODO keywords, one [[keywords]] table each, in the order the status
 # picker (r/R) lists them. Leave all of them commented out to get the

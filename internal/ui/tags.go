@@ -24,6 +24,8 @@ import (
 // Subject to the same stale-DONE hiding as the outline (see
 // hiddenAsStaleDone) — :toggleclosed affects this view the same way —
 // except for reference entries, which have no task state to age out.
+// The generated Claude tag (see displayTags) counts too, so every entry
+// with a Claude Code session is listed under it.
 func (m *Model) appendTagsRows(dst *[]row) {
 	byTag := make(map[string][]*org.Headline)
 	for _, f := range m.ws.Files {
@@ -35,7 +37,7 @@ func (m *Model) appendTagsRows(dst *[]row) {
 			if !isRef && m.hiddenAsStaleDone(h) {
 				return
 			}
-			for _, tag := range h.Tags {
+			for _, tag := range m.displayTags(h, h.Tags) {
 				byTag[tag] = append(byTag[tag], h)
 			}
 		})

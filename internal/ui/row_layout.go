@@ -350,15 +350,19 @@ func wrapPlain(s string, width int) []string {
 
 // tagsMeta is the ":tag1:tag2:" part of h's row. tags is the list to
 // show: h.Tags, except on a calendar event, which unions in
-// meeting-tags.org tags too (see calendarDisplayTags). On one line it's
-// capped at maxTagsSuffixWidth; wrapped, it's shown in full, breaking
-// between tags. nil if there are none.
+// meeting-tags.org tags too (see calendarDisplayTags) — plus, either
+// way, the generated Claude tag on an entry with a Claude Code session
+// (see displayTags). On one line it's capped at maxTagsSuffixWidth;
+// wrapped, it's shown in full, breaking between tags. nil if there are
+// none.
 func (m Model) tagsMeta(h *org.Headline, tags []string, bg lipgloss.TerminalColor) []rowMeta {
+	tags = m.displayTags(h, tags)
 	if len(tags) == 0 {
 		return nil
 	}
 	query := m.activeSearchQuery()
 	style := m.fadeIfImmutable(m.tagStyle(), h).Background(bg)
+	claude := m.fadeIfImmutable(m.claudeTagStyle(), h).Background(bg)
 	joined := ":" + strings.Join(tags, ":") + ":"
 	widest := 0
 	for _, t := range tags {
@@ -366,7 +370,7 @@ func (m Model) tagsMeta(h *org.Headline, tags []string, bg lipgloss.TerminalColo
 	}
 	return []rowMeta{{
 		text:   ansi.Truncate(joined, maxTagsSuffixWidth, "…"),
-		render: func(s string) string { return m.highlightMatches(s, query, style) },
+		render: func(s string) string { return m.renderTagText(h, s, query, style, claude) },
 		wrap: func(width int) []string {
 			lines := wrapPlain(strings.Join(tags, " "), width-2)
 			for i, line := range lines {
@@ -659,6 +663,7 @@ func (m *Model) overflows(h *org.Headline) bool {
 	} else {
 		total += 2 * h.Level
 	}
+	tags = m.displayTags(h, tags)
 	if len(tags) > 0 {
 		w := lipgloss.Width(":" + strings.Join(tags, ":") + ":")
 		if w > maxTagsSuffixWidth {
