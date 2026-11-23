@@ -14,7 +14,7 @@ import (
 // (whatever it holds, default or user-supplied) plus which flags the
 // user actually passed on the command line (see recordExplicit) — needed
 // to tell "the user explicitly asked for this" apart from "this just
-// happens to equal the flag's zero-value default", which resolveConfig
+// happens to equal the flag's zero-value default", which resolveLayers
 // must treat differently (an explicit flag always wins; an unset one
 // leaves whatever the config file said).
 type flagValues struct {

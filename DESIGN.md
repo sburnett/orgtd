@@ -246,7 +246,9 @@ including its known weak points, so changes can be made deliberately.
 | `command_table.go` | `commandTable` (every non-view `:` command), lookup, and dispatch |
 | `search.go` | `/` `?` `n` `N` incremental search and the search row space |
 | `edit_ops.go` | Delete/yank/paste/promote/demote and bulk status changes |
+| `registers.go` | Vim-style registers: the unnamed one, `0`-`9`, `a`-`z`/`A`-`Z`, the `_` black hole and the read-only `%`; storing a yank or delete, and the `"<register>` prefix (`runWithRegister`) |
 | `status_picker.go`, `deadline.go`, `tag_prompt.go`, `meeting_picker.go` | The `r`/`R`, `gd`, `gt`, `gM` prompts |
+| `closing_note.go` | `closingNoteMode`: the note the status picker asks for when a change completes an entry (`closesAny`), typed in place under each target, and recording it with the change (`withClosingNote`) |
 | `editor.go` | `$EDITOR` round trip: scratch files, entry context, `finishEdit`, and `applyEditedEntry`, which insert mode shares (the command line itself is built by `internal/extprog`) |
 | `insert_mode.go`, `insert_keyword.go`, `insert_timestamp.go`, `insert_tags.go`, `insert_note.go`, `textbuf.go` | Insert mode: editing an entry's text in place (i/I/a/A/o/O/capture), drawn over its rows in the listing; the TODO keyword as a one-character slot set with the status picker's shortcuts; timestamps as one character each, changed through a `gd`-style date prompt; each tag as one character, edited in a tag area at the end of the first line; a closing note typed in place (`r`, or the keyword slot); `textBuffer` is the line editor underneath |
 | `edit_file.go` | `:edit`/`:e`: open, load or create a file in the org directory or `reference/` and focus its header |
@@ -258,6 +260,10 @@ including its known weak points, so changes can be made deliberately.
 | `review.go`, `marks.go`, `jumplist.go` | `:review` target (the `%` register, toggled by `:review`), vim-style marks, ctrl-o/`gi` jump list and view switching |
 | `style.go` | Color/icon resolution, text-width and highlight helpers |
 | `render_rows.go` | Per-row rendering (gutter, outline/agenda/calendar/tags row flavors) |
+| `row_layout.go` | Fitting an entry row to the width: sharing it between the title and metadata (tags, planning dates, place) in `allocateRow`, compact dates, and wrapping a long entry onto continuation rows |
+| `claude_tag.go` | The generated Claude tag shown on an entry with a `CLAUDE_SESSION` property (`displayTags`), drawn in its own color (`renderTagText`) |
+| `hyperlink.go` | OSC 8 hyperlinks on http(s)/mailto org links, marked with a per-process nonce so `sanitizeTerminal` keeps only orgtd's own |
+| `termsafe.go` | `sanitizeTerminal`, applied to `View`'s whole output: drops every escape sequence and control character from untrusted org text except SGR styling and orgtd's own hyperlinks |
 | `windows.go` | `:split`/`:vsplit` windows: per-window state, the layout tree, `ctrl-w` commands, keeping inactive windows current, and drawing split screens |
 | `view.go`, `info_buffer.go` | `View`, status line; the info buffer's sections and pinned register/marks |
 | `info_views.go` | Rows for the read-only `:help`/`:config`/`:log` views |
@@ -394,13 +400,13 @@ it for every visible row) must go through a cached index like
 These are recorded here so contributors don't mistake them for design:
 
 1. **One `Model` struct, one package.** The files above split the code by
-   topic, but they still all share a ~100-field `Model`, so nothing stops
+   topic, but they still all share a ~70-field `Model`, so nothing stops
    a file from touching state that isn't its own. Helpers that don't need
    `Model` have been moving out — date logic (`internal/orgdate`),
    subprocess logging (`internal/execlog`),
    editor and URL-formatter programs (`internal/extprog`), meeting linking
    (`internal/meetings`), and org link parsing and tree operations
-   (`internal/org`) — but the remaining ~30 files still share the
+   (`internal/org`) — but the remaining ~60 files still share the
    one `Model`.
 
 ## 6. Saving through git
@@ -599,6 +605,11 @@ as `gM`.
   `FuzzParseRender` checks the same two properties on any input, seeded
   from the corpus; run it with `go test ./internal/org -run '^$' -fuzz
   FuzzParseRender`.
+- Documentation drift is tested too: `TestReadmeDocumentsEveryFlagAndConfigKey`
+  (`cmd/orgtd`) fails when a flag or config key is missing from the
+  README, and `TestDesignListsEveryUIFile` (`design_test.go`) when a
+  non-test `internal/ui` file is missing from §5's file table, or the
+  table names one that no longer exists.
 - Run everything with `go build ./... && go vet ./... && go test ./...`.
 
 ## 9. Recipes for common changes
@@ -636,9 +647,15 @@ status label, empty message and Enter behavior need no other edits;
 
 **Add a config setting.** Add the field (with its `toml` tag) to
 `config.Config` — or one of its sections — and, if it has a built-in
-default, to `config.Default` and `ApplyDefaults`. If it needs a flag, add
-it in `defineFlags` and an `if f.explicit[...]` line in `resolveConfig`.
-Read it in `ui` as `m.cfg.<Field>`. Add a line to the `:config` listing
+default, to `config.Default` and `ApplyDefaults`. Layering
+(`config.Overlay`) and `:config`'s sources pick it up by reflection. If
+it names a program to run or a path on one machine, or holds a secret,
+add its key to `machineLocalKeys` (`internal/config/layers.go`) so the
+shared `.orgtd.toml` can't set it. If it needs a flag, add a field to
+`flagValues`, register it in `defineFlags`, and add a `set(...)` line
+in `resolveLayers` (`cmd/orgtd/settings.go`); a flag with a built-in
+default also needs a case in `sameKey`, so an explicit zero flag is
+reported as the default. Read it in `ui` as `m.cfg.<Field>`. Add a line to the `:config` listing
 (`appendConfigRows`), `config.example.toml`, and the README.
 `TestReadmeDocumentsEveryFlagAndConfigKey` fails if the README misses it.
 
