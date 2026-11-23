@@ -382,3 +382,21 @@ func TestLinksInEntryIncludesBody(t *testing.T) {
 		t.Fatalf("linksInEntry = %v, want %v", got, want)
 	}
 }
+
+func TestRenderTitleForDisplayMakesWebLinksClickable(t *testing.T) {
+	m := Model{}
+	got := sanitizeTerminal(m.renderTitleForDisplay("Read [[https://example.com/rfc][the RFC]] and [[id:abc][that note]]", lipgloss.NewStyle(), ""))
+	open := "\x1b]8;id=" + hyperlinkNonce + "-" + hyperlinkID("https://example.com/rfc") + ";https://example.com/rfc\x1b\\"
+	i := strings.Index(got, open)
+	if i < 0 {
+		t.Fatalf("no OSC 8 hyperlink to the web link in %q", got)
+	}
+	rest := got[i+len(open):]
+	j := strings.Index(rest, "\x1b]8;;\x1b\\")
+	if j < 0 || stripANSI(rest[:j]) != "the RFC" {
+		t.Errorf("hyperlink doesn't wrap exactly the description: %q", got)
+	}
+	if strings.Count(got, "\x1b]8;id=") != 1 {
+		t.Errorf("an id: link was made a hyperlink too: %q", got)
+	}
+}

@@ -18,10 +18,11 @@ import (
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
-var ansiEscapeRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+var ansiEscapeRe = regexp.MustCompile("\x1b\\[[0-9;]*m|\x1b\\]8;[^\x07\x1b]*(?:\x07|\x1b\\\\)")
 
-// stripANSI removes SGR escape codes so tests can check visible text
-// without depending on lipgloss's exact styling sequences.
+// stripANSI removes SGR escape codes and OSC 8 hyperlinks so tests can
+// check visible text without depending on lipgloss's exact styling
+// sequences.
 func stripANSI(s string) string {
 	return ansiEscapeRe.ReplaceAllString(s, "")
 }

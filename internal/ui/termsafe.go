@@ -7,7 +7,8 @@ import (
 
 // sanitizeTerminal strips everything from s that a terminal would act
 // on rather than just display, except SGR (color/style) sequences, which
-// is all orgtd's own rendering (lipgloss, glamour) ever emits. It's
+// is all orgtd's own rendering (lipgloss, glamour) ever emits, and the
+// hyperlinks orgtd puts on org links (see hyperlink). It's
 // applied to View's whole output, the one place every byte headed for
 // the terminal passes through, because org text isn't trusted: a synced
 // calendar invite, a git pull, or a share-sheet capture can put raw
@@ -15,8 +16,10 @@ import (
 // system clipboard (OSC 52), retitle the window, or make the terminal
 // answer a query by "typing" its reply into orgtd's own input.
 //
-// Kept: "\n", "\t", printable text, and well-formed CSI sequences ending
-// in 'm' whose parameters are only digits, ';' and ':'. Dropped: every
+// Kept: "\n", "\t", printable text, well-formed CSI sequences ending
+// in 'm' whose parameters are only digits, ';' and ':', and the OSC 8
+// hyperlinks orgtd itself wraps around org links (see hyperlink and
+// keepHyperlink; one from content is dropped like any other). Dropped: every
 // other escape sequence in full (OSC/DCS/APC/PM/SOS up to their
 // terminator, any other CSI, two-byte ESC sequences), every other C0
 // control and DEL, C1 controls (U+0080-U+009F, which some terminals
@@ -87,13 +90,20 @@ func copyOrSkipEscape(b *strings.Builder, s string, i int) int {
 		// String sequences (OSC, DCS, APC, PM, SOS): skip to BEL (OSC's
 		// common terminator) or ST (ESC \), or the end of s if
 		// unterminated.
+		// orgtd's own OSC 8 hyperlinks (see keepHyperlink) are kept.
 		for j := i + 2; j < len(s); j++ {
+			end := 0
 			if s[j] == 0x07 {
-				return j + 1
+				end = j + 1
+			} else if s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\' {
+				end = j + 2
+			} else {
+				continue
 			}
-			if s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\' {
-				return j + 2
+			if s[i+1] == ']' && keepHyperlink(s[i:end]) {
+				b.WriteString(s[i:end])
 			}
+			return end
 		}
 		return len(s)
 	default:

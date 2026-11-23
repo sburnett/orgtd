@@ -16,7 +16,8 @@ import (
 // renderTitleForDisplay renders title for the row list: each org-mode
 // link is replaced with just its display text (the description, or the
 // url if there's no description) and underlined, instead of showing the
-// raw "[[url][description]]" syntax. base is the style otherwise applied
+// raw "[[url][description]]" syntax, and, for a web or mailto: url,
+// made a clickable terminal hyperlink to it (see hyperlink). base is the style otherwise applied
 // to the title (e.g. doneTitleStyle for a DONE/CANCELLED item); every
 // segment — link or plain text — is rendered with base (underlined,
 // for a link) so the two compose without nesting escape codes. A method
@@ -57,7 +58,7 @@ func (m Model) renderTitleSpans(title string, base lipgloss.Style, render func(p
 		if start > last {
 			b.WriteString(render(title[last:start], last, start, base, false))
 		}
-		b.WriteString(render(display, start, end, linkStyle, true))
+		b.WriteString(hyperlink(url, render(display, start, end, linkStyle, true)))
 		last = end
 	}
 	if last < len(title) {

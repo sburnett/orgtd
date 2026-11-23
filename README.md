@@ -714,6 +714,16 @@ from shifting position any more than it has to:
   currently highlighted one in reverse video.
 - **Links** — every org-mode link literally in the current entry's
   title or body.
+
+  In the outline itself, a link is shown as just its description (or
+  its URL, if it has none), underlined. When it points at an `http://`,
+  `https://` or `mailto:` URL, that text is also a terminal hyperlink
+  (OSC 8): in a terminal that supports them (iTerm2, kitty, WezTerm,
+  Ghostty, and others) it opens on a click — cmd-click in iTerm2.
+  Terminals without support show the same underlined text. Any other
+  link (`id:`, `file:`, a heading search) stays plain underlined text.
+  orgtd strips escape sequences from org text before drawing it, so a
+  file can't plant a hyperlink of its own. Only orgtd's links get through.
 - **Meeting** — one line per calendar meeting the current entry is
   linked to (see below for how a link is established), each showing the
   meeting's name, start time (when still resolvable), and link.
