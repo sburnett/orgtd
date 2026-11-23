@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/atomicfile"
 	"github.com/sburnett/orgtd/internal/capture"
 	"github.com/sburnett/orgtd/internal/capturequeue"
 	"github.com/sburnett/orgtd/internal/org"
@@ -127,7 +128,7 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 		if len(out) > 0 && len(data) > 0 && data[len(data)-1] == '\n' {
 			text += "\n"
 		}
-		return writeFileAtomic(p, []byte(text))
+		return atomicfile.Write(p, []byte(text), 0o644)
 	}
 	lines := splitLines(data)
 	if h.SrcEnd > len(lines) || h.SrcStart >= h.SrcEnd {
@@ -142,7 +143,7 @@ func applyOp(dir string, op capturequeue.StateOp) error {
 	if len(data) > 0 && data[len(data)-1] == '\n' {
 		text += "\n"
 	}
-	return writeFileAtomic(p, []byte(text))
+	return atomicfile.Write(p, []byte(text), 0o644)
 }
 
 // findParent finds an insert op's parent (or, for Beside, its sibling):
@@ -214,7 +215,7 @@ func applyInsert(p string, data []byte, f *org.File, op capturequeue.StateOp) er
 		entry = append(entry, "")
 	}
 	out := append(append(append([]string{}, lines[:at]...), entry...), lines[at:]...)
-	return writeFileAtomic(p, []byte(strings.Join(out, "\n")+"\n"))
+	return atomicfile.Write(p, []byte(strings.Join(out, "\n")+"\n"), 0o644)
 }
 
 // subtreeEnd is the line just after h's last descendant (or h itself).
@@ -295,7 +296,7 @@ func applyMove(p string, data []byte, f *org.File, h *org.Headline, op capturequ
 	if len(data) > 0 && data[len(data)-1] == '\n' {
 		text += "\n"
 	}
-	return writeFileAtomic(p, []byte(text))
+	return atomicfile.Write(p, []byte(text), 0o644)
 }
 
 // reorder moves lines[start:end] (a subtree) to before line at (outside
@@ -401,10 +402,10 @@ func applyFileMove(dir, p string, data []byte, h *org.Headline, op capturequeue.
 	if len(rest) > 0 && len(data) > 0 && data[len(data)-1] == '\n' {
 		text += "\n"
 	}
-	if err := writeFileAtomic(p, []byte(text)); err != nil {
+	if err := atomicfile.Write(p, []byte(text), 0o644); err != nil {
 		return err
 	}
-	return writeFileAtomic(dp, []byte(strings.Join(out, "\n")+"\n"))
+	return atomicfile.Write(dp, []byte(strings.Join(out, "\n")+"\n"), 0o644)
 }
 
 // patchEntry returns h's own lines (as in the file) with op applied,
@@ -659,23 +660,6 @@ func splitLines(data []byte) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
-}
-
-func writeFileAtomic(p string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(p), ".orgtd-state-*.tmp")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), p)
 }
 
 // UnionMerged reports whether the repository at dir's .gitattributes

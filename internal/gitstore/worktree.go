@@ -17,6 +17,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/format/index"
+
+	"github.com/sburnett/orgtd/internal/atomicfile"
 )
 
 // workingFiles reads every managed file in the working tree that git
@@ -116,9 +118,8 @@ func (s *Store) outsideEdits(tracked files) (map[string][]byte, error) {
 	return changes, nil
 }
 
-// writeFile writes data to rel atomically — a temp file in the same
-// directory, renamed over the original, as org.WriteFile does — creating
-// the directory if need be. nil data removes the file.
+// writeFile writes data to rel atomically (see internal/atomicfile),
+// creating the directory if need be. nil data removes the file.
 func (s *Store) writeFile(rel string, data []byte) error {
 	p := s.Abs(rel)
 	if data == nil {
@@ -131,28 +132,8 @@ func (s *Store) writeFile(rel string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	mode := os.FileMode(0o644)
-	if fi, err := os.Stat(p); err == nil {
-		mode = fi.Mode().Perm()
-	}
-	tmp, err := os.CreateTemp(dir, ".orgtd-write-*.tmp")
-	if err != nil {
-		return err
-	}
-	_, werr := tmp.Write(data)
-	cerr := tmp.Close()
-	if werr == nil {
-		werr = cerr
-	}
-	if werr == nil {
-		werr = os.Chmod(tmp.Name(), mode)
-	}
-	if werr == nil {
-		werr = os.Rename(tmp.Name(), p)
-	}
-	if werr != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("writing %s: %w", rel, werr)
+	if err := atomicfile.Write(p, data, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", rel, err)
 	}
 	return nil
 }

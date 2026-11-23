@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sburnett/orgtd/internal/atomicfile"
 	"github.com/sburnett/orgtd/internal/capture"
 )
 
@@ -221,26 +222,14 @@ func Import(path, incomingDir string) ([]capture.Capture, error) {
 	return added, nil
 }
 
+// writeAtomic writes data to path atomically (see internal/atomicfile),
+// creating its directory if need be.
 func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("capturequeue: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".captures-*.tmp")
-	if err != nil {
-		return fmt.Errorf("capturequeue: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+	if err := atomicfile.Write(path, data, 0o644); err != nil {
 		return fmt.Errorf("capturequeue: writing %s: %w", path, err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("capturequeue: writing %s: %w", path, err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("capturequeue: replacing %s: %w", path, err)
 	}
 	return nil
 }

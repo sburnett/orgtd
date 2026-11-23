@@ -31,6 +31,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 
+	"github.com/sburnett/orgtd/internal/atomicfile"
 	"github.com/sburnett/orgtd/internal/capture"
 	"github.com/sburnett/orgtd/internal/capturequeue"
 	"github.com/sburnett/orgtd/internal/config"
@@ -160,11 +161,10 @@ func (r *Repo) saveState(s State) error {
 	if err != nil {
 		return err
 	}
-	tmp := r.StatePath + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+	if err := atomicfile.Write(r.StatePath, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("gitsync: writing state: %w", err)
 	}
-	return os.Rename(tmp, r.StatePath)
+	return nil
 }
 
 // recordError notes err (if any) in the state file and returns it

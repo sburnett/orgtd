@@ -148,3 +148,23 @@ func TestRenderWithKeyword(t *testing.T) {
 		t.Error("a multi-word keyword validated")
 	}
 }
+
+func TestAppendEntryKeepsTheFilesMode(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "inbox.org")
+	if err := os.WriteFile(p, []byte("* One\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendEntry(p, "* Two\n"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o644 {
+		t.Errorf("mode after AppendEntry = %v, want 0644 kept", fi.Mode().Perm())
+	}
+}

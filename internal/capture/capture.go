@@ -8,10 +8,10 @@ package capture
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/atomicfile"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/orgdate"
 )
@@ -151,8 +151,8 @@ func RenderAt(c Capture, level int) (string, error) {
 // AppendEntry appends rendered to the file at path, byte for byte,
 // without re-rendering anything already there, so the change is a pure
 // append (see ios/DESIGN.md §4.4). A missing final newline is added
-// first; a missing file is created. The write is atomic (temp file and
-// rename), like org.WriteFile.
+// first; a missing file is created. The write is atomic (see
+// internal/atomicfile).
 func AppendEntry(path, rendered string) error {
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -164,28 +164,8 @@ func AppendEntry(path, rendered string) error {
 		b.WriteByte('\n')
 	}
 	b.WriteString(rendered)
-	return writeAtomic(path, []byte(b.String()))
-}
-
-// writeAtomic writes data to path via a temp file in the same directory
-// and a rename, so a crash never leaves a truncated file.
-func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".orgtd-append-*.tmp")
-	if err != nil {
-		return fmt.Errorf("capture: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+	if err := atomicfile.Write(path, []byte(b.String()), 0o644); err != nil {
 		return fmt.Errorf("capture: writing %s: %w", path, err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("capture: writing %s: %w", path, err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("capture: replacing %s: %w", path, err)
 	}
 	return nil
 }
