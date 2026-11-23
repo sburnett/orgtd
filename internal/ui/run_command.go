@@ -104,6 +104,13 @@ func (m *Model) prepareRun(line string) (name string, cmd *exec.Cmd, contextFile
 		m.message = fmt.Sprintf("Command %q is empty", name)
 		return name, nil, "", false
 	}
+	// The save can replace a file's headlines — merging in another
+	// instance's changes, or reloading a file the branch changed — so
+	// the targets are found again afterwards by where they sit.
+	anchors := make([]entryAnchor, len(targets))
+	for i, h := range targets {
+		anchors[i] = anchorIn(m.ws.FileOf(h), h)
+	}
 	msg, saved := m.writeAllResult(false)
 	if !saved {
 		m.message = msg
@@ -114,6 +121,14 @@ func (m *Model) prepareRun(line string) (name string, cmd *exec.Cmd, contextFile
 	cmd.Dir = m.ws.Dir
 	cmd.Env = runBaseEnv(c.Context)
 	if c.Context {
+		for i, a := range anchors {
+			h := m.findEntry(a)
+			if h == nil {
+				m.message = fmt.Sprintf("%s; not running %s: %q can't be found after the save", msg, name, targets[i].Title)
+				return name, nil, "", false
+			}
+			targets[i] = h
+		}
 		// Built only now, after the save, so line numbers match the disk.
 		ctx := m.buildRunContext(targets)
 		path, err := writeRunContext(ctx)

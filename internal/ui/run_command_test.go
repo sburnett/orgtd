@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/sburnett/orgtd/internal/config"
+	"github.com/sburnett/orgtd/internal/gitstore"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
 
@@ -282,6 +284,126 @@ func TestRunContextLinesMatchDiskAfterSavingEdits(t *testing.T) {
 	n, _ := strconv.Atoi(env["ORGTD_LINE"])
 	if n < 1 || n > len(lines) || !strings.Contains(lines[n-1], "Review budget") {
 		t.Errorf("ORGTD_LINE = %q, but that line of the saved file isn't the entry: %q", env["ORGTD_LINE"], lines)
+	}
+}
+
+// commitOutside writes content to dir/name and commits it to the main
+// branch, as another instance's save or an Emacs edit would.
+func commitOutside(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := gitstore.Open(dir, "main", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.CommitOutsideEdits(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// openStore opens m's store now, so it records the main branch as it is
+// before a test commits to it behind m's back.
+func openStore(t *testing.T, m *Model) {
+	t.Helper()
+	if _, err := m.gitStore(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.git.store.Close() })
+}
+
+// checkContextEntry checks that the :run whose output is in dir got
+// title, in file, at its line there on disk.
+func checkContextEntry(t *testing.T, dir, file, title string) {
+	t.Helper()
+	env := readEnv(t, dir)
+	if want := filepath.Join(dir, file); env["ORGTD_FILE"] != want {
+		t.Errorf("ORGTD_FILE = %q, want %q", env["ORGTD_FILE"], want)
+	}
+	lines := strings.Split(readFile(t, filepath.Join(dir, file)), "\n")
+	n, _ := strconv.Atoi(env["ORGTD_LINE"])
+	if n < 1 || n > len(lines) || !strings.Contains(lines[n-1], title) {
+		t.Errorf("ORGTD_LINE = %q, but that line of %s isn't %q: %q", env["ORGTD_LINE"], file, title, lines)
+	}
+	var ctx runContext
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(dir, "ctx.json"))), &ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(ctx.Entries) != 1 || ctx.Entries[0].File != filepath.Join(dir, file) || ctx.Entries[0].Line != n {
+		t.Errorf("context entries = %+v, want %q at line %d of %s", ctx.Entries, title, n, file)
+	}
+}
+
+// workWithInbox is contextFixture's work.org with an entry added above
+// the others, moving every line after it down.
+const workWithInbox = "#+TITLE: Work\n" +
+	"* Inbox\n" +
+	"* Work\n" +
+	"** Q4\n" +
+	"*** NEXT [#A] Write report   :writing:\n" +
+	"    SCHEDULED: <2026-11-24 Tue>\n" +
+	"    :PROPERTIES:\n" +
+	"    :ID: abc\n" +
+	"    :END:\n" +
+	"Draft it.\n" +
+	"*** TODO Review budget\n"
+
+func TestRunContextFollowsTargetMergedBySave(t *testing.T) {
+	m, dir := contextFixture(t, true)
+	openStore(t, &m)
+	m.cursor = findRow(t, m, "Review budget")
+	m = setStatus(m, "n")
+	// The save merges this in, replacing work.org's tree — the target
+	// with it.
+	commitOutside(t, dir, "work.org", workWithInbox)
+
+	runDump(t, m, "dump")
+
+	checkContextEntry(t, dir, "work.org", "Review budget")
+}
+
+func TestRunContextFollowsTargetReloadedBySave(t *testing.T) {
+	m, dir := contextFixture(t, true)
+	commitOutside(t, dir, "other.org", "* TODO Elsewhere\n")
+	ws, err := workspace.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmds := m.cfg.Commands
+	m = New(ws)
+	m.cfg.Commands = cmds
+	openStore(t, &m)
+	// The unsaved edit is in other.org; work.org, the target's file, has
+	// none, but the save reloads it with what reached the branch.
+	m.cursor = findRow(t, m, "Elsewhere")
+	m = setStatus(m, "n")
+	m.cursor = findRow(t, m, "Write report")
+	commitOutside(t, dir, "work.org", workWithInbox)
+
+	runDump(t, m, "dump")
+
+	checkContextEntry(t, dir, "work.org", "Write report")
+}
+
+func TestRunRefusesWhenSaveLosesTarget(t *testing.T) {
+	m, dir := contextFixture(t, true)
+	openStore(t, &m)
+	m.cursor = findRow(t, m, "Review budget")
+	m = setStatus(m, "n")
+	m.cursor = findRow(t, m, "Write report")
+	// The save merges in a rename of the target: rather than guess which
+	// entry the command should get, :run doesn't run it.
+	commitOutside(t, dir, "work.org", strings.Replace(workWithInbox, "Write report", "Write the report", 1))
+
+	_, cmd, contextFile, ok := m.prepareRun("dump")
+
+	if ok || cmd != nil || contextFile != "" {
+		t.Fatalf("prepareRun ran the command with its target gone")
+	}
+	if !strings.Contains(m.message, "Wrote work.org") || !strings.Contains(m.message, `"Write report" can't be found`) {
+		t.Errorf("message = %q, want the save and why the command didn't run", m.message)
 	}
 }
 

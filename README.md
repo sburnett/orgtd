@@ -439,8 +439,10 @@ A top-level `"file"` is added on a header row. `raw` is the entry's own
 text (headline, planning, properties, body), not its children. Line
 numbers are the file as saved on disk — `:run` saves before launching —
 so `$EDITOR +"$ORGTD_LINE" "$ORGTD_FILE"` opens right at the entry, and
-a script can rewrite it there and have orgtd reload the change. The
-JSON file is written to the system temp directory, readable only by
+a script can rewrite it there and have orgtd reload the change. If that
+save merges in a change that renames or removes one of the entries,
+`:run` says so and doesn't launch the command, rather than pass it the
+wrong entry. The JSON file is written to the system temp directory, readable only by
 you, and deleted once the command exits. A command without
 `context = true` gets none of this. Nor does any command get these
 variables from orgtd's own environment — say, an orgtd started by

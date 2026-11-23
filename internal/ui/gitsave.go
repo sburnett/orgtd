@@ -319,48 +319,94 @@ func (m *Model) safeToReload() bool {
 // so it can be put back on the same entry once files are reloaded (see
 // restoreCursor).
 type cursorAnchor struct {
-	file   string   // the entry's file, or the header row's
-	titles []string // the entry's ancestors' titles, then its own
-	row    int      // fallback: the row index
+	entry entryAnchor // the entry, or just the file of a header row
+	row   int         // fallback: the row index
 }
 
 func (m *Model) cursorAnchor() cursorAnchor {
-	a := cursorAnchor{row: m.cursor}
-	if f := m.currentRowFile(); f != nil {
-		a.file = f.Path
+	return cursorAnchor{entry: anchorIn(m.currentRowFile(), m.currentHeadline()), row: m.cursor}
+}
+
+func (m *Model) restoreCursor(a cursorAnchor) {
+	if h := m.findEntry(a.entry); h != nil {
+		m.focusHeadline(h)
+		return
 	}
-	if h := m.currentHeadline(); h != nil {
-		for p := h; p != nil; p = p.Parent {
-			a.titles = append([]string{p.Title}, a.titles...)
+	m.cursor = min(max(a.row, 0), max(len(m.rows)-1, 0))
+}
+
+// entryAnchor records an entry by where it sits in its file's outline
+// rather than by pointer, so it can be found again (see findEntry) once
+// the file is reparsed — reloaded, or merged by a save — and its
+// headlines replaced.
+type entryAnchor struct {
+	file  string
+	steps []anchorStep // the entry's ancestors, outermost first, then itself
+}
+
+// anchorStep is one level of an entryAnchor: a title, and how many
+// earlier siblings share it, so of several same-titled entries the same
+// one is found again.
+type anchorStep struct {
+	title string
+	nth   int
+}
+
+// anchorIn returns h's anchor in f. With h nil (a header row), it
+// records only the file, and findEntry finds nothing.
+func anchorIn(f *org.File, h *org.Headline) entryAnchor {
+	var a entryAnchor
+	if f == nil {
+		return a
+	}
+	a.file = f.Path
+	for p := h; p != nil; p = p.Parent {
+		siblings := f.Headlines
+		if p.Parent != nil {
+			siblings = p.Parent.Children
 		}
+		nth := 0
+		for _, s := range siblings {
+			if s == p {
+				break
+			}
+			if s.Title == p.Title {
+				nth++
+			}
+		}
+		a.steps = append([]anchorStep{{p.Title, nth}}, a.steps...)
 	}
 	return a
 }
 
-func (m *Model) restoreCursor(a cursorAnchor) {
+// findEntry returns the entry a records in the files loaded now, or nil
+// if there's none there (or a records no entry).
+func (m *Model) findEntry(a entryAnchor) *org.Headline {
 	f := m.loadedFile(a.file)
-	if f != nil && len(a.titles) > 0 {
-		level := f.Headlines
-		var found *org.Headline
-		for _, t := range a.titles {
-			found = nil
-			for _, h := range level {
-				if h.Title == t {
-					found = h
-					break
-				}
+	if f == nil || len(a.steps) == 0 {
+		return nil
+	}
+	level := f.Headlines
+	var found *org.Headline
+	for _, step := range a.steps {
+		found = nil
+		nth := 0
+		for _, h := range level {
+			if h.Title != step.title {
+				continue
 			}
-			if found == nil {
+			if nth == step.nth {
+				found = h
 				break
 			}
-			level = found.Children
+			nth++
 		}
-		if found != nil {
-			m.focusHeadline(found)
-			return
+		if found == nil {
+			return nil
 		}
+		level = found.Children
 	}
-	m.cursor = min(max(a.row, 0), max(len(m.rows)-1, 0))
+	return found
 }
 
 // reloadFromMain runs ":e!": commit any outside edits (so a change made
