@@ -28,13 +28,12 @@ type Model struct {
 	git *gitState
 
 	collapsed      map[*org.Headline]bool
-	dirty          map[*org.File]bool     // derived from undoStack/savedPos; see recomputeDirty
-	dirtyHeadlines map[*org.Headline]bool // derived from undoStack/savedPos; see recomputeDirty
+	dirty          map[*org.File]bool     // derived from history; see recomputeDirty
+	dirtyHeadlines map[*org.Headline]bool // derived from history; see recomputeDirty
 
-	undoStack []undoAction // undoStack[:undoPos] applied, undoStack[undoPos:] available to redo
-	undoPos   int
-	savedPos  map[*org.File]int             // per-file count of applied actions at that file's last successful write
-	savedFork map[*org.File][]*org.Headline // files whose last write is on discarded history; see pushApplied
+	// history is the undo stack and each file's save point (see
+	// undo_history.go).
+	history undoHistory
 
 	// window is the active window's own state — its view, rows, cursor
 	// and scroll position, and jump list — embedded so that code reading
@@ -283,8 +282,7 @@ func New(ws *workspace.Workspace, opts ...Option) Model {
 		collapsed:      make(map[*org.Headline]bool),
 		dirty:          make(map[*org.File]bool),
 		dirtyHeadlines: make(map[*org.Headline]bool),
-		savedPos:       make(map[*org.File]int),
-		savedFork:      make(map[*org.File][]*org.Headline),
+		history:        newUndoHistory(),
 		immutable:      make(map[*org.Headline]bool),
 		execLog:        &execlog.Log{},
 		meetings:       &meetingCache{},

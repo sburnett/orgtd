@@ -94,7 +94,7 @@ func TestCalendarOOCapturePlusAttachIsOneUndoStep(t *testing.T) {
 	m.switchToView(calendarView)
 	m.cursor = findRow(t, m, event.Title)
 	before := len(findInboxHeadlines(t, m))
-	undoPosBefore := m.undoPos
+	undoPosBefore := m.history.pos
 
 	m = sendKey(m, "o")
 	cand, ok := meetings.FromEvent(event)
@@ -103,7 +103,7 @@ func TestCalendarOOCapturePlusAttachIsOneUndoStep(t *testing.T) {
 	}
 	m = commitCalendarCapture(t, m, "Follow up on budget numbers\n", cand)
 
-	if got := m.undoPos - undoPosBefore; got != 1 {
+	if got := m.history.pos - undoPosBefore; got != 1 {
 		t.Fatalf("undo steps pushed = %d, want 1 (insert and attach folded together)", got)
 	}
 

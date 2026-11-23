@@ -43,7 +43,7 @@ func TestCapitalIStartsOnTheKeywordAndShowsThePicker(t *testing.T) {
 
 func TestTypingAShortcutOnTheKeywordSetsItAndMovesToTheTitle(t *testing.T) {
 	m := vetEntry(t)
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = sendKey(m, "I")
 	m = sendKey(m, "n")
 	if firstLine(m) != "NEXT Call the vet about Fido's checkup" {
@@ -58,8 +58,8 @@ func TestTypingAShortcutOnTheKeywordSetsItAndMovesToTheTitle(t *testing.T) {
 	if h.Keyword != "NEXT" || h.Title != "Really Call the vet about Fido's checkup" {
 		t.Errorf("after Esc: %q %q", h.Keyword, h.Title)
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.history.pos-undoBefore)
 	}
 }
 
@@ -174,7 +174,7 @@ func TestNewEntryKeywordSlot(t *testing.T) {
 
 func TestDoneOnTheKeywordAsksForANoteInline(t *testing.T) {
 	m := vetEntry(t)
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = sendKey(m, "I")
 	m = typeKeys(m, "d")
 	if m.mode != insertMode || m.ins.note == nil {
@@ -201,8 +201,8 @@ func TestDoneOnTheKeywordAsksForANoteInline(t *testing.T) {
 	if h.Keyword != "DONE" || h.Closed == nil || !strings.Contains(strings.Join(h.Body, "\n"), "booked for Tuesday") {
 		t.Errorf("after Esc: keyword %q, closed %v, body %q", h.Keyword, h.Closed, h.Body)
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.history.pos-undoBefore)
 	}
 	m = sendKey(m, "u")
 	if h := m.currentHeadline(); h.Keyword != "TODO" || h.Closed != nil {
@@ -282,7 +282,7 @@ func sendCtrl(m Model, k tea.KeyType) Model {
 func TestRPicksAKeywordAndEndsInsertMode(t *testing.T) {
 	m := vetEntry(t)
 	h := m.currentHeadline()
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = sendKey(m, "r")
 	m = sendKey(m, "n")
 	if m.mode != normalMode {
@@ -292,18 +292,18 @@ func TestRPicksAKeywordAndEndsInsertMode(t *testing.T) {
 	if h.Keyword != "NEXT" || m.currentHeadline() != h {
 		t.Errorf("keyword %q (same headline: %v), want NEXT on the same headline", h.Keyword, m.currentHeadline() == h)
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.history.pos-undoBefore)
 	}
 }
 
 func TestREscChangesNothing(t *testing.T) {
 	m := vetEntry(t)
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = sendKey(m, "r")
 	m = sendKey(m, "esc")
-	if m.mode != normalMode || m.undoPos != undoBefore || len(m.dirty) != 0 {
-		t.Errorf("r then Esc: mode %v, undo steps %d, dirty %v; want nothing changed", m.mode, m.undoPos-undoBefore, m.dirty)
+	if m.mode != normalMode || m.history.pos != undoBefore || len(m.dirty) != 0 {
+		t.Errorf("r then Esc: mode %v, undo steps %d, dirty %v; want nothing changed", m.mode, m.history.pos-undoBefore, m.dirty)
 	}
 }
 

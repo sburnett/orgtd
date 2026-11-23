@@ -17,7 +17,7 @@ func TestInsertModeTypesIntoTheEntryAndEscAppliesIt(t *testing.T) {
 	m := New(loadFixture(t))
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 
 	m = sendKey(m, "A")
 	// Keys that are commands in normal mode are just text here.
@@ -42,8 +42,8 @@ func TestInsertModeTypesIntoTheEntryAndEscAppliesIt(t *testing.T) {
 	if len(got.Body) == 0 || strings.TrimSpace(got.Body[len(got.Body)-1]) != "Bring the records." {
 		t.Errorf("body after Esc = %q, want the typed line last", got.Body)
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1 for the whole session", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1 for the whole session", m.history.pos-undoBefore)
 	}
 
 	m = sendKey(m, "u")
@@ -56,15 +56,15 @@ func TestInsertModeWithNoChangeRecordsNothing(t *testing.T) {
 	m := New(loadFixture(t))
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	h := m.currentHeadline()
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 
 	m = sendKey(m, "i")
 	m = typeKeys(m, "x")
 	m = sendKey(m, "backspace")
 	m = sendKey(m, "esc")
 
-	if m.undoPos != undoBefore || len(m.dirty) != 0 {
-		t.Errorf("undo steps %d, dirty %v; want an unchanged entry to record nothing", m.undoPos-undoBefore, m.dirty)
+	if m.history.pos != undoBefore || len(m.dirty) != 0 {
+		t.Errorf("undo steps %d, dirty %v; want an unchanged entry to record nothing", m.history.pos-undoBefore, m.dirty)
 	}
 	if m.currentHeadline() != h {
 		t.Errorf("entry was replaced despite no change")
@@ -74,7 +74,7 @@ func TestInsertModeWithNoChangeRecordsNothing(t *testing.T) {
 func TestInsertModeOTypesANewEntry(t *testing.T) {
 	m := New(loadFixture(t))
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 
 	m = sendKey(m, "o")
 	if m.mode != insertMode || m.ins.insert == nil {
@@ -93,8 +93,8 @@ func TestInsertModeOTypesANewEntry(t *testing.T) {
 	if h.Properties["CREATED"] == "" {
 		t.Errorf("new entry lost its CREATED property")
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.history.pos-undoBefore)
 	}
 }
 

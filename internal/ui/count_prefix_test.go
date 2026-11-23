@@ -16,7 +16,7 @@ func TestCountPrefixDeleteRemovesNEntriesInOneUndoStep(t *testing.T) {
 	m := countPrefixFixtureModel(t)
 	m.cursor = findRow(t, m, "A")
 
-	undoDepthBefore := m.undoPos
+	undoDepthBefore := m.history.pos
 	m = sendKey(m, "3")
 	m = sendKey(m, "d")
 	m = sendKey(m, "d")
@@ -29,7 +29,7 @@ func TestCountPrefixDeleteRemovesNEntriesInOneUndoStep(t *testing.T) {
 	if rowIndex(m, "D") < 0 {
 		t.Error("D was outside the count of 3 and should remain")
 	}
-	if got := m.undoPos - undoDepthBefore; got != 1 {
+	if got := m.history.pos - undoDepthBefore; got != 1 {
 		t.Errorf("undo steps pushed by 3dd = %d, want 1 (a single batched step)", got)
 	}
 
@@ -170,7 +170,7 @@ func TestCountPrefixSetStatusAppliesToNEntriesInOneUndoStep(t *testing.T) {
 	m := countPrefixFixtureModel(t)
 	m.cursor = findRow(t, m, "A")
 
-	undoDepthBefore := m.undoPos
+	undoDepthBefore := m.history.pos
 	m = sendKey(m, "2")
 	m = sendKey(m, "R")
 	if m.mode != selectMode || len(m.selectModeTargets) != 2 {
@@ -191,7 +191,7 @@ func TestCountPrefixSetStatusAppliesToNEntriesInOneUndoStep(t *testing.T) {
 	if h := findHeadlineByTitle(t, m, "C"); h.Keyword != "WAITING" {
 		t.Errorf("C keyword = %q, want unchanged WAITING (outside the count of 2)", h.Keyword)
 	}
-	if got := m.undoPos - undoDepthBefore; got != 1 {
+	if got := m.history.pos - undoDepthBefore; got != 1 {
 		t.Errorf("undo steps pushed by 2R = %d, want 1 (a single batched step)", got)
 	}
 }

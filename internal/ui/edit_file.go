@@ -120,27 +120,7 @@ func (m *Model) swapFile(old, newFile *org.File) {
 			break
 		}
 	}
-	m.dropUndoFor(old)
 	m.clearRefsForFile(old)
-}
-
-// dropUndoFor removes every undo/redo action on f from the global stacks,
-// keeping the position pointing at the same place among the rest — they
-// all refer to a tree that's been replaced, so undoing one would silently
-// edit a file nobody can see.
-func (m *Model) dropUndoFor(f *org.File) {
-	kept := m.undoStack[:0:0]
-	pos := 0
-	for i, a := range m.undoStack {
-		if a.file() == f {
-			continue
-		}
-		kept = append(kept, a)
-		if i < m.undoPos {
-			pos++
-		}
-	}
-	m.undoStack, m.undoPos = kept, pos
 }
 
 // editTarget turns :edit's argument into a path relative to the org

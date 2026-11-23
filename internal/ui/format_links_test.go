@@ -511,13 +511,13 @@ func TestFinishFormatLinksIsOneUndoStepPerFile(t *testing.T) {
 	hA := fileA.Headlines[0]
 	hB := fileB.Headlines[0]
 
-	undoDepthBefore := m.undoPos
+	undoDepthBefore := m.history.pos
 	cmd := m.startFormatLinks()
 	msg := cmd().(formatLinksMsg)
 	updated, _ := m.Update(msg)
 	m = updated.(Model)
 
-	if got := m.undoPos - undoDepthBefore; got != 2 {
+	if got := m.history.pos - undoDepthBefore; got != 2 {
 		t.Errorf("undo steps = %d, want 2 (one per file touched)", got)
 	}
 	if hA.Title != "A [[https://example.com/a][Formatted]]" || hB.Title != "B [[https://example.com/b][Formatted]]" {

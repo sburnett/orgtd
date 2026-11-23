@@ -228,7 +228,7 @@ func TestInsertRollbackOnEmptyResult(t *testing.T) {
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	orig := m.currentHeadline()
 	before := len(m.rows)
-	beforeUndoPos := m.undoPos
+	beforeUndoPos := m.history.pos
 
 	m = sendKey(m, "o")
 	m = commitTentative(t, m, orig, "") // empty file: editor produced nothing
@@ -236,8 +236,8 @@ func TestInsertRollbackOnEmptyResult(t *testing.T) {
 	if len(m.rows) != before {
 		t.Errorf("rows after rollback = %d, want %d (no trace left)", len(m.rows), before)
 	}
-	if m.undoPos != beforeUndoPos {
-		t.Errorf("undoPos changed despite rollback: %d, want %d", m.undoPos, beforeUndoPos)
+	if m.history.pos != beforeUndoPos {
+		t.Errorf("undoPos changed despite rollback: %d, want %d", m.history.pos, beforeUndoPos)
 	}
 	if !strings.Contains(strings.ToLower(m.message), "cancel") {
 		t.Errorf("message = %q, want it to mention the insert was cancelled", m.message)
@@ -293,7 +293,7 @@ func TestInsertRollbackOnBlankTitle(t *testing.T) {
 			m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 			orig := m.currentHeadline()
 			before := len(m.rows)
-			beforeUndoPos := m.undoPos
+			beforeUndoPos := m.history.pos
 
 			m = sendKey(m, "o")
 			m = commitTentative(t, m, orig, c.body)
@@ -301,8 +301,8 @@ func TestInsertRollbackOnBlankTitle(t *testing.T) {
 			if len(m.rows) != before {
 				t.Errorf("rows after rollback = %d, want %d (no trace left)", len(m.rows), before)
 			}
-			if m.undoPos != beforeUndoPos {
-				t.Errorf("undoPos changed despite rollback: %d, want %d", m.undoPos, beforeUndoPos)
+			if m.history.pos != beforeUndoPos {
+				t.Errorf("undoPos changed despite rollback: %d, want %d", m.history.pos, beforeUndoPos)
 			}
 			if !strings.Contains(strings.ToLower(m.message), "cancel") {
 				t.Errorf("message = %q, want it to mention the insert was cancelled", m.message)
@@ -334,7 +334,7 @@ func TestInsertEditorErrorKeepsInsertModeThenEscRollsBack(t *testing.T) {
 	m := New(ws)
 	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 	before := len(m.rows)
-	beforeUndoPos := m.undoPos
+	beforeUndoPos := m.history.pos
 
 	m = sendKey(m, "o")
 	m = typeKeys(m, "half typed")
@@ -354,8 +354,8 @@ func TestInsertEditorErrorKeepsInsertModeThenEscRollsBack(t *testing.T) {
 	if len(m.rows) != before {
 		t.Errorf("rows after rollback = %d, want %d", len(m.rows), before)
 	}
-	if m.undoPos != beforeUndoPos {
-		t.Errorf("undoPos changed despite rollback: %d, want %d", m.undoPos, beforeUndoPos)
+	if m.history.pos != beforeUndoPos {
+		t.Errorf("undoPos changed despite rollback: %d, want %d", m.history.pos, beforeUndoPos)
 	}
 }
 

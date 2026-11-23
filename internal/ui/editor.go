@@ -171,8 +171,8 @@ func (m Model) finishEditFile(msg fileEditFinishedMsg) (tea.Model, tea.Cmd) {
 }
 
 // clearRefsForFile removes every mark, review-target reference, and
-// dirty marker pointing at a headline in f, plus f's own file-level
-// dirty/saved-position bookkeeping — called after f's entire headline
+// dirty marker pointing at a headline in f, plus f's undo history and
+// save point (see undoHistory.forgetFile) — called after f's entire headline
 // tree has been discarded and replaced (a whole-file reload), since
 // none of those old headline pointers exist anywhere anymore.
 func (m *Model) clearRefsForFile(f *org.File) {
@@ -184,8 +184,7 @@ func (m *Model) clearRefsForFile(f *org.File) {
 		delete(m.dirtyHeadlines, h)
 	})
 	delete(m.dirty, f)
-	delete(m.savedPos, f)
-	delete(m.savedFork, f)
+	m.history.forgetFile(f)
 }
 
 // editorCommand returns the external editor to launch: m.cfg.Editor

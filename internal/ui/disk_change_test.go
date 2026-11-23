@@ -112,8 +112,8 @@ func TestReloadDiscardsEditsAndLoadsDisk(t *testing.T) {
 	if len(m.dirty) != 0 {
 		t.Errorf("dirty = %v, want clean after reload", m.dirty)
 	}
-	if len(m.undoStack) != 0 || m.undoPos != 0 {
-		t.Errorf("undo stack = %d/%d, want the reloaded file's history dropped", len(m.undoStack), m.undoPos)
+	if len(m.history.actions) != 0 || m.history.pos != 0 {
+		t.Errorf("undo stack = %d/%d, want the reloaded file's history dropped", len(m.history.actions), m.history.pos)
 	}
 	if got := readFile(t, path); got != "* TODO Upstream title\n" {
 		t.Errorf("disk modified by reload: %q", got)
@@ -140,8 +140,8 @@ func TestWholeFileEditDropsUndoHistory(t *testing.T) {
 	updated, _ := m.Update(fileEditFinishedMsg{target: oldFile})
 	m = updated.(Model)
 
-	if len(m.undoStack) != 0 || m.undoPos != 0 {
-		t.Errorf("undo stack = %d/%d, want the edited file's history dropped", len(m.undoStack), m.undoPos)
+	if len(m.history.actions) != 0 || m.history.pos != 0 {
+		t.Errorf("undo stack = %d/%d, want the edited file's history dropped", len(m.history.actions), m.history.pos)
 	}
 	if len(m.dirty) != 0 {
 		t.Errorf("dirty = %v, want clean after reload", m.dirty)

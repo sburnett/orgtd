@@ -158,7 +158,7 @@ func TestClosingNoteBulkWritesOneNoteOnEachClosedEntry(t *testing.T) {
 	if len(already.Body) != 0 {
 		t.Errorf("already-closed entry body = %q, want no note", already.Body)
 	}
-	if got := len(m.undoStack); got != 1 {
+	if got := len(m.history.actions); got != 1 {
 		t.Errorf("undo steps = %d, want 1", got)
 	}
 }
@@ -209,7 +209,7 @@ func TestClosingNoteShownInSnippets(t *testing.T) {
 
 func TestClosingNoteEscKeepsItAndUndoTakesItBack(t *testing.T) {
 	m, h := closingNoteModel(t, "* TODO Task\n  Existing body\n")
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = sendKey(m, "r")
 	m = sendKey(m, "d")
 	m = typeKeys(m, "all done")
@@ -218,8 +218,8 @@ func TestClosingNoteEscKeepsItAndUndoTakesItBack(t *testing.T) {
 		t.Errorf("after Esc: mode %v, keyword %q, closed %v, body %q; want normal mode, closed with the note",
 			m.mode, h.Keyword, h.Closed, h.Body)
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.history.pos-undoBefore)
 	}
 	m = sendKey(m, "u")
 	if h.Keyword != "TODO" || h.Closed != nil || strings.Contains(strings.Join(h.Body, "\n"), "all done") {

@@ -50,7 +50,7 @@ func TestGtIsTwoKeyChordNotSingleG(t *testing.T) {
 
 func TestGtTypesANewTag(t *testing.T) {
 	m := New(loadFixture(t))
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = gtOn(t, m, untaggedTitle)
 	m = typeKeys(m, "urgent")
 	if got := m.ins.tags; len(got) != 2 || got[0] != "urgent" || got[1] != "" {
@@ -60,8 +60,8 @@ func TestGtTypesANewTag(t *testing.T) {
 	if got := m.currentHeadline().Tags; len(got) != 1 || got[0] != "urgent" {
 		t.Errorf("Tags = %v, want [urgent]", got)
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.history.pos-undoBefore)
 	}
 	m = sendKey(m, "u")
 	if got := m.currentHeadline().Tags; len(got) != 0 {
@@ -80,11 +80,11 @@ func TestGtAddsAfterExistingTags(t *testing.T) {
 
 func TestGtThenEscWithoutTypingChangesNothing(t *testing.T) {
 	m := New(loadFixture(t))
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = gtOn(t, m, taggedTitle)
 	m = sendKey(m, "esc")
-	if m.undoPos != undoBefore || len(m.dirty) != 0 {
-		t.Errorf("undo steps %d, dirty %v; want nothing recorded", m.undoPos-undoBefore, m.dirty)
+	if m.history.pos != undoBefore || len(m.dirty) != 0 {
+		t.Errorf("undo steps %d, dirty %v; want nothing recorded", m.history.pos-undoBefore, m.dirty)
 	}
 }
 

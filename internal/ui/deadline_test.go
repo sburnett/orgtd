@@ -61,7 +61,7 @@ func TestGdChangesAnExistingDeadline(t *testing.T) {
 
 func TestGdWithNoDeadlineAddsOneAndOpensThePrompt(t *testing.T) {
 	m := New(loadFixture(t))
-	undoBefore := m.undoPos
+	undoBefore := m.history.pos
 	m = gdOn(t, m, "Call the vet about Fido's checkup")
 	if m.mode != insertMode || m.ins.date == nil {
 		t.Fatalf("mode = %v (field %v), want a date field open right away", m.mode, m.ins.date)
@@ -80,8 +80,8 @@ func TestGdWithNoDeadlineAddsOneAndOpensThePrompt(t *testing.T) {
 	if !m.dirtyHeadlines[h] {
 		t.Errorf("expected the headline to be marked dirty")
 	}
-	if m.undoPos != undoBefore+1 {
-		t.Errorf("undo steps = %d, want 1", m.undoPos-undoBefore)
+	if m.history.pos != undoBefore+1 {
+		t.Errorf("undo steps = %d, want 1", m.history.pos-undoBefore)
 	}
 	m = sendKey(m, "u")
 	if h := m.currentHeadline(); h.Deadline != nil {
@@ -94,7 +94,7 @@ func TestGdNewDeadlineCancelledTakesTheLabelBackOut(t *testing.T) {
 		m := New(loadFixture(t))
 		m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
 		want := entryEditText(m.currentHeadline())
-		undoBefore := m.undoPos
+		undoBefore := m.history.pos
 		m = gdOn(t, m, "Call the vet about Fido's checkup")
 		m = sendKey(m, key)
 		if m.mode != normalMode {
@@ -103,8 +103,8 @@ func TestGdNewDeadlineCancelledTakesTheLabelBackOut(t *testing.T) {
 		if got := entryEditText(m.currentHeadline()); got != want {
 			t.Errorf("%s: entry = %q, want it as it was", key, got)
 		}
-		if m.undoPos != undoBefore || len(m.dirty) != 0 {
-			t.Errorf("%s: undo steps %d, dirty %v; want nothing recorded", key, m.undoPos-undoBefore, m.dirty)
+		if m.history.pos != undoBefore || len(m.dirty) != 0 {
+			t.Errorf("%s: undo steps %d, dirty %v; want nothing recorded", key, m.history.pos-undoBefore, m.dirty)
 		}
 	}
 }

@@ -76,7 +76,7 @@ func TestVisualModeDeleteRemovesTopmostSelectedEntriesInOneUndoStep(t *testing.T
 	m = sendKey(m, "j")
 	m = sendKey(m, "j") // selection now covers First, Second, Child of second
 
-	undoDepthBefore := m.undoPos
+	undoDepthBefore := m.history.pos
 	m = sendKey(m, "d")
 
 	if m.mode != normalMode {
@@ -94,7 +94,7 @@ func TestVisualModeDeleteRemovesTopmostSelectedEntriesInOneUndoStep(t *testing.T
 	if rowIndex(m, "Third") < 0 {
 		t.Error("Third was not selected and should remain")
 	}
-	if got := m.undoPos - undoDepthBefore; got != 1 {
+	if got := m.history.pos - undoDepthBefore; got != 1 {
 		t.Errorf("undo steps pushed by the bulk delete = %d, want 1 (a single batched step)", got)
 	}
 
@@ -188,7 +188,7 @@ func TestVisualModeSetStatusAppliesToEveryRowIndependently(t *testing.T) {
 	m = sendKey(m, "j")
 	m = sendKey(m, "j") // First, Second, Child of second
 
-	undoDepthBefore := m.undoPos
+	undoDepthBefore := m.history.pos
 	m = sendKey(m, "R")
 	if m.mode != selectMode || len(m.selectModeTargets) != 3 {
 		t.Fatalf("mode after visual R = %v (selectModeTargets=%v), want selectMode with 3 targets", m.mode, m.selectModeTargets)
@@ -208,7 +208,7 @@ func TestVisualModeSetStatusAppliesToEveryRowIndependently(t *testing.T) {
 	if h := findHeadlineByTitle(t, m, "Third"); h.Keyword != "WAITING" {
 		t.Errorf("Third keyword = %q, want unchanged WAITING (it wasn't selected)", h.Keyword)
 	}
-	if got := m.undoPos - undoDepthBefore; got != 1 {
+	if got := m.history.pos - undoDepthBefore; got != 1 {
 		t.Errorf("undo steps pushed by the bulk status change = %d, want 1 (a single batched step)", got)
 	}
 
@@ -258,13 +258,13 @@ func TestVisualModeDeleteAcrossFilesUsesOneBatchPerFile(t *testing.T) {
 	m = sendKey(m, "V")
 	m.cursor = findRow(t, m, "B1")
 
-	undoDepthBefore := m.undoPos
+	undoDepthBefore := m.history.pos
 	m = sendKey(m, "d")
 
 	if rowIndex(m, "A1") >= 0 || rowIndex(m, "B1") >= 0 {
 		t.Error("both A1 and B1 should have been deleted")
 	}
-	if got := m.undoPos - undoDepthBefore; got != 2 {
+	if got := m.history.pos - undoDepthBefore; got != 2 {
 		t.Errorf("undo steps pushed by a cross-file bulk delete = %d, want 2 (one per file touched)", got)
 	}
 

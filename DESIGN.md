@@ -173,10 +173,16 @@ Bubble Tea: `Model`, `Update`, `View`.
   *not* the "flush every mutation" model the original design proposed.
 - **Undo** is one global stack of `undoAction`s (`undo.go`). Each action
   knows how to `apply`/`revert` itself, which `file()` it touches, and
-  which headlines are `affected()`. **Dirty state is derived**, never set
-  by hand: `recomputeDirty` compares each file's applied-action count to
-  its `savedPos` (the count at last write). So undoing back to the saved
-  point makes a file clean again. Any new edit *must* go through
+  which headlines are `affected()`. The stack, its position and each
+  file's save point live in `m.history`, an `undoHistory`
+  (`undo_history.go`), which only does the bookkeeping: the Model applies
+  or reverts an action and tells the history which way it moved, so the
+  history is unit-tested with stand-in actions. **Dirty state is
+  derived**, never set by hand: `recomputeDirty` asks the history which
+  files differ from their save points (each file's applied-action count
+  against its count at last write, plus save points stranded on discarded
+  redo history). So undoing back to the saved point makes a file clean
+  again. Any new edit *must* go through
   `pushUndo` (or a variant) to be undoable and to mark the file dirty.
 - **"Now" comes from `m.now()`, never `time.Now()`.** `Model.now` returns
   the injected clock (`WithClock`) or the real one, and everything
@@ -258,6 +264,7 @@ including its known weak points, so changes can be made deliberately.
 | `meeting_index.go` | The cached `meetings.Index` (`m.meetingIndex()`) and its invalidation |
 | `meeting_links.go` | Resolving an entry's calendar-meeting links for display |
 | `undo.go` | `undoAction` types, undo/redo, dirty derivation, structural-edit helpers (`insertContext`, splice/reparent actions) |
+| `undo_history.go` | `undoHistory`: the undo stack, its position and each file's save point, and which files and headlines differ from them |
 | `agenda.go` | Agenda rows: the date sections and Next Actions come from `internal/agenda`; the Meetings section (items grouped under upcoming meetings, via the meetings index) is built here |
 | `calendar.go`, `meeting_tags.go`, `tags.go`, `snippets.go` | The `:calendar`, `:meeting-tags`, `:tags` and `:snippets` views |
 | `repeat.go` | Completing a repeating item (`+1w`, `++1w`, `.+1w`) |

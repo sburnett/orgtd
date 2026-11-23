@@ -448,7 +448,7 @@ func (m *Model) commitInsert(ctx insertContext, tentative *org.Headline, final [
 		attach.apply(m)
 		action = &batchAction{actions: []undoAction{insert, attach}}
 	}
-	m.pushApplied(action)
+	m.history.push(action)
 	m.rebuildRows()
 	m.focusHeadline(final[0])
 	m.recomputeDirty()
@@ -544,7 +544,7 @@ func (m *Model) pushUndoKeepingCursor(a undoAction) {
 }
 
 func (m *Model) pushUndoAt(a undoAction, refocus bool) {
-	m.pushApplied(a)
+	m.history.push(a)
 	target := a.apply(m)
 	m.rebuildRows()
 	if refocus {
@@ -572,17 +572,17 @@ func (m *Model) actionTouchesImmutable(a undoAction) bool {
 // headline currently locked by :format-links — see
 // actionTouchesImmutable.
 func (m *Model) undo() {
-	if m.undoPos == 0 {
+	a := m.history.nextUndo()
+	if a == nil {
 		m.message = "Already at oldest change"
 		return
 	}
-	a := m.undoStack[m.undoPos-1]
 	if m.actionTouchesImmutable(a) {
 		m.message = "Cannot undo: an entry involved is being formatted by :format-links"
 		return
 	}
-	m.undoPos--
 	target := a.revert(m)
+	m.history.stepBack()
 	m.rebuildRows()
 	m.focusTarget(target, a.file())
 	m.recomputeDirty()
@@ -592,17 +592,17 @@ func (m *Model) undo() {
 // redo re-applies the next available action, if any. Same
 // :format-links guard as undo.
 func (m *Model) redo() {
-	if m.undoPos >= len(m.undoStack) {
+	a := m.history.nextRedo()
+	if a == nil {
 		m.message = "Already at newest change"
 		return
 	}
-	a := m.undoStack[m.undoPos]
 	if m.actionTouchesImmutable(a) {
 		m.message = "Cannot redo: an entry involved is being formatted by :format-links"
 		return
 	}
 	target := a.apply(m)
-	m.undoPos++
+	m.history.stepForward()
 	m.rebuildRows()
 	m.focusTarget(target, a.file())
 	m.recomputeDirty()
@@ -624,110 +624,22 @@ func (m *Model) focusHeadline(h *org.Headline) {
 	}
 }
 
-// appliedCountForFile returns how many of f's actions are currently
-// applied, in f's own relative order (i.e. ignoring other files'
-// actions interleaved in the global stack).
-func (m *Model) appliedCountForFile(f *org.File) int {
-	n := 0
-	for _, a := range m.undoStack[:m.undoPos] {
-		if a.file() == f {
-			n++
-		}
-	}
-	return n
-}
-
-// pushApplied records a as the newest applied action, discarding the
-// redo tail, as every new edit does. Callers apply a themselves, before
-// or after.
-//
-// Discarding the redo tail can strand a file's save point: save, undo,
-// then edit, and what's on disk is now on a branch of history that
-// undo/redo can no longer reach. Counting applied actions alone would
-// miss that (the new edit brings the count back to the saved one), so
-// such a file's savedPos is moved back to where the branches split, and
-// the headlines touched by the discarded-but-saved actions are kept in
-// savedFork: they differ from disk however far undo/redo goes, so the
-// file stays unsaved, with those entries marked, until its next write.
-func (m *Model) pushApplied(a undoAction) {
-	applied := make(map[*org.File]int)
-	for _, b := range m.undoStack[:m.undoPos] {
-		applied[b.file()]++
-	}
-	running := make(map[*org.File]int)
-	for _, b := range m.undoStack[m.undoPos:] {
-		f := b.file()
-		running[f]++
-		if applied[f]+running[f] <= m.savedPos[f] {
-			m.savedFork[f] = append(m.savedFork[f], b.affected()...)
-		}
-	}
-	for f := range running {
-		if m.savedPos[f] > applied[f] {
-			m.savedPos[f] = applied[f]
-		}
-	}
-	m.undoStack = append(m.undoStack[:m.undoPos], a)
-	m.undoPos = len(m.undoStack)
-}
-
 // markSaved records that f on disk now matches f in memory.
 func (m *Model) markSaved(f *org.File) {
-	m.savedPos[f] = m.appliedCountForFile(f)
-	delete(m.savedFork, f)
+	m.history.markSaved(f)
 }
 
 // recomputeDirty derives which files and headlines currently differ from
-// what's on disk, from the undo stack's position relative to each file's
-// last-saved position (savedPos), plus any save point stranded on
-// discarded history (savedFork; see pushApplied). This gives vim's
-// behavior of clearing (or restoring) the "modified" state when undo/redo crosses a
-// save point, even though undo history here is a single stack spanning
-// every file rather than vim's per-buffer stacks.
+// what's on disk: whatever the undo history says differs from its save
+// points (see undoHistory.changes), plus files that need saving with
+// nothing to undo (gitState.mustSave).
 func (m *Model) recomputeDirty() {
+	files, headlines := m.history.changes()
 	m.dirty = make(map[*org.File]bool)
-	m.dirtyHeadlines = make(map[*org.Headline]bool)
-
-	applied := make(map[*org.File]int)
-	for _, a := range m.undoStack[:m.undoPos] {
-		applied[a.file()]++
-	}
 	for _, f := range m.ws.Files {
-		if _, forked := m.savedFork[f]; forked || applied[f] != m.savedPos[f] || m.git.mustSave[f] {
+		if files[f] || m.git.mustSave[f] {
 			m.dirty[f] = true
 		}
 	}
-
-	// Saved on a branch of history since discarded (see pushApplied).
-	for _, hs := range m.savedFork {
-		for _, h := range hs {
-			m.dirtyHeadlines[h] = true
-		}
-	}
-
-	// Forward-unsaved: applied actions beyond each file's saved position.
-	running := make(map[*org.File]int)
-	for _, a := range m.undoStack[:m.undoPos] {
-		f := a.file()
-		running[f]++
-		if running[f] > m.savedPos[f] {
-			for _, h := range a.affected() {
-				m.dirtyHeadlines[h] = true
-			}
-		}
-	}
-
-	// Backward-unsaved: reverted actions that were part of the last
-	// save — i.e. we've undone past a save point, so memory now differs
-	// from disk in the other direction.
-	running = make(map[*org.File]int)
-	for _, a := range m.undoStack[m.undoPos:] {
-		f := a.file()
-		running[f]++
-		if applied[f]+running[f] <= m.savedPos[f] {
-			for _, h := range a.affected() {
-				m.dirtyHeadlines[h] = true
-			}
-		}
-	}
+	m.dirtyHeadlines = headlines
 }
