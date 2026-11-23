@@ -165,8 +165,8 @@ func WithDebug(enabled bool) Option {
 
 // WithReadme supplies README.md's content for :help to show — the UI
 // package has no file of its own to read it from at runtime (it's
-// embedded into the binary elsewhere, at the module root, since
-// go:embed can't reach outside that file's own directory; see
+// embedded into the binary elsewhere, at the module root, since an
+// embed pattern can't reach outside its file's own directory; see
 // cmd/orgtd/main.go). Empty means :help has nothing to show.
 func WithReadme(text string) Option {
 	return func(m *Model) { m.readme = text }

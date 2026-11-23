@@ -1,8 +1,6 @@
 package gitstore
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -273,20 +271,3 @@ func signature(repo *git.Repository) object.Signature {
 	}
 	return sig
 }
-
-// sameFiles reports whether a and b hold the same paths with the same
-// contents.
-func sameFiles(a, b files) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for p, x := range a {
-		y, ok := b[p]
-		if !ok || !bytes.Equal(x, y) {
-			return false
-		}
-	}
-	return true
-}
-
-var errNotFound = errors.New("not found")

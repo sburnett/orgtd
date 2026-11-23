@@ -53,7 +53,7 @@ func TestGdPutsTheCaretOnAnExistingDeadline(t *testing.T) {
 func TestGdChangesAnExistingDeadline(t *testing.T) {
 	m := gdOn(t, New(loadFixture(t)), "Follow up with finance about the Q3 budget doc")
 	m = sendKey(m, "enter")
-	m, h := setDeadlineVia(t, m, "2026-12-25")
+	_, h := setDeadlineVia(t, m, "2026-12-25")
 	if h.Deadline == nil || h.Deadline.Raw != "2026-12-25 Fri" {
 		t.Errorf("deadline = %v, want 2026-12-25 Fri", h.Deadline)
 	}

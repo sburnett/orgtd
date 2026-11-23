@@ -125,7 +125,7 @@ func TestClosingNoteUndoIsOneStep(t *testing.T) {
 	if h.Keyword != "TODO" || h.Closed != nil || !reflect.DeepEqual(h.Body, []string{"  Existing body"}) {
 		t.Errorf("after undo keyword=%q closed=%v body=%q", h.Keyword, h.Closed, h.Body)
 	}
-	m = sendKey(m, "ctrl+r")
+	sendKey(m, "ctrl+r")
 	if h.Keyword != "DONE" || len(h.Body) != 3 {
 		t.Errorf("after redo keyword=%q body=%q", h.Keyword, h.Body)
 	}

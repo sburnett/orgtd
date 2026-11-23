@@ -502,13 +502,6 @@ func (r *Repo) replayOps(wt *git.Worktree) ([]string, error) {
 	return skipped, nil
 }
 
-func moveDelta(op capturequeue.StateOp) int {
-	if op.Move == nil {
-		return 0
-	}
-	return op.Move.Delta
-}
-
 func orNone(keyword string) string {
 	if keyword == "" {
 		return "(none)"

@@ -1486,7 +1486,7 @@ func TestCommandForceQuitDiscardsChanges(t *testing.T) {
 			mm := m
 			mm = sendKey(mm, ":")
 			mm = typeKeys(mm, cmdText)
-			mm, cmd := sendKeyCmd(mm, "enter")
+			_, cmd := sendKeyCmd(mm, "enter")
 			if !isQuitCmd(cmd) {
 				t.Fatalf(":%s should force-quit despite unsaved changes", cmdText)
 			}
