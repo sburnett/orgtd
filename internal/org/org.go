@@ -3,7 +3,7 @@
 // lines (SCHEDULED/DEADLINE/CLOSED), property drawers, and body text.
 //
 // Parse builds an in-memory tree; RenderFile/RenderHeadline/RenderEntry
-// serialize it and WriteFile writes it atomically. RenderFile reproduces
+// serialize it (saving is internal/gitstore's job). RenderFile reproduces
 // the preamble, body text and every unedited entry byte-for-byte, and
 // regenerates an edited entry's headline, planning and property lines
 // from its parsed fields. See DESIGN.md §3.

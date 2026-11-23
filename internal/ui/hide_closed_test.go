@@ -149,7 +149,7 @@ func TestToggleDoneCommandTogglesVisibility(t *testing.T) {
 // TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline guards a real
 // concern: hide-closed filtering only ever affects rebuildRows' row
 // list — it never touches the underlying org.File.Headlines tree, which
-// is what :w (org.WriteFile -> org.RenderFile) actually walks. A hidden
+// is what :w (via org.RenderFile) actually walks. A hidden
 // entry should still round-trip to disk exactly as if it were visible.
 func TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline(t *testing.T) {
 	dir := t.TempDir()

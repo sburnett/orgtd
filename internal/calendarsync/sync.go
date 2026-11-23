@@ -46,7 +46,7 @@ type Settings struct {
 var ErrNotSignedIn = gcal.ErrNotSignedIn
 
 // Result is one sync run's outcome: the regenerated org file (not yet
-// written to disk — the caller does that, e.g. via org.WriteFile, once
+// written to disk — the caller does that, by saving it, once
 // it also has a chance to fold it into an already-loaded workspace) plus
 // counts for a status message.
 type Result struct {

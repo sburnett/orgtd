@@ -41,7 +41,7 @@ sync Google Calendar events into one of the org files.
 readme.go             embeds README.md for :help (package orgtd)
 cmd/orgtd/            main: flags + config + env → settings → ui.New. Wiring only.
 internal/config/      TOML config file schema and loading (no precedence logic)
-internal/org/         org data model, parser, renderer, atomic writer, deep clone
+internal/org/         org data model, parser, renderer, deep clone
 internal/meetings/      calendar meetings and how entries link to them (pure; cached Index)
 internal/extprog/      editor command building and URL formatter running (user-configured programs)
 internal/execlog/      logged subprocess runner + the timeline :log shows
@@ -50,6 +50,7 @@ internal/workspace/   loads a directory of .org files
 internal/agenda/      pure agenda computation: date sections and Next Actions (shared with mobilecore)
 internal/capture/     renders a captured item as org text; raw-byte append (shared by gC and the phone)
 internal/capturequeue/ the phone's pending-capture queue (captures.json) and share-extension import
+internal/atomicfile/  atomic, fsynced file replacement (temp file + rename), shared by all writers
 internal/merge3/      line-based three-way merge (diff3) with conflict markers; pure
 internal/gitstore/    the desktop's go-git layer: saves as merged commits on main (see §6)
 internal/gitsync/     the phone's go-git layer: clone, fetch, rebuild "mobile", push with lease
@@ -97,8 +98,7 @@ gcal but not the UI. Only `ui` knows about everything.
 - `File` is `Path`, `Preamble` (raw lines before the first headline) and
   top-level `Headlines`.
 - `Parse`/`ParseFile` build the tree; `RenderFile`/`RenderHeadline`/
-  `RenderEntry` serialize it; `WriteFile` writes atomically (temp file in
-  the same directory, then rename).
+  `RenderEntry` serialize it. Saving is `internal/gitstore`'s job (§6).
 - **Tree edits go through `org.Siblings`** (`tree.go`): one ordered list of
   headlines — a parent's children, or a file's top level — with `IndexOf`,
   `Splice` (builds a new slice, so undo records holding the old one stay

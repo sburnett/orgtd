@@ -121,41 +121,6 @@ func TestRenderFileRoundTrips(t *testing.T) {
 	}
 }
 
-func TestWriteFileAtomicRoundTrip(t *testing.T) {
-	f := mustParse(t)
-	dir := t.TempDir()
-	f.Path = filepath.Join(dir, "test.org")
-
-	if err := WriteFile(f); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("directory contains %d entries after WriteFile, want 1 (no leftover temp file): %v", len(entries), entries)
-	}
-
-	reparsed, err := ParseFile(f.Path)
-	if err != nil {
-		t.Fatalf("ParseFile after WriteFile: %v", err)
-	}
-	if len(reparsed.Headlines) != len(f.Headlines) {
-		t.Fatalf("top-level headlines = %d, want %d", len(reparsed.Headlines), len(f.Headlines))
-	}
-}
-
-func TestWriteFileFailsOnUnwritableDirectory(t *testing.T) {
-	f := mustParse(t)
-	f.Path = filepath.Join(t.TempDir(), "nonexistent-subdir", "test.org")
-
-	if err := WriteFile(f); err == nil {
-		t.Fatalf("expected an error writing into a nonexistent directory")
-	}
-}
-
 func TestDedentEntryRemovesBulletAndMatchingIndentFromEveryLine(t *testing.T) {
 	h := &Headline{
 		Level:         2,
@@ -218,9 +183,7 @@ func TestHeadlineLinesFollowsRenderingOnceWritten(t *testing.T) {
 	}
 	one := f.Headlines[0]
 	one.Body = append([]string{"new line"}, one.Body...) // pushes Two and Three down a line
-	if err := WriteFile(f); err != nil {
-		t.Fatal(err)
-	}
+	f.Base = []byte(RenderFile(f))                       // as a save records it
 
 	lines := HeadlineLines(f)
 	two, three := one.Children[0], f.Headlines[1]
