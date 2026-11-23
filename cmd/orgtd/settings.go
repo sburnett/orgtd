@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sburnett/orgtd/internal/config"
 )
@@ -23,7 +24,7 @@ type flagValues struct {
 	outlineIgnoreFiles                                                  string // comma-separated; see splitList
 	agendaDays                                                          int
 	snippetsDays                                                        int
-	hideClosedAfterHours                                                int
+	hideClosedAfter                                                     time.Duration
 	debug                                                               bool
 	configPath                                                          string
 	explicit                                                            map[string]bool
@@ -44,7 +45,7 @@ func defineFlags(fs *flag.FlagSet) *flagValues {
 	fs.StringVar(&f.meetingTagsFile, "meeting-tags-file", "", "base name of the file holding durable meeting tags, excluded from the outline view and shown instead in the :meeting-tags view (default: the config file's meeting_tags_file, else meeting-tags.org)")
 	fs.StringVar(&f.outlineIgnoreFiles, "outline-ignore-files", "", "comma-separated globs of base file names orgtd never loads, e.g. \"archive*.org,old.org\" (default: the config file's outline_ignore_files, else none)")
 	fs.StringVar(&f.scratchDir, "scratch-dir", "", "directory editor buffers are written to and kept in; a leading ~ is expanded, and a relative path is relative to the org directory (default: the config file's scratch_dir, else scratch)")
-	fs.IntVar(&f.hideClosedAfterHours, "hide-closed-after-hours", 0, "how many hours after an item's CLOSED timestamp it's hidden from the outline view; :toggleclosed shows everything again (default: the config file's hide_closed_after_hours, else 24)")
+	fs.DurationVar(&f.hideClosedAfter, "hide-closed-after", 0, "how long after an item's CLOSED timestamp it's hidden from the outline view, e.g. 5m or 24h; :toggleclosed shows everything again (default: the config file's hide_closed_after, else 5m)")
 	fs.StringVar(&f.mainBranch, "main-branch", "", "git branch every save commits to; the org directory must have it checked out (default: the config file's main_branch, else main)")
 	fs.StringVar(&f.mergeTool, "merge-tool", "", "command :resolve runs on files a save couldn't merge, with their paths appended (default: the config file's merge_tool, else the editor)")
 	fs.StringVar(&f.editor, "editor", "", "external editor command for i and file edits (default: the config file's editor, else $EDITOR, else vim)")
@@ -127,7 +128,7 @@ func resolveLayers(f flagValues, orgtdDirEnv string, user, repo *config.Config) 
 	set("meeting-tags-file", "meeting_tags_file", func() { out.MeetingTagsFile = f.meetingTagsFile })
 	set("outline-ignore-files", "outline_ignore_files", func() { out.OutlineIgnoreFiles = splitList(f.outlineIgnoreFiles) })
 	set("scratch-dir", "scratch_dir", func() { out.ScratchDir = f.scratchDir })
-	set("hide-closed-after-hours", "hide_closed_after_hours", func() { out.HideClosedAfterHours = f.hideClosedAfterHours })
+	set("hide-closed-after", "hide_closed_after", func() { out.HideClosedAfter = config.Duration(f.hideClosedAfter) })
 	set("main-branch", "main_branch", func() { out.MainBranch = f.mainBranch })
 	set("merge-tool", "merge_tool", func() { out.MergeTool = f.mergeTool })
 	set("editor", "editor", func() { out.Editor = f.editor })
@@ -162,8 +163,8 @@ func sameKey(a, b config.Config, key string) bool {
 		return a.MeetingTagsFile == b.MeetingTagsFile
 	case "scratch_dir":
 		return a.ScratchDir == b.ScratchDir
-	case "hide_closed_after_hours":
-		return a.HideClosedAfterHours == b.HideClosedAfterHours
+	case "hide_closed_after":
+		return a.HideClosedAfter == b.HideClosedAfter
 	case "main_branch":
 		return a.MainBranch == b.MainBranch
 	}

@@ -236,9 +236,9 @@ type Model struct {
 	reviewTarget *org.Headline // the inbox item currently pinned for review while reviewActive; nil if the inbox has nothing pending
 
 	// hideClosedEnabled is whether stale DONE/CANCELLED items are currently
-	// hidden from the outline (after cfg.HideClosedAfterHours): off by
+	// hidden from the outline (after cfg.HideClosedAfter): off by
 	// default (see New), toggled by :toggleclosed, turned on at startup by
-	// WithConfig/WithHideClosedAfterHours.
+	// WithConfig/WithHideClosedAfter.
 	hideClosedEnabled bool
 
 	// syncingCalendar guards against starting a second :sync-calendar

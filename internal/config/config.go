@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -62,13 +63,13 @@ type Config struct {
 	// built-in default, "scratch", i.e. a subdirectory of OrgDir.
 	ScratchDir string `toml:"scratch_dir"`
 
-	// HideClosedAfterHours is how many hours after a DONE/CANCELLED
-	// headline's CLOSED timestamp it's hidden from the outline view (the
-	// feature can still be toggled off at runtime with :toggleclosed,
-	// regardless of this value). Zero means "not set", per this
-	// package's own zero-value convention, and falls back to the
-	// built-in default of 24.
-	HideClosedAfterHours int `toml:"hide_closed_after_hours"`
+	// HideClosedAfter is how long after a DONE/CANCELLED headline's
+	// CLOSED timestamp it's hidden from the outline view (the feature can
+	// still be toggled off at runtime with :toggleclosed, regardless of
+	// this value). Written as a Go duration string ("5m", "1h30m").
+	// Zero means "not set", per this package's own zero-value
+	// convention, and falls back to the built-in default of 5 minutes.
+	HideClosedAfter Duration `toml:"hide_closed_after"`
 
 	// MainBranch is the git branch every save commits to (see
 	// internal/gitstore). The org directory's HEAD must be on it for
@@ -189,7 +190,7 @@ type KeywordConfig struct {
 
 	// Done marks a finished state: entering it stamps CLOSED, and the
 	// entry's title is struck through, hidden after
-	// hide_closed_after_hours, and skipped by the agenda and :review.
+	// hide_closed_after, and skipped by the agenda and :review.
 	Done bool `toml:"done"`
 
 	// Agenda is "", AgendaNext or AgendaSkip.
@@ -352,7 +353,40 @@ func (c *Config) checkCommands() error {
 // replace it. Load refuses a user config file still setting one, rather
 // than silently ignoring it the way TOML decoding would.
 var removedKeys = map[string]string{
-	"vcs_editor": "replace it with a [[commands]] table, e.g. name = \"vcs\", command = \"gitui\", and use :run vcs",
+	"vcs_editor":              "replace it with a [[commands]] table, e.g. name = \"vcs\", command = \"gitui\", and use :run vcs",
+	"hide_closed_after_hours": "replace it with hide_closed_after, a duration such as \"5m\" or \"24h\"",
+}
+
+// Duration is a time.Duration read from the config file as a Go duration
+// string ("5m", "1h30m"), as time.ParseDuration takes it.
+type Duration time.Duration
+
+// UnmarshalText parses a duration string; the TOML decoder calls it.
+func (d *Duration) UnmarshalText(text []byte) error {
+	v, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
+// MarshalText writes d as String does.
+func (d Duration) MarshalText() ([]byte, error) {
+	return []byte(d.String()), nil
+}
+
+// String is d as a duration string without zero trailing units: "5m"
+// rather than time.Duration's "5m0s", "24h" rather than "24h0m0s".
+func (d Duration) String() string {
+	s := time.Duration(d).String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
 }
 
 // checkRemovedKeys reports the first key in raw that's in removedKeys.
@@ -607,15 +641,15 @@ type GcalsyncConfig struct {
 // defaults: ui.New starts from it, and ApplyDefaults fills from it.
 func Default() Config {
 	return Config{
-		AgendaWindowDays:     14,
-		SnippetsWindowDays:   7,
-		InboxFile:            "inbox.org",
-		CalendarFile:         "calendar.org",
-		MeetingTagsFile:      "meeting-tags.org",
-		ScratchDir:           "scratch",
-		HideClosedAfterHours: 24,
-		MainBranch:           "main",
-		Keywords:             DefaultKeywords(),
+		AgendaWindowDays:   14,
+		SnippetsWindowDays: 7,
+		InboxFile:          "inbox.org",
+		CalendarFile:       "calendar.org",
+		MeetingTagsFile:    "meeting-tags.org",
+		ScratchDir:         "scratch",
+		HideClosedAfter:    Duration(5 * time.Minute),
+		MainBranch:         "main",
+		Keywords:           DefaultKeywords(),
 		Gcalsync: GcalsyncConfig{
 			CalendarIDs:    []string{"primary"},
 			SyncPastDays:   1,
@@ -651,8 +685,8 @@ func (c *Config) ApplyDefaults() {
 	if c.ScratchDir == "" {
 		c.ScratchDir = d.ScratchDir
 	}
-	if c.HideClosedAfterHours <= 0 {
-		c.HideClosedAfterHours = d.HideClosedAfterHours
+	if c.HideClosedAfter <= 0 {
+		c.HideClosedAfter = d.HideClosedAfter
 	}
 	if c.MainBranch == "" {
 		c.MainBranch = d.MainBranch

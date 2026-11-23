@@ -138,7 +138,7 @@ func TestSnippetsEnterRevealsEntryHiddenFromOutline(t *testing.T) {
 ** DONE Subtask
    CLOSED: [%s]
 `, closedTS(stale), closedTS(stale)))
-	m := New(ws, WithClock(snippetsClock), WithHideClosedAfterHours(24))
+	m := New(ws, WithClock(snippetsClock), WithHideClosedAfter(24*time.Hour))
 	m.switchToView(snippetsView)
 	m.cursor = findRow(t, m, "Subtask")
 
@@ -159,7 +159,7 @@ func TestSnippetsEnterLeavesHidingAloneWhenEntryIsVisible(t *testing.T) {
 	ws := agendaFixture(t, fmt.Sprintf(`* DONE Recent
   CLOSED: [%s]
 `, closedTS(time.Now().Add(-time.Hour))))
-	m := New(ws, WithClock(time.Now), WithHideClosedAfterHours(24))
+	m := New(ws, WithClock(time.Now), WithHideClosedAfter(24*time.Hour))
 	m.switchToView(snippetsView)
 	m.cursor = findRow(t, m, "Recent")
 

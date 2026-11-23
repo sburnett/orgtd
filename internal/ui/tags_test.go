@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/org"
 )
 
@@ -139,7 +140,7 @@ func TestTagsViewHidesStaleDoneEntriesWhenToggled(t *testing.T) {
 	})
 	m := New(ws)
 	m.hideClosedEnabled = true
-	m.cfg.HideClosedAfterHours = 24
+	m.cfg.HideClosedAfter = config.Duration(24 * time.Hour)
 	m.switchToView(tagsView)
 
 	for _, r := range m.rows {

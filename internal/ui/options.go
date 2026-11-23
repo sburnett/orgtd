@@ -136,20 +136,20 @@ func WithCalendarFile(name string) Option {
 	}
 }
 
-// WithHideClosedAfterHours turns on hiding DONE/CANCELLED headlines (and
+// WithHideClosedAfter turns on hiding DONE/CANCELLED headlines (and
 // their whole subtrees — see appendHeadlines) whose CLOSED timestamp is
-// more than hours in the past from the outline view; hours <= 0 keeps
-// the built-in threshold (24) rather than turning filtering on with a
-// meaningless one. Not passing this option at all leaves filtering off
+// more than after in the past from the outline view; after <= 0 keeps
+// the built-in threshold (5 minutes) rather than turning filtering on
+// with a meaningless one. Not passing this option at all leaves filtering off
 // from the start — the zero-value Model default, which is what every
 // caller that doesn't care about this feature (chiefly tests) relies
-// on — even though hideClosedAfterHours itself still carries a default
+// on — even though cfg.HideClosedAfter itself still carries a default
 // value either way. Once on, filtering can still be toggled off
 // entirely at runtime with :toggleclosed, and back on again the same way.
-func WithHideClosedAfterHours(hours int) Option {
+func WithHideClosedAfter(after time.Duration) Option {
 	return func(m *Model) {
-		if hours > 0 {
-			m.cfg.HideClosedAfterHours = hours
+		if after > 0 {
+			m.cfg.HideClosedAfter = config.Duration(after)
 		}
 		m.hideClosedEnabled = true
 	}

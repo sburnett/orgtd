@@ -250,7 +250,7 @@ func CreatedTime(h *org.Headline) (time.Time, bool) {
 
 // StaleClosed reports whether h's CLOSED timestamp is more than after in
 // the past as of now — the outline's "hide stale finished items" rule
-// (hide_closed_after_hours). A headline with no CLOSED timestamp, or an
+// (hide_closed_after). A headline with no CLOSED timestamp, or an
 // unparseable one, is never stale: there's no age to judge it by.
 func StaleClosed(h *org.Headline, now time.Time, after time.Duration) bool {
 	if h.Closed == nil {

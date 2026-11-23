@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sburnett/orgtd/internal/config"
 )
@@ -53,7 +54,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		WithAgendaDays(30),
 		WithInboxFile("capture.org"),
 		WithCalendarFile("my-calendar.org"),
-		WithHideClosedAfterHours(48),
+		WithHideClosedAfter(48*time.Hour),
 		WithDebug(true),
 	)
 	m.switchToView(configView)
@@ -68,7 +69,7 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 		"Agenda window: 30 days",
 		"Inbox file: capture.org",
 		"Calendar file: my-calendar.org",
-		"Hide closed after: 48 hours (currently on",
+		"Hide closed after: 48h (currently on",
 		"Debug logging: on",
 	} {
 		if !containsSubstring(lines, want) {
@@ -79,11 +80,11 @@ func TestConfigViewReportsEffectiveSettings(t *testing.T) {
 
 func TestConfigViewReflectsHideClosedToggle(t *testing.T) {
 	ws := agendaFixture(t, "* TODO Something\n")
-	m := New(ws, WithHideClosedAfterHours(24))
+	m := New(ws, WithHideClosedAfter(24*time.Hour))
 	m.switchToView(configView)
 
 	if !containsSubstring(configLines(m), "currently on") {
-		t.Error("config view should report hide-closed as on right after WithHideClosedAfterHours")
+		t.Error("config view should report hide-closed as on right after WithHideClosedAfter")
 	}
 
 	m.toggleHideClosed()

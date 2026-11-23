@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	orgtd "github.com/sburnett/orgtd"
 	"github.com/sburnett/orgtd/internal/config"
@@ -52,7 +53,7 @@ func TestResolveConfigKeepsEverythingTheConfigFileSets(t *testing.T) {
 		MeetingTagsFile:         "tags.org",
 		OutlineIgnoreFiles:      []string{"archive*.org"},
 		ScratchDir:              "~/scratch",
-		HideClosedAfterHours:    48,
+		HideClosedAfter:         config.Duration(48 * time.Hour),
 		MainBranch:              "trunk",
 		MergeTool:               "meld",
 		Editor:                  "emacsclient -t",
@@ -90,21 +91,21 @@ func TestResolveConfigExplicitFlagBeatsConfigFile(t *testing.T) {
 		dir: "/from/flag", urlFormatter: "flag-fmt", urlFormatterPrefixes: "flag-prefix/, other/",
 		formatLinksURLFormatter: "flag-batch-fmt",
 		agendaDays:              7, snippetsDays: 3, inboxFile: "flag-inbox.org", calendarFile: "flag-calendar.org",
-		meetingTagsFile: "flag-tags.org", outlineIgnoreFiles: "old.org, archive*.org", scratchDir: "/flag/scratch", hideClosedAfterHours: 12, editor: "vim", debug: false,
+		meetingTagsFile: "flag-tags.org", outlineIgnoreFiles: "old.org, archive*.org", scratchDir: "/flag/scratch", hideClosedAfter: 12 * time.Hour, editor: "vim", debug: false,
 		explicit: map[string]bool{},
 	}, "dir", "url-formatter", "url-formatter-prefixes", "format-links-url-formatter", "agenda-days", "snippets-days",
-		"inbox-file", "calendar-file", "meeting-tags-file", "outline-ignore-files", "scratch-dir", "hide-closed-after-hours", "editor", "debug")
+		"inbox-file", "calendar-file", "meeting-tags-file", "outline-ignore-files", "scratch-dir", "hide-closed-after", "editor", "debug")
 	cfg := &config.Config{
 		OrgDir: "/from/config", URLFormatter: "cfg-fmt", URLFormatterPrefixes: []string{"cfg-prefix/"},
 		FormatLinksURLFormatter: "cfg-batch-fmt", AgendaWindowDays: 30, InboxFile: "cfg-inbox.org",
-		CalendarFile: "cfg-calendar.org", MeetingTagsFile: "cfg-tags.org", ScratchDir: "/cfg/scratch", HideClosedAfterHours: 48,
+		CalendarFile: "cfg-calendar.org", MeetingTagsFile: "cfg-tags.org", ScratchDir: "/cfg/scratch", HideClosedAfter: config.Duration(48 * time.Hour),
 		Editor: "emacs", Debug: true,
 	}
 	got := resolveConfig(f, "/from/env", cfg)
 	want := config.Default()
 	want.OrgDir, want.URLFormatter, want.URLFormatterPrefixes = "/from/flag", "flag-fmt", []string{"flag-prefix/", "other/"}
 	want.FormatLinksURLFormatter, want.AgendaWindowDays, want.InboxFile = "flag-batch-fmt", 7, "flag-inbox.org"
-	want.CalendarFile, want.MeetingTagsFile, want.HideClosedAfterHours = "flag-calendar.org", "flag-tags.org", 12
+	want.CalendarFile, want.MeetingTagsFile, want.HideClosedAfter = "flag-calendar.org", "flag-tags.org", config.Duration(12*time.Hour)
 	want.SnippetsWindowDays = 3
 	want.ScratchDir = "/flag/scratch"
 	want.OutlineIgnoreFiles = []string{"old.org", "archive*.org"}
@@ -120,12 +121,12 @@ func TestResolveConfigUnsetFlagsLeaveConfigFileValuesAlone(t *testing.T) {
 	cfg := &config.Config{
 		URLFormatter: "u", URLFormatterPrefixes: []string{"go/"}, FormatLinksURLFormatter: "b",
 		InboxFile: "i.org", CalendarFile: "c.org", MeetingTagsFile: "m.org", AgendaWindowDays: 9,
-		HideClosedAfterHours: 5, Editor: "e", Debug: true,
+		HideClosedAfter: config.Duration(5 * time.Hour), Editor: "e", Debug: true,
 	}
 	got := resolveConfig(flags(), "", cfg)
 	if got.URLFormatter != "u" || !reflect.DeepEqual(got.URLFormatterPrefixes, []string{"go/"}) || got.FormatLinksURLFormatter != "b" ||
 		got.InboxFile != "i.org" || got.CalendarFile != "c.org" || got.MeetingTagsFile != "m.org" ||
-		got.AgendaWindowDays != 9 || got.HideClosedAfterHours != 5 || got.Editor != "e" || !got.Debug {
+		got.AgendaWindowDays != 9 || got.HideClosedAfter != config.Duration(5*time.Hour) || got.Editor != "e" || !got.Debug {
 		t.Errorf("an unset flag clobbered the config file: %+v", got)
 	}
 }
@@ -143,11 +144,11 @@ func TestResolveConfigOrgtdDirEnvBeatsConfigButNotExplicitFlag(t *testing.T) {
 }
 
 func TestResolveConfigZeroInConfigFileMeansUnset(t *testing.T) {
-	// AgendaWindowDays/HideClosedAfterHours of 0 is TOML's zero value for an
+	// AgendaWindowDays/HideClosedAfter of 0 is TOML's zero value for an
 	// absent key, not a real request for a zero-length window.
-	got := resolveConfig(flags(), "", &config.Config{AgendaWindowDays: 0, HideClosedAfterHours: 0})
-	if got.AgendaWindowDays != 14 || got.HideClosedAfterHours != 24 {
-		t.Errorf("windows = %d/%d, want the defaults 14/24", got.AgendaWindowDays, got.HideClosedAfterHours)
+	got := resolveConfig(flags(), "", &config.Config{AgendaWindowDays: 0, HideClosedAfter: 0})
+	if got.AgendaWindowDays != 14 || got.HideClosedAfter != config.Duration(5*time.Minute) {
+		t.Errorf("windows = %d/%v, want the defaults 14/5m", got.AgendaWindowDays, got.HideClosedAfter)
 	}
 }
 

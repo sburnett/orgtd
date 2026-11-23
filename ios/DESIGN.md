@@ -207,7 +207,7 @@ captures), returned as JSON.
 |---|---|---|
 | **Agenda** | Overdue, Due Today, Upcoming (`agenda_window_days`), Next Actions, the same rules as desktop `:agenda` minus Meetings | Tap → the entry in the Outline, details open (in place for one the Outline leaves out); pull-to-refresh = fetch |
 | **Inbox** | Top-level non-done headlines of `inbox_file`, in file order; pending (unpushed or unmerged) captures badged | Tap → details in place. A pending capture can be **deleted or edited before it's merged**, since it's still only in the queue |
-| **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after_hours` (with a toggle), plus the `reference/` files, as one tree whose top layer is the files | Chevrons expand/collapse files and children; tap → details in place |
+| **Outline** | Every loaded file except `calendar_file`/`meeting_tags_file`, honoring `outline_ignore_files` and `hide_closed_after` (with a toggle), plus the `reference/` files, as one tree whose top layer is the files | Chevrons expand/collapse files and children; tap → details in place |
 | **Search** | Case-insensitive substring over title, tags, body, as desktop `/` | Results list → tap reveals the entry in the outline, details open (as the Agenda does) |
 | **Entry details** | Opened in place within the list (one at a time), so the entry is seen in context: full title, dates, body with tappable org links, tags, properties, state menu and pencil | The pencil swaps the details for the edit form, also in place (see §10) |
 | **Status bar / Settings** | Last fetch, last successful push, number of pending captures, last error; SSH public key (copy button), repo URL, author name/email | |

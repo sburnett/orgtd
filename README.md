@@ -47,7 +47,7 @@ orgtd --dir ~/org
 | `--meeting-tags-file` | `meeting_tags_file` | `meeting-tags.org` | Base name of the file holding durable meeting tags (see Tag-based meeting links, below) — excluded from the outline view and shown instead, as an editable outline of its own, in the `:meeting-tags` view |
 | `--outline-ignore-files` | `outline_ignore_files` | *(none)* | Files orgtd never loads, so their entries appear nowhere — globs (`*`, `?`, as in a shell) matched against each file's base name, in `--dir` and `reference/` alike, e.g. `archive*.org`; comma-separated on the flag, a TOML array in the config file. `:edit` refuses them too. A malformed glob stops orgtd at startup |
 | `--scratch-dir` | `scratch_dir` | `scratch` | Directory every `$EDITOR` buffer is written to and kept in (see Editing, below). A leading `~` is expanded, and a relative path is relative to `--dir`, so it can live outside the org directory, e.g. `~/.local/state/orgtd/scratch`. Created when first needed |
-| `--hide-closed-after-hours` | `hide_closed_after_hours` | `24` | How many hours after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it). `:toggleclosed` shows everything again, and toggles back |
+| `--hide-closed-after` | `hide_closed_after` | `5m` | How long after an item's `CLOSED` timestamp it's hidden from the outline view (and its whole subtree with it), as a duration: `5m`, `1h30m`, `24h`. `:toggleclosed` shows everything again, and toggles back |
 | `--main-branch` | `main_branch` | `main` | The git branch every save commits to. `--dir` must be the root of a git repository with this branch checked out — see Saving and git, below |
 | `--merge-tool` | `merge_tool` | *(same as `editor`)* | Command `:resolve` runs on files a save couldn't merge, with their paths appended — see Conflicts, below |
 | `--editor` | `editor` | `$EDITOR`, then `vim` | External editor launched by `ctrl-g` (see Editing, below) and for whole-file edits |
@@ -237,7 +237,7 @@ calendar_file = "calendar.org"
 meeting_tags_file = "meeting-tags.org"
 outline_ignore_files = ["archive*.org", "old.org"]
 scratch_dir = "scratch"    # "~" is expanded; relative to org_dir
-hide_closed_after_hours = 24
+hide_closed_after = "5m"  # a duration: "5m", "1h30m", "24h"
 debug = false
 
 # Customizes the character and color of each marker the outline draws in
@@ -506,7 +506,7 @@ logging is on.
   the `:calendar` view, below), its headlines, and any free-text body
   underneath them, all foldable. A headline with a `CLOSED` stamp (and its
   whole subtree) whose `CLOSED` timestamp is older than
-  `hide_closed_after_hours` (default 24) is hidden — `:toggleclosed` shows
+  `hide_closed_after` (default 5 minutes) is hidden — `:toggleclosed` shows
   everything again, and toggles back.
 - **Calendar** (`:calendar`) — every event in `calendar_file` (default
   `calendar.org`; see Calendar sync, below), grouped under one flush-left
@@ -617,7 +617,7 @@ logging is on.
   eventually filed away doesn't reshuffle the order it was actually
   captured in. An entry with more than one tag appears once under each,
   and a `DONE`/`CANCELLED` entry stale enough to be hidden from the
-  outline (see `hide_closed_after_hours`, above) is hidden here too,
+  outline (see `hide_closed_after`, above) is hidden here too,
   subject to the same `:toggleclosed`. Each row is flat — title, tags, and
   a `[file › parent]` place tag, same shape as an agenda item or one of
   `:calendar`'s linked items — rather than a foldable subtree, since the
@@ -662,7 +662,7 @@ logging is on.
   on any you don't want here). Every completed entry gets its own row,
   even one nested under another completed entry, with the closing note
   from that completion, if it has one (see File format, below), right
-  under it. `hide_closed_after_hours`
+  under it. `hide_closed_after`
   doesn't apply here, and neither `reference/` nor `calendar_file` nor
   `meeting_tags_file` is included. Rows are flat, with a `[file › parent]`
   place tag, and every per-entry command works as in `:tags`. `Enter`
@@ -871,7 +871,7 @@ stop), and so on.
 | `ctrl-d` / `ctrl-u` | Half-page down / up |
 | `Page Down` / `Page Up` | Full-page down / up. A page is what fits on screen, body and wrapped lines included, and the view scrolls with the cursor, so a page turn never skips anything unseen. The cursor settles on the start of an entry, so a page can come up a little short; an entry taller than a page is stepped past whole |
 | `ctrl-e` / `ctrl-y` | Scroll the view down/up by one line, like vim — the cursor stays put unless the scroll would push it off-screen, in which case it's dragged along just enough to stay visible |
-| `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise). On a file's own row, `zA`/`zO`/`zC` act on every entry in the file at once (`zA` opens them all if every one is folded, closes them all otherwise); the one-level `za`/`zo`/`zc` do nothing there, since the file itself can't be folded. A folded entry shows how many descendants it hides, as a muted `(N)` after its title (entries hidden by `hide_closed_after_hours` aren't counted). An entry too wide for one line can be folded even with no body or children — see Long entries, below |
+| `Tab`, `za`/`zo`/`zc`, `zA`/`zO`/`zC` | Vim-style folds. `zo` opens, `zc` closes, `za`/`Tab` toggles the current entry's fold, one level only; `zc` on an entry that is already closed (or has nothing to fold) closes its parent instead and moves the cursor there. A count repeats them: `2zc` closes the entry then its parent; `2zo` opens the entry and its children's folds. `zA`/`zO`/`zC` act on the whole subtree recursively (`zA` opens it if the entry is folded, closes it otherwise). On a file's own row, `zA`/`zO`/`zC` act on every entry in the file at once (`zA` opens them all if every one is folded, closes them all otherwise); the one-level `za`/`zo`/`zc` do nothing there, since the file itself can't be folded. A folded entry shows how many descendants it hides, as a muted `(N)` after its title (entries hidden by `hide_closed_after` aren't counted). An entry too wide for one line can be folded even with no body or children — see Long entries, below |
 | `Enter` | In agenda, `:tags` or `:snippets` view, jump to that item's real place in the outline. In calendar view, on an item attached to a meeting via `gM` (see below), same thing — a no-op on the meeting's own row, since `calendar_file` isn't part of the outline at all |
 | `ctrl-o` / `gi` | Jump back / forward through the jump list — vim's own `ctrl-o`/`ctrl-i`, tracking where you were before a "large" move: `gg`/`G`, `{`/`}`, a confirmed search (`/`/`?`, not `n`/`N` repeats), jumping to a mark (`'<letter>`) or to the review target (`gc`, which switches to the outline if the current view doesn't show it), and switching views entirely (`:agenda`, `Enter` from it, `:calendar`, `:outline`, ...) — never for `j`/`k` or fold/edit commands, or the list would be useless clutter. Bound to `gi` rather than `ctrl-i`: in a plain terminal `ctrl-i` and `Tab` are the same byte, so there's no way to bind it separately from the fold-toggle key above. A no-op at either end of the list |
 
@@ -1190,7 +1190,7 @@ History doesn't persist between sessions.
 | `:registers` / `:reg` | Toggle showing the registers' contents in the info buffer (off by default; see Registers, above). `%` is shown while `:review` is on either way |
 | `:clear-registers` | Clear the paste register (see above) — `p`/`P` have nothing to paste until the next `dd`/`<N>dd`/visual-mode `d`/`y`/`yy` |
 | `:noh` / `:nohlsearch` | See Search, above |
-| `:toggleclosed` | Toggle hiding stale items (any entry whose `CLOSED` stamp is older than `hide_closed_after_hours`) in the outline view on/off — see Views, above |
+| `:toggleclosed` | Toggle hiding stale items (any entry whose `CLOSED` stamp is older than `hide_closed_after`) in the outline view on/off — see Views, above |
 
 Plain `q` does **not** quit — only `:q`/`:quit` do. `ctrl-c` quits
 immediately if there's nothing unsaved; with unsaved changes it refuses

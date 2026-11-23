@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sburnett/orgtd/internal/org"
 )
@@ -31,7 +32,7 @@ calendar_file = "my-calendar.org"
 outline_ignore_files = ["archive*.org", "old.org"]
 url_formatter_prefixes = ["bit.ly/", "go/"]
 format_links_url_formatter = "batch-formatter"
-hide_closed_after_hours = 48
+hide_closed_after = "48h"
 debug = true
 
 [gcalsync]
@@ -93,7 +94,7 @@ search_highlight_bg = "#707070"
 		OutlineIgnoreFiles:      []string{"archive*.org", "old.org"},
 		URLFormatterPrefixes:    []string{"bit.ly/", "go/"},
 		FormatLinksURLFormatter: "batch-formatter",
-		HideClosedAfterHours:    48,
+		HideClosedAfter:         Duration(48 * time.Hour),
 		Debug:                   true,
 		Gcalsync: GcalsyncConfig{
 			OAuthClientID:          "client-id",
@@ -231,16 +232,16 @@ func TestApplyDefaultsFillsOnlyUnsetSettings(t *testing.T) {
 		t.Errorf("ApplyDefaults overwrote explicitly set values: %+v", c)
 	}
 	if c.CalendarFile != d.CalendarFile || c.MeetingTagsFile != d.MeetingTagsFile || c.ScratchDir != d.ScratchDir ||
-		c.HideClosedAfterHours != d.HideClosedAfterHours || c.Gcalsync.SyncPastDays != d.Gcalsync.SyncPastDays {
+		c.HideClosedAfter != d.HideClosedAfter || c.Gcalsync.SyncPastDays != d.Gcalsync.SyncPastDays {
 		t.Errorf("ApplyDefaults left unset values unset: %+v", c)
 	}
 }
 
 func TestApplyDefaultsTreatsNonPositiveWindowsAsUnset(t *testing.T) {
-	c := Config{AgendaWindowDays: -2, HideClosedAfterHours: -1}
+	c := Config{AgendaWindowDays: -2, HideClosedAfter: Duration(-time.Minute)}
 	c.ApplyDefaults()
-	if c.AgendaWindowDays != 14 || c.HideClosedAfterHours != 24 {
-		t.Errorf("non-positive settings = %d/%d, want the defaults 14/24", c.AgendaWindowDays, c.HideClosedAfterHours)
+	if c.AgendaWindowDays != 14 || c.HideClosedAfter != Duration(5*time.Minute) {
+		t.Errorf("non-positive settings = %d/%v, want the defaults 14/5m", c.AgendaWindowDays, c.HideClosedAfter)
 	}
 }
 
@@ -369,5 +370,40 @@ func TestOrgKeywordsSplitsActiveAndDone(t *testing.T) {
 	c := Config{Keywords: []KeywordConfig{{Name: "TRIAGE"}, {Name: "SHIPPED", Done: true}}}
 	if got, want := c.OrgKeywords(), org.NewKeywords([]string{"TRIAGE"}, []string{"SHIPPED"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("OrgKeywords = %+v, want %+v", got, want)
+	}
+}
+
+func TestDurationString(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		5 * time.Minute:                "5m",
+		24 * time.Hour:                 "24h",
+		90 * time.Minute:               "1h30m",
+		30 * time.Second:               "30s",
+		2*time.Minute + 30*time.Second: "2m30s",
+	} {
+		if got := Duration(d).String(); got != want {
+			t.Errorf("Duration(%v).String() = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestLoadRejectsBadHideClosedAfter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("hide_closed_after = \"five minutes\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Error("Load accepted a hide_closed_after that isn't a duration")
+	}
+}
+
+func TestLoadRejectsHideClosedAfterHours(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("hide_closed_after_hours = 24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "hide_closed_after") {
+		t.Errorf("Load(hide_closed_after_hours) = %v, want an error pointing at hide_closed_after", err)
 	}
 }

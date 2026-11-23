@@ -319,7 +319,7 @@ captures were added to the end of the inbox on both sides at once;
 resolve those when merging.
 
 Settings that should apply to the phone too (keywords and their colors,
-`inbox_file`, `agenda_window_days`, `hide_closed_after_hours`,
+`inbox_file`, `agenda_window_days`, `hide_closed_after`,
 `outline_ignore_files`, ...) go in `.orgtd.toml` at the root of the
 org repository. See the root README's "Config file" section.
 

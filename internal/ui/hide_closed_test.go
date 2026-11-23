@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sburnett/orgtd/internal/config"
 	"github.com/sburnett/orgtd/internal/org"
 	"github.com/sburnett/orgtd/internal/workspace"
 )
@@ -39,11 +40,11 @@ func TestHideClosedOffByDefaultWithoutOption(t *testing.T) {
 	m := New(ws)
 
 	if rowIndex(m, "Old finished task") < 0 {
-		t.Errorf("stale DONE item should stay visible when WithHideClosedAfterHours is never passed")
+		t.Errorf("stale DONE item should stay visible when WithHideClosedAfter is never passed")
 	}
 }
 
-func TestHideClosedAfterHoursHidesStaleClosedItemsAndSubtree(t *testing.T) {
+func TestHideClosedAfterHidesStaleClosedItemsAndSubtree(t *testing.T) {
 	now := time.Now()
 	orgText := fmt.Sprintf(`* DONE Old finished task
   CLOSED: [%s]
@@ -59,7 +60,7 @@ func TestHideClosedAfterHoursHidesStaleClosedItemsAndSubtree(t *testing.T) {
 		closedTS(now.Add(-1*time.Hour)),
 	)
 	ws := agendaFixture(t, orgText)
-	m := New(ws, WithHideClosedAfterHours(24))
+	m := New(ws, WithHideClosedAfter(24*time.Hour))
 
 	if i := rowIndex(m, "Old finished task"); i >= 0 {
 		t.Errorf("stale DONE item at row %d should be hidden", i)
@@ -78,39 +79,44 @@ func TestHideClosedAfterHoursHidesStaleClosedItemsAndSubtree(t *testing.T) {
 	}
 }
 
-func TestHideClosedAfterHoursThresholdIsConfigurable(t *testing.T) {
+func TestHideClosedAfterThresholdIsConfigurable(t *testing.T) {
 	now := time.Now()
 	orgText := fmt.Sprintf(`* DONE Finished two hours ago
   CLOSED: [%s]
 `, closedTS(now.Add(-2*time.Hour)))
 	ws := agendaFixture(t, orgText)
-	m := New(ws, WithHideClosedAfterHours(1))
+	m := New(ws, WithHideClosedAfter(1*time.Hour))
 
 	if i := rowIndex(m, "Finished two hours ago"); i >= 0 {
 		t.Errorf("item past a 1-hour threshold at row %d should be hidden", i)
 	}
 }
 
-func TestHideClosedAfterHoursZeroOrNegativeUsesBuiltInDefault(t *testing.T) {
+func TestHideClosedAfterZeroOrNegativeUsesBuiltInDefault(t *testing.T) {
 	now := time.Now()
-	orgText := fmt.Sprintf(`* DONE Finished twelve hours ago
+	orgText := fmt.Sprintf(`* DONE Finished just now
   CLOSED: [%s]
-`, closedTS(now.Add(-12*time.Hour)))
+* DONE Finished ten minutes ago
+  CLOSED: [%s]
+`, closedTS(now), closedTS(now.Add(-10*time.Minute)))
 	ws := agendaFixture(t, orgText)
-	m := New(ws, WithHideClosedAfterHours(0))
+	m := New(ws, WithHideClosedAfter(0))
 
-	if rowIndex(m, "Finished twelve hours ago") < 0 {
-		t.Error("hours <= 0 should fall back to the 24h default, not hide immediately")
+	if rowIndex(m, "Finished just now") < 0 {
+		t.Error("after <= 0 should fall back to the 5m default, not hide immediately")
 	}
-	if m.cfg.HideClosedAfterHours != 24 {
-		t.Errorf("hideClosedAfterHours = %d, want 24 (built-in default)", m.cfg.HideClosedAfterHours)
+	if i := rowIndex(m, "Finished ten minutes ago"); i >= 0 {
+		t.Errorf("item past the 5m default at row %d should be hidden", i)
+	}
+	if got := time.Duration(m.cfg.HideClosedAfter); got != 5*time.Minute {
+		t.Errorf("HideClosedAfter = %v, want 5m (built-in default)", got)
 	}
 }
 
 func TestHideClosedWithNoClosedTimestampStaysVisible(t *testing.T) {
 	orgText := "* DONE Marked done but never stamped\n"
 	ws := agendaFixture(t, orgText)
-	m := New(ws, WithHideClosedAfterHours(24))
+	m := New(ws, WithHideClosedAfter(24*time.Hour))
 
 	if rowIndex(m, "Marked done but never stamped") < 0 {
 		t.Error("a DONE item with no CLOSED timestamp should never be hidden (no age to judge it by)")
@@ -123,7 +129,7 @@ func TestToggleDoneCommandTogglesVisibility(t *testing.T) {
   CLOSED: [%s]
 `, closedTS(now.Add(-48*time.Hour)))
 	ws := agendaFixture(t, orgText)
-	m := New(ws, WithHideClosedAfterHours(24))
+	m := New(ws, WithHideClosedAfter(24*time.Hour))
 
 	if i := rowIndex(m, "Old finished task"); i >= 0 {
 		t.Fatalf("stale DONE item at row %d should start hidden", i)
@@ -164,7 +170,7 @@ func TestWriteIncludesStaleDoneEntriesHiddenFromTheOutline(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	ws := &workspace.Workspace{Dir: dir, Files: []*org.File{f}}
-	m := New(ws, WithHideClosedAfterHours(24))
+	m := New(ws, WithHideClosedAfter(24*time.Hour))
 
 	if rowIndex(m, "Old finished task") >= 0 {
 		t.Fatalf("fixture assumption broken: stale DONE entry should be hidden from the outline")
@@ -201,7 +207,7 @@ func TestHideClosedIgnoresUnparseableClosedTimestamp(t *testing.T) {
 	h := &org.Headline{Keyword: "DONE", Closed: &org.Timestamp{Raw: "not a date"}}
 	var m Model
 	m.hideClosedEnabled = true
-	m.cfg.HideClosedAfterHours = 24
+	m.cfg.HideClosedAfter = config.Duration(24 * time.Hour)
 	if m.hiddenAsStaleDone(h) {
 		t.Error("an unparseable CLOSED timestamp should not be treated as stale")
 	}
@@ -213,7 +219,7 @@ func TestHideAppliesToAnyKeywordWithClosedStamp(t *testing.T) {
   CLOSED: [%s]
 * WAITING Visible waiting
 `, old))
-	m := New(ws, WithHideClosedAfterHours(24))
+	m := New(ws, WithHideClosedAfter(24*time.Hour))
 	if rowIndex(m, "Hidden waiting") >= 0 {
 		t.Error("a stale entry with a CLOSED stamp should be hidden whatever its keyword")
 	}

@@ -165,8 +165,8 @@ func (m *Model) appendConfigRows(dst *[]row) {
 		line("Merge tool: %s", m.cfg.MergeTool)
 	}
 	from("merge_tool")
-	line("Hide closed after: %d hours (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfterHours, onOff(m.hideClosedEnabled))
-	from("hide_closed_after_hours")
+	line("Hide closed after: %s (currently %s — :toggleclosed to switch)", m.cfg.HideClosedAfter, onOff(m.hideClosedEnabled))
+	from("hide_closed_after")
 	if len(m.cfg.Commands) == 0 {
 		line("Commands (:run): (none configured)")
 	} else {

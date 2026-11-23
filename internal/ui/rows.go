@@ -53,7 +53,7 @@ func (m *Model) appendMeetingTagsRows(dst *[]row, ignoreFold bool) {
 }
 
 // toggleHideClosed flips whether stale DONE/CANCELLED items (older than
-// hideClosedAfterHours, per CLOSED) are hidden from the outline — a full
+// cfg.HideClosedAfter, per CLOSED) are hidden from the outline — a full
 // on/off switch for the filtering, independent of the configured
 // threshold, so a stale item is never more than a ":toggledone" away.
 // Re-focuses the headline the cursor was on before the toggle, if it's
@@ -66,7 +66,7 @@ func (m *Model) toggleHideClosed() {
 		m.focusHeadline(h)
 	}
 	if m.hideClosedEnabled {
-		m.message = fmt.Sprintf("Hiding DONE/CANCELLED items closed more than %dh ago", m.cfg.HideClosedAfterHours)
+		m.message = fmt.Sprintf("Hiding DONE/CANCELLED items closed more than %s ago", m.cfg.HideClosedAfter)
 	} else {
 		m.message = "Showing all DONE/CANCELLED items"
 	}
@@ -132,7 +132,7 @@ func (m *Model) appendCalendarHeadlines(dst *[]row, headlines []*org.Headline, i
 
 // hiddenAsStaleDone reports whether h should be omitted from the outline
 // (along with its whole subtree, and any body text) because hide-closed
-// filtering is enabled (see :toggleclosed) and h's CLOSED timestamp is further than hideClosedAfterHours in
+// filtering is enabled (see :toggleclosed) and h's CLOSED timestamp is further than cfg.HideClosedAfter in
 // the past. A headline with no CLOSED timestamp (e.g.
 // hand-edited) or an unparseable one is never hidden — there's no age to
 // judge it by.
@@ -143,7 +143,7 @@ func (m *Model) hiddenAsStaleDone(h *org.Headline) bool {
 	if !m.hideClosedEnabled {
 		return false
 	}
-	return orgdate.StaleClosed(h, m.now(), time.Duration(m.cfg.HideClosedAfterHours)*time.Hour)
+	return orgdate.StaleClosed(h, m.now(), time.Duration(m.cfg.HideClosedAfter))
 }
 
 // appendBodyLines appends one row per line of h's free-text body,
