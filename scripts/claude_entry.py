@@ -39,16 +39,29 @@ entry's PROJECT_DIR changed, since Claude Code keeps sessions per
 directory). Nothing is saved when you run it on several entries at
 once, or on an entry without a property drawer.
 
+A session runs in one place at a time: ":run claude" on an entry whose
+session is still open elsewhere (another orgtd instance, say) refuses,
+rather than opening the same conversation twice and having both write
+to it. The lock is a flock(2) on a file named after the session ID,
+under a per-user directory in the system temp directory, held by this
+script while Claude runs (it waits for Claude rather than exec'ing it,
+so the lock isn't inherited by anything Claude leaves running). The OS
+releases it when the script exits, even on a crash.
+
 Environment:
     CLAUDE_ENTRY_BIN      program to run instead of "claude"
     CLAUDE_ENTRY_DRY_RUN  if set, print the directory, arguments and
                           system prompt instead of starting Claude
 """
 
+import fcntl
 import json
 import os
 import re
+import signal
+import subprocess
 import sys
+import tempfile
 import uuid
 from typing import NoReturn
 
@@ -201,6 +214,34 @@ def session_exists(session_id, workdir):
     return False
 
 
+def valid_session_id(text):
+    """text as a canonical session ID (a UUID), or "" if it isn't one."""
+    try:
+        return str(uuid.UUID(text.strip()))
+    except ValueError:
+        return ""
+
+
+def lock_session(session_id):
+    """Mark session_id as running in this process until it exits, by
+    taking a flock(2) on a file named after it. Returns the lock's file
+    descriptor and None, or None and the holder's pid (as text, maybe
+    empty) if another process already holds it. Lock files are left in
+    place: removing one would race with another process opening it."""
+    lock_dir = os.path.join(tempfile.gettempdir(), f"claude_entry-{os.getuid()}")
+    os.makedirs(lock_dir, mode=0o700, exist_ok=True)
+    fd = os.open(os.path.join(lock_dir, session_id + ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        holder = os.read(fd, 32).decode(errors="replace").strip()
+        os.close(fd)
+        return None, holder
+    os.ftruncate(fd, 0)
+    os.write(fd, str(os.getpid()).encode())
+    return fd, None
+
+
 def clip(text, limit):
     if len(text) <= limit:
         return text
@@ -340,7 +381,11 @@ reloads whatever changed when it ends.
     # Resume the entry's saved session if Claude Code still has it, else
     # start a new one and save its ID on the entry. Only for a single
     # entry: one session ID on several entries would be confusing.
-    session_args, save = [], None
+    #
+    # The saved session is locked before checking that it exists: a
+    # session started moments ago elsewhere may not have written its
+    # transcript yet, and must still count as running.
+    session_args, save, lock = [], None, None
     if len(entries) == 1:
         e = entries[0]
         idx = cache.headline_index(e["file"], e["line"])
@@ -349,11 +394,19 @@ reloads whatever changed when it ends.
             saved = properties(lines[idx:own_text_end(lines, idx)]).get(SESSION_PROPERTY, "")
         else:
             saved = e["properties"].get(SESSION_PROPERTY, "")
-        saved = saved.strip()
+        saved = valid_session_id(saved)
+        if saved:
+            lock, holder = lock_session(saved)
+            if lock is None:
+                by = f" (by claude_entry, pid {holder})" if holder else ""
+                fail(f"this entry's Claude session {saved} is already open elsewhere{by}; carry on there, or quit it first")
         if saved and session_exists(saved, workdir):
             session_args = ["--resume", saved]
         else:
+            if lock is not None:
+                os.close(lock)
             session_id = str(uuid.uuid4())
+            lock, _ = lock_session(session_id)
             session_args = ["--session-id", session_id]
             save = (entries[0]["file"], entries[0]["line"], session_id)
 
@@ -390,11 +443,21 @@ reloads whatever changed when it ends.
         print(system_prompt)
         return
 
+    # Run Claude as a child rather than exec'ing it, so the session lock
+    # stays with this process: an exec'd Claude would pass the descriptor
+    # on to whatever it starts, and a background process outliving it
+    # would keep the session locked.
     os.chdir(workdir)
     try:
-        os.execvp(prog, argv)
+        child = subprocess.Popen(argv)
     except OSError as e:
         fail(f"running {prog}: {e}")
+    # Ctrl-C and Ctrl-\ are meant for Claude, which gets them too, being
+    # in the terminal's foreground process group; this process just waits.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGQUIT, signal.SIG_IGN)
+    code = child.wait()
+    sys.exit(128 - code if code < 0 else code)
 
 
 if __name__ == "__main__":

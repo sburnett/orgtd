@@ -452,7 +452,9 @@ directory named by a `:PROJECT_DIR:` property on the entry or its
 nearest ancestor that has one (else the org directory), so setting one
 on a project heading covers every task under it. It saves the session's
 ID in a `:CLAUDE_SESSION:` property on the entry, so running it there
-again resumes that conversation, with the entry's notes refreshed. An
+again resumes that conversation, with the entry's notes refreshed. While
+that session is open — in another orgtd instance, say — running it on
+the entry again refuses rather than opening the conversation twice. An
 entry with one shows a `✻` among its tags (`:work:✻:`), in its own
 color (`claude_icon`/`claude_color` under `[icons]`, above), and is
 listed under `✻` in `:tags`. It's generated from the property, not
