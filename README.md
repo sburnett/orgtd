@@ -448,8 +448,11 @@ nested under it and each ancestor heading's own notes, and Claude opens
 by summarizing the task and proposing a first step. It starts in the
 directory named by a `:PROJECT_DIR:` property on the entry or its
 nearest ancestor that has one (else the org directory), so setting one
-on a project heading covers every task under it. Anything after the
-name goes to `claude`, e.g. `:run claude --model opus`:
+on a project heading covers every task under it. It saves the session's
+ID in a `:CLAUDE_SESSION:` property on the entry, so running it there
+again resumes that conversation, with the entry's notes refreshed.
+Anything after the name goes to `claude`, e.g. `:run claude --model
+opus`:
 
 ```toml
 [[commands]]

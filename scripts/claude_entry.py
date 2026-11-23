@@ -30,6 +30,15 @@ directory is always made available to Claude (--add-dir), so it can
 update your notes when asked; orgtd reloads any file changed once
 Claude exits.
 
+Each new session's ID is saved in a CLAUDE_SESSION property on the
+entry, and the next ":run claude" there resumes that session instead
+of starting another, with the system prompt refreshed from your notes
+as they are now. Only the latest ID is kept. A new session starts
+instead when the saved one can't be found (it was deleted, or the
+entry's PROJECT_DIR changed, since Claude Code keeps sessions per
+directory). Nothing is saved when you run it on several entries at
+once, or on an entry without a property drawer.
+
 Environment:
     CLAUDE_ENTRY_BIN      program to run instead of "claude"
     CLAUDE_ENTRY_DRY_RUN  if set, print the directory, arguments and
@@ -40,9 +49,11 @@ import json
 import os
 import re
 import sys
+import uuid
 from typing import NoReturn
 
 DIR_PROPERTY = "PROJECT_DIR"
+SESSION_PROPERTY = "CLAUDE_SESSION"
 
 # Caps on how much of your notes goes into the system prompt, so one huge
 # subtree can't crowd out everything else.
@@ -139,6 +150,55 @@ def body(text_lines):
             continue
         out.append(line)
     return "\n".join(out).strip()
+
+
+def drawer_span(lines, start, end):
+    """The indices of the :PROPERTIES: and :END: lines of the entry
+    whose own text is lines[start:end], or None if it has no drawer."""
+    begin = None
+    for i in range(start + 1, end):
+        s = lines[i].strip().upper()
+        if begin is None and s == ":PROPERTIES:":
+            begin = i
+        elif begin is not None and s == ":END:":
+            return begin, i
+    return None
+
+
+def set_property(lines, start, name, value):
+    """Set property name to value in the drawer of the entry at
+    lines[start], in place. False if the entry has no drawer."""
+    span = drawer_span(lines, start, own_text_end(lines, start))
+    if span is None:
+        return False
+    begin, end = span
+    for i in range(begin + 1, end):
+        m = PROPERTY_RE.match(lines[i])
+        if m and m.group(1).upper() == name.upper():
+            indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+            lines[i] = f"{indent}:{m.group(1)}: {value}"
+            return True
+    indent_from = lines[begin + 1] if begin + 1 < end else lines[begin]
+    indent = indent_from[: len(indent_from) - len(indent_from.lstrip())]
+    lines.insert(end, f"{indent}:{name}: {value}")
+    return True
+
+
+def session_exists(session_id, workdir):
+    """Whether Claude Code has a transcript of session_id for workdir.
+    It keeps them under ~/.claude/projects (or $CLAUDE_CONFIG_DIR), in a
+    directory named after the working directory with every character
+    other than a letter or digit replaced by "-"."""
+    try:
+        session_id = str(uuid.UUID(session_id))
+    except ValueError:
+        return False
+    config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    for d in {os.path.abspath(workdir), os.path.realpath(workdir)}:
+        name = re.sub(r"[^A-Za-z0-9]", "-", d)
+        if os.path.isfile(os.path.join(config, "projects", name, session_id + ".jsonl")):
+            return True
+    return False
 
 
 def clip(text, limit):
@@ -272,17 +332,58 @@ reloads whatever changed when it ends.
 {chr(10).join(sections)}
 """
 
+    dry_run = bool(os.environ.get("CLAUDE_ENTRY_DRY_RUN"))
     opening = OPENING_ONE if len(entries) == 1 else OPENING_MANY.format(n=len(entries))
     name = entries[0]["title"] if len(entries) == 1 else f"{entries[0]['title']} (+{len(entries) - 1} more)"
     prog = os.environ.get("CLAUDE_ENTRY_BIN", "claude")
-    # The opening message goes first: --add-dir takes any number of
-    # directories, so a prompt after it would be read as another one.
-    argv = [prog, opening, "--append-system-prompt", system_prompt, "--name", name]
+
+    # Resume the entry's saved session if Claude Code still has it, else
+    # start a new one and save its ID on the entry. Only for a single
+    # entry: one session ID on several entries would be confusing.
+    session_args, save = [], None
+    if len(entries) == 1:
+        e = entries[0]
+        idx = cache.headline_index(e["file"], e["line"])
+        if idx is not None:
+            lines = cache.lines(e["file"])
+            saved = properties(lines[idx:own_text_end(lines, idx)]).get(SESSION_PROPERTY, "")
+        else:
+            saved = e["properties"].get(SESSION_PROPERTY, "")
+        saved = saved.strip()
+        if saved and session_exists(saved, workdir):
+            session_args = ["--resume", saved]
+        else:
+            session_id = str(uuid.uuid4())
+            session_args = ["--session-id", session_id]
+            save = (entries[0]["file"], entries[0]["line"], session_id)
+
+    if save:
+        path, line, session_id = save
+        lines = cache.lines(path)
+        idx = cache.headline_index(path, line)
+        if idx is not None and set_property(lines, idx, SESSION_PROPERTY, session_id):
+            if dry_run:
+                print(f"would set {SESSION_PROPERTY} to {session_id} in {path}, line {line}")
+            else:
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(lines))
+                except OSError as e:
+                    fail(f"saving the session ID to {path}: {e}")
+
+    # A resumed session already has its conversation, so it gets no
+    # opening message. The opening message goes first: --add-dir takes
+    # any number of directories, so a prompt after it would be read as
+    # another one.
+    argv = [prog]
+    if session_args[:1] != ["--resume"]:
+        argv.append(opening)
+    argv += session_args + ["--append-system-prompt", system_prompt, "--name", name]
     if os.path.realpath(workdir) != os.path.realpath(org_dir):
         argv += ["--add-dir", org_dir]
     argv += sys.argv[1:]
 
-    if os.environ.get("CLAUDE_ENTRY_DRY_RUN"):
+    if dry_run:
         print(f"cwd: {workdir}")
         print("argv:", json.dumps([a for a in argv if a != system_prompt], indent=2))
         print("--- system prompt ---")
