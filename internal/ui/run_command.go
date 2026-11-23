@@ -112,6 +112,7 @@ func (m *Model) prepareRun(line string) (name string, cmd *exec.Cmd, contextFile
 	fields = append(fields, extprog.ParseCommand(args)...)
 	cmd = exec.Command(fields[0], fields[1:]...)
 	cmd.Dir = m.ws.Dir
+	cmd.Env = runBaseEnv(c.Context)
 	if c.Context {
 		// Built only now, after the save, so line numbers match the disk.
 		ctx := m.buildRunContext(targets)
@@ -121,7 +122,7 @@ func (m *Model) prepareRun(line string) (name string, cmd *exec.Cmd, contextFile
 			return name, nil, "", false
 		}
 		contextFile = path
-		cmd.Env = append(append(os.Environ(), ctx.env()...), "ORGTD_CONTEXT="+path)
+		cmd.Env = append(append(cmd.Env, ctx.env()...), "ORGTD_CONTEXT="+path)
 	}
 	return name, cmd, contextFile, true
 }

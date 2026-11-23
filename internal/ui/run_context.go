@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -116,6 +117,34 @@ func (m *Model) buildRunContext(targets []*org.Headline) runContext {
 		ctx.Entries = append(ctx.Entries, e)
 	}
 	return ctx
+}
+
+// runContextVars names every variable :run passes as context: env's and
+// ORGTD_CONTEXT.
+var runContextVars = []string{
+	"ORGTD_DIR", "ORGTD_VIEW", "ORGTD_COUNT", "ORGTD_CONTEXT",
+	"ORGTD_FILE", "ORGTD_LINE", "ORGTD_TITLE", "ORGTD_TODO",
+	"ORGTD_TAGS", "ORGTD_OUTLINE_PATH", "ORGTD_ID",
+}
+
+// runBaseEnv returns orgtd's own environment, for a :run command to
+// start from, without any of runContextVars it inherited — as an orgtd
+// started by another's :run, or from a session one launched, does — so
+// a command never takes the outer entry for its own: a selection or a
+// header row would otherwise see the outer ORGTD_TITLE, and a command
+// without context all of it. ORGTD_DIR is kept for a command without
+// context, since it's also orgtd's own --dir default (see Usage), which
+// such a command may rely on; one with context gets it reset by env.
+func runBaseEnv(withContext bool) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(runContextVars, k) && (withContext || k != "ORGTD_DIR") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
 }
 
 // env returns ctx as ORGTD_* environment variables (without

@@ -442,7 +442,11 @@ so `$EDITOR +"$ORGTD_LINE" "$ORGTD_FILE"` opens right at the entry, and
 a script can rewrite it there and have orgtd reload the change. The
 JSON file is written to the system temp directory, readable only by
 you, and deleted once the command exits. A command without
-`context = true` gets none of this.
+`context = true` gets none of this. Nor does any command get these
+variables from orgtd's own environment — say, an orgtd started by
+another's `:run` — so a command never mistakes the outer entry for its
+own; the one exception is `ORGTD_DIR` for a command without
+`context = true`, since it's also orgtd's own `--dir` default.
 
 For example, `scripts/claude_entry.py` starts a Claude Code session
 about the entry you're on: its system prompt holds the entry, everything

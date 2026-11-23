@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -153,6 +154,12 @@ func findRowOrNeg(m Model, text string) int {
 // args.txt, all in the org directory.
 func contextFixture(t *testing.T, withContext bool) (Model, string) {
 	t.Helper()
+	// Stale context, as orgtd inherits when an outer orgtd's :run (or a
+	// session it launched) started it: none of it may reach the command,
+	// ORGTD_DIR aside without context.
+	for _, k := range runContextVars {
+		t.Setenv(k, "stale")
+	}
 	dir := t.TempDir()
 	content := "#+TITLE: Work\n" +
 		"* Work\n" +
@@ -294,8 +301,9 @@ func TestRunWithoutContextSetsNothing(t *testing.T) {
 
 	runDump(t, m, "dump")
 
-	if env := readEnv(t, dir); len(env) != 0 {
-		t.Errorf("env = %v, want no ORGTD_* variables without context = true", env)
+	want := map[string]string{"ORGTD_DIR": "stale"}
+	if env := readEnv(t, dir); !maps.Equal(env, want) {
+		t.Errorf("env = %v, want only orgtd's own ORGTD_DIR (%v) without context = true", env, want)
 	}
 }
 
