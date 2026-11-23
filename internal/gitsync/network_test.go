@@ -53,9 +53,12 @@ func TestStalledServerHitsTheTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	// The accept loop owns held until it exits; the cleanup closes the
+	// listener to end the loop, waits for it, and only then reads held.
 	var held []net.Conn
+	acceptDone := make(chan struct{})
 	go func() {
+		defer close(acceptDone)
 		for {
 			c, err := ln.Accept()
 			if err != nil {
@@ -65,6 +68,8 @@ func TestStalledServerHitsTheTimeouts(t *testing.T) {
 		}
 	}()
 	defer func() {
+		ln.Close()
+		<-acceptDone
 		for _, c := range held {
 			c.Close()
 		}
