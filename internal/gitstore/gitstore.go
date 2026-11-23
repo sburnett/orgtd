@@ -55,6 +55,12 @@ type Store struct {
 	// until then.
 	notFF atomic.Pointer[branchPair]
 
+	// moves counts this Store's moves of the main branch (see Moves).
+	moves atomic.Uint64
+
+	closeOnce sync.Once
+	closeErr  error
+
 	// failAt, if set, is called at each step of a save (see Save); an
 	// error it returns makes Save stop right there, skipping all cleanup,
 	// as if the process had died. Tests use it to simulate crashes.
@@ -108,21 +114,35 @@ func Open(dir, mainBranch string, ignore []string) (*Store, error) {
 // Close releases the instance and merge locks, as the OS would if the
 // process exited, and removes the instance's lock file, so a clean exit
 // leaves nothing behind. (A crashed instance's lock file is removed by
-// the next Orphans that finds it free.) The Store must not be used
-// afterwards.
+// the next Orphans that finds it free.) A merge under way on another
+// goroutine (a poll bringing in the phone's branch) finishes first, so
+// another instance can't start one while it's still writing; none can
+// start after. The Store must not be used afterwards; closing it again
+// does nothing.
 func (s *Store) Close() error {
 	if s == nil {
 		return nil
 	}
-	s.mergeLock.Unlock()
-	if err := s.instanceLock.Unlock(); err != nil {
-		return err
-	}
-	if err := os.Remove(s.instanceLock.Path()); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	return nil
+	s.closeOnce.Do(func() {
+		s.mergeMu.Lock() // never released: the Store is done
+		s.mergeLock.Unlock()
+		if err := s.instanceLock.Unlock(); err != nil {
+			s.closeErr = err
+			return
+		}
+		if err := os.Remove(s.instanceLock.Path()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			s.closeErr = err
+		}
+	})
+	return s.closeErr
 }
+
+// Moves is how many times this Store has moved the main branch: saves,
+// and bringing in another branch (ApplyBranch, ResolveBranch). A caller
+// that read the branch on another goroutine can compare it before and
+// after to tell whether what it read might be older than this instance's
+// own latest move.
+func (s *Store) Moves() uint64 { return s.moves.Load() }
 
 // Dir is the org directory, as an absolute path.
 func (s *Store) Dir() string { return s.dir }

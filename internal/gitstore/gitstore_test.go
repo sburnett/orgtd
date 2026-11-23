@@ -606,3 +606,53 @@ func TestOpenWaitsOutATestLock(t *testing.T) {
 		t.Fatalf("takeInstanceLock = %v, want it to wait out the test lock", err)
 	}
 }
+
+func TestMovesCountsThisStoresMovesOfMain(t *testing.T) {
+	dir := newRepo(t, map[string]string{"inbox.org": "* a\n", "todo.org": "* t\n"})
+	s, other := open(t, dir), open(t, dir)
+	if n := s.Moves(); n != 0 {
+		t.Fatalf("Moves = %d at first", n)
+	}
+	if _, err := s.Save(head(t, s), []Edit{edit("todo.org", "* t\n", "* T\n")}, "save"); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.Moves(); n != 1 {
+		t.Errorf("Moves = %d after a save, want 1", n)
+	}
+	branchFrom(t, dir, "mobile", head(t, s), map[string]string{"inbox.org": "* a\n* b\n"})
+	applyBranch(t, s)
+	if n := s.Moves(); n != 2 {
+		t.Errorf("Moves = %d after ApplyBranch, want 2", n)
+	}
+	applyBranch(t, s) // nothing new
+	if _, err := other.Save(head(t, other), []Edit{edit("todo.org", "* T\n", "* TT\n")}, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.Moves(); n != 2 {
+		t.Errorf("Moves = %d after a no-op and another Store's save, want 2", n)
+	}
+}
+
+func TestCloseWaitsForAMergeUnderWay(t *testing.T) {
+	s := open(t, newRepo(t, map[string]string{"inbox.org": "* a\n"}))
+	if ok, err := s.tryLockMerge(); !ok || err != nil {
+		t.Fatalf("tryLockMerge = %v, %v", ok, err)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- s.Close() }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a merge held the lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	s.unlockMerge()
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Errorf("second Close = %v", err)
+	}
+	if ok, _ := s.tryLockMerge(); ok {
+		t.Error("tryLockMerge succeeded after Close")
+	}
+}

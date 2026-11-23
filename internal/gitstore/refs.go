@@ -62,6 +62,7 @@ func (s *Store) moveMain(repo *git.Repository, old, new plumbing.Hash, msg strin
 		return err
 	}
 	done = true
+	s.moves.Add(1)
 	s.appendReflog(repo, old, new, msg)
 	return nil
 }

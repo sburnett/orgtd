@@ -84,7 +84,7 @@ var conflictLabels = merge3.Labels{Ours: "yours (this orgtd)", Theirs: "main"}
 //     crash in between leaves them looking like outside edits with the
 //     merged content, never like a revert.
 //  8. Delete the pending ref, release the merge lock.
-func (s *Store) Save(base plumbing.Hash, edits []Edit, msg string) (Result, error) {
+func (s *Store) Save(base plumbing.Hash, edits []Edit, msg string) (_ Result, err error) {
 	if err := s.CheckBranch(); err != nil {
 		return Result{}, err
 	}
@@ -132,6 +132,14 @@ func (s *Store) Save(base plumbing.Hash, edits []Edit, msg string) (Result, erro
 	if err := s.lockMerge(); err != nil {
 		return Result{}, err
 	}
+	// A simulated crash leaves the merge lock held, as a dead process's
+	// flock stays held until the OS drops it (Close, in tests), but this
+	// goroutine is gone either way: let Close have mergeMu.
+	defer func() {
+		if errors.Is(err, errCrash) {
+			s.mergeMu.Unlock()
+		}
+	}()
 	if err := s.step("locked"); err != nil {
 		return Result{}, err
 	}
