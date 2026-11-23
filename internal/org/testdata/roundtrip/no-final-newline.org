@@ -1,0 +1,2 @@
+* No final newline
+  last line

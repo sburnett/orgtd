@@ -574,10 +574,18 @@ as `gM`.
   makes it a git repository with `initRepo`, since saving needs one) —
   never write to the checked-in fixtures. `gitsave_test.go` runs two
   Models on one repository, as two orgtd processes.
-- Byte-exact round-tripping of unedited entries is covered by
-  `TestRenderFileKeepsUnmodifiedEntriesVerbatim` (`internal/org/render_test.go`),
-  one case per construct regeneration would lose; there is no golden
-  suite over real files.
+- Round-tripping is covered by a golden corpus,
+  `internal/org/testdata/roundtrip/*.org`, one file per group of
+  constructs. `TestGoldenRoundTrip` (`roundtrip_test.go`) checks that
+  each renders back byte for byte unedited (a CRLF file comes back LF,
+  and a missing final newline is added), and that regenerating every
+  entry, as for an edit, matches the checked-in `<name>.org.regen`
+  (rewrite with `go test ./internal/org -run TestGoldenRoundTrip
+  -update` and review the diff) and keeps every parsed field.
+  `FuzzParseRender` checks the same two properties on any input, seeded
+  from the corpus; run it with `go test ./internal/org -run '^$' -fuzz
+  FuzzParseRender`. Inputs regeneration is known to change the meaning
+  of (`knownRegenLoss`, examples in `known-loss.org`) are skipped.
 - Run everything with `go build ./... && go vet ./... && go test ./...`.
 
 ## 9. Recipes for common changes

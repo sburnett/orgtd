@@ -1,0 +1,25 @@
+* TODO With a logbook
+  SCHEDULED: <2026-11-22 Sun>
+  :PROPERTIES:
+  :ID: 1
+  :END:
+  :LOGBOOK:
+  - State "DONE"       from "TODO"       [2026-11-20 Fri 10:00]
+  CLOCK: [2026-11-20 Fri 09:00]--[2026-11-20 Fri 10:00] =>  1:00
+  :END:
+  Body after the logbook.
+* Late drawer
+  :PROPERTIES:
+  :ID: 2
+  :END:
+  body first
+* Two property drawers
+  :PROPERTIES:
+  :A: 1
+  :B: 2
+  :END:
+* Drawer before planning
+  :PROPERTIES:
+  :ID: 3
+  :END:
+  SCHEDULED: <2026-11-22 Sun>

@@ -1,0 +1,2 @@
+# Round-trip fixtures include CRLF files whose bytes are the test.
+internal/org/testdata/** -text

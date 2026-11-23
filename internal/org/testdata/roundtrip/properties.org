@@ -1,0 +1,29 @@
+* Duplicate keys
+  :PROPERTIES:
+  :X: 1
+  :X: 2
+  :END:
+* Keys with dash and plus
+  :PROPERTIES:
+  :foo-bar: 1
+  :tags+: x
+  :END:
+* Empty value and aligned values
+  :PROPERTIES:
+  :EMPTY:
+  :ID:       abc
+  :URL:      https://example.com/a:b
+  :END:
+* Unterminated drawer
+  :PROPERTIES:
+  :ID: 1
+  body that the drawer swallowed
+* Drawer content that isn't a property
+  :PROPERTIES:
+  just text
+  :ID: 2
+  :END:
+* Lowercase drawer markers
+  :properties:
+  :ID: 3
+  :end:

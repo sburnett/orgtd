@@ -1,0 +1,20 @@
+#+TITLE: Projects
+#+STARTUP: overview
+
+* Someday goal
+  Some notes about the goal.
+** NEXT Write the design doc
+   SCHEDULED: <2026-09-10 Thu>
+   :PROPERTIES:
+   :ID: 8f3a1e2c-1234
+   :CAPTURED_AT: [2026-09-06 Sun 14:32]
+   :END:
+   Body text for this task.
+   Second line of body.
+** WAITING [#A] Get sign-off   :blocked:review:
+   DEADLINE: <2026-09-20 Sun>
+*** TODO Nested three deep
+* DONE Ship v1
+  CLOSED: [2026-09-01 Tue 10:00]
+
+* Last entry with a blank line before it

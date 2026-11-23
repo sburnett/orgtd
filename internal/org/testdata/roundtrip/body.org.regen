@@ -1,0 +1,29 @@
+Preamble line with no title.
+
+* Lists and blocks
+  - item one
+    - nested item
+  - [ ] checkbox
+  1. ordered
+
+  #+BEGIN_SRC sh
+  echo hello
+  # a comment
+  #+END_SRC
+
+  | a | b |
+  |---+---|
+  | 1 | 2 |
+* Indentation varies
+Not indented at all.
+		Two tabs.
+      Six spaces.
+* Blank lines inside and after
+
+
+  paragraph after two blank lines
+
+* Lines that look like structure
+  : fixed-width line
+  :NOTADRAWER: text
+  ,* escaped headline
