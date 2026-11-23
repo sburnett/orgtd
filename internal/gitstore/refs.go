@@ -113,12 +113,31 @@ func (s *Store) clearPending(repo *git.Repository, id string) error {
 	return err
 }
 
+// tryLockMerge takes the merge lock if no one holds it: neither another
+// orgtd process (mergeLock) nor another goroutine of this one (mergeMu).
+// Release it with unlockMerge.
+func (s *Store) tryLockMerge() (bool, error) {
+	if !s.mergeMu.TryLock() {
+		return false, nil
+	}
+	ok, err := s.mergeLock.TryLock()
+	if !ok || err != nil {
+		s.mergeMu.Unlock()
+	}
+	return ok, err
+}
+
+func (s *Store) unlockMerge() {
+	s.mergeLock.Unlock()
+	s.mergeMu.Unlock()
+}
+
 // lockMerge takes the merge lock, waiting up to a few seconds for
-// another orgtd instance's save to finish.
+// another save (or a poll bringing in the phone's branch) to finish.
 func (s *Store) lockMerge() error {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		ok, err := s.mergeLock.TryLock()
+		ok, err := s.tryLockMerge()
 		if err != nil {
 			return fmt.Errorf("taking merge lock: %w", err)
 		}

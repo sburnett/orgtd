@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,7 +30,9 @@ import (
 var ErrNotRepo = errors.New("not the root of a git repository")
 
 // Store is one orgtd instance's handle on the repository. Create it with
-// Open; Close releases its locks.
+// Open; Close releases its locks. Its methods are safe to call from
+// several goroutines at once (the UI polls on one of its own while saves
+// run on another).
 type Store struct {
 	dir        string // the org directory: the repository's working tree
 	gitDir     string // dir/.git
@@ -40,10 +43,17 @@ type Store struct {
 	instanceLock *flock.Flock
 	mergeLock    *flock.Flock
 
+	// mergeMu is held along with mergeLock (see tryLockMerge). The flock
+	// only keeps other processes out: it belongs to the open file, and
+	// gofrs/flock's TryLock reports success when this Flock already holds
+	// it, so it can't keep this process's goroutines from each other.
+	mergeMu sync.Mutex
+
 	// notFF is the last main/branch pair ApplyBranch found it can't
 	// move main for, and why (Unmanaged, a Conflict, already merged), so
-	// polling doesn't walk the history again until either moves.
-	notFF branchPair
+	// polling doesn't walk the history again until either moves. Nil
+	// until then.
+	notFF atomic.Pointer[branchPair]
 
 	// failAt, if set, is called at each step of a save (see Save); an
 	// error it returns makes Save stop right there, skipping all cleanup,

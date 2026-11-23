@@ -143,25 +143,25 @@ func (s *Store) Save(base plumbing.Hash, edits []Edit, msg string) (Result, erro
 		}
 		if err != nil {
 			if !errors.Is(err, errCrash) {
-				s.mergeLock.Unlock()
+				s.unlockMerge()
 			}
 			return Result{}, err
 		}
 		if res.Conflicts != nil {
-			s.mergeLock.Unlock()
+			s.unlockMerge()
 			return res, nil
 		}
 		// Step 8.
 		if !saveCommit.IsZero() {
 			if err := s.clearPending(repo, s.id); err != nil {
-				s.mergeLock.Unlock()
+				s.unlockMerge()
 				return Result{}, err
 			}
 		}
 		if err := s.step("cleaned"); err != nil {
 			return Result{}, err
 		}
-		s.mergeLock.Unlock()
+		s.unlockMerge()
 		return res, nil
 	}
 }
@@ -346,7 +346,7 @@ func (s *Store) CommitOutsideEdits() (Result, error) {
 	if err := s.lockMerge(); err != nil {
 		return Result{}, err
 	}
-	defer s.mergeLock.Unlock()
+	defer s.unlockMerge()
 	for attempt := 0; ; attempt++ {
 		head, headFiles, err := s.commitOutsideLocked(repo)
 		if errors.Is(err, errMainMoved) && attempt < 3 {

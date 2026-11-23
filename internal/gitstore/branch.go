@@ -105,15 +105,15 @@ func (s *Store) ApplyBranch(branch string) (BranchResult, error) {
 	if err != nil || m.IsZero() || m == tip {
 		return BranchResult{}, err
 	}
-	if s.notFF.main == m && s.notFF.tip == tip {
-		return s.notFF.res, nil
+	if p := s.notFF.Load(); p != nil && p.main == m && p.tip == tip {
+		return p.res, nil
 	}
 
-	ok, err := s.mergeLock.TryLock()
+	ok, err := s.tryLockMerge()
 	if err != nil || !ok {
 		return BranchResult{}, err
 	}
-	defer s.mergeLock.Unlock()
+	defer s.unlockMerge()
 	if m, err = headOf(repo, s.mainRef()); err != nil {
 		return BranchResult{}, err
 	}
@@ -121,7 +121,7 @@ func (s *Store) ApplyBranch(branch string) (BranchResult, error) {
 		return BranchResult{}, nil
 	}
 	remember := func(res BranchResult) (BranchResult, error) {
-		s.notFF = branchPair{main: m, tip: tip, res: res}
+		s.notFF.Store(&branchPair{main: m, tip: tip, res: res})
 		return res, nil
 	}
 	if merged, err := isAncestor(repo, tip, m); err != nil {
@@ -173,7 +173,7 @@ func (s *Store) ResolveBranch(c *BranchConflict, resolved map[string][]byte) (Br
 	if err := s.lockMerge(); err != nil {
 		return BranchResult{}, err
 	}
-	defer s.mergeLock.Unlock()
+	defer s.unlockMerge()
 	for attempt := 0; ; attempt++ {
 		tip, err := headOf(repo, plumbing.NewBranchReferenceName(c.Branch))
 		if err != nil {

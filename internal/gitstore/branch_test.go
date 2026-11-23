@@ -17,29 +17,39 @@ import (
 // points refs/heads/<name> at the result, as the iOS app's push does.
 func branchFrom(t *testing.T, dir, name string, parent plumbing.Hash, changes map[string]string) plumbing.Hash {
 	t.Helper()
-	repo, err := git.PlainOpen(dir)
+	c, err := pushBranch(dir, name, parent, changes)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return c
+}
+
+// pushBranch is branchFrom for goroutines other than the test's own,
+// which mustn't call t.Fatal.
+func pushBranch(dir, name string, parent plumbing.Hash, changes map[string]string) (plumbing.Hash, error) {
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
 	tree, err := treeOf(repo, parent)
 	if err != nil {
-		t.Fatal(err)
+		return plumbing.ZeroHash, err
 	}
 	edits := map[string][]byte{}
 	for p, c := range changes {
 		edits[p] = []byte(c)
 	}
 	if tree, err = editTree(repo, tree, edits); err != nil {
-		t.Fatal(err)
+		return plumbing.ZeroHash, err
 	}
 	c, err := commit(repo, tree, parent, "phone change")
 	if err != nil {
-		t.Fatal(err)
+		return plumbing.ZeroHash, err
 	}
 	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName(name), c)); err != nil {
-		t.Fatal(err)
+		return plumbing.ZeroHash, err
 	}
-	return c
+	return c, nil
 }
 
 func applyBranch(t *testing.T, s *Store) BranchResult {
@@ -487,4 +497,86 @@ func TestApplyBranchMergeCrashAtEveryStep(t *testing.T) {
 			gitCheck(t, dir)
 		})
 	}
+}
+
+func TestMergeLockExcludesWithinProcess(t *testing.T) {
+	s := open(t, newRepo(t, map[string]string{"inbox.org": "* a\n"}))
+	if ok, err := s.tryLockMerge(); !ok || err != nil {
+		t.Fatalf("first tryLockMerge = %v, %v", ok, err)
+	}
+	if ok, err := s.tryLockMerge(); ok || err != nil {
+		t.Fatalf("second tryLockMerge = %v, %v; want false: the lock is held", ok, err)
+	}
+	s.unlockMerge()
+	if ok, err := s.tryLockMerge(); !ok || err != nil {
+		t.Fatalf("tryLockMerge after unlock = %v, %v", ok, err)
+	}
+	s.unlockMerge()
+}
+
+// TestPollWhileSaving uses one Store from two goroutines, as the UI does
+// with polling off its own goroutine: one saves, the other polls (the
+// phone's branch keeps moving), and neither may trip over the other.
+func TestPollWhileSaving(t *testing.T) {
+	dir := newRepo(t, map[string]string{"a.org": "", "b.org": ""})
+	s := open(t, dir)
+	const n = 15
+	saved := make(chan error, 1)
+	go func() {
+		base, content := head(t, s), ""
+		for i := range n {
+			next := content + "* a " + string(rune('a'+i)) + "\n"
+			res, err := s.Save(base, []Edit{edit("a.org", content, next)}, "save a.org")
+			if err == nil && res.Conflicts != nil {
+				err = errors.New("unexpected conflict")
+			}
+			if err != nil {
+				saved <- err
+				return
+			}
+			base, content = res.Head, string(res.Written["a.org"])
+		}
+		saved <- nil
+	}()
+
+	tip, phone := head(t, s), ""
+	for i := 0; ; i++ {
+		select {
+		case err := <-saved:
+			if err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			saved = nil
+		default:
+		}
+		if saved == nil {
+			break
+		}
+		phone += "* b " + string(rune('a'+i%26)) + "\n"
+		var err error
+		if tip, err = pushBranch(dir, "mobile", tip, map[string]string{"b.org": phone}); err != nil {
+			t.Fatal(err)
+		}
+		if res, err := s.ApplyBranch("mobile"); err != nil || res.Conflict != nil || len(res.Blocked) > 0 {
+			t.Fatalf("ApplyBranch = %+v, %v", res, err)
+		}
+		if _, err := s.OtherInstances(); err != nil {
+			t.Fatal(err)
+		}
+		if h, err := s.Head(); err != nil {
+			t.Fatal(err)
+		} else if _, err := s.Snapshot(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The last push may have found the lock busy; the next poll brings it in.
+	applyBranch(t, s)
+
+	if got := strings.Count(readDisk(t, dir, "a.org"), "\n"); got != n {
+		t.Errorf("a.org has %d lines, want %d", got, n)
+	}
+	if got := readDisk(t, dir, "b.org"); got != phone {
+		t.Errorf("b.org = %q, want the phone's last push %q", got, phone)
+	}
+	gitCheck(t, dir)
 }
