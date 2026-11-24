@@ -20,9 +20,10 @@ import (
 
 // editFinishedMsg reports that the external editor launched by
 // launchEditor has exited. resume is set when the session was ctrl-g
-// from insert mode: what comes back goes back into insert mode's buffer
-// (see resumeInsertFromEditor) — for a new entry (o/O, capture), the
-// only way one reaches $EDITOR — instead of being applied to target.
+// from insert mode: what comes back replaces insert mode's buffer (see
+// resumeInsertFromEditor) and insert mode is left as Esc leaves it —
+// for a new entry (o/O, capture), the only way one reaches $EDITOR —
+// rather than being applied to target directly.
 type editFinishedMsg struct {
 	path   string
 	target *org.Headline
@@ -336,7 +337,7 @@ func (m *Model) editEntryContextFor(h *org.Headline, isInsert, resume bool) stri
 	}
 	fmt.Fprintf(&b, "#\n# %s Lines starting with '#' are ignored. Save and\n", action)
 	if resume {
-		fmt.Fprintln(&b, "# exit to go back to editing it in orgtd, where Esc applies it.")
+		fmt.Fprintln(&b, "# exit to apply your changes, as Esc would in orgtd.")
 	} else {
 		fmt.Fprintln(&b, "# exit to apply your changes, or delete the entry's content (leaving")
 		fmt.Fprintln(&b, "# only these comments, or nothing) to cancel.")
@@ -406,9 +407,11 @@ func isBlankHeadlineTitle(title string) bool {
 
 // finishEdit reads back the edited entry and applies it to msg.target
 // (see applyEditedEntry) — or, for a ctrl-g from insert mode
-// (msg.resume), puts it back into insert mode's buffer instead (see
-// resumeInsertFromEditor). Any failure (editor error, unreadable file)
-// leaves the entry, or insert mode's buffer, untouched. msg.path (see scratchFilePath) is deliberately never
+// (msg.resume), puts it into insert mode's buffer (see
+// resumeInsertFromEditor) and leaves insert mode as Esc does (see
+// finishInsert): exiting the editor means the editing is done. Any
+// failure (editor error, unreadable file) leaves the entry untouched,
+// or stays in insert mode with its buffer as it was. msg.path (see scratchFilePath) is deliberately never
 // deleted here — it stays behind as a failsafe in case what comes back
 // from the editor is ever lost or discarded by mistake.
 func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
@@ -425,7 +428,10 @@ func (m Model) finishEdit(msg editFinishedMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case err != nil:
 	case msg.resume:
-		m.resumeInsertFromEditor(editorResultText(data))
+		if m.mode == insertMode {
+			m.resumeInsertFromEditor(editorResultText(data))
+			return m.finishInsert()
+		}
 	default:
 		m.applyEditedEntry(editorResultText(data), msg.target, nil)
 	}

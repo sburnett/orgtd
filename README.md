@@ -932,7 +932,7 @@ goes into the entry, normal-mode commands included, until you leave.
 | Key | Action |
 |---|---|
 | `Esc` / `ctrl-c` | Leave insert mode, applying the edit — one undo step for the whole session, like vim's `i`…`Esc`. Leaving an existing entry's text unchanged records nothing; emptying it out leaves it as it was; a new entry left without a title is dropped |
-| `ctrl-g` | Open what you've typed so far in `$EDITOR` (with the same comment block as normal-mode `ctrl-g`; a vim-family `$EDITOR` starts with the cursor where your caret was, in its normal mode). When it exits, you're back in insert mode with the editor's version of the text, to carry on or leave with `Esc` — as `ctrl-g` works in a shell or in Claude Code's prompt |
+| `ctrl-g` | Open what you've typed so far in `$EDITOR` (with the same comment block as normal-mode `ctrl-g`; a vim-family `$EDITOR` starts with the cursor where your caret was, in its normal mode). When it exits, the editor's version of the text is applied and you're back in normal mode, as if you'd pressed `Esc` — exiting the editor means you're done editing. If the editor fails, you stay in insert mode with what you'd typed |
 | `Enter` | New line (planning, properties and body lines go below the title, as in the file) |
 | `←`/`→`/`↑`/`↓`, `ctrl-b`/`ctrl-f`/`ctrl-p`/`ctrl-n` | Move by character / line |
 | `Home`/`End`, `ctrl-a`/`ctrl-e` | Start / end of the line — on the first line, the start and end of the title, then (pressed again) the keyword and the tags |

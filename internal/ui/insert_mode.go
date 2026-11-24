@@ -137,10 +137,11 @@ func (m Model) finishInsert() (tea.Model, tea.Cmd) {
 
 // editInsertInEditor (ctrl-g in insert mode) opens what's been typed so
 // far in $EDITOR, with the cursor right where the caret is (see
-// extprog.CaretAt) but in the editor's normal mode; once it exits, the result comes back into insert mode
-// (see resumeInsertFromEditor) to carry on with, or apply with Esc — as
-// ctrl-g does in a shell's or Claude Code's prompt. Insert mode stays on
-// throughout, with the TUI suspended while the editor runs.
+// extprog.CaretAt) but in the editor's normal mode; once it exits, the
+// result replaces insert mode's buffer (see resumeInsertFromEditor) and
+// is applied as Esc would (see finishEdit) — exiting the editor means
+// the editing is done. Insert mode stays on while the editor runs, with
+// the TUI suspended.
 func (m *Model) editInsertInEditor() tea.Cmd {
 	b := m.ins.buf
 	text := b.String()
@@ -149,7 +150,7 @@ func (m *Model) editInsertInEditor() tea.Cmd {
 
 // resumeInsertFromEditor replaces insert mode's buffer with text, what
 // ctrl-g's $EDITOR session came back with, keeping the caret where it
-// was as far as the new text allows.
+// was as far as the new text allows, ready for finishInsert to apply.
 func (m *Model) resumeInsertFromEditor(text string) {
 	if m.mode != insertMode {
 		return

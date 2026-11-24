@@ -148,7 +148,7 @@ func TestCtrlGInInsertModeRoundTripsThroughTheEditor(t *testing.T) {
 	}
 
 	// The scratch buffer holds what was typed so far, with the trailer
-	// saying exiting returns to insert mode.
+	// saying exiting applies it.
 	paths, _ := filepathGlobScratch(m)
 	if len(paths) != 1 {
 		t.Fatalf("scratch buffers = %v, want one", paths)
@@ -157,26 +157,55 @@ func TestCtrlGInInsertModeRoundTripsThroughTheEditor(t *testing.T) {
 	if !strings.HasPrefix(string(data), "TODO Call the vet about Fido's checkup soon\n") {
 		t.Errorf("editor buffer starts %q, want the typed text", string(data))
 	}
-	if !strings.Contains(string(data), "go back to editing it in orgtd") {
-		t.Errorf("editor buffer's trailer doesn't say exiting returns to insert mode:\n%s", data)
+	if !strings.Contains(string(data), "exit to apply your changes, as Esc would") {
+		t.Errorf("editor buffer's trailer doesn't say exiting applies the edit:\n%s", data)
 	}
 
+	// Exiting the editor means the editing is done: its text is applied,
+	// comments dropped, and insert mode is left, as Esc would.
 	path := writeTempOrgFile(t, "TODO Call the vet tomorrow\n\n# a trailer line\n")
 	updated, _ = m.Update(editFinishedMsg{path: path, target: h, resume: true})
 	m = updated.(Model)
-	if m.mode != insertMode {
-		t.Fatalf("mode after the editor exits = %d, want back in insertMode", m.mode)
+	if m.mode != normalMode {
+		t.Fatalf("mode after the editor exits = %d, want normalMode", m.mode)
 	}
-	if got := m.ins.buf.String(); got != "TODO Call the vet tomorrow" {
-		t.Errorf("buffer after the editor = %q, want its text, comments dropped", got)
+	if got := m.currentHeadline().Title; got != "Call the vet tomorrow" {
+		t.Errorf("title after the editor exits = %q, want its text applied", got)
 	}
-	if h.Title != "Call the vet about Fido's checkup" {
-		t.Errorf("entry changed before Esc: %q", h.Title)
+}
+
+// TestCtrlGInInsertModeOnNewEntryAppliesItAsOneUndoStep: a new entry
+// (o) sent through ctrl-g is added when the editor exits, as Esc would
+// add it — one undo step, which takes it away again.
+func TestCtrlGInInsertModeOnNewEntryAppliesItAsOneUndoStep(t *testing.T) {
+	m := New(loadFixture(t))
+	m.cursor = findRow(t, m, "Call the vet about Fido's checkup")
+	before := len(m.rows)
+	beforeUndoPos := m.history.pos
+
+	m = sendKey(m, "o")
+	m = typeKeys(m, "half typed")
+	tentative := m.currentHeadline()
+
+	path := writeTempOrgFile(t, "Book the groomer\n")
+	updated, _ := m.Update(editFinishedMsg{path: path, target: tentative, resume: true})
+	m = updated.(Model)
+	if m.mode != normalMode {
+		t.Fatalf("mode after the editor exits = %d, want normalMode", m.mode)
+	}
+	if got := m.currentHeadline().Title; got != "Book the groomer" {
+		t.Errorf("new entry's title = %q, want the editor's text", got)
+	}
+	if len(m.rows) != before+1 {
+		t.Errorf("rows = %d, want %d", len(m.rows), before+1)
+	}
+	if m.history.pos != beforeUndoPos+1 {
+		t.Errorf("undo pos = %d, want one step past %d", m.history.pos, beforeUndoPos)
 	}
 
-	m = sendKey(m, "esc")
-	if got := m.currentHeadline().Title; got != "Call the vet tomorrow" {
-		t.Errorf("title after Esc = %q", got)
+	m = sendKey(m, "u")
+	if len(m.rows) != before {
+		t.Errorf("rows after undo = %d, want %d", len(m.rows), before)
 	}
 }
 
