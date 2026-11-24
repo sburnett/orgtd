@@ -98,7 +98,8 @@ repository is left as it is. A file git ignores and doesn't track (a
 History stays linear: each save's commit has one parent, the branch as it
 was, like a rebase. The one exception is merging the iOS companion's
 branch, below. Pushing and pulling are up to you (a `:run`
-command is a good place for them).
+command is a good place for them, such as the `git-push` command in the
+example config below).
 
 The status line says when there's something to push:
 `3 unpushed (origin/main)` means the main branch has 3 commits that a
@@ -359,6 +360,9 @@ snippets = "skip"      # never shown in the :snippets view
 [[commands]]
 name    = "vcs"        # what follows :run; non-empty, no spaces, unique
 command = "gitui"      # program and arguments, same syntax as editor
+[[commands]]
+name    = "git-push"
+command = "git push"   # see Saving and git, above, for when there's something to push
 [[commands]]
 name    = "sync"
 command = "~/bin/org-sync --quiet"

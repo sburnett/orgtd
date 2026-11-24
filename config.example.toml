@@ -225,6 +225,9 @@
 # name = "vcs"
 # command = "gitui"
 # [[commands]]
+# name = "git-push"   # when the status line says "N unpushed (origin/main)"
+# command = "git push"
+# [[commands]]
 # name = "sync"
 # command = "~/bin/org-sync --quiet"
 # [[commands]]
