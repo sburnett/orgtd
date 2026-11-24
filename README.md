@@ -100,6 +100,21 @@ was, like a rebase. The one exception is merging the iOS companion's
 branch, below. Pushing and pulling are up to you (a `:run`
 command is a good place for them).
 
+The status line says when there's something to push:
+`3 unpushed (origin/main)` means the main branch has 3 commits that a
+plain `git push`, run in the org directory, would send. orgtd works out
+where that push would go the way git does: the branch's `pushRemote`,
+else `remote.pushDefault`, else its upstream's remote, else `origin`,
+then the remote's push refspecs or `push.default` (`simple` unless set)
+for the branch there. It reads your repository's, global and system git
+config, though not files they `[include]`. Nothing is fetched, so the
+count is against what the org directory last fetched from or pushed to
+that branch, as `git status` reports; with no record of it at all
+(never fetched or pushed there), it says `unpushed (origin/main)`,
+without a number. With nothing to push, or nowhere a plain `git push`
+would push (no remote, or no upstream where `push.default` needs one),
+it says nothing.
+
 #### Running several instances
 
 Any number of orgtd instances can run on the same directory, on one

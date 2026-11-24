@@ -680,3 +680,61 @@ func TestMobileNoteForUnmanagedChangesGivesTheCommand(t *testing.T) {
 		t.Errorf("mobileNote = %q", got)
 	}
 }
+
+func TestStatusLineCountsCommitsToPush(t *testing.T) {
+	// Keep the user's own git config (push.default, say) out.
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "none"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	a, _, dir := twoInstances(t, map[string]string{"todo.org": "* TODO First\n"})
+	setTracking := func() {
+		t.Helper()
+		repo, err := git.PlainOpen(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := plumbing.NewHashReference("refs/remotes/origin/main", mainHead(t, dir))
+		if err := repo.Storer.SetReference(ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := func() string { return stripANSI(a.normalStatusLine()) }
+
+	a = poll(a)
+	if strings.Contains(status(), "unpushed") {
+		t.Errorf("with no remote, status line = %q", status())
+	}
+
+	f, err := os.OpenFile(filepath.Join(dir, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("[remote \"origin\"]\n\turl = ssh://example/org.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n" +
+		"[branch \"main\"]\n\tremote = origin\n\tmerge = refs/heads/main\n")
+	f.Close()
+	a = poll(a)
+	if !strings.HasSuffix(status(), "—  unpushed (origin/main)") {
+		t.Errorf("never fetched: status line = %q", status())
+	}
+
+	setTracking()
+	a = poll(a)
+	if strings.Contains(status(), "unpushed") {
+		t.Errorf("in sync: status line = %q", status())
+	}
+
+	a.cursor = findRow(t, a, "First")
+	a = setStatus(a, "n")
+	if msg, ok := a.writeAllResult(false); !ok {
+		t.Fatalf(":w = %q", msg)
+	}
+	a = poll(a)
+	if !strings.Contains(status(), "—  1 unpushed (origin/main)") {
+		t.Errorf("after a save, status line = %q", status())
+	}
+
+	setTracking() // pushed
+	a = poll(a)
+	if strings.Contains(status(), "unpushed") {
+		t.Errorf("after pushing: status line = %q", status())
+	}
+}

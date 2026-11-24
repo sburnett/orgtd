@@ -221,8 +221,8 @@ func (m *Model) busyIndicator() string {
 
 // normalStatusLine returns the single line for the default (mode-less)
 // status area: "dir — item N/M", then any other instances running on
-// the org directory and the repository's state (see instancesStatus and
-// gitStatus). Links and calendar-meeting detail for
+// the org directory, the repository's state and any commits to push
+// (see instancesStatus, gitStatus and pushStatus). Links and calendar-meeting detail for
 // the current entry no longer live here — they're always in the info
 // buffer above (see infoBufferLines), one section per kind rather than
 // squeezed onto this line only when there's room for them.
@@ -240,6 +240,9 @@ func (m *Model) normalStatusLine() string {
 		line += "  —  " + s
 	}
 	if s := m.gitStatus(); s != "" {
+		line += "  —  " + s
+	}
+	if s := m.pushStatus(); s != "" {
 		line += "  —  " + s
 	}
 	return line

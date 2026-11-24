@@ -471,7 +471,11 @@ everything caught up, so polling retries.
 
 **Polling** (`pollCmd`) recounts the other live instances
 (`OtherInstances`, for the status line), brings in the phone's
-branch (below), and reads the branch every 2 s, all off the UI
+branch (below), counts the commits a bare `git push` would send
+(`PushStatus`, `push.go`: `pushDest` resolves the destination from git's
+config the way `builtin/push.c` does — go-git's `ConfigScoped` doesn't
+merge `push.*` — and the count is cached per main/tracking-ref pair),
+and reads the branch every 2 s, all off the UI
 goroutine: it touches only the `Store`, whose methods are safe to call
 concurrently. `finishPoll` then, if the branch moved, calls
 `reloadChanged` with its snapshot, unless `Store.Moves` changed since

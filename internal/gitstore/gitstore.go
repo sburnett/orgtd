@@ -58,6 +58,11 @@ type Store struct {
 	// until then.
 	notFF atomic.Pointer[branchPair]
 
+	// ahead is PushStatus's last count of commits to push, so polling
+	// doesn't walk the history again until the main branch or its
+	// remote-tracking ref moves. Nil until then.
+	ahead atomic.Pointer[aheadCount]
+
 	// moves counts this Store's moves of the main branch (see Moves).
 	moves atomic.Uint64
 

@@ -48,6 +48,11 @@ type gitState struct {
 	// Shown on the status line.
 	others int
 
+	// push is where a bare git push would push the main branch, and how
+	// far ahead of it the branch is, as of the last poll (see
+	// gitstore.PushStatus). Shown on the status line.
+	push gitstore.PushStatus
+
 	// mobile is why polling couldn't bring in the phone's branch on its
 	// last try (see gitstore.ApplyBranch), as the status line says it;
 	// empty if it could, or had nothing to do.
@@ -95,6 +100,7 @@ func (m *Model) gitStore() (*gitstore.Store, error) {
 	if g.openErr == nil {
 		g.seen, g.openErr = g.store.Head()
 		g.others, _ = g.store.OtherInstances()
+		g.push, _ = g.store.PushStatus()
 	}
 	if g.openErr != nil {
 		g.store = nil
@@ -490,6 +496,25 @@ func (m *Model) instancesStatus() string {
 	}
 }
 
+// pushStatus is the status line's note about commits on the main
+// branch that a bare git push would send: "3 unpushed (origin/main)",
+// or "unpushed (origin/main)" when this repository has never fetched
+// or pushed there, so can't say how many. Empty when there's nothing
+// to push, or nowhere git push would push.
+func (m *Model) pushStatus() string {
+	p := m.git.push
+	switch {
+	case p.Remote == "" || p.Tracking == "":
+		return ""
+	case !p.Known:
+		return "unpushed (" + p.Name() + ")"
+	case p.Ahead == 0:
+		return ""
+	default:
+		return fmt.Sprintf("%d unpushed (%s)", p.Ahead, p.Name())
+	}
+}
+
 // mobileBranch is the branch the iOS app pushes its changes to
 // (gitsync.MobileBranch; the desktop doesn't import gitsync), which
 // polling brings into the main branch.
@@ -540,6 +565,8 @@ func pollTick() tea.Cmd {
 type gitPolledMsg struct {
 	others   int // other instances running, if othersOK
 	othersOK bool
+	push     gitstore.PushStatus // what git push would send, if pushOK
+	pushOK   bool
 	branch   gitstore.BranchResult // bringing in the phone's branch
 
 	// moves is the store's Moves just before head was read: if it's
@@ -569,7 +596,8 @@ func (m Model) startPoll() (tea.Model, tea.Cmd) {
 // pollCmd does a poll's git work: it recounts the other instances
 // running on the org directory (see instancesStatus), brings the iOS
 // app's branch into the main branch — a fast-forward, or a merge — if it
-// can (see gitstore.ApplyBranch), and reads the main branch's files if
+// can (see gitstore.ApplyBranch), counts the commits a git push would
+// send (see pushStatus), and reads the main branch's files if
 // it's no longer at seen (another instance saved, the phone's changes
 // came in, or a commit or pull from outside). It runs off the UI
 // goroutine, so it touches nothing but store.
@@ -582,6 +610,8 @@ func pollCmd(store *gitstore.Store, seen plumbing.Hash) tea.Cmd {
 		// Errors (HEAD on another branch, a git command holding the
 		// index) just mean trying again next time.
 		r.branch, _ = store.ApplyBranch(mobileBranch)
+		push, err := store.PushStatus()
+		r.push, r.pushOK = push, err == nil
 		r.moves = store.Moves()
 		head, err := store.Head()
 		if err != nil || head == seen {
@@ -610,6 +640,9 @@ func (m Model) finishPoll(r gitPolledMsg) (tea.Model, tea.Cmd) {
 	}
 	if r.othersOK {
 		m.git.others = r.others
+	}
+	if r.pushOK {
+		m.git.push = r.push
 	}
 	m.noteMobile(r.branch)
 	var reloaded []string
